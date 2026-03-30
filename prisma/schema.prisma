@@ -1,0 +1,123 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// ============================================
+// USUÁRIOS E AUTENTICAÇÃO
+// ============================================
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  password  String
+  role      String   @default("support") // "admin" | "support"
+  avatarUrl String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  posts     Post[]
+  scripts   Script[]
+  tasks     Task[]
+  leads     Lead[]
+}
+
+// ============================================
+// CALENDÁRIO EDITORIAL E CONTEÚDO
+// ============================================
+
+model Post {
+  id            String   @id @default(cuid())
+  title         String
+  format        String   // "reel" | "story" | "carrossel"
+  category      String   // "pergunta_semana" | "onix_pratica" | "patrimonio_mimimi" | "alerta_patrimonial" | "sabado_bastidores"
+  status        String   @default("rascunho") // "rascunho" | "roteiro_pronto" | "gravado" | "editado" | "agendado" | "publicado"
+  scheduledDate DateTime
+  scheduledTime String?  // HH:mm
+  publishedAt   DateTime?
+  publishedUrl  String?
+  ctaType       String?  // "explicito" | "implicito" | "identificacao"
+  hashtags      String?  // comma-separated
+  notes         String?
+  order         Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  authorId String
+  author   User   @relation(fields: [authorId], references: [id])
+
+  scriptId String? @unique
+  script   Script? @relation(fields: [scriptId], references: [id])
+
+  tasks Task[]
+}
+
+model Script {
+  id              String   @id @default(cuid())
+  title           String
+  category        String
+  hook            String?
+  body            String
+  cta             String?
+  ctaType         String?
+  estimatedTime   String?
+  hashtags        String?
+  isTemplate      Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  authorId String
+  author   User   @relation(fields: [authorId], references: [id])
+
+  post Post?
+}
+
+// ============================================
+// GESTÃO DE TAREFAS
+// ============================================
+
+model Task {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  status      String   @default("pendente") // "pendente" | "em_progresso" | "concluida"
+  priority    String   @default("media")
+  dueDate     DateTime?
+  completedAt DateTime?
+  type        String   @default("geral")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  assigneeId String
+  assignee   User   @relation(fields: [assigneeId], references: [id])
+
+  postId String?
+  post   Post?   @relation(fields: [postId], references: [id])
+}
+
+// ============================================
+// GESTÃO DE LEADS E FUNIL
+// ============================================
+
+model Lead {
+  id              String   @id @default(cuid())
+  name            String
+  email           String?
+  phone           String?
+  origin          String   @default("manychat")
+  stage           String   @default("novo")
+  temperature     String   @default("morno")
+  productInterest String?
+  notes           String?
+  lastContactAt   DateTime?
+  enteredAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  assignedToId String
+  assignedTo   User   @relation(fields: [assignedToId], references: [id])
+}
