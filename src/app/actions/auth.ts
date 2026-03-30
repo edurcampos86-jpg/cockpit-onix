@@ -9,27 +9,38 @@ export type LoginState = {
   error?: string;
 } | undefined;
 
+// Remove formatting from CPF (dots and dashes)
+function cleanCpf(cpf: string): string {
+  return cpf.replace(/\D/g, "");
+}
+
 export async function login(state: LoginState, formData: FormData): Promise<LoginState> {
-  const email = formData.get("email") as string;
+  const rawCpf = formData.get("cpf") as string;
   const password = formData.get("password") as string;
 
-  if (!email || !password) {
+  if (!rawCpf || !password) {
     return { error: "Preencha todos os campos." };
+  }
+
+  const cpf = cleanCpf(rawCpf);
+
+  if (cpf.length !== 11) {
+    return { error: "CPF inválido. Digite os 11 dígitos." };
   }
 
   try {
     const user = await prisma.user.findUnique({
-      where: { email },
+      where: { cpf },
     });
 
     if (!user) {
-      return { error: "E-mail ou senha incorretos." };
+      return { error: "CPF ou senha incorretos." };
     }
 
     const passwordMatch = await bcrypt.compare(password, user.password);
 
     if (!passwordMatch) {
-      return { error: "E-mail ou senha incorretos." };
+      return { error: "CPF ou senha incorretos." };
     }
 
     await createSession(user.id, user.name, user.role);

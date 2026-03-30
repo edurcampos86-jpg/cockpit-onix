@@ -21,11 +21,11 @@ const supportPassword = bcrypt.hashSync("suporte123", 10);
 
 db.exec("DELETE FROM Task; DELETE FROM Post; DELETE FROM Script; DELETE FROM Lead; DELETE FROM User;");
 
-db.prepare("INSERT INTO User (id, name, email, password, role, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?)")
-  .run(adminId, "Eduardo Campos", "eduardo@onixcapital.com.br", adminPassword, "admin", now, now);
+db.prepare("INSERT INTO User (id, name, cpf, email, password, role, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+  .run(adminId, "Eduardo Campos", "01536247529", "eduardo@onixcapital.com.br", adminPassword, "admin", now, now);
 
-db.prepare("INSERT INTO User (id, name, email, password, role, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?)")
-  .run(supportId, "Suporte", "suporte@onixcapital.com.br", supportPassword, "support", now, now);
+db.prepare("INSERT INTO User (id, name, cpf, email, password, role, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+  .run(supportId, "Suporte", "00000000000", "suporte@onixcapital.com.br", supportPassword, "support", now, now);
 
 // Create templates
 const templates = [
@@ -83,7 +83,7 @@ for (const p of posts) {
 }
 
 console.log("Seed completed! Created 2 users (with hashed passwords), 5 templates, 5 posts, 20 tasks.");
-console.log("Login credentials:");
-console.log("  Admin: eduardo@onixcapital.com.br / admin123");
-console.log("  Suporte: suporte@onixcapital.com.br / suporte123");
+console.log("Login credentials (CPF + senha):");
+console.log("  Admin: 015.362.475-29 / admin123");
+console.log("  Suporte: 000.000.000-00 / suporte123");
 db.close();

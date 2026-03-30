@@ -2,10 +2,20 @@
 
 import { login, type LoginState } from "@/app/actions/auth";
 import { useActionState } from "react";
-import { Lock, Mail } from "lucide-react";
+import { Lock, User } from "lucide-react";
+import { useState } from "react";
+
+function formatCpf(value: string): string {
+  const digits = value.replace(/\D/g, "").slice(0, 11);
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 6) return `${digits.slice(0, 3)}.${digits.slice(3)}`;
+  if (digits.length <= 9) return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6)}`;
+  return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
+}
 
 export default function LoginPage() {
   const [state, action, pending] = useActionState<LoginState, FormData>(login, undefined);
+  const [cpfDisplay, setCpfDisplay] = useState("");
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
@@ -27,20 +37,23 @@ export default function LoginPage() {
           </div>
 
           <form action={action} className="space-y-4">
-            {/* Email */}
+            {/* CPF */}
             <div className="space-y-2">
-              <label htmlFor="email" className="text-sm font-medium text-foreground">
-                E-mail
+              <label htmlFor="cpf" className="text-sm font-medium text-foreground">
+                CPF
               </label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <input
-                  id="email"
-                  name="email"
-                  type="email"
-                  placeholder="seu@email.com"
+                  id="cpf"
+                  name="cpf"
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="000.000.000-00"
                   required
-                  className="w-full pl-10 pr-4 py-2.5 bg-background border border-input rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-colors text-sm"
+                  value={cpfDisplay}
+                  onChange={(e) => setCpfDisplay(formatCpf(e.target.value))}
+                  className="w-full pl-10 pr-4 py-2.5 bg-background border border-input rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-colors text-sm tracking-wider"
                 />
               </div>
             </div>
