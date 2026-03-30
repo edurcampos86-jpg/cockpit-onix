@@ -10,8 +10,8 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Cockpit Onix | Central de Comando",
-  description: "Central de comando de marketing e operações do Grupo Onix",
+  title: "Eduardo — Mídias Sociais",
+  description: "Painel de gestão de mídias sociais e conteúdo",
 };
 
 export default function RootLayout({

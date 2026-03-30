@@ -47,8 +47,8 @@ export function Sidebar() {
               <span className="text-primary-foreground font-bold text-sm">O</span>
             </div>
             <div>
-              <h1 className="text-sm font-bold text-sidebar-foreground">Cockpit Onix</h1>
-              <p className="text-[10px] text-muted-foreground">Central de Comando</p>
+              <h1 className="text-sm font-bold text-sidebar-foreground">Eduardo</h1>
+              <p className="text-[10px] text-muted-foreground">Mídias Sociais</p>
             </div>
           </div>
         )}

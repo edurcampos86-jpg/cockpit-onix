@@ -25,8 +25,8 @@ export default function LoginPage() {
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary/10 border border-primary/20 mb-4">
             <span className="text-primary font-bold text-2xl">O</span>
           </div>
-          <h1 className="text-2xl font-bold text-foreground">Cockpit Onix</h1>
-          <p className="text-sm text-muted-foreground mt-1">Central de Comando</p>
+          <h1 className="text-2xl font-bold text-foreground">Eduardo</h1>
+          <p className="text-sm text-muted-foreground mt-1">Mídias Sociais</p>
         </div>
 
         {/* Login Card */}
