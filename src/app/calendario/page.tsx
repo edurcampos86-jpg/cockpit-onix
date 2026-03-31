@@ -7,6 +7,8 @@ import { CalendarWeekGrid } from "@/components/calendario/calendar-week-grid";
 import { CalendarFilters } from "@/components/calendario/calendar-filters";
 import { CalendarStats } from "@/components/calendario/calendar-stats";
 import { NewPostDialog } from "@/components/calendario/new-post-dialog";
+import { PostDetailSheet } from "@/components/calendario/post-detail-sheet";
+import { WeekCategoriesAlert } from "@/components/calendario/week-categories-alert";
 import { ChevronLeft, ChevronRight, Plus, CalendarDays, LayoutGrid } from "lucide-react";
 import type { PostFormat, PostStatus } from "@/lib/types";
 
@@ -32,6 +34,7 @@ export default function CalendarioPage() {
   const [filterStatus, setFilterStatus] = useState<PostStatus | "todos">("todos");
   const [newPostDate, setNewPostDate] = useState<string | null>(null);
   const [showNewPost, setShowNewPost] = useState(false);
+  const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
   const [view, setView] = useState<CalendarView>("week");
 
   const year = currentDate.getFullYear();
@@ -176,6 +179,11 @@ export default function CalendarioPage() {
       {/* Stats */}
       <CalendarStats posts={posts} />
 
+      {/* Validação de Quadros Fixos da Semana */}
+      <div className="mt-4">
+        <WeekCategoriesAlert posts={posts} />
+      </div>
+
       {/* Navigation + View Toggle + Filters */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mt-6 mb-4">
         <div className="flex items-center gap-3">
@@ -245,6 +253,7 @@ export default function CalendarioPage() {
           onDayClick={handleDayClick}
           onPostMoved={handlePostMoved}
           onPostStatusChange={handlePostStatusChange}
+          onPostClick={setSelectedPostId}
         />
       ) : (
         <CalendarGrid
@@ -255,6 +264,7 @@ export default function CalendarioPage() {
           onDayClick={handleDayClick}
           onPostMoved={handlePostMoved}
           onPostStatusChange={handlePostStatusChange}
+          onPostClick={setSelectedPostId}
         />
       )}
 
@@ -267,6 +277,26 @@ export default function CalendarioPage() {
             setNewPostDate(null);
           }}
           onCreated={handlePostCreated}
+        />
+      )}
+
+      {/* Post Detail Sheet */}
+      {selectedPostId && (
+        <PostDetailSheet
+          postId={selectedPostId}
+          onClose={() => setSelectedPostId(null)}
+          onUpdated={() => {
+            setSelectedPostId(null);
+            fetchPosts();
+          }}
+          onDeleted={() => {
+            setSelectedPostId(null);
+            fetchPosts();
+          }}
+          onDuplicated={() => {
+            setSelectedPostId(null);
+            fetchPosts();
+          }}
         />
       )}
     </div>

@@ -3,6 +3,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { WeekCalendar } from "@/components/dashboard/week-calendar";
 import { TodayPanel } from "@/components/dashboard/today-panel";
 import { StatsCards } from "@/components/dashboard/stats-cards";
+import { WeekCategoriesAlert } from "@/components/calendario/week-categories-alert";
 
 export default async function DashboardPage() {
   const now = new Date();
@@ -55,6 +56,12 @@ export default async function DashboardPage() {
           pendingTasks={pendingTasksCount}
           todayTasksCount={todayTasks.length}
           todayCompletedCount={todayTasks.filter((t) => t.status === "concluida").length}
+        />
+
+        {/* Alerta de Quadros Fixos */}
+        <WeekCategoriesAlert
+          posts={weekPosts.map((p) => ({ category: p.category }))}
+          compact
         />
 
         {/* Main Content Grid */}

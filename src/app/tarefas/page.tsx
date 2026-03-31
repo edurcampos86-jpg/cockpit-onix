@@ -13,9 +13,14 @@ import {
   User,
   AlertTriangle,
   Filter,
+  LayoutGrid,
+  List,
+  GripVertical,
 } from "lucide-react";
 import { TASK_STATUS_LABELS, CATEGORY_LABELS } from "@/lib/types";
 import type { TaskStatus, TaskPriority } from "@/lib/types";
+
+type ViewMode = "list" | "kanban";
 
 interface TaskData {
   id: string;
@@ -51,6 +56,12 @@ const STATUS_ICONS: Record<string, React.ReactNode> = {
   concluida: <CheckCircle2 className="h-4 w-4 text-emerald-400" />,
 };
 
+const KANBAN_COLUMNS: { key: TaskStatus; label: string; color: string; bgColor: string }[] = [
+  { key: "pendente", label: "Pendente", color: "border-t-zinc-500", bgColor: "bg-zinc-500/10 text-zinc-400" },
+  { key: "em_progresso", label: "Em Progresso", color: "border-t-blue-500", bgColor: "bg-blue-500/10 text-blue-400" },
+  { key: "concluida", label: "Concluída", color: "border-t-emerald-500", bgColor: "bg-emerald-500/10 text-emerald-400" },
+];
+
 export default function TarefasPage() {
   const [tasks, setTasks] = useState<TaskData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -58,13 +69,13 @@ export default function TarefasPage() {
   const [filterStatus, setFilterStatus] = useState<TaskStatus | "todos">("todos");
   const [filterPriority, setFilterPriority] = useState<TaskPriority | "todos">("todos");
   const [showNewTask, setShowNewTask] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>("kanban");
+  const [draggingId, setDraggingId] = useState<string | null>(null);
 
   const fetchTasks = useCallback(async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams();
-      if (filterStatus !== "todos") params.set("status", filterStatus);
-      const res = await fetch(`/api/tasks?${params.toString()}`);
+      const res = await fetch("/api/tasks");
       const data = await res.json();
       setTasks(data);
     } catch (error) {
@@ -72,7 +83,7 @@ export default function TarefasPage() {
     } finally {
       setLoading(false);
     }
-  }, [filterStatus]);
+  }, []);
 
   useEffect(() => {
     fetchTasks();
@@ -126,7 +137,29 @@ export default function TarefasPage() {
     }
   };
 
+  // Kanban drag & drop
+  const handleDragStart = (e: React.DragEvent, taskId: string) => {
+    setDraggingId(taskId);
+    e.dataTransfer.setData("text/plain", taskId);
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  };
+
+  const handleDrop = (e: React.DragEvent, newStatus: TaskStatus) => {
+    e.preventDefault();
+    const taskId = e.dataTransfer.getData("text/plain");
+    setDraggingId(null);
+    if (taskId) {
+      handleStatusChange(taskId, newStatus);
+    }
+  };
+
   const filteredTasks = tasks.filter((t) => {
+    if (filterStatus !== "todos" && t.status !== filterStatus) return false;
     if (filterPriority !== "todos" && t.priority !== filterPriority) return false;
     if (search && !t.title.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
@@ -142,8 +175,8 @@ export default function TarefasPage() {
   };
 
   return (
-    <div className="p-6 md:p-8">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+    <div className="p-6 md:p-8 h-[calc(100vh-0px)] flex flex-col">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6 shrink-0">
         <PageHeader
           title="Tarefas"
           description="Gerencie suas tarefas e acompanhe o progresso"
@@ -158,7 +191,7 @@ export default function TarefasPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-3 gap-4 mb-6 shrink-0">
         <div className="bg-card border border-border rounded-xl p-4">
           <div className="flex items-center gap-2 text-zinc-400 text-xs font-medium mb-1">
             <Circle className="h-3 w-3" />
@@ -182,8 +215,8 @@ export default function TarefasPage() {
         </div>
       </div>
 
-      {/* Search + Filters */}
-      <div className="flex flex-col md:flex-row gap-3 mb-6">
+      {/* Search + Filters + View Toggle */}
+      <div className="flex flex-col md:flex-row gap-3 mb-6 shrink-0">
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <input
@@ -196,16 +229,18 @@ export default function TarefasPage() {
         </div>
         <div className="flex items-center gap-2">
           <Filter className="h-4 w-4 text-muted-foreground" />
-          <select
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value as TaskStatus | "todos")}
-            className="px-3 py-2 text-sm rounded-lg bg-card border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-          >
-            <option value="todos">Todos os status</option>
-            <option value="pendente">Pendente</option>
-            <option value="em_progresso">Em Progresso</option>
-            <option value="concluida">Concluída</option>
-          </select>
+          {viewMode === "list" && (
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value as TaskStatus | "todos")}
+              className="px-3 py-2 text-sm rounded-lg bg-card border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+            >
+              <option value="todos">Todos os status</option>
+              <option value="pendente">Pendente</option>
+              <option value="em_progresso">Em Progresso</option>
+              <option value="concluida">Concluída</option>
+            </select>
+          )}
           <select
             value={filterPriority}
             onChange={(e) => setFilterPriority(e.target.value as TaskPriority | "todos")}
@@ -217,107 +252,234 @@ export default function TarefasPage() {
             <option value="media">Média</option>
             <option value="baixa">Baixa</option>
           </select>
+
+          {/* View toggle */}
+          <div className="flex items-center bg-accent rounded-lg p-0.5 ml-2">
+            <button
+              onClick={() => setViewMode("kanban")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                viewMode === "kanban"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <LayoutGrid className="h-3.5 w-3.5" />
+              Kanban
+            </button>
+            <button
+              onClick={() => setViewMode("list")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                viewMode === "list"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <List className="h-3.5 w-3.5" />
+              Lista
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Task List */}
+      {/* Content */}
       {loading ? (
-        <div className="flex items-center justify-center min-h-[300px] text-muted-foreground text-sm">
+        <div className="flex items-center justify-center flex-1 text-muted-foreground text-sm">
           Carregando tarefas...
         </div>
-      ) : filteredTasks.length === 0 ? (
-        <div className="flex flex-col items-center justify-center min-h-[300px] text-muted-foreground">
-          <CheckCircle2 className="h-12 w-12 mb-3 opacity-30" />
-          <p className="text-sm">Nenhuma tarefa encontrada</p>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {filteredTasks.map((task) => (
-            <div
-              key={task.id}
-              className={`bg-card border border-border rounded-xl p-4 flex items-center gap-4 group hover:border-primary/30 transition-colors ${
-                task.status === "concluida" ? "opacity-60" : ""
-              }`}
-            >
-              {/* Status toggle */}
-              <button
-                onClick={() => {
-                  const nextStatus =
-                    task.status === "pendente"
-                      ? "em_progresso"
-                      : task.status === "em_progresso"
-                        ? "concluida"
-                        : "pendente";
-                  handleStatusChange(task.id, nextStatus);
-                }}
-                className="shrink-0 hover:scale-110 transition-transform"
-                title={`Status: ${TASK_STATUS_LABELS[task.status as TaskStatus] ?? task.status}`}
+      ) : viewMode === "kanban" ? (
+        /* === KANBAN VIEW === */
+        <div className="flex gap-4 overflow-x-auto flex-1 pb-4">
+          {KANBAN_COLUMNS.map((col) => {
+            const columnTasks = filteredTasks.filter((t) => t.status === col.key);
+            return (
+              <div
+                key={col.key}
+                className={`shrink-0 w-80 flex flex-col bg-card/50 rounded-xl border border-border border-t-2 ${col.color}`}
+                onDragOver={handleDragOver}
+                onDrop={(e) => handleDrop(e, col.key)}
               >
-                {STATUS_ICONS[task.status] ?? <Circle className="h-4 w-4 text-zinc-500" />}
-              </button>
+                {/* Column Header */}
+                <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${col.bgColor}`}>
+                      {columnTasks.length}
+                    </span>
+                    <h3 className="text-sm font-semibold text-foreground">{col.label}</h3>
+                  </div>
+                </div>
 
-              {/* Content */}
-              <div className="flex-1 min-w-0">
-                <p
-                  className={`text-sm font-medium ${
-                    task.status === "concluida"
-                      ? "line-through text-muted-foreground"
-                      : "text-foreground"
-                  }`}
-                >
-                  {task.title}
-                </p>
-                <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-                  {task.post && (
-                    <span className="flex items-center gap-1">
-                      <Calendar className="h-3 w-3" />
-                      {task.post.title}
-                    </span>
-                  )}
-                  <span className="flex items-center gap-1">
-                    <User className="h-3 w-3" />
-                    {task.assignee.name}
-                  </span>
-                  {task.dueDate && (
-                    <span
-                      className={`flex items-center gap-1 ${
-                        isOverdue(task.dueDate) && task.status !== "concluida"
-                          ? "text-red-400"
-                          : ""
-                      }`}
+                {/* Cards */}
+                <div className="flex-1 overflow-y-auto p-2 space-y-2">
+                  {columnTasks.map((task) => (
+                    <div
+                      key={task.id}
+                      draggable
+                      onDragStart={(e) => handleDragStart(e, task.id)}
+                      className={`bg-card border border-border rounded-lg p-3 cursor-grab active:cursor-grabbing hover:border-primary/30 transition-colors group ${
+                        draggingId === task.id ? "opacity-50" : ""
+                      } ${isOverdue(task.dueDate) && task.status !== "concluida" ? "ring-1 ring-red-500/30" : ""}`}
                     >
-                      {isOverdue(task.dueDate) && task.status !== "concluida" && (
-                        <AlertTriangle className="h-3 w-3" />
-                      )}
-                      {new Date(task.dueDate).toLocaleDateString("pt-BR", {
-                        day: "2-digit",
-                        month: "short",
-                      })}
-                    </span>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-1.5">
+                          <GripVertical className="h-3 w-3 text-muted-foreground/50 shrink-0" />
+                          <p className={`text-sm font-medium ${
+                            task.status === "concluida" ? "line-through text-muted-foreground" : "text-foreground"
+                          }`}>
+                            {task.title}
+                          </p>
+                        </div>
+                        <span className={`shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
+                          PRIORITY_COLORS[task.priority] ?? "text-zinc-400 bg-zinc-400/10 border-zinc-400/20"
+                        }`}>
+                          {PRIORITY_LABELS[task.priority] ?? task.priority}
+                        </span>
+                      </div>
+
+                      {/* Meta info */}
+                      <div className="mt-2 space-y-1">
+                        {task.post && (
+                          <p className="text-[11px] text-primary font-medium flex items-center gap-1">
+                            <Calendar className="h-2.5 w-2.5" />
+                            {task.post.title}
+                          </p>
+                        )}
+                        <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+                          <span className="flex items-center gap-1">
+                            <User className="h-2.5 w-2.5" />
+                            {task.assignee.name}
+                          </span>
+                          {task.dueDate && (
+                            <span className={`flex items-center gap-1 ${
+                              isOverdue(task.dueDate) && task.status !== "concluida" ? "text-red-400" : ""
+                            }`}>
+                              {isOverdue(task.dueDate) && task.status !== "concluida" && (
+                                <AlertTriangle className="h-2.5 w-2.5" />
+                              )}
+                              {new Date(task.dueDate).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Delete */}
+                      <div className="mt-2 pt-2 border-t border-border/50 flex items-center justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={() => handleDelete(task.id)}
+                          className="text-muted-foreground hover:text-destructive transition-colors"
+                          title="Excluir tarefa"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+
+                  {columnTasks.length === 0 && (
+                    <div className="flex items-center justify-center py-8 text-muted-foreground/50 text-xs">
+                      Arraste tarefas aqui
+                    </div>
                   )}
                 </div>
               </div>
-
-              {/* Priority badge */}
-              <span
-                className={`shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
-                  PRIORITY_COLORS[task.priority] ?? "text-zinc-400 bg-zinc-400/10 border-zinc-400/20"
+            );
+          })}
+        </div>
+      ) : (
+        /* === LIST VIEW === */
+        filteredTasks.length === 0 ? (
+          <div className="flex flex-col items-center justify-center flex-1 text-muted-foreground">
+            <CheckCircle2 className="h-12 w-12 mb-3 opacity-30" />
+            <p className="text-sm">Nenhuma tarefa encontrada</p>
+          </div>
+        ) : (
+          <div className="space-y-2 overflow-y-auto flex-1">
+            {filteredTasks.map((task) => (
+              <div
+                key={task.id}
+                className={`bg-card border border-border rounded-xl p-4 flex items-center gap-4 group hover:border-primary/30 transition-colors ${
+                  task.status === "concluida" ? "opacity-60" : ""
                 }`}
               >
-                {PRIORITY_LABELS[task.priority] ?? task.priority}
-              </span>
+                {/* Status toggle */}
+                <button
+                  onClick={() => {
+                    const nextStatus =
+                      task.status === "pendente"
+                        ? "em_progresso"
+                        : task.status === "em_progresso"
+                          ? "concluida"
+                          : "pendente";
+                    handleStatusChange(task.id, nextStatus);
+                  }}
+                  className="shrink-0 hover:scale-110 transition-transform"
+                  title={`Status: ${TASK_STATUS_LABELS[task.status as TaskStatus] ?? task.status}`}
+                >
+                  {STATUS_ICONS[task.status] ?? <Circle className="h-4 w-4 text-zinc-500" />}
+                </button>
 
-              {/* Delete */}
-              <button
-                onClick={() => handleDelete(task.id)}
-                className="shrink-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"
-                title="Excluir tarefa"
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
-            </div>
-          ))}
-        </div>
+                {/* Content */}
+                <div className="flex-1 min-w-0">
+                  <p
+                    className={`text-sm font-medium ${
+                      task.status === "concluida"
+                        ? "line-through text-muted-foreground"
+                        : "text-foreground"
+                    }`}
+                  >
+                    {task.title}
+                  </p>
+                  <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                    {task.post && (
+                      <span className="flex items-center gap-1">
+                        <Calendar className="h-3 w-3" />
+                        {task.post.title}
+                      </span>
+                    )}
+                    <span className="flex items-center gap-1">
+                      <User className="h-3 w-3" />
+                      {task.assignee.name}
+                    </span>
+                    {task.dueDate && (
+                      <span
+                        className={`flex items-center gap-1 ${
+                          isOverdue(task.dueDate) && task.status !== "concluida"
+                            ? "text-red-400"
+                            : ""
+                        }`}
+                      >
+                        {isOverdue(task.dueDate) && task.status !== "concluida" && (
+                          <AlertTriangle className="h-3 w-3" />
+                        )}
+                        {new Date(task.dueDate).toLocaleDateString("pt-BR", {
+                          day: "2-digit",
+                          month: "short",
+                        })}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Priority badge */}
+                <span
+                  className={`shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
+                    PRIORITY_COLORS[task.priority] ?? "text-zinc-400 bg-zinc-400/10 border-zinc-400/20"
+                  }`}
+                >
+                  {PRIORITY_LABELS[task.priority] ?? task.priority}
+                </span>
+
+                {/* Delete */}
+                <button
+                  onClick={() => handleDelete(task.id)}
+                  className="shrink-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"
+                  title="Excluir tarefa"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )
       )}
 
       {/* New Task Dialog */}

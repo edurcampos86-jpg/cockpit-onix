@@ -2,6 +2,9 @@ import { prisma } from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
 import { generateScriptForPost } from "@/lib/integrations/claude-ai";
 
+// POST /api/posts/duplicate — Duplicar um post existente
+// Movido para POST handler com flag "duplicateFromId"
+
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const startDate = searchParams.get("startDate");
