@@ -79,7 +79,7 @@ export function NewPostDialog({ defaultDate, onClose, onCreated }: NewPostDialog
           format,
           category,
           ctaType,
-          scheduledDate: new Date(scheduledDate + "T12:00:00").toISOString(),
+          scheduledDate: new Date(scheduledDate + "T" + scheduledTime + ":00").toISOString(),
           scheduledTime,
           status: "rascunho",
           authorId: await getSessionUserId(),
