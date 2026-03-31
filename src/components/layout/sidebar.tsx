@@ -8,6 +8,9 @@ import {
   FileText,
   CheckSquare,
   Users,
+  BarChart3,
+  Mic,
+  Plug,
   Settings,
   ChevronLeft,
   ChevronRight,
@@ -24,6 +27,9 @@ const navigation = [
   { name: "Roteiros", href: "/roteiros", icon: FileText },
   { name: "Tarefas", href: "/tarefas", icon: CheckSquare },
   { name: "Leads", href: "/leads", icon: Users },
+  { name: "Relatório", href: "/relatorio", icon: BarChart3 },
+  { name: "Reuniões", href: "/reunioes", icon: Mic },
+  { name: "Integrações", href: "/integracoes", icon: Plug },
   { name: "Configurações", href: "/configuracoes", icon: Settings },
 ];
 

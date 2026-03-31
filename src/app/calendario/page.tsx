@@ -3,11 +3,14 @@
 import { useEffect, useState, useCallback } from "react";
 import { PageHeader } from "@/components/layout/page-header";
 import { CalendarGrid } from "@/components/calendario/calendar-grid";
+import { CalendarWeekGrid } from "@/components/calendario/calendar-week-grid";
 import { CalendarFilters } from "@/components/calendario/calendar-filters";
 import { CalendarStats } from "@/components/calendario/calendar-stats";
 import { NewPostDialog } from "@/components/calendario/new-post-dialog";
-import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, CalendarDays, LayoutGrid } from "lucide-react";
 import type { PostFormat, PostStatus } from "@/lib/types";
+
+type CalendarView = "month" | "week";
 
 export interface CalendarPost {
   id: string;
@@ -29,14 +32,30 @@ export default function CalendarioPage() {
   const [filterStatus, setFilterStatus] = useState<PostStatus | "todos">("todos");
   const [newPostDate, setNewPostDate] = useState<string | null>(null);
   const [showNewPost, setShowNewPost] = useState(false);
+  const [view, setView] = useState<CalendarView>("week");
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
 
   const fetchPosts = useCallback(async () => {
     setLoading(true);
-    const startDate = new Date(year, month, 1).toISOString();
-    const endDate = new Date(year, month + 1, 0, 23, 59, 59).toISOString();
+    let startDate: string;
+    let endDate: string;
+
+    if (view === "week") {
+      const dow = currentDate.getDay();
+      const monday = new Date(currentDate);
+      monday.setDate(currentDate.getDate() - (dow === 0 ? 6 : dow - 1));
+      monday.setHours(0, 0, 0, 0);
+      const sunday = new Date(monday);
+      sunday.setDate(monday.getDate() + 6);
+      sunday.setHours(23, 59, 59, 999);
+      startDate = monday.toISOString();
+      endDate = sunday.toISOString();
+    } else {
+      startDate = new Date(year, month, 1).toISOString();
+      endDate = new Date(year, month + 1, 0, 23, 59, 59).toISOString();
+    }
 
     try {
       const res = await fetch(`/api/posts?startDate=${startDate}&endDate=${endDate}`);
@@ -47,14 +66,30 @@ export default function CalendarioPage() {
     } finally {
       setLoading(false);
     }
-  }, [year, month]);
+  }, [year, month, view, currentDate]);
 
   useEffect(() => {
     fetchPosts();
   }, [fetchPosts]);
 
-  const goToPrevMonth = () => setCurrentDate(new Date(year, month - 1, 1));
-  const goToNextMonth = () => setCurrentDate(new Date(year, month + 1, 1));
+  const goToPrev = () => {
+    if (view === "week") {
+      const d = new Date(currentDate);
+      d.setDate(d.getDate() - 7);
+      setCurrentDate(d);
+    } else {
+      setCurrentDate(new Date(year, month - 1, 1));
+    }
+  };
+  const goToNext = () => {
+    if (view === "week") {
+      const d = new Date(currentDate);
+      d.setDate(d.getDate() + 7);
+      setCurrentDate(d);
+    } else {
+      setCurrentDate(new Date(year, month + 1, 1));
+    }
+  };
   const goToToday = () => setCurrentDate(new Date());
 
   const handleDayClick = (dateStr: string) => {
@@ -80,6 +115,21 @@ export default function CalendarioPage() {
     }
   };
 
+  const handlePostStatusChange = async (postId: string, newStatus: PostStatus) => {
+    setPosts((prev) =>
+      prev.map((p) => (p.id === postId ? { ...p, status: newStatus } : p))
+    );
+    try {
+      await fetch(`/api/posts/${postId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
+      });
+    } catch {
+      fetchPosts();
+    }
+  };
+
   const handlePostCreated = () => {
     setShowNewPost(false);
     setNewPostDate(null);
@@ -93,6 +143,16 @@ export default function CalendarioPage() {
   });
 
   const monthName = currentDate.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+
+  const getWeekLabel = () => {
+    const dow = currentDate.getDay();
+    const monday = new Date(currentDate);
+    monday.setDate(currentDate.getDate() - (dow === 0 ? 6 : dow - 1));
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    const fmt = (d: Date) => d.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
+    return `${fmt(monday)} — ${fmt(sunday)}, ${sunday.getFullYear()}`;
+  };
 
   return (
     <div className="p-6 md:p-8">
@@ -116,20 +176,20 @@ export default function CalendarioPage() {
       {/* Stats */}
       <CalendarStats posts={posts} />
 
-      {/* Month navigation + Filters */}
+      {/* Navigation + View Toggle + Filters */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mt-6 mb-4">
         <div className="flex items-center gap-3">
           <button
-            onClick={goToPrevMonth}
+            onClick={goToPrev}
             className="p-2 rounded-lg hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
           >
             <ChevronLeft className="h-5 w-5" />
           </button>
-          <h2 className="text-lg font-semibold text-foreground capitalize min-w-[200px] text-center">
-            {monthName}
+          <h2 className="text-lg font-semibold text-foreground capitalize min-w-[250px] text-center">
+            {view === "week" ? getWeekLabel() : monthName}
           </h2>
           <button
-            onClick={goToNextMonth}
+            onClick={goToNext}
             className="p-2 rounded-lg hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
           >
             <ChevronRight className="h-5 w-5" />
@@ -140,6 +200,32 @@ export default function CalendarioPage() {
           >
             Hoje
           </button>
+
+          {/* View toggle */}
+          <div className="flex items-center bg-accent rounded-lg p-0.5 ml-2">
+            <button
+              onClick={() => setView("week")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                view === "week"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <CalendarDays className="h-3.5 w-3.5" />
+              Semana
+            </button>
+            <button
+              onClick={() => setView("month")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                view === "month"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <LayoutGrid className="h-3.5 w-3.5" />
+              Mês
+            </button>
+          </div>
         </div>
 
         <CalendarFilters
@@ -151,14 +237,26 @@ export default function CalendarioPage() {
       </div>
 
       {/* Calendar Grid */}
-      <CalendarGrid
-        year={year}
-        month={month}
-        posts={filteredPosts}
-        loading={loading}
-        onDayClick={handleDayClick}
-        onPostMoved={handlePostMoved}
-      />
+      {view === "week" ? (
+        <CalendarWeekGrid
+          currentDate={currentDate}
+          posts={filteredPosts}
+          loading={loading}
+          onDayClick={handleDayClick}
+          onPostMoved={handlePostMoved}
+          onPostStatusChange={handlePostStatusChange}
+        />
+      ) : (
+        <CalendarGrid
+          year={year}
+          month={month}
+          posts={filteredPosts}
+          loading={loading}
+          onDayClick={handleDayClick}
+          onPostMoved={handlePostMoved}
+          onPostStatusChange={handlePostStatusChange}
+        />
+      )}
 
       {/* New Post Dialog */}
       {showNewPost && (

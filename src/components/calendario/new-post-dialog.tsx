@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { X } from "lucide-react";
+import { useState, useEffect } from "react";
+import { X, FileText } from "lucide-react";
 import {
   FORMAT_LABELS,
   CATEGORY_LABELS,
@@ -10,6 +10,14 @@ import {
   type PostCategory,
   type CtaType,
 } from "@/lib/types";
+
+interface ScriptOption {
+  id: string;
+  title: string;
+  category: string;
+  hook: string | null;
+  ctaType: string | null;
+}
 
 interface NewPostDialogProps {
   defaultDate: string;
@@ -24,8 +32,33 @@ export function NewPostDialog({ defaultDate, onClose, onCreated }: NewPostDialog
   const [ctaType, setCtaType] = useState<CtaType>("identificacao");
   const [scheduledDate, setScheduledDate] = useState(defaultDate);
   const [scheduledTime, setScheduledTime] = useState("12:00");
+  const [scriptId, setScriptId] = useState<string>("");
+  const [scripts, setScripts] = useState<ScriptOption[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  // Carregar roteiros disponíveis (não-template, sem post vinculado)
+  useEffect(() => {
+    fetch("/api/scripts?templates=false")
+      .then((r) => r.json())
+      .then((data: ScriptOption[]) => {
+        setScripts(data.filter((s: ScriptOption & { post?: unknown }) => !s.post));
+      })
+      .catch(() => {});
+  }, []);
+
+  // Ao selecionar roteiro, preencher campos
+  const handleScriptSelect = (id: string) => {
+    setScriptId(id);
+    if (id) {
+      const script = scripts.find((s) => s.id === id);
+      if (script) {
+        if (!title) setTitle(script.title);
+        setCategory(script.category as PostCategory);
+        if (script.ctaType) setCtaType(script.ctaType as CtaType);
+      }
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,10 +83,20 @@ export function NewPostDialog({ defaultDate, onClose, onCreated }: NewPostDialog
           scheduledTime,
           status: "rascunho",
           authorId: await getSessionUserId(),
+          generateTasks: true,
+          ...(scriptId ? { scriptId } : {}),
         }),
       });
 
-      if (!res.ok) throw new Error("Failed to create post");
+      if (!res.ok) {
+        const data = await res.json();
+        if (data.error === "CTA_LIMIT") {
+          setError(data.message);
+          setSaving(false);
+          return;
+        }
+        throw new Error("Failed to create post");
+      }
 
       onCreated();
     } catch {
@@ -63,14 +106,19 @@ export function NewPostDialog({ defaultDate, onClose, onCreated }: NewPostDialog
     }
   };
 
+  // Filtrar roteiros pela categoria selecionada
+  const filteredScripts = scripts.filter(
+    (s) => s.category === category || !category
+  );
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
       <div
-        className="bg-card border border-border rounded-xl w-full max-w-lg shadow-2xl"
+        className="bg-card border border-border rounded-xl w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border sticky top-0 bg-card z-10">
           <h2 className="text-base font-semibold text-foreground">Novo Post</h2>
           <button
             onClick={onClose}
@@ -124,6 +172,35 @@ export function NewPostDialog({ defaultDate, onClose, onCreated }: NewPostDialog
             </div>
           </div>
 
+          {/* Vincular Roteiro */}
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium text-foreground flex items-center gap-1.5">
+              <FileText className="h-3.5 w-3.5 text-primary" />
+              Vincular Roteiro
+            </label>
+            <select
+              value={scriptId}
+              onChange={(e) => handleScriptSelect(e.target.value)}
+              className="w-full px-3 py-2 bg-background border border-input rounded-lg text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+            >
+              <option value="">Sem roteiro vinculado</option>
+              {filteredScripts.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.title}
+                </option>
+              ))}
+              {filteredScripts.length === 0 && scripts.length > 0 && (
+                <option disabled>Nenhum roteiro para esta categoria</option>
+              )}
+            </select>
+            {scriptId && (
+              <p className="text-[11px] text-emerald-400 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                Roteiro será vinculado ao post
+              </p>
+            )}
+          </div>
+
           {/* Date + Time */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
@@ -159,6 +236,12 @@ export function NewPostDialog({ defaultDate, onClose, onCreated }: NewPostDialog
                 <option key={k} value={k}>{v}</option>
               ))}
             </select>
+            {ctaType === "explicito" && (
+              <p className="text-[11px] text-red-400 flex items-center gap-1.5 mt-1">
+                <span className="inline-block w-2 h-2 rounded-full bg-red-500 shrink-0" />
+                Regra 80/20: Apenas 1 CTA Explícito permitido por dia
+              </p>
+            )}
           </div>
 
           {/* Error */}

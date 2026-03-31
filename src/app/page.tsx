@@ -33,7 +33,13 @@ export default async function DashboardPage() {
     prisma.task.count({ where: { status: { not: "concluida" } } }),
   ]);
 
-  const publishedThisWeek = weekPosts.filter((p) => p.status === "publicado").length;
+  const weekPostStats = {
+    total: weekPosts.length,
+    published: weekPosts.filter((p) => p.status === "publicado").length,
+    scheduled: weekPosts.filter((p) => p.status === "agendado").length,
+    editing: weekPosts.filter((p) => p.status === "editado" || p.status === "gravado").length,
+    draft: weekPosts.filter((p) => p.status === "rascunho" || p.status === "roteiro_pronto").length,
+  };
 
   return (
     <div className="min-h-screen">
@@ -45,7 +51,7 @@ export default async function DashboardPage() {
       <div className="p-8 space-y-8">
         {/* Stats Cards */}
         <StatsCards
-          publishedThisWeek={publishedThisWeek}
+          weekPosts={weekPostStats}
           pendingTasks={pendingTasksCount}
           todayTasksCount={todayTasks.length}
           todayCompletedCount={todayTasks.filter((t) => t.status === "concluida").length}

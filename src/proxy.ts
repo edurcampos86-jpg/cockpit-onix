@@ -1,8 +1,21 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { decrypt } from "@/lib/session";
+import { jwtVerify } from "jose";
 
 const publicRoutes = ["/login"];
+const secretKey = process.env.SESSION_SECRET;
+const encodedKey = new TextEncoder().encode(secretKey);
+
+async function verifySession(token: string) {
+  try {
+    const { payload } = await jwtVerify(token, encodedKey, {
+      algorithms: ["HS256"],
+    });
+    return payload;
+  } catch {
+    return null;
+  }
+}
 
 export async function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;
@@ -25,18 +38,35 @@ export async function proxy(request: NextRequest) {
   const sessionCookie = request.cookies.get("session")?.value;
 
   if (!sessionCookie) {
+    // Para rotas de API, retornar 401 em vez de redirect
+    if (path.startsWith("/api/")) {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    }
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
-  const session = await decrypt(sessionCookie);
+  const session = await verifySession(sessionCookie);
 
   if (!session) {
+    const isApi = path.startsWith("/api/");
+    if (isApi) {
+      const response = NextResponse.json({ error: "Session expired" }, { status: 401 });
+      response.cookies.delete("session");
+      return response;
+    }
     const response = NextResponse.redirect(new URL("/login", request.url));
     response.cookies.delete("session");
     return response;
   }
 
-  return NextResponse.next();
+  // Injetar userId e role no header para uso nas API routes
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-user-id", session.userId as string);
+  requestHeaders.set("x-user-role", session.role as string);
+
+  return NextResponse.next({
+    request: { headers: requestHeaders },
+  });
 }
 
 export const config = {

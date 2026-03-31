@@ -16,7 +16,7 @@ const now = new Date().toISOString();
 const adminId = cuid();
 const supportId = cuid();
 
-const adminPassword = bcrypt.hashSync("admin123", 10);
+const adminPassword = bcrypt.hashSync("Edu@203028", 10);
 const supportPassword = bcrypt.hashSync("suporte123", 10);
 
 db.exec("DELETE FROM Task; DELETE FROM Post; DELETE FROM Script; DELETE FROM Lead; DELETE FROM User;");
@@ -84,6 +84,6 @@ for (const p of posts) {
 
 console.log("Seed completed! Created 2 users (with hashed passwords), 5 templates, 5 posts, 20 tasks.");
 console.log("Login credentials (CPF + senha):");
-console.log("  Admin: 015.362.475-29 / admin123");
+console.log("  Admin: 015.362.475-29 / Edu@203028");
 console.log("  Suporte: 000.000.000-00 / suporte123");
 db.close();

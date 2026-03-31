@@ -121,4 +121,30 @@ model Lead {
 
   assignedToId String
   assignedTo   User   @relation(fields: [assignedToId], references: [id])
+
+  meetings Meeting[]
+}
+
+// ============================================
+// REUNIÕES E TRANSCRIÇÕES (Plaud.ai via Zapier)
+// ============================================
+
+model Meeting {
+  id            String   @id @default(cuid())
+  title         String
+  date          DateTime
+  duration      Int?     // minutos
+  participants  String?  // nomes separados por vírgula
+  transcription String?  // transcrição completa
+  summary       String?  // resumo gerado pela IA
+  actionItems   String?  // itens de ação extraídos (JSON)
+  insights      String?  // insights para roteiros (gerado pela Claude AI)
+  source        String   @default("plaud") // "plaud" | "manual" | "zoom" | "teams"
+  externalId    String?  // ID do Plaud/Zapier
+  audioUrl      String?  // URL do áudio original
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  leadId String?
+  lead   Lead?   @relation(fields: [leadId], references: [id])
 }

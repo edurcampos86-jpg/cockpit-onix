@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { CalendarPostCard } from "@/components/calendario/calendar-post-card";
 import type { CalendarPost } from "@/app/calendario/page";
+import type { PostStatus } from "@/lib/types";
 import { Plus } from "lucide-react";
 
 interface CalendarGridProps {
@@ -13,6 +14,7 @@ interface CalendarGridProps {
   loading: boolean;
   onDayClick: (dateStr: string) => void;
   onPostMoved: (postId: string, newDate: string) => void;
+  onPostStatusChange?: (postId: string, newStatus: PostStatus) => void;
 }
 
 const WEEKDAYS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
@@ -24,6 +26,7 @@ export function CalendarGrid({
   loading,
   onDayClick,
   onPostMoved,
+  onPostStatusChange,
 }: CalendarGridProps) {
   const [dragOverDate, setDragOverDate] = useState<string | null>(null);
 
@@ -175,7 +178,7 @@ export function CalendarGrid({
               {/* Posts */}
               <div className="space-y-1">
                 {dayPosts.map((post) => (
-                  <CalendarPostCard key={post.id} post={post} />
+                  <CalendarPostCard key={post.id} post={post} onStatusChange={onPostStatusChange} />
                 ))}
               </div>
             </div>

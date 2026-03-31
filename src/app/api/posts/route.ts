@@ -25,9 +25,67 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
+  const { generateTasks, supportUserId, ...postData } = body;
+
+  // Regra 80/20: máximo 1 CTA explícito por dia
+  if (postData.ctaType === "explicito" && postData.scheduledDate) {
+    const date = new Date(postData.scheduledDate);
+    const dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const dayEnd = new Date(dayStart);
+    dayEnd.setDate(dayEnd.getDate() + 1);
+
+    const explicitCount = await prisma.post.count({
+      where: {
+        ctaType: "explicito",
+        scheduledDate: { gte: dayStart, lt: dayEnd },
+      },
+    });
+
+    if (explicitCount >= 1) {
+      return NextResponse.json(
+        { error: "CTA_LIMIT", message: "Já existe 1 CTA Explícito neste dia. Regra 80/20: máximo 1 CTA Explícito por dia." },
+        { status: 422 }
+      );
+    }
+  }
+
   const post = await prisma.post.create({
-    data: body,
-    include: { author: { select: { name: true } } },
+    data: postData,
+    include: { author: { select: { name: true } }, tasks: true },
   });
+
+  // Gerar tarefas automáticas do pipeline editorial
+  if (generateTasks !== false && post.scheduledDate) {
+    const pubDate = new Date(post.scheduledDate);
+    const taskDefinitions = [
+      { title: `Escrever roteiro: ${post.title}`, type: "roteiro", dayOffset: -3 },
+      { title: `Gravar: ${post.title}`, type: "gravacao", dayOffset: -2 },
+      { title: `Editar: ${post.title}`, type: "edicao", dayOffset: -1 },
+      { title: `Publicar: ${post.title}`, type: "publicacao", dayOffset: 0 },
+    ];
+
+    const tasks = taskDefinitions.map((def) => {
+      const dueDate = new Date(pubDate);
+      dueDate.setDate(pubDate.getDate() + def.dayOffset);
+      return {
+        title: def.title,
+        type: def.type,
+        status: "pendente",
+        priority: "media",
+        dueDate: dueDate,
+        assigneeId: def.type === "edicao" ? (body.supportUserId || post.authorId) : post.authorId,
+        postId: post.id,
+      };
+    });
+
+    await prisma.task.createMany({ data: tasks });
+
+    const updatedPost = await prisma.post.findUnique({
+      where: { id: post.id },
+      include: { author: { select: { name: true } }, tasks: true },
+    });
+    return NextResponse.json(updatedPost, { status: 201 });
+  }
+
   return NextResponse.json(post, { status: 201 });
 }
