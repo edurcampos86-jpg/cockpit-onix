@@ -1,6 +1,6 @@
 /**
- * Claude AI Integration — Substituto do Manus
- * Usa a API da Anthropic para sugestão de roteiros, análise de performance e automações inteligentes.
+ * Claude AI Integration — Geração de Roteiros e Análise de Conteúdo
+ * Usa a API da Anthropic (claude-sonnet-4-5) para automações inteligentes do Cockpit Onix.
  */
 
 import { getIntegrationConfig } from "./config";
@@ -10,7 +10,7 @@ const API_URL = "https://api.anthropic.com/v1/messages";
 async function getApiKey(): Promise<string> {
   const config = await getIntegrationConfig();
   const key = config.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY;
-  if (!key) throw new Error("ANTHROPIC_API_KEY não configurada.");
+  if (!key) throw new Error("ANTHROPIC_API_KEY não configurada. Acesse Integrações e insira sua chave da Anthropic.");
   return key;
 }
 
@@ -30,7 +30,7 @@ async function chat(messages: ClaudeMessage[], system?: string): Promise<string>
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5",
       max_tokens: 2048,
       system: system || undefined,
       messages,
@@ -47,56 +47,214 @@ async function chat(messages: ClaudeMessage[], system?: string): Promise<string>
 }
 
 // ============================================
+// SYSTEM PROMPT — Projeto Instagram v4
+// ============================================
+
+const SYSTEM_PROMPT = `Você é o assistente de conteúdo do Eduardo Campos (@eduardorcampos), Mentor de Blindagem Patrimonial com 19 anos de experiência no mercado financeiro em Salvador/BA.
+
+## IDENTIDADE E POSICIONAMENTO
+- **Missão:** Ajudar profissionais de alta renda a proteger o que construíram, crescer com segurança e dormir tranquilos.
+- **Big Idea:** "Construir patrimônio é fácil. Protegê-lo é uma arte, e a maioria das pessoas só descobre isso quando já é tarde demais."
+- **Frase bússola:** "Liberdade não é acidente. É consequência."
+- **Tom:** Autoridade + proximidade. Professor que empodera. Direto e sem enrolação. Humano e autêntico. NUNCA vendedor que empurra produto.
+- **4 empresas:** Onix Capital (investimentos), Corretora de Seguros (seguro de vida resgatável + consórcio plano de saúde), Onix Imobiliária, Meu Sucesso Patrimonial (SaaS pré-lançamento).
+
+## PERSONA: ROBERTO (público-alvo)
+- Médico ou profissional liberal, 38–52 anos, Salvador/BA
+- Renda: R$25k+/mês | Patrimônio: R$500k–R$10MM
+- **Comportamento:** Voyeur digital — assiste sem curtir, salva posts, compartilha via WhatsApp (dark social)
+- **Horário pico:** 12:00–12:30
+- **Dores:** ITCMD, inventário, PJ médica, renda fixa mal aplicada, exposição patrimonial
+- **~68% da carteira são médicos** (anestesiologistas, cirurgiões, dono de clínica)
+
+## OS 4 PILARES EDITORIAIS (FUNÇÃO COMPROVADA por dados reais)
+| PILAR | TEMA | FUNÇÃO |
+|-------|------|--------|
+| **P1 BLINDAGEM PATRIMONIAL** | Investimentos, seguros, previdência, sucessão, tributário | Motor de AUTORIDADE TÉCNICA — gera salvamentos e compartilhamentos |
+| **P2 CASOS REAIS** | Situações reais anonimizadas (reuniões Plaud.ai) | Motor de CONVERSÃO — prova social → leads no Direct |
+| **P3 CENÁRIO E ALERTAS** | Notícias econômicas com interpretação prática | Motor de ALCANCE QUALIFICADO — medo ativa dark social |
+| **P4 EDUARDO PESSOA** | Jornada pessoal, bastidores, viagens, valores | Motor de ALCANCE MASSIVO — post África do Sul: ~3k alcance, ~6k views |
+
+## OS 5 QUADROS FIXOS SEMANAIS
+| QUADRO | DIA | FORMATO | CTA | PILAR |
+|--------|-----|---------|-----|-------|
+| **Q3 Pergunta da Semana** | Segunda | Stories | Implícito | P1 |
+| **Q1 Onix na Prática** | Terça | Reel 60–90s | Explícito | P2 |
+| **Q4 Patrimônio sem Mimimi** | Quarta | **CARROSSEL** (prioridade v4) | Algoritmo | P1/P3 |
+| **Q2 Alerta Patrimonial** | Quinta | **CARROSSEL** ou Reel | Algoritmo | P3 |
+| **Q5 Sábado de Bastidores** | Sábado | Post/Reel pessoal | Identificação | P4 |
+
+## FRAMEWORK CTA 80/20 (v4)
+- **EXPLÍCITO:** "Manda BLINDAGEM no direct" — MÁXIMO 1 por dia, apenas Reels de conversão
+- **IMPLÍCITO:** Planta ideia sem pedir nada — Stories de contexto
+- **IDENTIFICAÇÃO:** Não pede nada, só faz pensar — bastidores, viagem
+- **ALGORITMO (NOVO v4):** "Salva esse post" / "Compartilha com quem precisa" — todo conteúdo P1 e P3. Algoritmo Meta valoriza salvamentos 40% a mais.
+
+## ENGENHARIA DE HOOK — REGRA DOS 3 SEGUNDOS
+**Framework PARE:**
+- **P (Pergunta):** "Você ganha mais de R$30k/mês e não sabe para onde vai?"
+- **A (Afirmação):** "Renda fixa não é segura. É ilusão de segurança."
+- **R (Revelação):** "Na Bahia, o ITCMD pode custar até 8% do patrimônio."
+- **E (Emoção):** "Se você faltar amanhã, sua família sabe o que fazer?"
+
+**Banco de Hooks validados:**
+- "PJ médica: você está deixando dinheiro na mesa do governo."
+- "Em 19 anos de assessoria, o erro #1 que vejo é..."
+- "Seu patrimônio está protegido do inventário?"
+- "Se você tem mais de R$500k investidos, isso te interessa."
+- "Financiamento, consórcio ou à vista? A matemática real."
+
+## ESTRUTURA DE CARROSSEL EDUCATIVO (formato prioritário v4)
+- **Slide 1 (Capa):** Hook visual + título provocativo. Funcionar como miniatura.
+- **Slides 2–3:** Aprofundar o problema. Gerar identificação.
+- **Slides 4–5:** Solução prática e acionável.
+- **Slide Final:** CTA duplo — Algoritmo + Explícito ("Salva + manda BLINDAGEM no direct")
+
+## TEMAS DE CARROSSEL PRIORITÁRIOS
+- Pro-labore vs. distribuição de lucros: comparativo para médicos
+- ITCMD na Bahia: simulação com números reais
+- Financiamento vs. consórcio vs. à vista
+- 5 sinais que você paga caro nos investimentos sem saber
+- Checklist emergência financeira
+- 3 seguros que todo profissional de alta renda deveria ter
+
+## REGRAS DE OURO
+1. Consistência bate perfeição (aportes regulares > aplicações esporádicas)
+2. Métricas são sua bússola (salvamentos + compartilhamentos > curtidas — dados Meta 2024–2025)
+3. O Instagram vende confiança, não serviços
+
+Responda sempre em **Português Brasileiro**, de forma prática, direta e no tom de Eduardo.`;
+
+// ============================================
 // FUNCIONALIDADES
 // ============================================
 
-const SYSTEM_PROMPT = `Você é um assistente especializado em marketing digital para Eduardo Campos, Mentor de Blindagem Patrimonial com 19 anos de experiência no mercado financeiro.
+/**
+ * Gera roteiro completo para um post específico (Flow A e Flow B)
+ * Retorna objeto estruturado pronto para salvar como Script no DB
+ */
+export async function generateScriptForPost(params: {
+  title: string;
+  category: string;
+  format: string;
+  topic?: string;
+  meetingInsights?: string;
+}): Promise<{
+  hook: string;
+  body: string;
+  cta: string;
+  ctaType: string;
+  estimatedTime: string;
+  hashtags: string;
+}> {
+  const categoryMap: Record<string, string> = {
+    pergunta_semana: "Pergunta da Semana (Stories de segunda — pergunta provocativa)",
+    onix_pratica: "Onix na Prática (Reel de terça — caso real anonimizado, motor de conversão)",
+    patrimonio_mimimi: "Patrimônio sem Mimimi (Carrossel de quarta — derrubar mito com dados)",
+    alerta_patrimonial: "Alerta Patrimonial (Carrossel/Reel de quinta — alerta urgente com interpretação prática)",
+    sabado_bastidores: "Sábado de Bastidores (Post/Stories pessoal de sábado — humanização, motor de alcance massivo)",
+  };
 
-Contexto:
-- Opera 4 empresas: Onix Capital (investimentos), Corretora de Seguros (seguro de vida resgatável e consórcio de plano de saúde), Onix Imobiliária e Meu Sucesso Patrimonial (SaaS em pré-lançamento).
-- Público-alvo: "Roberto", 38-52 anos, alta renda, médico ou profissional liberal em Salvador/BA.
-- Comportamento: voyeur no Instagram — assiste sem curtir, salva posts, dark social (WhatsApp).
-- Big Idea: "Construir patrimônio é fácil. Protegê-lo é uma arte."
-- 5 quadros fixos semanais: Pergunta da Semana (Seg/Stories), Onix na Prática (Ter/Reels), Patrimônio sem Mimimi (Qua/Reels), Alerta Patrimonial (Qui/Reels), Sábado de Bastidores (Sáb/Stories).
-- Framework CTA v3: Explícito (máx 1/dia), Implícito, Por Identificação.
+  const ctaRecommendation: Record<string, string> = {
+    pergunta_semana: "Implícito",
+    onix_pratica: "Explícito (manda BLINDAGEM no direct)",
+    patrimonio_mimimi: "Algoritmo (Salva esse post / Compartilha com quem precisa)",
+    alerta_patrimonial: "Algoritmo (Salva esse post / Compartilha com quem precisa)",
+    sabado_bastidores: "Identificação (não pede nada — só faz pensar ou sentir)",
+  };
 
-Responda sempre em Português Brasileiro, de forma prática e direta.`;
+  const formatMap: Record<string, string> = {
+    reel: "Reel (roteiro falado, incluir indicações de corte e movimento visual)",
+    story: "Stories (sequência de até 5 telas, texto overlay, linguagem direta)",
+    carrossel: "Carrossel educativo (estrutura slide a slide: capa + 4–5 slides de conteúdo + slide final com CTA duplo)",
+  };
+
+  const quadro = categoryMap[params.category] || params.category;
+  const ctaRec = ctaRecommendation[params.category] || "Algoritmo";
+  const formatDesc = formatMap[params.format] || params.format;
+
+  const meetingContext = params.meetingInsights
+    ? `\n\n**Insights de reunião real para usar (anonimize nomes e dados sensíveis):**\n${params.meetingInsights}`
+    : "";
+
+  const topicContext = params.topic ? `\n**Tema/assunto:** ${params.topic}` : "";
+
+  const response = await chat(
+    [
+      {
+        role: "user",
+        content: `Crie um roteiro completo para o seguinte post:
+
+**Título:** ${params.title}
+**Quadro:** ${quadro}
+**Formato:** ${formatDesc}
+**CTA recomendado:** ${ctaRec}${topicContext}${meetingContext}
+
+Retorne EXATAMENTE neste formato JSON (sem markdown, sem texto antes ou depois):
+{
+  "hook": "A frase de gancho dos primeiros 3 segundos (Framework PARE)",
+  "body": "O desenvolvimento completo do conteúdo (${params.format === "carrossel" ? "descreva slide a slide" : "texto do roteiro falado, com indicações de cena se Reel"})",
+  "cta": "O texto exato da chamada para ação",
+  "ctaType": "${params.category === "onix_pratica" ? "explicito" : params.category === "sabado_bastidores" ? "identificacao" : "implicito"}",
+  "estimatedTime": "Duração estimada (ex: 60s, 90s, 5 slides)",
+  "hashtags": "#hashtag1 #hashtag2 #hashtag3 #hashtag4 #hashtag5"
+}`,
+      },
+    ],
+    SYSTEM_PROMPT
+  );
+
+  // Parsear JSON da resposta
+  try {
+    // Remover possível markdown code block
+    const clean = response.replace(/^```json?\s*/i, "").replace(/\s*```$/i, "").trim();
+    return JSON.parse(clean);
+  } catch {
+    // Fallback: extrair campos manualmente se JSON inválido
+    return {
+      hook: response.slice(0, 200),
+      body: response,
+      cta: ctaRec,
+      ctaType: params.category === "onix_pratica" ? "explicito" : params.category === "sabado_bastidores" ? "identificacao" : "implicito",
+      estimatedTime: params.format === "carrossel" ? "5–7 slides" : "60s",
+      hashtags: "#blindagempatrimonial #patrimonio #investimentos #medico #onixcapital",
+    };
+  }
+}
 
 /**
- * Gera sugestão de roteiro para um quadro fixo específico
+ * Gera sugestão de roteiro para um quadro fixo específico (UI de Integrações)
  */
 export async function suggestScript(category: string, topic?: string): Promise<string> {
   const categoryMap: Record<string, string> = {
     pergunta_semana: "Pergunta da Semana (Stories de segunda — pergunta provocativa sobre proteção patrimonial)",
     onix_pratica: "Onix na Prática (Reels de terça — caso real anonimizado de cliente)",
-    patrimonio_mimimi: "Patrimônio sem Mimimi (Reels de quarta — derrubar mito financeiro com dados)",
-    alerta_patrimonial: "Alerta Patrimonial (Reels de quinta — alerta urgente sobre risco patrimonial)",
+    patrimonio_mimimi: "Patrimônio sem Mimimi (Carrossel de quarta — derrubar mito financeiro com dados)",
+    alerta_patrimonial: "Alerta Patrimonial (Carrossel/Reel de quinta — alerta urgente sobre risco patrimonial)",
     sabado_bastidores: "Sábado de Bastidores (Stories de sábado — momento pessoal/humanização)",
   };
 
   const quadro = categoryMap[category] || category;
   const topicHint = topic ? `\n\nTema sugerido: ${topic}` : "";
 
-  const response = await chat(
+  return await chat(
     [
       {
         role: "user",
         content: `Crie um roteiro completo para o quadro "${quadro}".${topicHint}
 
 Estrutura obrigatória:
-1. **GANCHO** (frase de abertura — segura ou perde o espectador em 3 segundos)
-2. **DESENVOLVIMENTO** (conteúdo principal, 2-3 parágrafos)
-3. **CTA** (chamada para ação — sugira o tipo: Explícito, Implícito ou Por Identificação)
-4. **TEMPO ESTIMADO** do vídeo
-5. **HASHTAGS** sugeridas (5-8)
+1. **GANCHO** (frase de abertura — Framework PARE — segura ou perde o espectador em 3 segundos)
+2. **DESENVOLVIMENTO** (conteúdo principal)
+3. **CTA** (chamada para ação — especifique o tipo: Explícito / Implícito / Identificação / Algoritmo)
+4. **TEMPO ESTIMADO**
+5. **HASHTAGS** (5–8)
 
-Lembre-se: o público são médicos e profissionais liberais de alta renda em Salvador. Tom: autoridade + proximidade, sem ser vendedor.`,
+Lembre-se: público são médicos e profissionais liberais de alta renda em Salvador. Tom: autoridade + proximidade, nunca vendedor.`,
       },
     ],
     SYSTEM_PROMPT
   );
-
-  return response;
 }
 
 /**
@@ -108,7 +266,7 @@ export async function analyzePerformance(postsData: {
   status: string;
   ctaType: string | null;
 }[]): Promise<string> {
-  const response = await chat(
+  return await chat(
     [
       {
         role: "user",
@@ -118,23 +276,21 @@ ${JSON.stringify(postsData, null, 2)}
 
 Forneça:
 1. Diagnóstico geral da semana (pontos fortes e fracos)
-2. Análise da distribuição de CTAs (regra 80/20)
+2. Análise da distribuição de CTAs (regra 80/20 + CTA de Algoritmo v4)
 3. Sugestões específicas de melhoria para cada post
 4. Recomendação de temas para a próxima semana
-5. Oportunidades de cross-sell baseadas no conteúdo`,
+5. Oportunidades de cross-sell entre as 4 empresas do Grupo Onix`,
       },
     ],
     SYSTEM_PROMPT
   );
-
-  return response;
 }
 
 /**
  * Gera ideias de conteúdo baseadas em um tema
  */
 export async function generateContentIdeas(theme: string, count: number = 5): Promise<string> {
-  const response = await chat(
+  return await chat(
     [
       {
         role: "user",
@@ -142,18 +298,16 @@ export async function generateContentIdeas(theme: string, count: number = 5): Pr
 
 Para cada ideia, forneça:
 - Título do post
-- Quadro fixo recomendado (Pergunta da Semana, Onix na Prática, Patrimônio sem Mimimi, Alerta Patrimonial ou Sábado de Bastidores)
-- Formato (Reels ou Stories)
-- Gancho (frase de abertura)
-- Tipo de CTA recomendado
+- Quadro fixo recomendado
+- Formato (Reel, Carrossel ou Stories) — priorize Carrossel para P1/P3 (v4)
+- Gancho (Framework PARE)
+- Tipo de CTA recomendado (inclua CTA de Algoritmo quando apropriado)
 
-Foque em temas que ressoem com médicos e profissionais liberais de alta renda preocupados com proteção patrimonial.`,
+Foque em temas que ressoem com médicos e profissionais liberais de alta renda preocupados com blindagem patrimonial.`,
       },
     ],
     SYSTEM_PROMPT
   );
-
-  return response;
 }
 
 /**
@@ -166,7 +320,7 @@ export async function suggestLeadApproach(lead: {
   productInterest: string | null;
   notes: string | null;
 }): Promise<string> {
-  const response = await chat(
+  return await chat(
     [
       {
         role: "user",
@@ -179,17 +333,15 @@ Produto de interesse: ${lead.productInterest || "Não definido"}
 Observações: ${lead.notes || "Nenhuma"}
 
 Forneça:
-1. Primeira mensagem de abordagem (personalizada)
-2. Perguntas de qualificação (2-3 perguntas)
-3. Estratégia de follow-up (se não responder)
-4. Oportunidade de cross-sell
+1. Primeira mensagem de abordagem (personalizada, tom Eduardo)
+2. Perguntas de qualificação (2–3 perguntas)
+3. Estratégia de follow-up (se não responder em 24h)
+4. Oportunidade de cross-sell entre as 4 empresas Onix
 5. Tom recomendado para a conversa`,
       },
     ],
     SYSTEM_PROMPT
   );
-
-  return response;
 }
 
 /**
@@ -217,26 +369,25 @@ ${meeting.transcription.slice(0, 8000)}
 Forneça em formato estruturado:
 
 ## RESUMO EXECUTIVO
-(2-3 parágrafos com os pontos principais da reunião)
+(2–3 parágrafos com os pontos principais)
 
 ## INSIGHTS PARA CONTEÚDO
 Para cada insight, sugira:
-- Tema para post/Reels
+- Tema para post/Reel/Carrossel
 - Quadro fixo recomendado
-- Gancho (frase de abertura)
-- Por que esse tema ressoaria com médicos e profissionais liberais
+- Gancho (Framework PARE)
+- Por que esse tema ressoaria com médicos de alta renda
 
 ## ITENS DE AÇÃO
 - Lista de ações concretas extraídas da reunião
 
 ## OPORTUNIDADES DE CROSS-SELL
-- Produtos que poderiam ser oferecidos com base no contexto da reunião`,
+- Produtos do Grupo Onix que poderiam ser oferecidos`,
       },
     ],
     SYSTEM_PROMPT
   );
 
-  // Extrair seções
   const summaryMatch = response.match(/## RESUMO EXECUTIVO\n([\s\S]*?)(?=## INSIGHTS|$)/);
   const insightsMatch = response.match(/## INSIGHTS PARA CONTEÚDO\n([\s\S]*?)(?=## ITENS|$)/);
   const actionsMatch = response.match(/## ITENS DE AÇÃO\n([\s\S]*?)(?=## OPORTUNIDADES|$)/);
@@ -249,45 +400,21 @@ Para cada insight, sugira:
 }
 
 /**
- * Gera roteiro personalizado baseado nos insights de uma reunião
+ * Gera roteiro baseado nos insights de uma reunião (UI de Roteiros)
  */
 export async function suggestScriptFromMeeting(
   category: string,
   meetingInsights: string,
   meetingTitle: string
 ): Promise<string> {
-  const categoryMap: Record<string, string> = {
-    pergunta_semana: "Pergunta da Semana (Stories de segunda)",
-    onix_pratica: "Onix na Prática (Reels de terça — caso real)",
-    patrimonio_mimimi: "Patrimônio sem Mimimi (Reels de quarta)",
-    alerta_patrimonial: "Alerta Patrimonial (Reels de quinta)",
-    sabado_bastidores: "Sábado de Bastidores (Stories de sábado)",
-  };
+  const result = await generateScriptForPost({
+    title: `Baseado em: ${meetingTitle}`,
+    category,
+    format: category === "pergunta_semana" || category === "sabado_bastidores" ? "story" : "reel",
+    meetingInsights,
+  });
 
-  const response = await chat(
-    [
-      {
-        role: "user",
-        content: `Com base nos insights da reunião "${meetingTitle}", crie um roteiro para o quadro "${categoryMap[category] || category}".
-
-**Insights da reunião:**
-${meetingInsights}
-
-Crie o roteiro usando as dores reais e situações discutidas na reunião (anonimizando nomes e dados sensíveis).
-
-Estrutura:
-1. **GANCHO** — frase de abertura baseada em uma dor/situação real discutida na reunião
-2. **DESENVOLVIMENTO** — conteúdo educativo usando o caso como exemplo
-3. **CTA** — com tipo (Explícito/Implícito/Identificação)
-4. **TEMPO ESTIMADO**
-5. **HASHTAGS** (5-8)
-6. **REFERÊNCIA** — qual parte da reunião inspirou este roteiro`,
-      },
-    ],
-    SYSTEM_PROMPT
-  );
-
-  return response;
+  return `**GANCHO:**\n${result.hook}\n\n**DESENVOLVIMENTO:**\n${result.body}\n\n**CTA (${result.ctaType}):**\n${result.cta}\n\n**TEMPO ESTIMADO:** ${result.estimatedTime}\n\n**HASHTAGS:** ${result.hashtags}`;
 }
 
 // ============================================

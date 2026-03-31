@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
+import { generateScriptForPost } from "@/lib/integrations/claude-ai";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
@@ -31,7 +32,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { generateTasks, supportUserId, ...postData } = body;
+    const { generateTasks, supportUserId, generateScript, topic, ...postData } = body;
 
     // Validação dos campos obrigatórios
     if (!postData.title || !postData.authorId || !postData.scheduledDate) {
@@ -93,15 +94,56 @@ export async function POST(request: NextRequest) {
       });
 
       await prisma.task.createMany({ data: tasks });
-
-      const updatedPost = await prisma.post.findUnique({
-        where: { id: post.id },
-        include: { author: { select: { name: true } }, tasks: true },
-      });
-      return NextResponse.json(updatedPost, { status: 201 });
     }
 
-    return NextResponse.json(post, { status: 201 });
+    // Flow A: Gerar roteiro automaticamente com Claude AI
+    let scriptId: string | undefined;
+    if (generateScript === true) {
+      try {
+        const scriptData = await generateScriptForPost({
+          title: post.title,
+          category: post.category,
+          format: post.format,
+          topic: topic || undefined,
+        });
+
+        const script = await prisma.script.create({
+          data: {
+            title: post.title,
+            category: post.category,
+            hook: scriptData.hook,
+            body: scriptData.body,
+            cta: scriptData.cta,
+            ctaType: scriptData.ctaType,
+            estimatedTime: scriptData.estimatedTime,
+            hashtags: scriptData.hashtags,
+            isTemplate: false,
+            authorId: post.authorId,
+          },
+        });
+
+        // Vincular roteiro ao post
+        await prisma.post.update({
+          where: { id: post.id },
+          data: { scriptId: script.id },
+        });
+
+        scriptId = script.id;
+      } catch (err) {
+        // Não falha o post por causa da IA — apenas loga
+        console.error("Erro ao gerar roteiro com IA:", err);
+      }
+    }
+
+    const finalPost = await prisma.post.findUnique({
+      where: { id: post.id },
+      include: { author: { select: { name: true } }, tasks: true, script: true },
+    });
+
+    return NextResponse.json(
+      { ...finalPost, scriptGeneratedByAI: !!scriptId },
+      { status: 201 }
+    );
   } catch (error) {
     console.error("Erro ao criar post:", error);
     return NextResponse.json({ error: "Erro ao criar post" }, { status: 500 });

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { X, FileText } from "lucide-react";
+import { X, FileText, Sparkles } from "lucide-react";
 import {
   FORMAT_LABELS,
   CATEGORY_LABELS,
@@ -34,6 +34,8 @@ export function NewPostDialog({ defaultDate, onClose, onCreated }: NewPostDialog
   const [scheduledTime, setScheduledTime] = useState("12:00");
   const [scriptId, setScriptId] = useState<string>("");
   const [scripts, setScripts] = useState<ScriptOption[]>([]);
+  const [generateWithAI, setGenerateWithAI] = useState(false);
+  const [topic, setTopic] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -84,6 +86,8 @@ export function NewPostDialog({ defaultDate, onClose, onCreated }: NewPostDialog
           status: "rascunho",
           authorId: await getSessionUserId(),
           generateTasks: true,
+          generateScript: generateWithAI,
+          ...(generateWithAI && topic.trim() ? { topic: topic.trim() } : {}),
           ...(scriptId ? { scriptId } : {}),
         }),
       });
@@ -201,6 +205,37 @@ export function NewPostDialog({ defaultDate, onClose, onCreated }: NewPostDialog
             )}
           </div>
 
+          {/* Gerar Roteiro com IA */}
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={() => setGenerateWithAI((v) => !v)}
+              className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg border text-sm font-medium transition-colors ${
+                generateWithAI
+                  ? "bg-primary/10 border-primary/30 text-primary"
+                  : "bg-background border-input text-muted-foreground hover:text-foreground hover:border-primary/30"
+              }`}
+            >
+              <Sparkles className="h-4 w-4 shrink-0" />
+              <span>{generateWithAI ? "Gerar roteiro com IA — ativado" : "Gerar roteiro com IA automaticamente"}</span>
+            </button>
+            {generateWithAI && (
+              <div className="space-y-1.5 pl-1">
+                <label className="text-xs font-medium text-muted-foreground">Tema ou contexto (opcional)</label>
+                <input
+                  type="text"
+                  value={topic}
+                  onChange={(e) => setTopic(e.target.value)}
+                  placeholder="Ex: ITCMD na Bahia, médico PJ, seguro de vida..."
+                  className="w-full px-3 py-2 bg-background border border-input rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 text-sm"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  O roteiro será criado pela Claude AI e vinculado ao post automaticamente.
+                </p>
+              </div>
+            )}
+          </div>
+
           {/* Date + Time */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
@@ -265,7 +300,7 @@ export function NewPostDialog({ defaultDate, onClose, onCreated }: NewPostDialog
               disabled={saving}
               className="px-5 py-2 bg-primary text-primary-foreground font-medium rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50 text-sm"
             >
-              {saving ? "Criando..." : "Criar Post"}
+              {saving ? (generateWithAI ? "Criando + gerando roteiro..." : "Criando...") : "Criar Post"}
             </button>
           </div>
         </form>
