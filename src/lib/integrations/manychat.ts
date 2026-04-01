@@ -54,8 +54,64 @@ export interface ManyChatSubscriber {
   custom_fields: { id: number; name: string; value: string | null }[];
 }
 
+/**
+ * A API do ManyChat não possui endpoint de listagem em massa de subscribers.
+ * Esta função busca subscribers via múltiplos critérios (custom fields, tags por nome)
+ * e deduplica os resultados por ID.
+ */
 export async function getSubscribers(): Promise<{ data: ManyChatSubscriber[] }> {
-  return request("GET", "/fb/subscriber/getSubscribers");
+  const allSubs = new Map<string, ManyChatSubscriber>();
+
+  // Buscar por custom fields preenchidos (leads que passaram pelos fluxos de qualificação)
+  const customFieldIds = [14218991, 14219014, 14219021, 14219029, 14294422, 14294428, 14294431, 14294433];
+  const fieldValues = [
+    "Já tem plano", "Não tem plano", "Individual", "Familiar", "Empresarial",
+    "CLT", "MEI ou PJ", "Servidor Público", "Autônomo",
+    "Já investe", "Ainda não investe",
+    "10 mil", "50 mil", "100 mil", "500 mil", "1 milhão",
+  ];
+
+  // Buscar por custom fields mais prováveis de retornar leads
+  const searchPromises: Promise<void>[] = [];
+  for (const fieldId of [14219029, 14218991, 14294422]) {
+    for (const value of fieldValues) {
+      searchPromises.push(
+        findByCustomField(fieldId, value)
+          .then((result) => {
+            for (const sub of result.data || []) {
+              allSubs.set(sub.id, sub);
+            }
+          })
+          .catch(() => {})
+      );
+    }
+  }
+
+  // Buscar também por nomes comuns (fallback para pegar leads sem custom fields)
+  const nameSearches = ["Dr", "Maria", "Jo", "Ana", "Carlos", "Paulo", "Lu", "Fa", "Da", "Al", "Fe", "Ro"];
+  for (const name of nameSearches) {
+    searchPromises.push(
+      findByName(name)
+        .then((result) => {
+          for (const sub of result.data || []) {
+            allSubs.set(sub.id, sub);
+          }
+        })
+        .catch(() => {})
+    );
+  }
+
+  await Promise.all(searchPromises);
+
+  return { data: Array.from(allSubs.values()) };
+}
+
+export async function findByName(name: string): Promise<{ data: ManyChatSubscriber[] }> {
+  return request("GET", `/fb/subscriber/findByName?name=${encodeURIComponent(name)}`);
+}
+
+export async function findByCustomField(fieldId: number, fieldValue: string): Promise<{ data: ManyChatSubscriber[] }> {
+  return request("GET", `/fb/subscriber/findByCustomField?field_id=${fieldId}&field_value=${encodeURIComponent(fieldValue)}`);
 }
 
 export async function getSubscriberInfo(subscriberId: string): Promise<{ data: ManyChatSubscriber }> {
@@ -80,7 +136,7 @@ export interface ManyChatTag {
 }
 
 export async function getTags(): Promise<{ data: ManyChatTag[] }> {
-  return request("GET", "/fb/tag/getTags");
+  return request("GET", "/fb/page/getTags");
 }
 
 export async function addTag(subscriberId: string, tagId: number) {
@@ -105,8 +161,8 @@ export interface ManyChatFlow {
   type: string;
 }
 
-export async function getFlows(): Promise<{ data: ManyChatFlow[] }> {
-  return request("GET", "/fb/flow/getFlows");
+export async function getFlows(): Promise<{ data: { flows: ManyChatFlow[] } }> {
+  return request("GET", "/fb/page/getFlows");
 }
 
 export async function sendFlow(subscriberId: string, flowId: string) {
@@ -157,30 +213,57 @@ const KEYWORD_PRODUCT_MAP: Record<string, string> = {
   SAUDE: "consorcio_saude",
 };
 
-export function classifyProductInterest(tags: { name: string }[]): string | null {
+export function classifyProductInterest(tags: { name: string }[], customFields?: { name: string; value: string | null }[]): string | null {
+  // Primeiro: classificar por tags
   for (const tag of tags) {
     const upper = tag.name.toUpperCase().trim();
     if (KEYWORD_PRODUCT_MAP[upper]) return KEYWORD_PRODUCT_MAP[upper];
   }
+  // Segundo: inferir por custom fields
+  if (customFields) {
+    const fields = Object.fromEntries(customFields.filter(f => f.value).map(f => [f.name, f.value!]));
+    if (fields.status_investidor || fields.valor_investido || fields.banco_que_investe) return "investimentos";
+    if (fields.status_plano || fields.tipo_plano) return "consorcio_saude";
+  }
   return null;
 }
 
-export function classifyTemperature(tags: { name: string }[]): string {
+export function classifyTemperature(tags: { name: string }[], customFields?: { name: string; value: string | null }[]): string {
   const tagNames = tags.map((t) => t.name.toUpperCase());
   if (tagNames.some((t) => t.includes("QUENTE") || t.includes("HOT"))) return "quente";
   if (tagNames.some((t) => t.includes("FRIO") || t.includes("COLD"))) return "frio";
+
+  // Inferir temperatura por completude dos custom fields (mais dados = mais quente)
+  if (customFields) {
+    const filledFields = customFields.filter(f => f.value).length;
+    if (filledFields >= 4) return "quente";
+    if (filledFields >= 2) return "morno";
+  }
+
   return "morno";
 }
 
 export function subscriberToLead(sub: ManyChatSubscriber) {
+  const customFields = sub.custom_fields || [];
+  const fields = Object.fromEntries(customFields.filter(f => f.value).map(f => [f.name, f.value!]));
+
+  // Montar notas com contexto rico dos custom fields
+  const notesParts = [`ManyChat ID: ${sub.id}`];
+  if (fields.status_plano) notesParts.push(`Plano: ${fields.status_plano}`);
+  if (fields.vinculo_plano) notesParts.push(`Vínculo: ${fields.vinculo_plano}`);
+  if (fields.tipo_plano) notesParts.push(`Tipo: ${fields.tipo_plano}`);
+  if (fields.status_investidor) notesParts.push(`Investidor: ${fields.status_investidor}`);
+  if (fields.valor_investido) notesParts.push(`Valor: R$${fields.valor_investido}`);
+  if (fields.banco_que_investe) notesParts.push(`Banco: ${fields.banco_que_investe}`);
+
   return {
     name: sub.name || `${sub.first_name} ${sub.last_name}`.trim(),
     email: sub.email || null,
     phone: sub.phone || null,
     origin: "manychat" as const,
-    temperature: classifyTemperature(sub.tags),
-    productInterest: classifyProductInterest(sub.tags),
-    notes: `ManyChat ID: ${sub.id}`,
+    temperature: classifyTemperature(sub.tags, customFields),
+    productInterest: classifyProductInterest(sub.tags, customFields),
+    notes: notesParts.join(" | "),
     externalId: sub.id,
   };
 }
