@@ -80,6 +80,10 @@ export async function GET(request: NextRequest) {
   // Meta semanal
   const weekGoalMet = postsByStatus.total >= 5;
 
+  // Regra 80/20 semanal
+  const maxExplicitCta = Math.max(1, Math.floor(postsByStatus.total * 0.2));
+  const ctaRuleOk = ctaExplicit <= maxExplicitCta;
+
   return NextResponse.json({
     period: {
       start: monday.toISOString(),
@@ -88,7 +92,7 @@ export async function GET(request: NextRequest) {
     },
     posts: postsByStatus,
     postsByCategory,
-    cta: { explicito: ctaExplicit, implicito: ctaImplicit, identificacao: ctaIdentification },
+    cta: { explicito: ctaExplicit, implicito: ctaImplicit, identificacao: ctaIdentification, maxExplicitCta, ctaRuleOk },
     tasks: taskStats,
     leads: leadStats,
     weekGoalMet,

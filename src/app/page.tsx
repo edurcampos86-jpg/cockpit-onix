@@ -8,6 +8,7 @@ import { StatsCards } from "@/components/dashboard/stats-cards";
 import { WeekCategoriesAlert } from "@/components/calendario/week-categories-alert";
 import { PlanningReminderBanner } from "@/components/dashboard/planning-reminder-banner";
 import { OverdueTasksBanner } from "@/components/dashboard/overdue-tasks-banner";
+import { ExpiringTasksBanner } from "@/components/dashboard/expiring-tasks-banner";
 
 export default async function DashboardPage() {
   const now = new Date();
@@ -24,7 +25,11 @@ export default async function DashboardPage() {
   const todayEnd = new Date(now);
   todayEnd.setHours(23, 59, 59, 999);
 
-  const [weekPosts, todayTasks, pendingTasksCount, overdueTasks] = await Promise.all([
+  const tomorrow = new Date(now);
+  tomorrow.setDate(now.getDate() + 1);
+  tomorrow.setHours(23, 59, 59, 999);
+
+  const [weekPosts, todayTasks, pendingTasksCount, overdueTasks, expiringTasks] = await Promise.all([
     prisma.post.findMany({
       where: { scheduledDate: { gte: startOfWeek, lte: endOfWeek } },
       include: { author: { select: { name: true } }, tasks: true },
@@ -40,6 +45,14 @@ export default async function DashboardPage() {
       where: {
         status: { not: "concluida" },
         dueDate: { lt: todayStart },
+      },
+      include: { assignee: { select: { name: true } }, post: { select: { title: true, category: true } } },
+      orderBy: { dueDate: "asc" },
+    }),
+    prisma.task.findMany({
+      where: {
+        status: { not: "concluida" },
+        dueDate: { gte: todayStart, lte: tomorrow },
       },
       include: { assignee: { select: { name: true } }, post: { select: { title: true, category: true } } },
       orderBy: { dueDate: "asc" },
@@ -72,6 +85,9 @@ export default async function DashboardPage() {
 
         {/* Alerta de Tarefas Atrasadas */}
         <OverdueTasksBanner tasks={JSON.parse(JSON.stringify(overdueTasks))} />
+
+        {/* Alerta de Tarefas Expirando (24h) */}
+        <ExpiringTasksBanner tasks={JSON.parse(JSON.stringify(expiringTasks))} />
 
         {/* Alerta de Quadros Fixos */}
         <WeekCategoriesAlert

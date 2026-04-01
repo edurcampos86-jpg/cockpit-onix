@@ -14,12 +14,13 @@ import {
   Award,
 } from "lucide-react";
 import { CATEGORY_LABELS, type PostCategory } from "@/lib/types";
+import { TrendChart } from "@/components/relatorio/trend-chart";
 
 interface ReportData {
   period: { start: string; end: string; weekOffset: number };
   posts: { total: number; publicado: number; agendado: number; editado: number; rascunho: number };
   postsByCategory: { category: string; count: number; published: number }[];
-  cta: { explicito: number; implicito: number; identificacao: number };
+  cta: { explicito: number; implicito: number; identificacao: number; maxExplicitCta: number; ctaRuleOk: boolean };
   tasks: { total: number; completed: number; pending: number; inProgress: number };
   leads: {
     newLeads: number;
@@ -135,6 +136,9 @@ export default function RelatorioPage() {
             </CardContent>
           </Card>
 
+          {/* Gráfico de Tendência */}
+          <TrendChart />
+
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Posts */}
             <Card>
@@ -184,7 +188,7 @@ export default function RelatorioPage() {
                 {/* CTAs */}
                 <div>
                   <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">CTAs utilizados</p>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 flex-wrap">
                     <span className="px-2 py-1 rounded-md bg-red-500/10 text-red-400 text-[11px] font-medium">
                       {report.cta.explicito} Explícito
                     </span>
@@ -194,6 +198,14 @@ export default function RelatorioPage() {
                     <span className="px-2 py-1 rounded-md bg-emerald-500/10 text-emerald-400 text-[11px] font-medium">
                       {report.cta.identificacao} Identif.
                     </span>
+                  </div>
+                  <div className={`mt-2 px-2 py-1.5 rounded-md text-[11px] font-medium ${
+                    report.cta.ctaRuleOk
+                      ? "bg-emerald-500/10 text-emerald-400"
+                      : "bg-red-500/10 text-red-400"
+                  }`}>
+                    80/20: {report.cta.explicito}/{report.cta.maxExplicitCta} explícitos permitidos
+                    {report.cta.ctaRuleOk ? " — OK" : " — Excedido!"}
                   </div>
                 </div>
               </CardContent>

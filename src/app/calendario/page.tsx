@@ -10,6 +10,7 @@ import { NewPostDialog } from "@/components/calendario/new-post-dialog";
 import { PostDetailSheet } from "@/components/calendario/post-detail-sheet";
 import { WeekCategoriesAlert } from "@/components/calendario/week-categories-alert";
 import { PlanningReminderBanner } from "@/components/dashboard/planning-reminder-banner";
+import { CtaWeeklyAlert } from "@/components/calendario/cta-weekly-alert";
 import { ChevronLeft, ChevronRight, Plus, CalendarDays, LayoutGrid } from "lucide-react";
 import type { PostFormat, PostStatus } from "@/lib/types";
 
@@ -30,6 +31,7 @@ export interface CalendarPost {
     estimatedTime: string | null;
     ctaType: string | null;
   } | null;
+  tasks?: { id: string; status: string }[];
 }
 
 export default function CalendarioPage() {
@@ -185,9 +187,13 @@ export default function CalendarioPage() {
       {/* Stats */}
       <CalendarStats posts={posts} />
 
-      {/* Validação de Quadros Fixos da Semana */}
+      {/* Validação de Quadros Fixos da Semana + CTA 80/20 */}
       <div className="mt-4 space-y-3">
         <WeekCategoriesAlert posts={posts} />
+        <CtaWeeklyAlert
+          totalPosts={posts.length}
+          explicitCtaCount={posts.filter((p) => p.ctaType === "explicito").length}
+        />
         <PlanningReminderBanner />
       </div>
 

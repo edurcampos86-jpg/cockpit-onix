@@ -11,7 +11,7 @@ import {
   type PostFormat,
   type CtaType,
 } from "@/lib/types";
-import { Maximize2, FileText } from "lucide-react";
+import { Maximize2, FileText, CheckCircle2 } from "lucide-react";
 import type { CalendarPost } from "@/app/calendario/page";
 
 const FORMAT_ICONS: Record<string, string> = {
@@ -72,6 +72,8 @@ export function CalendarPostCard({ post, onStatusChange, onPostClick }: Calendar
   const status = post.status as PostStatus;
   const format = post.format as PostFormat;
   const isExplicitCta = post.ctaType === "explicito";
+  const totalTasks = post.tasks?.length ?? 0;
+  const completedTasks = post.tasks?.filter((t) => t.status === "concluida").length ?? 0;
 
   // Build rich title with script preview
   const buildTitle = () => {
@@ -144,6 +146,24 @@ export function CalendarPostCard({ post, onStatusChange, onPostClick }: Calendar
             </button>
           )}
         </div>
+        {/* Task progress bar */}
+        {totalTasks > 0 && (
+          <div className="flex items-center gap-1 mt-0.5">
+            <div className="flex-1 h-1 bg-zinc-800 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${completedTasks === totalTasks ? "bg-emerald-500" : "bg-primary/60"}`}
+                style={{ width: `${(completedTasks / totalTasks) * 100}%` }}
+              />
+            </div>
+            <span className="text-[8px] text-muted-foreground flex items-center gap-0.5">
+              {completedTasks === totalTasks ? (
+                <CheckCircle2 className="h-2 w-2 text-emerald-500" />
+              ) : (
+                `${completedTasks}/${totalTasks}`
+              )}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Status dropdown menu */}

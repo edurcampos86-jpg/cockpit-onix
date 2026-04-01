@@ -14,6 +14,8 @@ import {
   GripVertical,
   User,
   MessageSquare,
+  Filter,
+  X,
 } from "lucide-react";
 import type { LeadStage, LeadTemperature } from "@/lib/types";
 import { LeadTimer } from "@/components/leads/lead-timer";
@@ -87,16 +89,49 @@ const PRODUCT_LABELS: Record<string, string> = {
 
 const STAGES: LeadStage[] = ["novo", "qualificado", "reuniao_agendada", "proposta_enviada", "cliente_ativo"];
 
+type PeriodFilter = "todos" | "7d" | "30d" | "90d" | "custom";
+
+const PERIOD_OPTIONS: { key: PeriodFilter; label: string }[] = [
+  { key: "todos", label: "Todos" },
+  { key: "7d", label: "7 dias" },
+  { key: "30d", label: "30 dias" },
+  { key: "90d", label: "90 dias" },
+  { key: "custom", label: "Personalizado" },
+];
+
 export default function LeadsPage() {
   const [leads, setLeads] = useState<LeadData[]>([]);
   const [loading, setLoading] = useState(true);
   const [showNewLead, setShowNewLead] = useState(false);
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [periodFilter, setPeriodFilter] = useState<PeriodFilter>("todos");
+  const [customAfter, setCustomAfter] = useState("");
+  const [customBefore, setCustomBefore] = useState("");
+  const [filterTemp, setFilterTemp] = useState<string>("todos");
 
   const fetchLeads = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/leads");
+      const params = new URLSearchParams();
+
+      if (periodFilter !== "todos") {
+        if (periodFilter === "custom") {
+          if (customAfter) params.set("after", new Date(customAfter).toISOString());
+          if (customBefore) params.set("before", new Date(customBefore + "T23:59:59").toISOString());
+        } else {
+          const days = parseInt(periodFilter);
+          const after = new Date();
+          after.setDate(after.getDate() - days);
+          after.setHours(0, 0, 0, 0);
+          params.set("after", after.toISOString());
+        }
+      }
+
+      if (filterTemp !== "todos") {
+        params.set("temperature", filterTemp);
+      }
+
+      const res = await fetch(`/api/leads?${params.toString()}`);
       const data = await res.json();
       setLeads(data);
     } catch (error) {
@@ -104,7 +139,7 @@ export default function LeadsPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [periodFilter, customAfter, customBefore, filterTemp]);
 
   useEffect(() => {
     fetchLeads();
@@ -211,6 +246,65 @@ export default function LeadsPage() {
           <Plus className="h-4 w-4" />
           Novo Lead
         </button>
+      </div>
+
+      {/* Filtros */}
+      <div className="flex flex-wrap items-center gap-3 mb-4 shrink-0">
+        <Filter className="h-4 w-4 text-muted-foreground" />
+        <div className="flex items-center bg-accent rounded-lg p-0.5">
+          {PERIOD_OPTIONS.map((opt) => (
+            <button
+              key={opt.key}
+              onClick={() => setPeriodFilter(opt.key)}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                periodFilter === opt.key
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+
+        {periodFilter === "custom" && (
+          <div className="flex items-center gap-2">
+            <input
+              type="date"
+              value={customAfter}
+              onChange={(e) => setCustomAfter(e.target.value)}
+              className="px-2 py-1.5 text-xs rounded-lg bg-card border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+            />
+            <span className="text-xs text-muted-foreground">até</span>
+            <input
+              type="date"
+              value={customBefore}
+              onChange={(e) => setCustomBefore(e.target.value)}
+              className="px-2 py-1.5 text-xs rounded-lg bg-card border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+            />
+          </div>
+        )}
+
+        <select
+          value={filterTemp}
+          onChange={(e) => setFilterTemp(e.target.value)}
+          className="px-3 py-1.5 text-xs rounded-lg bg-card border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+        >
+          <option value="todos">Todas temperaturas</option>
+          <option value="quente">Quente</option>
+          <option value="morno">Morno</option>
+          <option value="frio">Frio</option>
+        </select>
+
+        {(periodFilter !== "todos" || filterTemp !== "todos") && (
+          <button
+            onClick={() => { setPeriodFilter("todos"); setFilterTemp("todos"); setCustomAfter(""); setCustomBefore(""); }}
+            className="flex items-center gap-1 px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <X className="h-3 w-3" />
+            Limpar filtros
+          </button>
+        )}
       </div>
 
       {/* Kanban Board */}

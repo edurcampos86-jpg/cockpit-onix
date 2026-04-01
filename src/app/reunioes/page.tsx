@@ -14,8 +14,10 @@ import {
   Lightbulb,
   CheckSquare,
   Loader2,
+  Plus,
 } from "lucide-react";
 import { CATEGORY_LABELS, type PostCategory } from "@/lib/types";
+import { NewPostDialog } from "@/components/calendario/new-post-dialog";
 
 interface MeetingData {
   id: string;
@@ -37,6 +39,8 @@ export default function ReunioesPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [generatingScript, setGeneratingScript] = useState<string | null>(null);
   const [scriptResult, setScriptResult] = useState<{ id: string; script: string } | null>(null);
+  const [showNewPost, setShowNewPost] = useState(false);
+  const [newPostPreTitle, setNewPostPreTitle] = useState("");
 
   const fetchMeetings = useCallback(async () => {
     setLoading(true);
@@ -226,6 +230,20 @@ export default function ReunioesPage() {
                       )}
                       {meeting.insights && (
                         <>
+                          <button
+                            onClick={() => {
+                              const title = meeting.summary
+                                ? meeting.summary.split(".")[0].slice(0, 60)
+                                : meeting.title;
+                              setNewPostPreTitle(title);
+                              setShowNewPost(true);
+                            }}
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-emerald-600 text-white hover:bg-emerald-600/90 transition-colors"
+                          >
+                            <Plus className="h-3 w-3" />
+                            Criar Post
+                          </button>
+                          <span className="w-px h-5 bg-border mx-1" />
                           <p className="text-xs text-muted-foreground self-center mr-2">Gerar roteiro:</p>
                           {(["onix_pratica", "patrimonio_mimimi", "alerta_patrimonial", "pergunta_semana"] as PostCategory[]).map((cat) => (
                             <button
@@ -260,6 +278,21 @@ export default function ReunioesPage() {
             );
           })}
         </div>
+      )}
+
+      {/* New Post Dialog (from meeting) */}
+      {showNewPost && (
+        <NewPostDialog
+          defaultDate={new Date().toISOString().split("T")[0]}
+          onClose={() => {
+            setShowNewPost(false);
+            setNewPostPreTitle("");
+          }}
+          onCreated={() => {
+            setShowNewPost(false);
+            setNewPostPreTitle("");
+          }}
+        />
       )}
     </div>
   );
