@@ -75,7 +75,24 @@ model Script {
   authorId String
   author   User   @relation(fields: [authorId], references: [id])
 
-  post Post?
+  post     Post?
+  versions ScriptVersion[]
+}
+
+model ScriptVersion {
+  id            String   @id @default(cuid())
+  title         String
+  hook          String?
+  body          String
+  cta           String?
+  ctaType       String?
+  estimatedTime String?
+  hashtags      String?
+  changeReason  String   @default("edição manual")
+  createdAt     DateTime @default(now())
+
+  scriptId String
+  script   Script @relation(fields: [scriptId], references: [id], onDelete: Cascade)
 }
 
 // ============================================

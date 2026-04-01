@@ -19,7 +19,7 @@ interface ClaudeMessage {
   content: string;
 }
 
-async function chat(messages: ClaudeMessage[], system?: string): Promise<string> {
+async function chat(messages: ClaudeMessage[], system?: string, maxTokens?: number): Promise<string> {
   const apiKey = await getApiKey();
 
   const res = await fetch(API_URL, {
@@ -31,7 +31,7 @@ async function chat(messages: ClaudeMessage[], system?: string): Promise<string>
     },
     body: JSON.stringify({
       model: "claude-sonnet-4-5",
-      max_tokens: 2048,
+      max_tokens: maxTokens || 2048,
       system: system || undefined,
       messages,
     }),
@@ -415,6 +415,130 @@ export async function suggestScriptFromMeeting(
   });
 
   return `**GANCHO:**\n${result.hook}\n\n**DESENVOLVIMENTO:**\n${result.body}\n\n**CTA (${result.ctaType}):**\n${result.cta}\n\n**TEMPO ESTIMADO:** ${result.estimatedTime}\n\n**HASHTAGS:** ${result.hashtags}`;
+}
+
+// ============================================
+// GERADOR DE PLANEJAMENTO EDITORIAL
+// ============================================
+
+export interface PlannedPost {
+  date: string; // YYYY-MM-DD
+  title: string;
+  category: string;
+  format: string;
+  ctaType: string;
+  hook: string;
+  body: string;
+  cta: string;
+  estimatedTime: string;
+  hashtags: string;
+  weekTheme: string;
+  monthTheme: string;
+}
+
+/**
+ * Gera um planejamento editorial completo para 30 ou 60 dias
+ * com arco narrativo mensal e sequência semanal
+ */
+export async function generateEditorialPlan(params: {
+  period: 30 | 60;
+  startDate: string;
+  endDate: string;
+  seasonalContext: string;
+  themeOverride?: string;
+}): Promise<PlannedPost[]> {
+  const themeNote = params.themeOverride
+    ? `\n\n**TEMA OVERRIDE DO USUÁRIO:** "${params.themeOverride}" — use isso como guarda-chuva principal, integrando com os temas sazonais.`
+    : "";
+
+  const prompt = `Gere um planejamento editorial COMPLETO de ${params.period} dias para o Instagram de Eduardo Campos (@eduardorcampos).
+
+**PERÍODO:** ${params.startDate} a ${params.endDate}
+
+**TEMAS SAZONAIS DO PERÍODO:**
+${params.seasonalContext}${themeNote}
+
+## REGRAS OBRIGATÓRIAS
+
+### Grade semanal (base v4, com flexibilidade):
+- **Segunda:** Pergunta da Semana (Stories) — P1, CTA Implícito
+- **Terça:** Onix na Prática (Reel 60-90s) — P2 Caso Real, CTA Explícito
+- **Quarta:** Patrimônio sem Mimimi (CARROSSEL prioridade) — P1/P3, CTA Algoritmo
+- **Quinta:** Alerta Patrimonial (CARROSSEL ou Reel) — P3, CTA Algoritmo
+- **Sábado:** Bastidores (Post/Reel pessoal) — P4, CTA Identificação
+- Sexta e Domingo: sem publicação no feed (apenas Stories opcionais)
+
+### Mix de formatos para dinamismo:
+- Varie OCASIONALMENTE: 1 em cada 4 semanas, troque o formato de 1 dia (ex: Quarta pode ser Reel em vez de Carrossel)
+- Isso traz dinâmica sem quebrar a identidade
+
+### Arco narrativo:
+- **MENSAL:** Cada mês tem um guarda-chuva temático. Todos os posts do mês orbitam esse tema.
+- **SEMANAL:** Dentro de cada semana, os posts formam uma sequência lógica:
+  - Segunda INTRODUZ o sub-tema da semana (pergunta provocativa)
+  - Terça APROFUNDA com caso real relacionado
+  - Quarta fornece DADOS e educação sobre o tema
+  - Quinta ALERTA sobre riscos ou oportunidades
+  - Sábado HUMANIZA conectando o tema à vida real de Eduardo
+
+### Continuidade:
+- Cada post deve se conectar ao anterior e ao próximo
+- Use referências cruzadas sutis ("como falei segunda...", "na semana passada vimos que...")
+- O hook de cada post deve criar curiosidade para o próximo
+
+### Framework PARE para hooks:
+- **P (Pergunta):** "Você ganha mais de R$30k/mês e não sabe para onde vai?"
+- **A (Afirmação):** "Renda fixa não é segura. É ilusão de segurança."
+- **R (Revelação):** "Na Bahia, o ITCMD pode custar até 8% do patrimônio."
+- **E (Emoção):** "Se você faltar amanhã, sua família sabe o que fazer?"
+
+## FORMATO DE RESPOSTA
+
+Retorne APENAS um JSON array válido (sem markdown, sem texto antes ou depois).
+Cada item deve ter EXATAMENTE estes campos:
+
+[
+  {
+    "date": "YYYY-MM-DD",
+    "title": "Título do post",
+    "category": "pergunta_semana|onix_pratica|patrimonio_mimimi|alerta_patrimonial|sabado_bastidores",
+    "format": "reel|story|carrossel",
+    "ctaType": "explicito|implicito|identificacao",
+    "hook": "Frase de gancho dos 3 primeiros segundos",
+    "body": "Desenvolvimento completo do roteiro (3-5 parágrafos para Reel, slide a slide para Carrossel, sequência de telas para Stories)",
+    "cta": "Texto exato da chamada para ação",
+    "estimatedTime": "60s|90s|5 slides|3 telas",
+    "hashtags": "#hashtag1 #hashtag2 #hashtag3 #hashtag4 #hashtag5",
+    "weekTheme": "Sub-tema da semana",
+    "monthTheme": "Guarda-chuva do mês"
+  }
+]
+
+GERE posts APENAS para Segunda, Terça, Quarta, Quinta e Sábado. NÃO gere para Sexta e Domingo.
+Cada "date" deve ser uma data real dentro do período informado.
+O array deve conter ${params.period === 30 ? "~20-22" : "~40-44"} posts.`;
+
+  const maxTokens = params.period === 60 ? 8192 : 4096;
+
+  const response = await chat([{ role: "user", content: prompt }], SYSTEM_PROMPT, maxTokens);
+
+  try {
+    const clean = response.replace(/^```json?\s*/i, "").replace(/\s*```$/i, "").trim();
+    const parsed = JSON.parse(clean);
+    if (Array.isArray(parsed)) return parsed;
+    throw new Error("Response is not an array");
+  } catch {
+    // Tentar extrair JSON do meio da resposta
+    const jsonMatch = response.match(/\[[\s\S]*\]/);
+    if (jsonMatch) {
+      try {
+        return JSON.parse(jsonMatch[0]);
+      } catch {
+        throw new Error("Não foi possível parsear o planejamento gerado pela IA. Tente novamente.");
+      }
+    }
+    throw new Error("Resposta da IA não contém JSON válido. Tente novamente.");
+  }
 }
 
 // ============================================

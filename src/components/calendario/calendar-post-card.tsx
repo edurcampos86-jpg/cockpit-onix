@@ -6,9 +6,12 @@ import {
   STATUS_COLORS,
   STATUS_LABELS,
   FORMAT_LABELS,
+  CTA_LABELS,
   type PostStatus,
   type PostFormat,
+  type CtaType,
 } from "@/lib/types";
+import { Maximize2, FileText } from "lucide-react";
 import type { CalendarPost } from "@/app/calendario/page";
 
 const FORMAT_ICONS: Record<string, string> = {
@@ -29,9 +32,10 @@ const STATUS_ORDER: PostStatus[] = [
 interface CalendarPostCardProps {
   post: CalendarPost;
   onStatusChange?: (postId: string, newStatus: PostStatus) => void;
+  onPostClick?: (postId: string) => void;
 }
 
-export function CalendarPostCard({ post, onStatusChange }: CalendarPostCardProps) {
+export function CalendarPostCard({ post, onStatusChange, onPostClick }: CalendarPostCardProps) {
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -54,7 +58,6 @@ export function CalendarPostCard({ post, onStatusChange }: CalendarPostCardProps
     }
   };
 
-  // Fechar menu ao clicar fora
   useEffect(() => {
     if (!showMenu) return;
     const handleClickOutside = (e: MouseEvent) => {
@@ -70,6 +73,26 @@ export function CalendarPostCard({ post, onStatusChange }: CalendarPostCardProps
   const format = post.format as PostFormat;
   const isExplicitCta = post.ctaType === "explicito";
 
+  // Build rich title with script preview
+  const buildTitle = () => {
+    const lines = [
+      post.title,
+      `${FORMAT_LABELS[format]} | ${STATUS_LABELS[status]}`,
+    ];
+    if (post.scheduledTime) lines[1] += ` | ${post.scheduledTime}`;
+    if (isExplicitCta) lines.push("CTA Explicito");
+    if (post.script?.hook) {
+      const hook = post.script.hook.length > 120 ? post.script.hook.slice(0, 120) + "..." : post.script.hook;
+      lines.push(`Roteiro: ${hook}`);
+      if (post.script.estimatedTime) lines.push(`Tempo: ${post.script.estimatedTime}`);
+      if (post.script.ctaType) lines.push(`CTA: ${CTA_LABELS[post.script.ctaType as CtaType] ?? post.script.ctaType}`);
+    } else {
+      lines.push("Sem roteiro vinculado");
+    }
+    lines.push("Clique para mudar status");
+    return lines.join("\n");
+  };
+
   return (
     <div className="relative" ref={menuRef}>
       <div
@@ -77,19 +100,22 @@ export function CalendarPostCard({ post, onStatusChange }: CalendarPostCardProps
         onDragStart={handleDragStart}
         onClick={handleClick}
         className={cn(
-          "px-1.5 py-1 rounded-md text-[10px] leading-tight cursor-grab active:cursor-grabbing transition-all hover:ring-1 hover:ring-primary/30",
+          "px-1.5 py-1 rounded-md text-[10px] leading-tight cursor-grab active:cursor-grabbing transition-all hover:ring-1 hover:ring-primary/30 group/card",
           "border bg-background/80 hover:bg-background",
           isExplicitCta
             ? "border-red-500/50 ring-1 ring-red-500/20"
             : "border-border/50",
           onStatusChange && "cursor-pointer"
         )}
-        title={`${post.title}\n${FORMAT_LABELS[format]} • ${STATUS_LABELS[status]}${post.scheduledTime ? ` • ${post.scheduledTime}` : ""}${isExplicitCta ? "\n⚠ CTA Explícito" : ""}\nClique para mudar status`}
+        title={buildTitle()}
       >
         <div className="flex items-center gap-1 mb-0.5">
           <span>{FORMAT_ICONS[post.format] || "📝"}</span>
           {post.scheduledTime && (
             <span className="text-muted-foreground">{post.scheduledTime}</span>
+          )}
+          {post.script && (
+            <FileText className="h-2.5 w-2.5 text-primary/60 ml-auto" />
           )}
         </div>
         <p className="font-medium text-foreground truncate">{post.title}</p>
@@ -107,6 +133,15 @@ export function CalendarPostCard({ post, onStatusChange }: CalendarPostCardProps
             <span className="ml-auto shrink-0 px-1 py-px rounded bg-red-500/20 text-red-400 font-semibold">
               CTA!
             </span>
+          )}
+          {onPostClick && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onPostClick(post.id); }}
+              className="ml-auto shrink-0 opacity-0 group-hover/card:opacity-100 p-0.5 rounded hover:bg-primary/10 text-muted-foreground hover:text-primary transition-all"
+              title="Ver detalhes"
+            >
+              <Maximize2 className="h-2.5 w-2.5" />
+            </button>
           )}
         </div>
       </div>

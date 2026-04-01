@@ -3,7 +3,7 @@
 import { cn } from "@/lib/utils";
 import { CATEGORY_LABELS, type PostCategory } from "@/lib/types";
 import type { ScriptData } from "@/app/roteiros/page";
-import { Pencil, Copy, Trash2, Link2, Clock } from "lucide-react";
+import { Pencil, Copy, Trash2, Link2, Clock, CalendarPlus } from "lucide-react";
 
 const CATEGORY_ICONS: Record<string, string> = {
   pergunta_semana: "❓",
@@ -24,9 +24,10 @@ interface ScriptListProps {
   onEdit: (script: ScriptData) => void;
   onDuplicate: (script: ScriptData) => void;
   onDelete: (id: string) => void;
+  onCreatePost?: (script: ScriptData) => void;
 }
 
-export function ScriptList({ scripts, onEdit, onDuplicate, onDelete }: ScriptListProps) {
+export function ScriptList({ scripts, onEdit, onDuplicate, onDelete, onCreatePost }: ScriptListProps) {
   return (
     <div className="bg-card border border-border rounded-xl overflow-hidden">
       <div className="flex items-center gap-2 px-5 py-3.5 border-b border-border bg-accent/30">
@@ -52,6 +53,7 @@ export function ScriptList({ scripts, onEdit, onDuplicate, onDelete }: ScriptLis
               onEdit={() => onEdit(script)}
               onDuplicate={() => onDuplicate(script)}
               onDelete={() => onDelete(script.id)}
+              onCreatePost={onCreatePost && !script.post ? () => onCreatePost(script) : undefined}
             />
           ))}
         </div>
@@ -65,11 +67,13 @@ function ScriptCard({
   onEdit,
   onDuplicate,
   onDelete,
+  onCreatePost,
 }: {
   script: ScriptData;
   onEdit: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
+  onCreatePost?: () => void;
 }) {
   const categoryLabel = CATEGORY_LABELS[script.category as PostCategory] || script.category;
   const hasPost = !!script.post;
@@ -130,6 +134,15 @@ function ScriptCard({
 
         {/* Actions */}
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+          {onCreatePost && (
+            <button
+              onClick={onCreatePost}
+              className="p-1.5 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors"
+              title="Criar post com este roteiro"
+            >
+              <CalendarPlus className="h-3.5 w-3.5" />
+            </button>
+          )}
           <button
             onClick={onEdit}
             className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"

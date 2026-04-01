@@ -15,6 +15,7 @@ interface CalendarGridProps {
   onDayClick: (dateStr: string) => void;
   onPostMoved: (postId: string, newDate: string) => void;
   onPostStatusChange?: (postId: string, newStatus: PostStatus) => void;
+  onPostClick?: (postId: string) => void;
 }
 
 const WEEKDAYS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
@@ -27,6 +28,7 @@ export function CalendarGrid({
   onDayClick,
   onPostMoved,
   onPostStatusChange,
+  onPostClick,
 }: CalendarGridProps) {
   const [dragOverDate, setDragOverDate] = useState<string | null>(null);
 
@@ -178,7 +180,7 @@ export function CalendarGrid({
               {/* Posts */}
               <div className="space-y-1">
                 {dayPosts.map((post) => (
-                  <CalendarPostCard key={post.id} post={post} onStatusChange={onPostStatusChange} />
+                  <CalendarPostCard key={post.id} post={post} onStatusChange={onPostStatusChange} onPostClick={onPostClick} />
                 ))}
               </div>
             </div>

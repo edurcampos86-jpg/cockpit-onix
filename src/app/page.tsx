@@ -4,6 +4,7 @@ import { WeekCalendar } from "@/components/dashboard/week-calendar";
 import { TodayPanel } from "@/components/dashboard/today-panel";
 import { StatsCards } from "@/components/dashboard/stats-cards";
 import { WeekCategoriesAlert } from "@/components/calendario/week-categories-alert";
+import { PlanningReminderBanner } from "@/components/dashboard/planning-reminder-banner";
 
 export default async function DashboardPage() {
   const now = new Date();
@@ -63,6 +64,9 @@ export default async function DashboardPage() {
           posts={weekPosts.map((p) => ({ category: p.category }))}
           compact
         />
+
+        {/* Lembrete de Planejamento */}
+        <PlanningReminderBanner />
 
         {/* Main Content Grid */}
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">

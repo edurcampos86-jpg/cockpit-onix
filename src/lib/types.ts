@@ -76,3 +76,28 @@ export const DAY_LABELS: Record<number, string> = {
   5: "Sexta",
   6: "Sábado",
 };
+
+// Mapeamento v4: dia da semana → categoria/formato/CTA recomendados
+export const DAY_CATEGORY_MAP: Partial<Record<number, PostCategory>> = {
+  1: "pergunta_semana",    // Segunda
+  2: "onix_pratica",       // Terça
+  3: "patrimonio_mimimi",  // Quarta
+  4: "alerta_patrimonial", // Quinta
+  6: "sabado_bastidores",  // Sábado
+};
+
+export const DAY_FORMAT_MAP: Partial<Record<number, PostFormat>> = {
+  1: "story",      // Segunda: Stories
+  2: "reel",       // Terça: Reel 60-90s
+  3: "carrossel",  // Quarta: Carrossel educativo
+  4: "carrossel",  // Quinta: Carrossel ou Reel
+  6: "reel",       // Sábado: Post/Reel pessoal
+};
+
+export const CATEGORY_CTA_MAP: Record<PostCategory, CtaType> = {
+  pergunta_semana: "implicito",
+  onix_pratica: "explicito",
+  patrimonio_mimimi: "implicito",
+  alerta_patrimonial: "implicito",
+  sabado_bastidores: "identificacao",
+};

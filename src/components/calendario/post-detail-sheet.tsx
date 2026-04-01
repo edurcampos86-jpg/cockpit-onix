@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { X, Trash2, Save, FileText, CheckCircle2, Circle, Clock, ExternalLink, Copy } from "lucide-react";
+import { X, Trash2, Save, FileText, CheckCircle2, Circle, Clock, ExternalLink, Copy, ChevronDown, ChevronUp, Pencil } from "lucide-react";
+import { ScriptVersionHistory } from "@/components/roteiros/script-version-history";
 import {
   STATUS_LABELS,
   STATUS_COLORS,
@@ -29,7 +30,7 @@ interface PostDetail {
   notes: string | null;
   publishedUrl: string | null;
   author: { name: string };
-  script: { id: string; title: string; hook: string | null } | null;
+  script: { id: string; title: string; hook: string | null; body: string; cta: string | null; ctaType: string | null; estimatedTime: string | null } | null;
   tasks: {
     id: string;
     title: string;
@@ -69,6 +70,11 @@ export function PostDetailSheet({ postId, onClose, onUpdated, onDeleted, onDupli
   const [duplicating, setDuplicating] = useState(false);
   const [error, setError] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [showScriptEditor, setShowScriptEditor] = useState(false);
+  const [scriptHook, setScriptHook] = useState("");
+  const [scriptBody, setScriptBody] = useState("");
+  const [scriptCta, setScriptCta] = useState("");
+  const [savingScript, setSavingScript] = useState(false);
 
   // Editable fields
   const [title, setTitle] = useState("");
@@ -98,6 +104,11 @@ export function PostDetailSheet({ postId, onClose, onUpdated, onDeleted, onDupli
         setScheduledTime(data.scheduledTime || "");
         setNotes(data.notes || "");
         setPublishedUrl(data.publishedUrl || "");
+        if (data.script) {
+          setScriptHook(data.script.hook || "");
+          setScriptBody(data.script.body || "");
+          setScriptCta(data.script.cta || "");
+        }
       } catch {
         setError("Erro ao carregar post.");
       } finally {
@@ -151,6 +162,27 @@ export function PostDetailSheet({ postId, onClose, onUpdated, onDeleted, onDupli
       onDeleted();
     } catch {
       setError("Erro ao excluir post.");
+    }
+  };
+
+  const handleSaveScript = async () => {
+    if (!post?.script) return;
+    setSavingScript(true);
+    try {
+      await fetch(`/api/scripts/${post.script.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          hook: scriptHook || null,
+          body: scriptBody,
+          cta: scriptCta || null,
+        }),
+      });
+      setShowScriptEditor(false);
+    } catch {
+      // silently fail
+    } finally {
+      setSavingScript(false);
     }
   };
 
@@ -395,16 +427,81 @@ export function PostDetailSheet({ postId, onClose, onUpdated, onDeleted, onDupli
               />
             </div>
 
-            {/* Linked Script */}
+            {/* Linked Script + Inline Editor */}
             {post.script && (
-              <div className="bg-primary/5 border border-primary/20 rounded-lg p-3">
-                <div className="flex items-center gap-2 mb-1">
-                  <FileText className="h-4 w-4 text-primary" />
-                  <span className="text-xs font-semibold text-primary uppercase">Roteiro Vinculado</span>
+              <div className="space-y-2">
+                <div className="bg-primary/5 border border-primary/20 rounded-lg p-3">
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2">
+                      <FileText className="h-4 w-4 text-primary" />
+                      <span className="text-xs font-semibold text-primary uppercase">Roteiro Vinculado</span>
+                    </div>
+                    <button
+                      onClick={() => setShowScriptEditor(!showScriptEditor)}
+                      className="flex items-center gap-1 text-[10px] text-primary hover:underline"
+                    >
+                      <Pencil className="h-3 w-3" />
+                      {showScriptEditor ? "Fechar" : "Editar"}
+                      {showScriptEditor ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                    </button>
+                  </div>
+                  <p className="text-sm font-medium text-foreground">{post.script.title}</p>
+                  {post.script.hook && !showScriptEditor && (
+                    <p className="text-xs text-muted-foreground mt-1 italic">{post.script.hook}</p>
+                  )}
                 </div>
-                <p className="text-sm font-medium text-foreground">{post.script.title}</p>
-                {post.script.hook && (
-                  <p className="text-xs text-muted-foreground mt-1 italic">{post.script.hook}</p>
+
+                {/* Inline Script Editor */}
+                {showScriptEditor && (
+                  <div className="space-y-3 bg-background/50 border border-border rounded-lg p-3">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-muted-foreground">Gancho (Hook)</label>
+                      <textarea
+                        value={scriptHook}
+                        onChange={(e) => setScriptHook(e.target.value)}
+                        rows={2}
+                        className="w-full px-3 py-2 bg-background border border-input rounded-lg text-foreground text-xs focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
+                        placeholder="Frase de abertura dos 3 primeiros segundos..."
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-muted-foreground">Corpo do Roteiro</label>
+                      <textarea
+                        value={scriptBody}
+                        onChange={(e) => setScriptBody(e.target.value)}
+                        rows={6}
+                        className="w-full px-3 py-2 bg-background border border-input rounded-lg text-foreground text-xs focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
+                        placeholder="Desenvolvimento do conteudo..."
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-muted-foreground">CTA</label>
+                      <textarea
+                        value={scriptCta}
+                        onChange={(e) => setScriptCta(e.target.value)}
+                        rows={2}
+                        className="w-full px-3 py-2 bg-background border border-input rounded-lg text-foreground text-xs focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
+                        placeholder="Chamada para acao..."
+                      />
+                    </div>
+                    <button
+                      onClick={handleSaveScript}
+                      disabled={savingScript}
+                      className="w-full px-3 py-2 bg-primary text-primary-foreground text-xs font-medium rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                    >
+                      {savingScript ? "Salvando roteiro..." : "Salvar Roteiro"}
+                    </button>
+
+                    {/* Version History */}
+                    <ScriptVersionHistory
+                      scriptId={post.script.id}
+                      compact
+                      onRestored={() => {
+                        // Recarregar o post para pegar a versão restaurada
+                        window.location.reload();
+                      }}
+                    />
+                  </div>
                 )}
               </div>
             )}

@@ -9,6 +9,7 @@ import { CalendarStats } from "@/components/calendario/calendar-stats";
 import { NewPostDialog } from "@/components/calendario/new-post-dialog";
 import { PostDetailSheet } from "@/components/calendario/post-detail-sheet";
 import { WeekCategoriesAlert } from "@/components/calendario/week-categories-alert";
+import { PlanningReminderBanner } from "@/components/dashboard/planning-reminder-banner";
 import { ChevronLeft, ChevronRight, Plus, CalendarDays, LayoutGrid } from "lucide-react";
 import type { PostFormat, PostStatus } from "@/lib/types";
 
@@ -24,6 +25,11 @@ export interface CalendarPost {
   scheduledTime: string | null;
   ctaType: string | null;
   author: { name: string };
+  script?: {
+    hook: string | null;
+    estimatedTime: string | null;
+    ctaType: string | null;
+  } | null;
 }
 
 export default function CalendarioPage() {
@@ -180,8 +186,9 @@ export default function CalendarioPage() {
       <CalendarStats posts={posts} />
 
       {/* Validação de Quadros Fixos da Semana */}
-      <div className="mt-4">
+      <div className="mt-4 space-y-3">
         <WeekCategoriesAlert posts={posts} />
+        <PlanningReminderBanner />
       </div>
 
       {/* Navigation + View Toggle + Filters */}

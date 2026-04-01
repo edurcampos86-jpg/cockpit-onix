@@ -15,6 +15,7 @@ import {
   ChevronLeft,
   ChevronRight,
   LogOut,
+  Wand2,
 } from "lucide-react";
 import { useState, useTransition } from "react";
 import { cn } from "@/lib/utils";
@@ -25,6 +26,7 @@ const navigation = [
   { name: "Painel", href: "/", icon: LayoutDashboard },
   { name: "Calendário", href: "/calendario", icon: CalendarDays },
   { name: "Roteiros", href: "/roteiros", icon: FileText },
+  { name: "Planejamento", href: "/planejamento", icon: Wand2 },
   { name: "Tarefas", href: "/tarefas", icon: CheckSquare },
   { name: "Leads", href: "/leads", icon: Users },
   { name: "Relatório", href: "/relatorio", icon: BarChart3 },

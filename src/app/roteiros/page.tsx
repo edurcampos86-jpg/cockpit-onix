@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { TemplateList } from "@/components/roteiros/template-list";
 import { ScriptList } from "@/components/roteiros/script-list";
 import { ScriptEditor } from "@/components/roteiros/script-editor";
+import { CreatePostFromScriptDialog } from "@/components/roteiros/create-post-from-script-dialog";
 import { Plus, Search } from "lucide-react";
 import type { PostCategory } from "@/lib/types";
 
@@ -34,6 +35,7 @@ export default function RoteirosPage() {
   const [editingScript, setEditingScript] = useState<ScriptData | null>(null);
   const [creatingFrom, setCreatingFrom] = useState<ScriptData | null>(null);
   const [showEditor, setShowEditor] = useState(false);
+  const [createPostScript, setCreatePostScript] = useState<ScriptData | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -174,9 +176,22 @@ export default function RoteirosPage() {
               onEdit={handleEditScript}
               onDuplicate={handleDuplicate}
               onDelete={handleDelete}
+              onCreatePost={setCreatePostScript}
             />
           </div>
         </div>
+      )}
+
+      {/* Create Post from Script Dialog */}
+      {createPostScript && (
+        <CreatePostFromScriptDialog
+          script={createPostScript}
+          onClose={() => setCreatePostScript(null)}
+          onCreated={() => {
+            setCreatePostScript(null);
+            fetchData();
+          }}
+        />
       )}
     </div>
   );

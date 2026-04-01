@@ -6,6 +6,9 @@ import {
   FORMAT_LABELS,
   CATEGORY_LABELS,
   CTA_LABELS,
+  DAY_CATEGORY_MAP,
+  DAY_FORMAT_MAP,
+  CATEGORY_CTA_MAP,
   type PostFormat,
   type PostCategory,
   type CtaType,
@@ -38,6 +41,29 @@ export function NewPostDialog({ defaultDate, onClose, onCreated }: NewPostDialog
   const [topic, setTopic] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [autoSuggestion, setAutoSuggestion] = useState("");
+
+  // Auto-sugestão de categoria/formato baseado no dia da semana (v4)
+  useEffect(() => {
+    if (scriptId) return; // Não sobrescrever se já tem roteiro vinculado
+    if (!scheduledDate) return;
+    const date = new Date(scheduledDate + "T12:00:00");
+    const dow = date.getDay();
+    const suggestedCategory = DAY_CATEGORY_MAP[dow];
+    const suggestedFormat = DAY_FORMAT_MAP[dow];
+    if (suggestedCategory) {
+      setCategory(suggestedCategory);
+      setCtaType(CATEGORY_CTA_MAP[suggestedCategory]);
+      const catLabel = CATEGORY_LABELS[suggestedCategory];
+      const fmtLabel = suggestedFormat ? FORMAT_LABELS[suggestedFormat] : "";
+      setAutoSuggestion(`Sugerido: ${catLabel}${fmtLabel ? ` (${fmtLabel})` : ""}`);
+    } else {
+      setAutoSuggestion("");
+    }
+    if (suggestedFormat) {
+      setFormat(suggestedFormat);
+    }
+  }, [scheduledDate, scriptId]);
 
   // Carregar roteiros disponíveis (não-template, sem post vinculado)
   useEffect(() => {
@@ -258,6 +284,14 @@ export function NewPostDialog({ defaultDate, onClose, onCreated }: NewPostDialog
               />
             </div>
           </div>
+
+          {/* Auto-suggestion hint */}
+          {autoSuggestion && (
+            <p className="text-[11px] text-primary flex items-center gap-1.5 -mt-1">
+              <span className="inline-block w-2 h-2 rounded-full bg-primary shrink-0" />
+              {autoSuggestion}
+            </p>
+          )}
 
           {/* CTA Type */}
           <div className="space-y-1.5">
