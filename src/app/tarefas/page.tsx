@@ -16,6 +16,7 @@ import {
   LayoutGrid,
   List,
   GripVertical,
+  Pencil,
 } from "lucide-react";
 import { TASK_STATUS_LABELS, CATEGORY_LABELS } from "@/lib/types";
 import type { TaskStatus, TaskPriority } from "@/lib/types";
@@ -69,6 +70,7 @@ export default function TarefasPage() {
   const [filterStatus, setFilterStatus] = useState<TaskStatus | "todos">("todos");
   const [filterPriority, setFilterPriority] = useState<TaskPriority | "todos">("todos");
   const [showNewTask, setShowNewTask] = useState(false);
+  const [editingTask, setEditingTask] = useState<TaskData | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("kanban");
   const [draggingId, setDraggingId] = useState<string | null>(null);
 
@@ -134,6 +136,22 @@ export default function TarefasPage() {
       fetchTasks();
     } catch (error) {
       console.error("Error creating task:", error);
+    }
+  };
+
+  const handleEditTask = async (taskId: string, updates: { title?: string; description?: string | null; priority?: string; dueDate?: string | null; status?: string }) => {
+    setTasks((prev) =>
+      prev.map((t) => (t.id === taskId ? { ...t, ...updates } : t))
+    );
+    try {
+      await fetch(`/api/tasks/${taskId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates),
+      });
+      fetchTasks();
+    } catch {
+      fetchTasks();
     }
   };
 
@@ -315,6 +333,7 @@ export default function TarefasPage() {
                       key={task.id}
                       draggable
                       onDragStart={(e) => handleDragStart(e, task.id)}
+                      onClick={() => setEditingTask(task)}
                       className={`bg-card border border-border rounded-lg p-3 cursor-grab active:cursor-grabbing hover:border-primary/30 transition-colors group ${
                         draggingId === task.id ? "opacity-50" : ""
                       } ${isOverdue(task.dueDate) && task.status !== "concluida" ? "ring-1 ring-red-500/30" : ""}`}
@@ -362,9 +381,13 @@ export default function TarefasPage() {
                       </div>
 
                       {/* Delete */}
-                      <div className="mt-2 pt-2 border-t border-border/50 flex items-center justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="mt-2 pt-2 border-t border-border/50 flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity">
+                        <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                          <Pencil className="h-2.5 w-2.5" />
+                          Clique para editar
+                        </span>
                         <button
-                          onClick={() => handleDelete(task.id)}
+                          onClick={(e) => { e.stopPropagation(); handleDelete(task.id); }}
                           className="text-muted-foreground hover:text-destructive transition-colors"
                           title="Excluir tarefa"
                         >
@@ -396,13 +419,15 @@ export default function TarefasPage() {
             {filteredTasks.map((task) => (
               <div
                 key={task.id}
-                className={`bg-card border border-border rounded-xl p-4 flex items-center gap-4 group hover:border-primary/30 transition-colors ${
+                onClick={() => setEditingTask(task)}
+                className={`bg-card border border-border rounded-xl p-4 flex items-center gap-4 group hover:border-primary/30 transition-colors cursor-pointer ${
                   task.status === "concluida" ? "opacity-60" : ""
                 }`}
               >
                 {/* Status toggle */}
                 <button
-                  onClick={() => {
+                  onClick={(e) => {
+                    e.stopPropagation();
                     const nextStatus =
                       task.status === "pendente"
                         ? "em_progresso"
@@ -470,7 +495,7 @@ export default function TarefasPage() {
 
                 {/* Delete */}
                 <button
-                  onClick={() => handleDelete(task.id)}
+                  onClick={(e) => { e.stopPropagation(); handleDelete(task.id); }}
                   className="shrink-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"
                   title="Excluir tarefa"
                 >
@@ -487,6 +512,26 @@ export default function TarefasPage() {
         <NewTaskDialog
           onClose={() => setShowNewTask(false)}
           onSubmit={handleCreateTask}
+        />
+      )}
+
+      {/* Edit Task Dialog */}
+      {editingTask && (
+        <EditTaskDialog
+          task={editingTask}
+          onClose={() => setEditingTask(null)}
+          onSave={(updates) => {
+            handleEditTask(editingTask.id, updates);
+            setEditingTask(null);
+          }}
+          onDelete={() => {
+            handleDelete(editingTask.id);
+            setEditingTask(null);
+          }}
+          onStatusChange={(newStatus) => {
+            handleStatusChange(editingTask.id, newStatus);
+            setEditingTask((prev) => prev ? { ...prev, status: newStatus } : null);
+          }}
         />
       )}
     </div>
@@ -588,6 +633,203 @@ function NewTaskDialog({
               className="px-4 py-2.5 bg-primary text-primary-foreground font-medium rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50 text-sm"
             >
               {submitting ? "Criando..." : "Criar Tarefa"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function EditTaskDialog({
+  task,
+  onClose,
+  onSave,
+  onDelete,
+  onStatusChange,
+}: {
+  task: TaskData;
+  onClose: () => void;
+  onSave: (updates: { title?: string; description?: string | null; priority?: string; dueDate?: string | null }) => void;
+  onDelete: () => void;
+  onStatusChange: (newStatus: string) => void;
+}) {
+  const [title, setTitle] = useState(task.title);
+  const [description, setDescription] = useState(task.description || "");
+  const [priority, setPriority] = useState(task.priority);
+  const [dueDate, setDueDate] = useState(
+    task.dueDate ? new Date(task.dueDate).toISOString().split("T")[0] : ""
+  );
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const STATUS_FLOW: { key: TaskStatus; label: string; color: string }[] = [
+    { key: "pendente", label: "Pendente", color: "bg-zinc-600" },
+    { key: "em_progresso", label: "Em Progresso", color: "bg-blue-600" },
+    { key: "concluida", label: "Concluída", color: "bg-emerald-600" },
+  ];
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSave({
+      title: title.trim(),
+      description: description.trim() || null,
+      priority,
+      dueDate: dueDate ? new Date(dueDate + "T12:00:00").toISOString() : null,
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div
+        className="bg-card border border-border rounded-xl w-full max-w-lg mx-4 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <div className="flex items-center gap-2">
+            <Pencil className="h-4 w-4 text-primary" />
+            <h2 className="text-lg font-semibold text-foreground">Editar Tarefa</h2>
+          </div>
+          <div className="flex items-center gap-2">
+            {!confirmDelete ? (
+              <button
+                onClick={() => setConfirmDelete(true)}
+                className="p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+                title="Excluir tarefa"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            ) : (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={onDelete}
+                  className="px-3 py-1 text-xs font-medium rounded-md bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  Confirmar
+                </button>
+                <button
+                  onClick={() => setConfirmDelete(false)}
+                  className="px-3 py-1 text-xs font-medium rounded-md bg-accent text-accent-foreground"
+                >
+                  Cancelar
+                </button>
+              </div>
+            )}
+            <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-xl">
+              &times;
+            </button>
+          </div>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {/* Status Pipeline */}
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 block">
+              Status
+            </label>
+            <div className="flex gap-1">
+              {STATUS_FLOW.map((s) => (
+                <button
+                  key={s.key}
+                  type="button"
+                  onClick={() => onStatusChange(s.key)}
+                  className={`flex-1 py-1.5 text-[11px] font-medium rounded-md transition-all ${
+                    s.key === task.status
+                      ? `${s.color} text-white`
+                      : "bg-accent/50 text-muted-foreground hover:bg-accent"
+                  }`}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Title */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-foreground">Título *</label>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              required
+              className="w-full px-3 py-2 bg-background border border-input rounded-lg text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+            />
+          </div>
+
+          {/* Description */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-foreground">Descrição</label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={3}
+              className="w-full px-3 py-2 bg-background border border-input rounded-lg text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
+              placeholder="Detalhes da tarefa..."
+            />
+          </div>
+
+          {/* Priority + Due Date */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Prioridade</label>
+              <select
+                value={priority}
+                onChange={(e) => setPriority(e.target.value)}
+                className="w-full px-3 py-2 text-sm rounded-lg bg-background border border-input text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+              >
+                <option value="urgente">Urgente</option>
+                <option value="alta">Alta</option>
+                <option value="media">Média</option>
+                <option value="baixa">Baixa</option>
+              </select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Prazo</label>
+              <input
+                type="date"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+                className="w-full px-3 py-2 text-sm rounded-lg bg-background border border-input text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+              />
+            </div>
+          </div>
+
+          {/* Linked Post Info */}
+          {task.post && (
+            <div className="bg-primary/5 border border-primary/20 rounded-lg p-3">
+              <p className="text-[11px] font-semibold text-primary uppercase mb-1">Post vinculado</p>
+              <p className="text-sm text-foreground">{task.post.title}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {CATEGORY_LABELS[task.post.category as keyof typeof CATEGORY_LABELS] ?? task.post.category}
+              </p>
+            </div>
+          )}
+
+          {/* Meta */}
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <span className="flex items-center gap-1">
+              <User className="h-3 w-3" />
+              {task.assignee.name}
+            </span>
+            <span>
+              Criada em {new Date(task.createdAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" })}
+            </span>
+          </div>
+
+          {/* Actions */}
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              disabled={!title.trim()}
+              className="px-4 py-2.5 bg-primary text-primary-foreground font-medium rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50 text-sm"
+            >
+              Salvar Alterações
             </button>
           </div>
         </form>
