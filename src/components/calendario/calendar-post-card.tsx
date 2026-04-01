@@ -7,9 +7,13 @@ import {
   STATUS_LABELS,
   FORMAT_LABELS,
   CTA_LABELS,
+  CATEGORY_PILAR_MAP,
+  PILAR_LABELS,
   type PostStatus,
   type PostFormat,
+  type PostCategory,
   type CtaType,
+  type PilarEditorial,
 } from "@/lib/types";
 import { Maximize2, FileText, CheckCircle2 } from "lucide-react";
 import type { CalendarPost } from "@/app/calendario/page";
@@ -72,8 +76,17 @@ export function CalendarPostCard({ post, onStatusChange, onPostClick }: Calendar
   const status = post.status as PostStatus;
   const format = post.format as PostFormat;
   const isExplicitCta = post.ctaType === "explicito";
+  const isAlgoCta = post.ctaType === "algoritmo";
+  const pilar = CATEGORY_PILAR_MAP[post.category as PostCategory];
   const totalTasks = post.tasks?.length ?? 0;
   const completedTasks = post.tasks?.filter((t) => t.status === "concluida").length ?? 0;
+
+  const PILAR_BADGE_COLORS: Record<PilarEditorial, string> = {
+    P1: "bg-blue-500/20 text-blue-400",
+    P2: "bg-amber-500/20 text-amber-400",
+    P3: "bg-red-500/20 text-red-400",
+    P4: "bg-emerald-500/20 text-emerald-400",
+  };
 
   // Build rich title with script preview
   const buildTitle = () => {
@@ -113,6 +126,11 @@ export function CalendarPostCard({ post, onStatusChange, onPostClick }: Calendar
       >
         <div className="flex items-center gap-1 mb-0.5">
           <span>{FORMAT_ICONS[post.format] || "📝"}</span>
+          {pilar && (
+            <span className={cn("px-1 py-px rounded text-[8px] font-bold", PILAR_BADGE_COLORS[pilar])}>
+              {pilar}
+            </span>
+          )}
           {post.scheduledTime && (
             <span className="text-muted-foreground">{post.scheduledTime}</span>
           )}
@@ -134,6 +152,11 @@ export function CalendarPostCard({ post, onStatusChange, onPostClick }: Calendar
           {isExplicitCta && (
             <span className="ml-auto shrink-0 px-1 py-px rounded bg-red-500/20 text-red-400 font-semibold">
               CTA!
+            </span>
+          )}
+          {isAlgoCta && (
+            <span className="ml-auto shrink-0 px-1 py-px rounded bg-violet-500/20 text-violet-400 font-semibold">
+              📌
             </span>
           )}
           {onPostClick && (

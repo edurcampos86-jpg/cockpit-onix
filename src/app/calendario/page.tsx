@@ -11,6 +11,9 @@ import { PostDetailSheet } from "@/components/calendario/post-detail-sheet";
 import { WeekCategoriesAlert } from "@/components/calendario/week-categories-alert";
 import { PlanningReminderBanner } from "@/components/dashboard/planning-reminder-banner";
 import { CtaWeeklyAlert } from "@/components/calendario/cta-weekly-alert";
+import { PilarDistribution } from "@/components/calendario/pilar-distribution";
+import { FillWeekButton } from "@/components/calendario/fill-week-button";
+import { MonthlyCoverageScore } from "@/components/calendario/monthly-coverage-score";
 import { ChevronLeft, ChevronRight, Plus, CalendarDays, LayoutGrid } from "lucide-react";
 import type { PostFormat, PostStatus } from "@/lib/types";
 
@@ -172,28 +175,46 @@ export default function CalendarioPage() {
           title="Calendário Editorial"
           description="Planeje e visualize seus posts do mês"
         />
-        <button
-          onClick={() => {
-            setNewPostDate(new Date().toISOString().split("T")[0]);
-            setShowNewPost(true);
-          }}
-          className="flex items-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground font-medium rounded-lg hover:bg-primary/90 transition-colors text-sm self-start"
-        >
-          <Plus className="h-4 w-4" />
-          Novo Post
-        </button>
+        <div className="flex items-center gap-2 self-start">
+          <FillWeekButton
+            currentDate={currentDate}
+            existingCategories={posts.map((p) => p.category)}
+            onFilled={fetchPosts}
+          />
+          <button
+            onClick={() => {
+              setNewPostDate(new Date().toISOString().split("T")[0]);
+              setShowNewPost(true);
+            }}
+            className="flex items-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground font-medium rounded-lg hover:bg-primary/90 transition-colors text-sm"
+          >
+            <Plus className="h-4 w-4" />
+            Novo Post
+          </button>
+        </div>
       </div>
 
       {/* Stats */}
       <CalendarStats posts={posts} />
 
-      {/* Validação de Quadros Fixos da Semana + CTA 80/20 */}
-      <div className="mt-4 space-y-3">
+      {/* Validações editoriais */}
+      <div className="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-3">
         <WeekCategoriesAlert posts={posts} />
+        <PilarDistribution posts={posts} />
         <CtaWeeklyAlert
           totalPosts={posts.length}
           explicitCtaCount={posts.filter((p) => p.ctaType === "explicito").length}
         />
+      </div>
+
+      {/* Score mensal (só na visão mensal) */}
+      {view === "month" && (
+        <div className="mt-3">
+          <MonthlyCoverageScore posts={posts} year={year} month={month} />
+        </div>
+      )}
+
+      <div className="mt-3">
         <PlanningReminderBanner />
       </div>
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { X, FileText, Sparkles } from "lucide-react";
+import { X, FileText, Sparkles, Lightbulb, RefreshCw } from "lucide-react";
 import {
   FORMAT_LABELS,
   CATEGORY_LABELS,
@@ -9,6 +9,9 @@ import {
   DAY_CATEGORY_MAP,
   DAY_FORMAT_MAP,
   CATEGORY_CTA_MAP,
+  CATEGORY_PILAR_MAP,
+  PILAR_LABELS,
+  HOOK_BANK,
   type PostFormat,
   type PostCategory,
   type CtaType,
@@ -42,6 +45,7 @@ export function NewPostDialog({ defaultDate, onClose, onCreated }: NewPostDialog
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [autoSuggestion, setAutoSuggestion] = useState("");
+  const [suggestedHook, setSuggestedHook] = useState("");
 
   // Auto-sugestão de categoria/formato baseado no dia da semana (v4)
   useEffect(() => {
@@ -285,13 +289,62 @@ export function NewPostDialog({ defaultDate, onClose, onCreated }: NewPostDialog
             </div>
           </div>
 
-          {/* Auto-suggestion hint */}
+          {/* Auto-suggestion hint + Pilar */}
           {autoSuggestion && (
-            <p className="text-[11px] text-primary flex items-center gap-1.5 -mt-1">
-              <span className="inline-block w-2 h-2 rounded-full bg-primary shrink-0" />
-              {autoSuggestion}
-            </p>
+            <div className="space-y-1 -mt-1">
+              <p className="text-[11px] text-primary flex items-center gap-1.5">
+                <span className="inline-block w-2 h-2 rounded-full bg-primary shrink-0" />
+                {autoSuggestion}
+              </p>
+              {CATEGORY_PILAR_MAP[category] && (
+                <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                  <span className="inline-block w-2 h-2 rounded-full bg-blue-500 shrink-0" />
+                  Pilar: {CATEGORY_PILAR_MAP[category]} — {PILAR_LABELS[CATEGORY_PILAR_MAP[category]]}
+                </p>
+              )}
+            </div>
           )}
+
+          {/* Sugestão de Hook (Framework PARE) */}
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium text-foreground flex items-center gap-1.5">
+              <Lightbulb className="h-3.5 w-3.5 text-amber-400" />
+              Hook sugerido (Regra dos 3s)
+            </label>
+            <div className="flex items-center gap-2">
+              <div className="flex-1 px-3 py-2 bg-background border border-input rounded-lg text-sm text-muted-foreground min-h-[36px]">
+                {suggestedHook || (
+                  <span className="text-muted-foreground/50">Clique em gerar para sugestão de hook</span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const hooks = HOOK_BANK[category] || [];
+                  if (hooks.length > 0) {
+                    const randomHook = hooks[Math.floor(Math.random() * hooks.length)];
+                    setSuggestedHook(randomHook);
+                  }
+                }}
+                className="shrink-0 p-2 rounded-lg border border-input hover:bg-primary/10 hover:border-primary/30 text-muted-foreground hover:text-primary transition-colors"
+                title="Gerar hook aleatório"
+              >
+                <RefreshCw className="h-4 w-4" />
+              </button>
+            </div>
+            {suggestedHook && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (!title) setTitle(suggestedHook);
+                  else setTitle(title + " — " + suggestedHook);
+                }}
+                className="text-[11px] text-primary hover:underline"
+              >
+                Usar como título →
+              </button>
+            )}
+          </div>
 
           {/* CTA Type */}
           <div className="space-y-1.5">
