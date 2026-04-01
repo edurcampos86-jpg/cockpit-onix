@@ -7,6 +7,7 @@ import { TodayPanel } from "@/components/dashboard/today-panel";
 import { StatsCards } from "@/components/dashboard/stats-cards";
 import { WeekCategoriesAlert } from "@/components/calendario/week-categories-alert";
 import { PlanningReminderBanner } from "@/components/dashboard/planning-reminder-banner";
+import { OverdueTasksBanner } from "@/components/dashboard/overdue-tasks-banner";
 
 export default async function DashboardPage() {
   const now = new Date();
@@ -23,7 +24,7 @@ export default async function DashboardPage() {
   const todayEnd = new Date(now);
   todayEnd.setHours(23, 59, 59, 999);
 
-  const [weekPosts, todayTasks, pendingTasksCount] = await Promise.all([
+  const [weekPosts, todayTasks, pendingTasksCount, overdueTasks] = await Promise.all([
     prisma.post.findMany({
       where: { scheduledDate: { gte: startOfWeek, lte: endOfWeek } },
       include: { author: { select: { name: true } }, tasks: true },
@@ -35,6 +36,14 @@ export default async function DashboardPage() {
       orderBy: [{ status: "asc" }, { dueDate: "asc" }],
     }),
     prisma.task.count({ where: { status: { not: "concluida" } } }),
+    prisma.task.findMany({
+      where: {
+        status: { not: "concluida" },
+        dueDate: { lt: todayStart },
+      },
+      include: { assignee: { select: { name: true } }, post: { select: { title: true, category: true } } },
+      orderBy: { dueDate: "asc" },
+    }),
   ]);
 
   const weekPostStats = {
@@ -60,6 +69,9 @@ export default async function DashboardPage() {
           todayTasksCount={todayTasks.length}
           todayCompletedCount={todayTasks.filter((t) => t.status === "concluida").length}
         />
+
+        {/* Alerta de Tarefas Atrasadas */}
+        <OverdueTasksBanner tasks={JSON.parse(JSON.stringify(overdueTasks))} />
 
         {/* Alerta de Quadros Fixos */}
         <WeekCategoriesAlert
