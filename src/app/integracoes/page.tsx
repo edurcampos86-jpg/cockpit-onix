@@ -123,6 +123,11 @@ const STATUS_BADGE: Record<string, { label: string; class: string; icon: React.R
     class: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
     icon: <CheckCircle2 className="h-3.5 w-3.5" />,
   },
+  pending_auth: {
+    label: "Aguardando autorização",
+    class: "bg-amber-500/10 text-amber-400 border-amber-500/20",
+    icon: <Key className="h-3.5 w-3.5" />,
+  },
   disconnected: {
     label: "Não conectado",
     class: "bg-zinc-500/10 text-zinc-400 border-zinc-500/20",
@@ -140,19 +145,28 @@ export default function IntegracoesPage() {
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [statusMap, setStatusMap] = useState<Record<string, string>>({});
+  const [maskedKeys, setMaskedKeys] = useState<Record<string, string>>({});
   const [actionResult, setActionResult] = useState<{ id: string; msg: string; ok: boolean } | null>(null);
 
-  // Carregar status das integrações
+  const refreshStatus = async () => {
+    try {
+      const res = await fetch("/api/integracoes/status");
+      const data = await res.json();
+      const map: Record<string, string> = {};
+      for (const [key, val] of Object.entries(data)) {
+        map[key] = (val as { status: string }).status;
+      }
+      setStatusMap(map);
+    } catch { /* ignore */ }
+  };
+
+  // Carregar status das integrações e chaves mascaradas
   useEffect(() => {
-    fetch("/api/integracoes/status")
+    refreshStatus();
+    // Carregar chaves mascaradas para mostrar quais já estão configuradas
+    fetch("/api/integracoes/config")
       .then((r) => r.json())
-      .then((data) => {
-        const map: Record<string, string> = {};
-        for (const [key, val] of Object.entries(data)) {
-          map[key] = (val as { status: string }).status;
-        }
-        setStatusMap(map);
-      })
+      .then((data: Record<string, string>) => setMaskedKeys(data))
       .catch(() => {});
   }, []);
 
@@ -166,14 +180,13 @@ export default function IntegracoesPage() {
         body: JSON.stringify({ key: envKey, value: apiKeys[integrationId] }),
       });
       setActionResult({ id: integrationId, msg: "Chave salva com sucesso!", ok: true });
-      // Atualizar status
-      const res = await fetch("/api/integracoes/status");
-      const data = await res.json();
-      const map: Record<string, string> = {};
-      for (const [key, val] of Object.entries(data)) {
-        map[key] = (val as { status: string }).status;
-      }
-      setStatusMap(map);
+      // Atualizar status e chaves mascaradas
+      await refreshStatus();
+      const configRes = await fetch("/api/integracoes/config");
+      const configData = await configRes.json();
+      setMaskedKeys(configData);
+      // Limpar campo de input após salvar
+      setApiKeys((prev) => ({ ...prev, [integrationId]: "" }));
     } catch {
       setActionResult({ id: integrationId, msg: "Erro ao salvar", ok: false });
     } finally {
@@ -224,7 +237,9 @@ export default function IntegracoesPage() {
 
       <div className="mt-8 space-y-4">
         {INTEGRATIONS.map((integration) => {
-          const badge = STATUS_BADGE[integration.status];
+          // Usar status da API se disponível, senão o default hardcoded
+          const liveStatus = statusMap[integration.id] || integration.status;
+          const badge = STATUS_BADGE[liveStatus] || STATUS_BADGE[integration.status];
           const isExpanded = expandedId === integration.id;
 
           return (
@@ -269,7 +284,7 @@ export default function IntegracoesPage() {
                     <div>
                       <h4 className="text-sm font-semibold text-foreground mb-3">Configuração</h4>
 
-                      {integration.status === "coming_soon" ? (
+                      {liveStatus === "coming_soon" ? (
                         <div className="bg-card border border-border rounded-lg p-4 text-center">
                           <Bot className="h-8 w-8 text-primary/50 mx-auto mb-2" />
                           <p className="text-sm text-muted-foreground">
@@ -278,6 +293,15 @@ export default function IntegracoesPage() {
                         </div>
                       ) : integration.envKey ? (
                         <div className="space-y-3">
+                          {/* Indicador de chave já configurada */}
+                          {maskedKeys[integration.envKey] && (
+                            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/5 border border-emerald-500/15">
+                              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                              <span className="text-xs text-emerald-400 font-medium">
+                                Chave configurada: {maskedKeys[integration.envKey]}
+                              </span>
+                            </div>
+                          )}
                           <div className="space-y-1.5">
                             <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
                               <Key className="h-3 w-3" />
@@ -289,7 +313,7 @@ export default function IntegracoesPage() {
                               onChange={(e) =>
                                 setApiKeys((prev) => ({ ...prev, [integration.id]: e.target.value }))
                               }
-                              placeholder="Cole sua API key aqui..."
+                              placeholder={maskedKeys[integration.envKey] ? "Substituir chave existente..." : "Cole sua API key aqui..."}
                               className="w-full px-3 py-2 bg-background border border-input rounded-lg text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
                             />
                           </div>
@@ -299,8 +323,9 @@ export default function IntegracoesPage() {
                               disabled={saving || !apiKeys[integration.id]}
                               className="px-4 py-2 bg-primary text-primary-foreground text-sm font-medium rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
                             >
-                              {saving ? "Salvando..." : "Salvar Chave"}
+                              {saving ? "Salvando..." : maskedKeys[integration.envKey!] ? "Atualizar Chave" : "Salvar Chave"}
                             </button>
+                            {/* ManyChat: Testar + Sincronizar */}
                             {integration.id === "manychat" && statusMap.manychat === "connected" && (
                               <>
                                 <button
@@ -317,6 +342,22 @@ export default function IntegracoesPage() {
                                 </button>
                               </>
                             )}
+                            {/* Claude AI: Testar */}
+                            {integration.id === "claude_ai" && statusMap.claude_ai === "connected" && (
+                              <button
+                                onClick={() => handleTest("claude_ai", "/api/integracoes/ai")}
+                                className="px-3 py-2 text-sm font-medium rounded-lg border border-border text-foreground hover:bg-accent transition-colors"
+                              >
+                                Testar Conexão
+                              </button>
+                            )}
+                            {/* Zapier: Testar webhook */}
+                            {integration.id === "zapier_plaud" && statusMap.zapier_plaud === "connected" && (
+                              <span className="text-xs text-muted-foreground italic">
+                                Webhook ativo — aguardando dados do Zapier
+                              </span>
+                            )}
+                            {/* Outlook: Autorizar / Sincronizar */}
                             {integration.id === "outlook" && statusMap.outlook !== "connected" && (statusMap.outlook === "pending_auth" || apiKeys.outlook) && (
                               <button
                                 onClick={handleOutlookAuth}
