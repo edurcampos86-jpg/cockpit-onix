@@ -3,19 +3,50 @@ import path from "path";
 
 const CONFIG_PATH = path.resolve(process.cwd(), ".integrations.json");
 
+/**
+ * Retorna config mesclando: variáveis de ambiente (Railway) + .integrations.json (local/UI)
+ * Prioridade: .integrations.json sobrescreve env vars (permite atualizar via UI)
+ */
 export async function getIntegrationConfig(): Promise<Record<string, string>> {
+  // Base: variáveis de ambiente relevantes (Railway, Vercel, etc.)
+  const envKeys = [
+    "MANYCHAT_API_TOKEN",
+    "ANTHROPIC_API_KEY",
+    "ZAPIER_WEBHOOK_SECRET",
+    "MICROSOFT_CLIENT_ID",
+    "MICROSOFT_CLIENT_SECRET",
+    "MICROSOFT_TENANT_ID",
+    "MICROSOFT_REFRESH_TOKEN",
+    "META_ACCESS_TOKEN",
+  ];
+  const config: Record<string, string> = {};
+  for (const key of envKeys) {
+    if (process.env[key]) {
+      config[key] = process.env[key]!;
+    }
+  }
+
+  // Sobrescrever com valores do .integrations.json (salvos via UI)
   try {
     if (fs.existsSync(CONFIG_PATH)) {
-      return JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8"));
+      const fileConfig = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8"));
+      Object.assign(config, fileConfig);
     }
   } catch { /* ignore */ }
-  return {};
+
+  return config;
 }
 
 export async function setIntegrationConfig(key: string, value: string): Promise<void> {
-  const config = await getIntegrationConfig();
-  config[key] = value;
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+  // Ler apenas o arquivo (não mesclar com env, para não persistir env vars no arquivo)
+  let fileConfig: Record<string, string> = {};
+  try {
+    if (fs.existsSync(CONFIG_PATH)) {
+      fileConfig = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8"));
+    }
+  } catch { /* ignore */ }
+  fileConfig[key] = value;
+  fs.writeFileSync(CONFIG_PATH, JSON.stringify(fileConfig, null, 2));
 }
 
 export async function isConfigured(key: string): Promise<boolean> {
