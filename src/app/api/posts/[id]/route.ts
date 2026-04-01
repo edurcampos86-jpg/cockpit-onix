@@ -48,13 +48,49 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const post = await prisma.post.update({
     where: { id },
     data: body,
-    include: { author: { select: { name: true } } },
+    include: { author: { select: { name: true } }, tasks: true },
   });
+
+  // Auto-completar tarefas do pipeline quando status avança
+  if (body.status) {
+    const statusToTaskType: Record<string, string[]> = {
+      roteiro_pronto: ["roteiro"],
+      gravado: ["roteiro", "gravacao"],
+      editado: ["roteiro", "gravacao", "edicao"],
+      agendado: ["roteiro", "gravacao", "edicao"],
+      publicado: ["roteiro", "gravacao", "edicao", "publicacao"],
+    };
+
+    const typesToComplete = statusToTaskType[body.status];
+    if (typesToComplete) {
+      await prisma.task.updateMany({
+        where: {
+          postId: id,
+          type: { in: typesToComplete },
+          status: { not: "concluida" },
+        },
+        data: { status: "concluida", completedAt: new Date() },
+      });
+    }
+  }
+
   return NextResponse.json(post);
 }
 
 export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+
+  // Deletar tarefas vinculadas antes do post (evita erro de FK)
+  await prisma.task.deleteMany({ where: { postId: id } });
+
+  // Desvincular roteiro (se houver) sem deletá-lo
+  await prisma.post.update({
+    where: { id },
+    data: { scriptId: null },
+  }).catch(() => {
+    // Post pode já não existir — ignora
+  });
+
   await prisma.post.delete({ where: { id } });
   return NextResponse.json({ success: true });
 }
