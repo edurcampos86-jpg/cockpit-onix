@@ -71,9 +71,9 @@ export async function getSubscribers(): Promise<{ data: ManyChatSubscriber[] }> 
     "10 mil", "50 mil", "100 mil", "500 mil", "1 milhão",
   ];
 
-  // Buscar por custom fields mais prováveis de retornar leads
+  // Buscar por todos os custom fields relevantes
   const searchPromises: Promise<void>[] = [];
-  for (const fieldId of [14219029, 14218991, 14294422]) {
+  for (const fieldId of customFieldIds) {
     for (const value of fieldValues) {
       searchPromises.push(
         findByCustomField(fieldId, value)
