@@ -22,7 +22,14 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const origin = request.nextUrl.origin;
+    // Em produção (Railway), request.nextUrl.origin retorna localhost
+    const forwardedHost = request.headers.get("x-forwarded-host");
+    const forwardedProto = request.headers.get("x-forwarded-proto") || "https";
+    const origin = forwardedHost
+      ? `${forwardedProto}://${forwardedHost}`
+      : (process.env.RAILWAY_PUBLIC_DOMAIN
+        ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+        : request.nextUrl.origin);
     const redirectUri = `${origin}/api/integracoes/outlook/callback`;
     await exchangeCodeForTokens(code, redirectUri);
 

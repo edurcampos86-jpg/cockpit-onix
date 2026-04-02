@@ -19,7 +19,15 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const origin = request.nextUrl.origin;
+    // Em produção (Railway), request.nextUrl.origin retorna localhost
+    // Usar x-forwarded-host ou RAILWAY_PUBLIC_DOMAIN para obter a URL real
+    const forwardedHost = request.headers.get("x-forwarded-host");
+    const forwardedProto = request.headers.get("x-forwarded-proto") || "https";
+    const origin = forwardedHost
+      ? `${forwardedProto}://${forwardedHost}`
+      : (process.env.RAILWAY_PUBLIC_DOMAIN
+        ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+        : request.nextUrl.origin);
     const redirectUri = `${origin}/api/integracoes/outlook/callback`;
     const authUrl = getAuthUrl(redirectUri, clientId, tenantId);
 

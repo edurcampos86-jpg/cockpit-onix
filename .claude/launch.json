@@ -4,7 +4,7 @@
     {
       "name": "cockpit-onix",
       "runtimeExecutable": "bash",
-      "runtimeArgs": ["-c", "cd '/Users/eduardorodrigues/Library/Mobile Documents/com~apple~CloudDocs/Onic Co/PROJETOS CORPORATIVOS/Redes Sociais/cockpit-onix' && npm run dev -- --port 3333"],
+      "runtimeArgs": ["-c", "cd '/Users/eduardorodrigues/Library/Mobile Documents/com~apple~CloudDocs/Onix Co/PROJETOS CORPORATIVOS/Redes Sociais/cockpit-onix' && npm run dev -- --port 3333"],
       "port": 3333,
       "env": {
         "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
