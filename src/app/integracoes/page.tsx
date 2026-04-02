@@ -86,18 +86,18 @@ const INTEGRATIONS: IntegrationConfig[] = [
     ],
   },
   {
-    id: "outlook",
-    name: "Outlook / Microsoft 365",
-    description: "Sincronizar agenda do Outlook com programação de postagem e reuniões",
+    id: "google_calendar",
+    name: "Google Calendar",
+    description: "Sincronizar programação de postagens com o Google Calendar automaticamente",
     icon: <Calendar className="h-6 w-6" />,
     status: "disconnected",
-    envKey: "MICROSOFT_CLIENT_ID",
-    docsUrl: "https://learn.microsoft.com/en-us/graph/api/resources/calendar-api-overview",
+    envKey: "GOOGLE_CLIENT_ID",
+    docsUrl: "https://console.cloud.google.com/apis/credentials",
     features: [
-      "Sincronizar eventos da agenda automaticamente",
-      "Bloquear horários de gravação no calendário",
-      "Agendar reuniões com leads diretamente",
-      "Atualizar KPI de reuniões no dashboard",
+      "Criar eventos automaticamente ao agendar posts",
+      "Atualizar eventos ao mudar data/hora da publicação",
+      "Remover eventos ao excluir posts",
+      "Sincronizar posts existentes com um clique",
     ],
   },
   {
@@ -216,15 +216,15 @@ export default function IntegracoesPage() {
     }
   };
 
-  const handleOutlookAuth = async () => {
+  const handleGoogleAuth = async () => {
     try {
-      const res = await fetch("/api/integracoes/outlook/auth");
+      const res = await fetch("/api/integracoes/google/auth");
       const data = await res.json();
       if (data.authUrl) {
         window.open(data.authUrl, "_blank");
       }
     } catch {
-      setActionResult({ id: "outlook", msg: "Erro ao iniciar autenticação", ok: false });
+      setActionResult({ id: "google_calendar", msg: "Erro ao iniciar autenticação", ok: false });
     }
   };
 
@@ -357,22 +357,30 @@ export default function IntegracoesPage() {
                                 Webhook ativo — aguardando dados do Zapier
                               </span>
                             )}
-                            {/* Outlook: Autorizar / Sincronizar */}
-                            {integration.id === "outlook" && statusMap.outlook !== "connected" && (statusMap.outlook === "pending_auth" || apiKeys.outlook) && (
+                            {/* Google Calendar: Autorizar / Testar / Sincronizar */}
+                            {integration.id === "google_calendar" && statusMap.google_calendar !== "connected" && (statusMap.google_calendar === "pending_auth" || apiKeys.google_calendar) && (
                               <button
-                                onClick={handleOutlookAuth}
+                                onClick={handleGoogleAuth}
                                 className="px-3 py-2 text-sm font-medium rounded-lg border border-blue-500/30 text-blue-400 hover:bg-blue-500/10 transition-colors"
                               >
-                                Autorizar Outlook
+                                Autorizar Google
                               </button>
                             )}
-                            {integration.id === "outlook" && statusMap.outlook === "connected" && (
-                              <button
-                                onClick={() => handleSync("outlook", "/api/integracoes/outlook/sync")}
-                                className="px-3 py-2 text-sm font-medium rounded-lg border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 transition-colors"
-                              >
-                                Sincronizar Agenda
-                              </button>
+                            {integration.id === "google_calendar" && statusMap.google_calendar === "connected" && (
+                              <>
+                                <button
+                                  onClick={() => handleTest("google_calendar", "/api/integracoes/google/test")}
+                                  className="px-3 py-2 text-sm font-medium rounded-lg border border-border text-foreground hover:bg-accent transition-colors"
+                                >
+                                  Testar
+                                </button>
+                                <button
+                                  onClick={() => handleSync("google_calendar", "/api/integracoes/google/sync")}
+                                  className="px-3 py-2 text-sm font-medium rounded-lg border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+                                >
+                                  Sincronizar Posts
+                                </button>
+                              </>
                             )}
                             {integration.docsUrl && (
                               <a
@@ -415,10 +423,10 @@ export default function IntegracoesPage() {
             {[
               { title: "Lead quente → Notificação instantânea", desc: "ManyChat detecta lead quente → push notification no celular + card no pipeline", tools: "ManyChat + Cockpit" },
               { title: "Post publicado → CTA automático", desc: "Publicação via Meta API → ManyChat ativa resposta automática nos comentários", tools: "Meta API + ManyChat" },
-              { title: "Reunião agendada → Atualizar KPI", desc: "Evento criado no Outlook → Incrementar contador de reuniões no dashboard", tools: "Outlook + Cockpit" },
+              { title: "Post agendado → Evento no calendário", desc: "Post criado no Cockpit → Evento automático no Google Calendar com horário de publicação", tools: "Google Calendar + Cockpit" },
               { title: "Performance acima da média → Impulsionar", desc: "Reel com engajamento acima de 2% → alerta para impulsionar com tráfego pago", tools: "Meta API + Cockpit" },
               { title: "Cross-sell 30 dias → Alerta automático", desc: "Cliente completa 30 dias → Manus sugere abordagem de seguro de vida ou consórcio", tools: "Manus + Cockpit" },
-              { title: "Agenda do dia → Bloquear horário de gravação", desc: "Sync automático entre calendário editorial e Outlook para reservar horários", tools: "Outlook + Cockpit" },
+              { title: "Agenda do dia → Bloquear horário de gravação", desc: "Sync automático entre calendário editorial e Google Calendar para reservar horários", tools: "Google Calendar + Cockpit" },
             ].map((auto, i) => (
               <div key={i} className="bg-card border border-border rounded-lg p-3">
                 <p className="text-sm font-medium text-foreground">{auto.title}</p>

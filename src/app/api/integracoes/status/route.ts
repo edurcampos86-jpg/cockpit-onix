@@ -6,13 +6,13 @@ import { isConfigured } from "@/lib/integrations/config";
  * Retorna o status de configuração de cada integração
  */
 export async function GET() {
-  const [manychat, claudeAi, zapierSecret, outlookClient, outlookSecret, outlookRefresh, metaToken] = await Promise.all([
+  const [manychat, claudeAi, zapierSecret, googleClient, googleSecret, googleRefresh, metaToken] = await Promise.all([
     isConfigured("MANYCHAT_API_TOKEN"),
     isConfigured("ANTHROPIC_API_KEY"),
     isConfigured("ZAPIER_WEBHOOK_SECRET"),
-    isConfigured("MICROSOFT_CLIENT_ID"),
-    isConfigured("MICROSOFT_CLIENT_SECRET"),
-    isConfigured("MICROSOFT_REFRESH_TOKEN"),
+    isConfigured("GOOGLE_CLIENT_ID"),
+    isConfigured("GOOGLE_CLIENT_SECRET"),
+    isConfigured("GOOGLE_REFRESH_TOKEN"),
     isConfigured("META_ACCESS_TOKEN"),
   ]);
 
@@ -29,10 +29,10 @@ export async function GET() {
       configured: zapierSecret,
       status: zapierSecret ? "connected" : "disconnected",
     },
-    outlook: {
-      configured: outlookClient && outlookSecret,
-      authenticated: outlookRefresh,
-      status: outlookRefresh ? "connected" : outlookClient ? "pending_auth" : "disconnected",
+    google_calendar: {
+      configured: googleClient && googleSecret,
+      authenticated: googleRefresh,
+      status: googleRefresh ? "connected" : (googleClient && googleSecret) ? "pending_auth" : "disconnected",
     },
     meta: {
       configured: metaToken,

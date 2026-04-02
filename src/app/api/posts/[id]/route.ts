@@ -74,11 +74,48 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     }
   }
 
+  // Sincronizar com Google Calendar se data/hora/status mudou
+  if (body.scheduledDate || body.scheduledTime || body.status || body.title) {
+    try {
+      const { syncPostToCalendar } = await import("@/lib/integrations/google-calendar");
+      const eventId = await syncPostToCalendar({
+        id: post.id,
+        title: post.title,
+        format: post.format,
+        category: post.category,
+        status: post.status,
+        scheduledDate: post.scheduledDate,
+        scheduledTime: post.scheduledTime,
+        ctaType: post.ctaType,
+        googleCalendarEventId: post.googleCalendarEventId,
+      });
+      if (eventId && eventId !== post.googleCalendarEventId) {
+        await prisma.post.update({
+          where: { id },
+          data: { googleCalendarEventId: eventId },
+        });
+      }
+    } catch (err) {
+      console.error("[Google Calendar] Erro ao atualizar evento:", err);
+    }
+  }
+
   return NextResponse.json(post);
 }
 
 export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+
+  // Remover evento do Google Calendar antes de deletar o post
+  const postToDelete = await prisma.post.findUnique({ where: { id }, select: { googleCalendarEventId: true } });
+  if (postToDelete?.googleCalendarEventId) {
+    try {
+      const { removePostFromCalendar } = await import("@/lib/integrations/google-calendar");
+      await removePostFromCalendar(postToDelete.googleCalendarEventId);
+    } catch (err) {
+      console.error("[Google Calendar] Erro ao remover evento:", err);
+    }
+  }
 
   // Deletar tarefas vinculadas antes do post (evita erro de FK)
   await prisma.task.deleteMany({ where: { postId: id } });

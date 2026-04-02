@@ -1,26 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getIntegrationConfig } from "@/lib/integrations/config";
-import { getAuthUrl } from "@/lib/integrations/outlook";
+import { getGoogleAuthUrl } from "@/lib/integrations/google-calendar";
 
 /**
- * GET /api/integracoes/outlook/auth
- * Retorna a URL de autorização OAuth do Microsoft Graph
+ * GET /api/integracoes/google/auth
+ * Retorna a URL de autorização OAuth do Google Calendar
  */
 export async function GET(request: NextRequest) {
   try {
     const config = await getIntegrationConfig();
-    const clientId = config.MICROSOFT_CLIENT_ID;
-    const tenantId = config.MICROSOFT_TENANT_ID || "common";
+    const clientId = config.GOOGLE_CLIENT_ID;
+    const clientSecret = config.GOOGLE_CLIENT_SECRET;
 
-    if (!clientId) {
+    if (!clientId || !clientSecret) {
       return NextResponse.json(
-        { error: "MICROSOFT_CLIENT_ID não configurado" },
+        { error: "GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET não configurados" },
         { status: 400 }
       );
     }
 
     // Em produção (Railway), request.nextUrl.origin retorna localhost
-    // Usar x-forwarded-host ou RAILWAY_PUBLIC_DOMAIN para obter a URL real
     const forwardedHost = request.headers.get("x-forwarded-host");
     const forwardedProto = request.headers.get("x-forwarded-proto") || "https";
     const origin = forwardedHost
@@ -28,8 +27,8 @@ export async function GET(request: NextRequest) {
       : (process.env.RAILWAY_PUBLIC_DOMAIN
         ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
         : request.nextUrl.origin);
-    const redirectUri = `${origin}/api/integracoes/outlook/callback`;
-    const authUrl = getAuthUrl(redirectUri, clientId, tenantId);
+    const redirectUri = `${origin}/api/integracoes/google/callback`;
+    const authUrl = getGoogleAuthUrl(redirectUri, clientId, clientSecret);
 
     return NextResponse.json({ authUrl, redirectUri });
   } catch (error) {

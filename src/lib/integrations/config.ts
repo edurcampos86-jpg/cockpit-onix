@@ -13,10 +13,9 @@ export async function getIntegrationConfig(): Promise<Record<string, string>> {
     "MANYCHAT_API_TOKEN",
     "ANTHROPIC_API_KEY",
     "ZAPIER_WEBHOOK_SECRET",
-    "MICROSOFT_CLIENT_ID",
-    "MICROSOFT_CLIENT_SECRET",
-    "MICROSOFT_TENANT_ID",
-    "MICROSOFT_REFRESH_TOKEN",
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+    "GOOGLE_REFRESH_TOKEN",
     "META_ACCESS_TOKEN",
   ];
   const config: Record<string, string> = {};

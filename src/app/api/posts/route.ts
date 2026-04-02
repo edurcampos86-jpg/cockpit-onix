@@ -138,6 +138,30 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Sincronizar com Google Calendar (não bloqueia criação do post)
+    try {
+      const { syncPostToCalendar } = await import("@/lib/integrations/google-calendar");
+      const eventId = await syncPostToCalendar({
+        id: post.id,
+        title: post.title,
+        format: post.format,
+        category: post.category,
+        status: post.status,
+        scheduledDate: post.scheduledDate,
+        scheduledTime: post.scheduledTime,
+        ctaType: post.ctaType,
+        googleCalendarEventId: null,
+      });
+      if (eventId) {
+        await prisma.post.update({
+          where: { id: post.id },
+          data: { googleCalendarEventId: eventId },
+        });
+      }
+    } catch (err) {
+      console.error("[Google Calendar] Erro ao criar evento:", err);
+    }
+
     const finalPost = await prisma.post.findUnique({
       where: { id: post.id },
       include: { author: { select: { name: true } }, tasks: true, script: true },

@@ -46,6 +46,7 @@ model Post {
   hashtags      String?  // comma-separated
   notes         String?
   order         Int      @default(0)
+  googleCalendarEventId String? // ID do evento no Google Calendar
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
