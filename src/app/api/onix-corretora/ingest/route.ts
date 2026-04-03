@@ -22,8 +22,8 @@ export async function POST(req: NextRequest) {
 
     const {
       vendedor, periodo, periodoInicio, periodoFim, dataExecucao,
-      conversasAnalisadas, pdfPath, secao1, secao2, secao3, secao4, secao5,
-      acoes, metricas,
+      conversasAnalisadas, pdfPath, secao0, secao1, secao2, secao3, secao4, secao5,
+      scriptSemana, termometro, retomada, acoes, metricas,
     } = body;
 
     if (!vendedor || !periodo || !secao1) {
@@ -44,6 +44,10 @@ export async function POST(req: NextRequest) {
         dataExecucao: new Date(dataExecucao || Date.now()),
         conversasAnalisadas: conv,
         pdfPath: pdfPath || null,
+        secao0: secao0 || null,
+        scriptSemana: scriptSemana || null,
+        termometro: termometro || null,
+        retomada: retomada || null,
         secao1, secao2, secao3, secao4, secao5,
         acoes: acoes?.length
           ? { create: acoes.map((a: { numero: number; titulo: string; descricao: string }) => ({

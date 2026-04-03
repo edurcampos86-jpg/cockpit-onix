@@ -161,6 +161,10 @@ model Relatorio {
   secao3              String    @db.Text
   secao4              String    @db.Text
   secao5              String    @db.Text
+  secao0              String?   @db.Text
+  scriptSemana        String?   @db.Text
+  termometro          String?   @db.Text
+  retomada            String?   @db.Text
   acoes               Acao[]
   metricas            Metrica?
   createdAt           DateTime  @default(now())
