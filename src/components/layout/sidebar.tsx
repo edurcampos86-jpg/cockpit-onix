@@ -22,6 +22,7 @@ import {
   ClipboardList,
   ListChecks,
   BookOpen,
+  UserCircle,
 } from "lucide-react";
 import { useState, useTransition } from "react";
 import { cn } from "@/lib/utils";
@@ -49,6 +50,7 @@ const onixCorretorNavigation = [
   { name: "Plano de Ação", href: "/onix-corretora/acoes", icon: ListChecks },
   { name: "Comparativo", href: "/onix-corretora/comparativo", icon: BarChart2 },
   { name: "Boas Práticas", href: "/onix-corretora/praticas", icon: BookOpen },
+  { name: "Perfis do Time", href: "/onix-corretora/perfis", icon: UserCircle },
 ];
 
 export function Sidebar() {
