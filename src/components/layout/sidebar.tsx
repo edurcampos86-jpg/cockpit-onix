@@ -23,11 +23,14 @@ import {
   ListChecks,
   BookOpen,
   UserCircle,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { useState, useTransition } from "react";
 import { cn } from "@/lib/utils";
 import { logout } from "@/app/actions/auth";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useTheme } from "@/components/theme-provider";
 
 const mktNavigation = [
   { name: "Painel", href: "/", icon: LayoutDashboard },
@@ -58,6 +61,7 @@ export function Sidebar() {
   const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
   const [isPending, startTransition] = useTransition();
+  const { theme, toggleTheme } = useTheme();
 
   const isOnixCorretora = pathname.startsWith("/onix-corretora");
   const navigation = isOnixCorretora ? onixCorretorNavigation : mktNavigation;
@@ -174,7 +178,7 @@ export function Sidebar() {
             </div>
           </div>
         )}
-        <div className="flex gap-2">
+        <div className="flex gap-1.5">
           <button
             onClick={() => startTransition(() => logout())}
             disabled={isPending}
@@ -187,6 +191,26 @@ export function Sidebar() {
             <LogOut className="h-4 w-4" />
             {!collapsed && <span className="ml-2 text-sm">Sair</span>}
           </button>
+          {/* Botão de tema */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={toggleTheme}
+                className="flex items-center justify-center py-2 px-2 rounded-lg text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+                aria-label={theme === "dark" ? "Ativar tema claro" : "Ativar tema escuro"}
+              >
+                {theme === "dark" ? (
+                  <Sun className="h-4 w-4" />
+                ) : (
+                  <Moon className="h-4 w-4" />
+                )}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              {theme === "dark" ? "Tema claro" : "Tema escuro"}
+            </TooltipContent>
+          </Tooltip>
+          {/* Botão de collapse */}
           <button
             onClick={() => setCollapsed(!collapsed)}
             className="flex items-center justify-center py-2 px-2 rounded-lg text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
