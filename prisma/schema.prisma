@@ -166,3 +166,84 @@ model Meeting {
   leadId String?
   lead   Lead?   @relation(fields: [leadId], references: [id])
 }
+
+// ============================================
+// ANALYTICS E FEEDBACK LOOP
+// ============================================
+
+model InstagramPost {
+  id                  String   @id @default(cuid())
+  instagramId         String   @unique
+  type                String   // "VIDEO" | "CAROUSEL_ALBUM" | "IMAGE"
+  caption             String?
+  permalink           String?
+  pilar               String?  // "P1" | "P2" | "P3" | "P4"
+  formato             String?  // "reel" | "carrossel" | "imagem" | "stories"
+  ctaType             String?  // "explicito" | "implicito" | "identificacao" | "algoritmo"
+  tema                String?  // tema central da semana
+  likes               Int      @default(0)
+  comments            Int      @default(0)
+  shares              Int      @default(0)
+  saved               Int      @default(0)
+  reach               Int      @default(0)
+  views               Int      @default(0)
+  totalInteractions   Int      @default(0)
+  engagementRate      Float    @default(0) // (totalInteractions / reach) * 100
+  saveRate            Float    @default(0) // (saved / reach) * 100
+  publishedAt         DateTime
+  insightsCollectedAt DateTime?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+model WeeklyAnalysis {
+  id              String   @id @default(cuid())
+  weekStart       DateTime
+  weekEnd         DateTime
+  totalPosts      Int      @default(0)
+  newFollowers    Int      @default(0)
+  lostFollowers   Int      @default(0)
+  totalFollowers  Int      @default(0)
+  metricas        String   // JSON: métricas por pilar/formato/CTA
+  descobertas     String   // JSON: array de descobertas
+  recomendacoes   String   // JSON: array de recomendações
+  proximosTemas   String?  // JSON: temas sugeridos para próximas semanas
+  geradoPor       String   @default("manual") // "automatico" | "manual"
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  recommendations Recommendation[]
+}
+
+model Recommendation {
+  id              String   @id @default(cuid())
+  tipo            String   // "pilar" | "formato" | "cta" | "horario" | "frequencia" | "tema"
+  titulo          String
+  descricao       String
+  acao            String
+  impactoEsperado String?
+  prioridade      String   @default("media") // "alta" | "media" | "baixa"
+  status          String   @default("pendente") // "pendente" | "implementada" | "descartada"
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  weeklyAnalysisId String?
+  weeklyAnalysis   WeeklyAnalysis? @relation(fields: [weeklyAnalysisId], references: [id])
+
+  scriptAdjustments ScriptAdjustment[]
+}
+
+model ScriptAdjustment {
+  id               String   @id @default(cuid())
+  scriptId         String?
+  ajuste           String   // Descrição do ajuste feito
+  motivacao        String   // Por que foi feito
+  statusAntes      String?  // Conteúdo antes do ajuste
+  statusDepois     String?  // Conteúdo depois do ajuste
+  aplicado         Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  recommendationId String
+  recommendation   Recommendation @relation(fields: [recommendationId], references: [id])
+}
