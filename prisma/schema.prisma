@@ -144,6 +144,63 @@ model Lead {
 }
 
 // ============================================
+// ONIX CORRETORA - TREINAMENTO COMERCIAL
+// ============================================
+
+model Relatorio {
+  id                  String    @id @default(cuid())
+  vendedor            String
+  periodo             String
+  periodoInicio       DateTime
+  periodoFim          DateTime
+  dataExecucao        DateTime
+  conversasAnalisadas Int
+  pdfPath             String?
+  secao1              String    @db.Text
+  secao2              String    @db.Text
+  secao3              String    @db.Text
+  secao4              String    @db.Text
+  secao5              String    @db.Text
+  acoes               Acao[]
+  metricas            Metrica?
+  createdAt           DateTime  @default(now())
+
+  @@index([vendedor])
+  @@index([periodoInicio])
+}
+
+model Acao {
+  id          String    @id @default(cuid())
+  relatorioId String
+  relatorio   Relatorio @relation(fields: [relatorioId], references: [id], onDelete: Cascade)
+  vendedor    String
+  numero      Int
+  titulo      String
+  descricao   String    @db.Text
+  concluida   Boolean   @default(false)
+  concluidaEm DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([relatorioId])
+  @@index([vendedor, concluida])
+}
+
+model Metrica {
+  id                   String    @id @default(cuid())
+  relatorioId          String    @unique
+  relatorio            Relatorio @relation(fields: [relatorioId], references: [id], onDelete: Cascade)
+  vendedor             String
+  periodo              String
+  conversasAnalisadas  Int
+  conversasSemResposta Int       @default(0)
+  reunioesAgendadas    Int       @default(0)
+  leadsPerdidos        Int       @default(0)
+  createdAt            DateTime  @default(now())
+
+  @@index([vendedor, createdAt])
+}
+
+// ============================================
 // REUNIÕES E TRANSCRIÇÕES (Plaud.ai via Zapier)
 // ============================================
 

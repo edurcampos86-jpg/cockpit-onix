@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   CalendarDays,
   LayoutDashboard,
@@ -18,13 +18,17 @@ import {
   ChevronRight,
   LogOut,
   Wand2,
+  TrendingUp,
+  ClipboardList,
+  ListChecks,
+  GitCompare,
 } from "lucide-react";
 import { useState, useTransition } from "react";
 import { cn } from "@/lib/utils";
 import { logout } from "@/app/actions/auth";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
-const navigation = [
+const mktNavigation = [
   { name: "Painel", href: "/", icon: LayoutDashboard },
   { name: "Calendário", href: "/calendario", icon: CalendarDays },
   { name: "Roteiros", href: "/roteiros", icon: FileText },
@@ -39,10 +43,24 @@ const navigation = [
   { name: "Configurações", href: "/configuracoes", icon: Settings },
 ];
 
+const onixCorretorNavigation = [
+  { name: "Painel", href: "/onix-corretora", icon: LayoutDashboard },
+  { name: "Relatórios", href: "/onix-corretora/relatorios", icon: ClipboardList },
+  { name: "Plano de Ação", href: "/onix-corretora/acoes", icon: ListChecks },
+  { name: "Comparativo", href: "/onix-corretora/comparativo", icon: GitCompare },
+];
+
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
   const [isPending, startTransition] = useTransition();
+
+  const isOnixCorretora = pathname.startsWith("/onix-corretora");
+  const navigation = isOnixCorretora ? onixCorretorNavigation : mktNavigation;
+
+  const moduleLabel = isOnixCorretora ? "Onix Corretora" : "Mídias Sociais";
+  const moduleInitial = isOnixCorretora ? "C" : "M";
 
   return (
     <aside
@@ -51,16 +69,16 @@ export function Sidebar() {
         collapsed ? "w-16" : "w-64"
       )}
     >
-      {/* Logo */}
+      {/* Logo + Module Label */}
       <div className="flex items-center h-16 px-4 border-b border-sidebar-border">
         {!collapsed && (
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
+          <div className="flex items-center gap-2 w-full">
+            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center shrink-0">
               <span className="text-primary-foreground font-bold text-sm">O</span>
             </div>
-            <div>
+            <div className="flex-1 min-w-0">
               <h1 className="text-sm font-bold text-sidebar-foreground">Eduardo</h1>
-              <p className="text-[10px] text-muted-foreground">Mídias Sociais</p>
+              <p className="text-[10px] text-muted-foreground truncate">{moduleLabel}</p>
             </div>
           </div>
         )}
@@ -71,10 +89,46 @@ export function Sidebar() {
         )}
       </div>
 
+      {/* Module switcher */}
+      {!collapsed && (
+        <div className="px-3 py-2 border-b border-sidebar-border">
+          <div className="flex rounded-lg bg-sidebar-accent p-0.5 gap-0.5">
+            <button
+              onClick={() => router.push("/")}
+              className={cn(
+                "flex-1 text-[11px] font-medium py-1 rounded-md transition-colors",
+                !isOnixCorretora
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-sidebar-foreground"
+              )}
+            >
+              MKT
+            </button>
+            <button
+              onClick={() => router.push("/onix-corretora")}
+              className={cn(
+                "flex-1 text-[11px] font-medium py-1 rounded-md transition-colors",
+                isOnixCorretora
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-sidebar-foreground"
+              )}
+            >
+              Corretora
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Navigation */}
       <nav className="flex-1 px-2 py-4 space-y-1">
         {navigation.map((item) => {
-          const isActive = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
+          const isActive =
+            item.href === "/onix-corretora"
+              ? pathname === "/onix-corretora"
+              : item.href === "/"
+              ? pathname === "/"
+              : pathname.startsWith(item.href);
+
           const link = (
             <Link
               key={item.name}
