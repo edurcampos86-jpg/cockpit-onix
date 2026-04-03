@@ -65,20 +65,26 @@ export const SEASONAL_THEMES: SeasonalTheme[] = [
   },
   {
     month: 4,
-    theme: "Mês do Imposto de Renda",
+    theme: "IR + Blindagem: O Duplo Risco de Abril",
     topics: [
-      "IRPF: erros comuns de médicos na declaração",
-      "Dedução de previdência privada (PGBL/VGBL)",
+      // Temas validados por dados de performance (semana 26/03-02/04)
+      "ITCMD na Bahia: quanto vai custar para sua família receber sua herança?", // alto potencial P3
+      "Onix em Ação Ep.2: caso real de PJ médica com R$300k parados", // P2 - melhor engajamento da semana
+      "Seguro de Vida: quanto você precisa para proteger sua família?", // P1 - tema sugerido pelo Analytics
+      "IRPF: erros comuns de médicos na declaração", // P3 - sazonal
+      "O Custo do Dinheiro Parado: por que sua reserva está te custando caro", // P1 - tema sugerido pelo Analytics
+      "Dedução de previdência privada (PGBL/VGBL): bisturi ou faca cega?", // P3 - reformulado com analogia médica
       "Declaração de bens e investimentos",
-      "IR para PJ médica: o que muda",
-      "Planejamento sucessório e IR: a conexão invisível",
       "Restituição: investir ou gastar?",
     ],
     weeklyArcs: [
-      "Semana 1: Os 5 erros que médicos mais cometem no IR",
-      "Semana 2: Caso real — cliente que pagou R$40k a mais de imposto",
-      "Semana 3: Checklist completo da declaração para alta renda",
-      "Semana 4: Alerta deadline — o que fazer nos últimos dias",
+      // Arcos ajustados com base na performance real da semana anterior
+      // P4 (Eduardo Pessoa) gera 10x mais engajamento que P3 isolado
+      // Reel P2 com CTA explícito 'BLINDAGEM' gerou 72 likes vs 5 do carrossel P3
+      "Semana 07/04: Onix em Ação Ep.2 (Reel P2) + ITCMD Bahia (Carrossel P3) + TBT Capadócia-Legado (P4)",
+      "Semana 14/04: IR para médico PJ (Reel P2) + Checklist declaração (Carrossel P1) + Bastidores escritório (P4)",
+      "Semana 21/04: Caso real R$40k a mais de imposto (Reel P2) + Seguro de Vida (Carrossel P1) + TBT viagem (P4)",
+      "Semana 28/04: Alerta deadline IR (Carrossel P3) + Dinheiro Parado (Carrossel P1) + Bastidores reunião (P4)",
     ],
   },
   {

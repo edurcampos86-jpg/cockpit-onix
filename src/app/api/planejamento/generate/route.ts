@@ -67,7 +67,19 @@ export async function POST(request: NextRequest) {
         });
 
         // Criar post
-        const scheduledDate = new Date(planned.date + "T12:00:00");
+        // Horários validados por dados de performance (Analytics semana 26/03-02/04/2026)
+        // P4 (TBT quinta) performa melhor às 20:00 | P2 (Reel terça) às 12:00 | P4 (bastidores sábado) às 09:00
+        const dateObj = new Date(planned.date + "T00:00:00");
+        const dayOfWeek = dateObj.getDay(); // 0=Dom, 1=Seg, 2=Ter, 3=Qua, 4=Qui, 5=Sex, 6=Sáb
+        let bestTime = "12:00";
+        if (dayOfWeek === 4 && planned.category === "P4") {
+          bestTime = "20:00"; // TBT quinta às 20h
+        } else if (dayOfWeek === 6) {
+          bestTime = "09:00"; // Bastidores sábado às 9h
+        } else if (dayOfWeek === 2 && planned.category === "P2") {
+          bestTime = "12:00"; // Onix em Ação terça ao meio-dia
+        }
+        const scheduledDate = new Date(planned.date + `T${bestTime}:00`);
         const post = await prisma.post.create({
           data: {
             title: planned.title,
@@ -75,7 +87,7 @@ export async function POST(request: NextRequest) {
             category: planned.category,
             status: "rascunho",
             scheduledDate,
-            scheduledTime: "12:00",
+            scheduledTime: bestTime,
             ctaType: planned.ctaType,
             hashtags: planned.hashtags,
             notes: `Arco: ${planned.weekTheme} | Tema: ${planned.monthTheme}`,
