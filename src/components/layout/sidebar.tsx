@@ -21,6 +21,7 @@ import {
   Wand2,
   ClipboardList,
   ListChecks,
+  BookOpen,
 } from "lucide-react";
 import { useState, useTransition } from "react";
 import { cn } from "@/lib/utils";
@@ -47,6 +48,7 @@ const onixCorretorNavigation = [
   { name: "Relatórios", href: "/onix-corretora/relatorios", icon: ClipboardList },
   { name: "Plano de Ação", href: "/onix-corretora/acoes", icon: ListChecks },
   { name: "Comparativo", href: "/onix-corretora/comparativo", icon: BarChart2 },
+  { name: "Boas Práticas", href: "/onix-corretora/praticas", icon: BookOpen },
 ];
 
 export function Sidebar() {

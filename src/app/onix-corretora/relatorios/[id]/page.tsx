@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/layout/page-header";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, CheckSquare, Circle } from "lucide-react";
+import { ArrowLeft, CheckSquare, Circle, Printer } from "lucide-react";
 
 const SECAO_LABELS: Record<string, { label: string; color: string }> = {
   secao1: { label: "Abordagens Positivas da Semana", color: "text-green-400 border-green-400/30 bg-green-400/5" },
@@ -47,13 +47,23 @@ export default async function RelatorioDetalhePage({
         title={`${relatorio.vendedor.split(" ")[0]} — ${relatorio.periodo}`}
         description={`${relatorio.conversasAnalisadas} conversas analisadas · ${new Date(relatorio.dataExecucao).toLocaleDateString("pt-BR")}`}
       >
-        <Link
-          href="/onix-corretora/relatorios"
-          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Voltar
-        </Link>
+        <div className="flex items-center gap-3">
+          <Link
+            href="/onix-corretora/relatorios"
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Voltar
+          </Link>
+          <Link
+            href={`/onix-corretora/relatorios/${relatorio.id}/print`}
+            target="_blank"
+            className="flex items-center gap-1.5 text-sm py-1.5 px-3 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors font-medium"
+          >
+            <Printer className="h-4 w-4" />
+            Exportar PDF
+          </Link>
+        </div>
       </PageHeader>
 
       <div className="p-8">

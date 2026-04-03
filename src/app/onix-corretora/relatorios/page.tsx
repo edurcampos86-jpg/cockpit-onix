@@ -3,9 +3,15 @@ export const dynamic = "force-dynamic";
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/layout/page-header";
 import Link from "next/link";
-import { CheckSquare, FileText, ExternalLink } from "lucide-react";
+import { CheckSquare, FileText, Printer } from "lucide-react";
 
 const VENDEDORES = ["Todos", "Eduardo Campos", "Thiago Vergal", "Rose Oliveira"];
+
+function scoreColor(score: number) {
+  if (score >= 80) return "text-green-400 bg-green-400/10";
+  if (score >= 60) return "text-yellow-400 bg-yellow-400/10";
+  return "text-red-400 bg-red-400/10";
+}
 
 export default async function RelatoriosPage({
   searchParams,
@@ -20,45 +26,33 @@ export default async function RelatoriosPage({
     orderBy: { periodoInicio: "desc" },
     include: {
       acoes: { select: { id: true, concluida: true } },
+      metricas: { select: { score: true } },
     },
   });
 
   return (
     <div className="min-h-screen">
-      <PageHeader
-        title="Relatorios Semanais"
-        description="Historico de analises de desenvolvimento comercial"
-      />
+      <PageHeader title="Relatorios Semanais" description="Historico de analises de desenvolvimento comercial" />
 
       <div className="p-8 space-y-6">
-        {/* Filtro por vendedor */}
         <div className="flex flex-wrap gap-2">
           {VENDEDORES.map((v) => {
             const isActive = (!filtro && v === "Todos") || filtro === v;
             return (
-              <Link
-                key={v}
+              <Link key={v}
                 href={v === "Todos" ? "/onix-corretora/relatorios" : `/onix-corretora/relatorios?vendedor=${encodeURIComponent(v)}`}
-                className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
-                  isActive
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-sidebar-accent text-muted-foreground hover:text-foreground"
-                }`}
-              >
+                className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${isActive ? "bg-primary text-primary-foreground" : "bg-sidebar-accent text-muted-foreground hover:text-foreground"}`}>
                 {v}
               </Link>
             );
           })}
         </div>
 
-        {/* Lista de relatorios */}
         {relatorios.length === 0 ? (
           <div className="rounded-xl border border-dashed border-border p-12 text-center">
             <FileText className="h-10 w-10 text-muted-foreground mx-auto mb-4" />
             <h3 className="text-lg font-semibold mb-2">Nenhum relatorio encontrado</h3>
-            <p className="text-sm text-muted-foreground">
-              Execute o pipeline semanal para gerar o primeiro relatorio.
-            </p>
+            <p className="text-sm text-muted-foreground">Execute o pipeline semanal para gerar o primeiro relatorio.</p>
           </div>
         ) : (
           <div className="space-y-3">
@@ -66,55 +60,55 @@ export default async function RelatoriosPage({
               const total = r.acoes.length;
               const concluidas = r.acoes.filter((a) => a.concluida).length;
               const pct = total > 0 ? Math.round((concluidas / total) * 100) : 0;
+              const score = r.metricas?.score ?? 0;
 
               return (
-                <div
-                  key={r.id}
-                  className="rounded-xl border border-border bg-card p-5 flex flex-col sm:flex-row sm:items-center gap-4"
-                >
+                <div key={r.id} className="rounded-xl border border-border bg-card p-5 flex flex-col sm:flex-row sm:items-center gap-4">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-3 mb-1">
                       <span className="inline-flex items-center justify-center rounded-full bg-primary/10 text-primary text-xs font-semibold px-2.5 py-0.5">
                         {r.vendedor.split(" ")[0]}
                       </span>
                       <span className="text-sm font-semibold">{r.periodo}</span>
+                      {score > 0 && (
+                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${scoreColor(score)}`}>
+                          Score {score}
+                        </span>
+                      )}
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      {r.conversasAnalisadas} conversas analisadas · gerado em{" "}
-                      {new Date(r.dataExecucao).toLocaleDateString("pt-BR")}
+                      {r.conversasAnalisadas} conversas · {new Date(r.dataExecucao).toLocaleDateString("pt-BR")}
                     </p>
                   </div>
 
-                  {/* Progresso de acoes */}
-                  <div className="flex items-center gap-3 sm:w-40">
+                  <div className="flex items-center gap-3 sm:w-36">
                     <div className="flex-1">
                       <div className="flex justify-between text-xs text-muted-foreground mb-1">
                         <span>Acoes</span>
                         <span>{concluidas}/{total}</span>
                       </div>
                       <div className="h-1.5 rounded-full bg-sidebar-accent overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-primary transition-all"
-                          style={{ width: `${pct}%` }}
-                        />
+                        <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} />
                       </div>
                     </div>
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <Link
-                      href={`/onix-corretora/relatorios/${r.id}`}
-                      className="flex items-center gap-1.5 text-xs py-2 px-3 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors font-medium"
-                    >
+                    <Link href={`/onix-corretora/relatorios/${r.id}`}
+                      className="flex items-center gap-1.5 text-xs py-2 px-3 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors font-medium">
                       <FileText className="h-3.5 w-3.5" />
                       Ver
                     </Link>
-                    <Link
-                      href={`/onix-corretora/acoes?relatorioId=${r.id}`}
-                      className="flex items-center gap-1.5 text-xs py-2 px-3 rounded-lg bg-sidebar-accent text-muted-foreground hover:text-foreground transition-colors font-medium"
-                    >
+                    <Link href={`/onix-corretora/acoes?relatorioId=${r.id}`}
+                      className="flex items-center gap-1.5 text-xs py-2 px-3 rounded-lg bg-sidebar-accent text-muted-foreground hover:text-foreground transition-colors font-medium">
                       <CheckSquare className="h-3.5 w-3.5" />
                       Acoes
+                    </Link>
+                    <Link href={`/onix-corretora/relatorios/${r.id}/print`} target="_blank"
+                      className="flex items-center gap-1.5 text-xs py-2 px-3 rounded-lg bg-sidebar-accent text-muted-foreground hover:text-foreground transition-colors font-medium"
+                      title="Exportar PDF">
+                      <Printer className="h-3.5 w-3.5" />
+                      PDF
                     </Link>
                   </div>
                 </div>

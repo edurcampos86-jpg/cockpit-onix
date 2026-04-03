@@ -10,7 +10,7 @@ export async function GET(req: NextRequest) {
     orderBy: { periodoInicio: "desc" },
     include: {
       acoes: { select: { id: true, concluida: true } },
-      metricas: { select: { conversasAnalisadas: true, conversasSemResposta: true, reunioesAgendadas: true, leadsPerdidos: true } },
+      metricas: { select: { conversasAnalisadas: true, conversasSemResposta: true, reunioesAgendadas: true, leadsPerdidos: true, score: true } },
     },
   });
 

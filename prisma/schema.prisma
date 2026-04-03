@@ -195,9 +195,21 @@ model Metrica {
   conversasSemResposta Int       @default(0)
   reunioesAgendadas    Int       @default(0)
   leadsPerdidos        Int       @default(0)
+  score                Int       @default(0)
   createdAt            DateTime  @default(now())
 
   @@index([vendedor, createdAt])
+}
+
+model Meta {
+  id        String   @id @default(cuid())
+  vendedor  String
+  metrica   String   // "conversas" | "reunioes" | "semResposta" | "perdidos" | "score"
+  valor     Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([vendedor, metrica])
 }
 
 // ============================================
