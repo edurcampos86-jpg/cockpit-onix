@@ -51,41 +51,48 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/* =============================================
+   TEMA CLARO — Identidade Visual Onix Capital
+   Fundo creme quente, ouro, texto escuro
+   ============================================= */
 :root {
-  --background: #080808;
-  --foreground: #FFFAF0;
-  --card: #141414;
-  --card-foreground: #FFFAF0;
-  --popover: #141414;
-  --popover-foreground: #FFFAF0;
+  --background: #FAF9F5;
+  --foreground: #141413;
+  --card: #FFFFFF;
+  --card-foreground: #141413;
+  --popover: #FFFFFF;
+  --popover-foreground: #141413;
   --primary: #FFB114;
-  --primary-foreground: #080808;
-  --secondary: #1A1A1A;
-  --secondary-foreground: #FFFAF0;
-  --muted: #1A1A1A;
-  --muted-foreground: #888888;
-  --accent: #242424;
-  --accent-foreground: #FFFAF0;
-  --destructive: #EA534A;
-  --border: rgba(255, 177, 20, 0.12);
-  --input: rgba(255, 177, 20, 0.12);
+  --primary-foreground: #141413;
+  --secondary: #F5F0E8;
+  --secondary-foreground: #141413;
+  --muted: #EDE8DE;
+  --muted-foreground: #6B6459;
+  --accent: #F5F0E8;
+  --accent-foreground: #141413;
+  --destructive: #DC2626;
+  --border: rgba(164, 120, 0, 0.18);
+  --input: rgba(164, 120, 0, 0.14);
   --ring: #FFB114;
   --chart-1: #FFB114;
   --chart-2: #2F6FED;
   --chart-3: #009B4F;
-  --chart-4: #FFDD99;
+  --chart-4: #D98F00;
   --chart-5: #8A62D8;
   --radius: 0.625rem;
-  --sidebar: #050505;
-  --sidebar-foreground: #FFFAF0;
+  --sidebar: #F0EBE0;
+  --sidebar-foreground: #141413;
   --sidebar-primary: #FFB114;
-  --sidebar-primary-foreground: #080808;
-  --sidebar-accent: #141414;
-  --sidebar-accent-foreground: #FFFAF0;
-  --sidebar-border: rgba(255, 177, 20, 0.08);
+  --sidebar-primary-foreground: #141413;
+  --sidebar-accent: #E3D9CC;
+  --sidebar-accent-foreground: #141413;
+  --sidebar-border: rgba(164, 120, 0, 0.14);
   --sidebar-ring: #FFB114;
 }
 
+/* =============================================
+   TEMA ESCURO — Onix Capital original
+   ============================================= */
 .dark {
   --background: #080808;
   --foreground: #FFFAF0;
@@ -141,9 +148,9 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 177, 20, 0.25);
+  background: rgba(255, 177, 20, 0.30);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 177, 20, 0.45);
+  background: rgba(255, 177, 20, 0.55);
 }
