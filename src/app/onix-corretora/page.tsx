@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/layout/page-header";
 import Link from "next/link";
 import { TrendingUp, TrendingDown, Minus, Users, CheckSquare, AlertCircle, FileText } from "lucide-react";
+import { PeriodoSelector } from "@/components/onix-corretora/periodo-selector";
 
 const VENDEDORES = ["Eduardo Campos", "Thiago Vergal", "Rose Oliveira"];
 
@@ -103,6 +104,8 @@ export default async function OnixCorretoraDashboard() {
             </p>
           </div>
         </div>
+
+        <PeriodoSelector />
 
         {totalRelatorios === 0 ? (
           <div className="rounded-xl border border-dashed border-border p-12 text-center">
