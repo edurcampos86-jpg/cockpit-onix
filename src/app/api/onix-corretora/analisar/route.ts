@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
   for (let vi = 0; vi < vendedores.length; vi++) {
     const vendedor = vendedores[vi];
     // Delay entre vendedores para evitar 429 no Datacrazy
-    if (vi > 0) await new Promise((r) => setTimeout(r, 3000));
+    if (vi > 0) await new Promise((r) => setTimeout(r, 10000));
 
     try {
       const config = VENDEDORES_CONFIG[vendedor];
@@ -135,7 +135,10 @@ export async function POST(req: NextRequest) {
 
       // 5. Fetch messages for each conversation and build transcriptions
       const transcricoes: string[] = [];
-      for (const conversa of conversasRecentes) {
+      for (let ci = 0; ci < conversasRecentes.length; ci++) {
+        const conversa = conversasRecentes[ci];
+        // Delay entre conversas para evitar 429
+        if (ci > 0) await new Promise((r) => setTimeout(r, 2000));
         try {
           const mensagens = await fetchMensagens(conversa.id, token);
 

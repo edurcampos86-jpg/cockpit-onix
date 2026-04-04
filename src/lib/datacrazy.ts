@@ -61,7 +61,7 @@ export async function fetchConversas(
   const allConversas: any[] = [];
   let skip = 0;
   const take = 100;
-  const maxRetries = 4;
+  const maxRetries = 5;
 
   while (true) {
     let attempt = 0;
@@ -78,7 +78,7 @@ export async function fetchConversas(
 
       if (res.status === 429) {
         attempt++;
-        const backoff = 3000 * Math.pow(2, attempt - 1); // 3s, 6s, 12s, 24s
+        const backoff = 10000 * Math.pow(2, attempt - 1); // 10s, 20s, 40s, 80s, 160s
         console.log(`[Datacrazy] 429 em fetchConversas (instance ${instanceId}), retry ${attempt}/${maxRetries} em ${backoff}ms`);
         if (attempt >= maxRetries) {
           throw new Error(
@@ -139,7 +139,7 @@ export async function fetchMensagens(
   const allMensagens: any[] = [];
   let skip = 0;
   const take = 50;
-  const maxRetries = 3;
+  const maxRetries = 5;
 
   while (true) {
     let attempt = 0;
@@ -158,12 +158,14 @@ export async function fetchMensagens(
 
       if (res.status === 429) {
         attempt++;
+        const backoff = 10000 * Math.pow(2, attempt - 1); // 10s, 20s, 40s, 80s, 160s
+        console.log(`[Datacrazy] 429 em fetchMensagens (conversa ${conversaId}), retry ${attempt}/${maxRetries} em ${backoff}ms`);
         if (attempt >= maxRetries) {
           throw new Error(
             `fetchMensagens rate limited after ${maxRetries} retries for conversaId=${conversaId}`
           );
         }
-        await delay(5000);
+        await delay(backoff);
         continue;
       }
 
