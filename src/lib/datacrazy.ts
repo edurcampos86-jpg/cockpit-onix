@@ -11,7 +11,7 @@ export const VENDEDORES_CONFIG: Record<
   "Eduardo Campos": {
     instanceIds: ["68f29107553523cea7840fdf"],
     attendantId: "68ee98bffb0a4cae1444a53b",
-    excludeContacts: ["Larissa", "Carolina"],
+    excludeContacts: ["Larissa", "Carolina", "Felipe Tachard", "BTG Pactual"],
   },
   "Rose Oliveira": {
     instanceIds: ["69cabd2c728821965ff2ec6c"],
