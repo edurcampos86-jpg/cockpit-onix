@@ -65,6 +65,7 @@ export async function POST(request: NextRequest) {
         date: new Date(payload.date || Date.now()),
         duration: payload.duration || null,
         participants: payload.participants?.join(", ") || null,
+        vendedor: payload.vendedor || null,
         transcription: payload.transcription || null,
         summary: payload.summary || null,
         actionItems: payload.action_items ? JSON.stringify(payload.action_items) : null,

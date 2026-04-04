@@ -226,7 +226,8 @@ model Meeting {
   date          DateTime
   duration      Int?     // minutos
   participants  String?  // nomes separados por vírgula
-  transcription String?  // transcrição completa
+  vendedor      String?  // vendedor da equipe Onix (Eduardo Campos | Thiago Vergal | Rose Oliveira)
+  transcription String?  @db.Text // transcrição completa
   summary       String?  // resumo gerado pela IA
   actionItems   String?  // itens de ação extraídos (JSON)
   insights      String?  // insights para roteiros (gerado pela Claude AI)
@@ -238,6 +239,8 @@ model Meeting {
 
   leadId String?
   lead   Lead?   @relation(fields: [leadId], references: [id])
+
+  @@index([vendedor, date])
 }
 
 // ============================================

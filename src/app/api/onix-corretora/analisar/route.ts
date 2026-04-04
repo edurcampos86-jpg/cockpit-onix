@@ -13,10 +13,7 @@ import {
   parseMetricas,
   extrairAcoes,
 } from "@/lib/claude-analisar";
-import {
-  buscarTranscricoesDoPeriodo,
-  formatarTranscricaoParaAnalise,
-} from "@/lib/plaud";
+import { identificarVendedorDoPayload } from "@/lib/integrations/zapier";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // 5 minutes for Railway
@@ -26,8 +23,7 @@ export async function GET() {
     status: "ok",
     hasDatacrazyToken: !!process.env.DATACRAZY_TOKEN,
     hasAnthropicKey: !!process.env.ANTHROPIC_API_KEY,
-    hasPlaudToken: !!process.env.PLAUD_TOKEN,
-    plaudApiDomain: process.env.PLAUD_API_DOMAIN ?? "api.plaud.ai (padrão)",
+    plaudViaZapier: true, // Plaud integrado via Zapier webhook (/api/integracoes/zapier/webhook)
   });
 }
 
@@ -153,25 +149,43 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      // 6. Buscar transcrições do Plaud para o período (opcional — continua sem erro se token ausente)
+      // 6. Buscar gravações do Plaud via banco de dados (enviadas pelo Zapier webhook)
       let transcricoesPlaud: string[] = [];
-      const plaudToken = process.env.PLAUD_TOKEN;
-      if (plaudToken) {
-        try {
-          const { transcricoes: plaudFiles, totalArquivos } = await buscarTranscricoesDoPeriodo({
-            vendedor,
-            inicio,
-            fim,
-            token: plaudToken,
+      try {
+        const fimComBuffer = new Date(fim.getTime() + 24 * 60 * 60 * 1000);
+        const meetings = await prisma.meeting.findMany({
+          where: {
+            date: { gte: inicio, lte: fimComBuffer },
+            transcription: { not: null },
+          },
+          orderBy: { date: "desc" },
+        });
+
+        // Filtra reuniões do vendedor: pelo campo vendedor ou por keywords no título/participantes
+        const meetingsDoVendedor = meetings.filter((m) => {
+          if (m.vendedor === vendedor) return true;
+          const identificado = identificarVendedorDoPayload(
+            m.title,
+            m.participants ? m.participants.split(",").map((s) => s.trim()) : []
+          );
+          return identificado === vendedor;
+        });
+
+        transcricoesPlaud = meetingsDoVendedor.map((m) => {
+          const data = m.date.toLocaleDateString("pt-BR", {
+            day: "2-digit", month: "2-digit", year: "numeric",
           });
-          transcricoesPlaud = plaudFiles.map(formatarTranscricaoParaAnalise);
-          if (totalArquivos > 0) {
-            console.log(`[Plaud] ${vendedor}: ${totalArquivos} arquivo(s) encontrado(s) no período`);
-          }
-        } catch (err: any) {
-          // Plaud é opcional — apenas loga, não interrompe
-          console.warn(`[Plaud] Falha ao buscar transcrições para ${vendedor}: ${err.message}`);
+          const duracao = m.duration ? `${m.duration} min` : "duração não informada";
+          const cabecalho = `[PLAUD (Zapier) — ${m.title} | ${data} | ${duracao}]`;
+          return `${cabecalho}\n${m.transcription}`;
+        });
+
+        if (meetingsDoVendedor.length > 0) {
+          console.log(`[Plaud/Zapier] ${vendedor}: ${meetingsDoVendedor.length} gravacao(es) no periodo`);
         }
+      } catch (err: any) {
+        // Plaud é opcional — apenas loga, não interrompe
+        console.warn(`[Plaud/Zapier] Falha ao buscar gravacoes para ${vendedor}: ${err.message}`);
       }
 
       // 7. Get last report's secao5 for retomada
