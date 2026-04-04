@@ -27,8 +27,6 @@ export async function GET() {
     hasDatacrazyToken: !!process.env.DATACRAZY_TOKEN,
     hasAnthropicKey: !!process.env.ANTHROPIC_API_KEY,
     hasPlaudToken: !!process.env.PLAUD_TOKEN,
-    plaudTokenLen: (process.env.PLAUD_TOKEN ?? "").length,
-    plaudTokenV2: (process.env.PLAUD_TOKEN_V2 ?? "").length,
     plaudApiDomain: process.env.PLAUD_API_DOMAIN ?? "api.plaud.ai (padrão)",
   });
 }
