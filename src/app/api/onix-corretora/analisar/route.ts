@@ -19,11 +19,16 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300; // 5 minutes for Railway
 
 export async function GET() {
+  const customKeys = Object.keys(process.env)
+    .filter(k => !k.startsWith("RAILWAY_") && !k.startsWith("npm_") && !k.startsWith("NODE"))
+    .sort();
   return NextResponse.json({
     status: "ok",
     hasDatacrazyToken: !!process.env.DATACRAZY_TOKEN,
+    datacrazyLen: (process.env.DATACRAZY_TOKEN ?? "").length,
     hasAnthropicKey: !!process.env.ANTHROPIC_API_KEY,
-    plaudViaZapier: true, // Plaud integrado via Zapier webhook (/api/integracoes/zapier/webhook)
+    plaudViaZapier: true,
+    envKeys: customKeys,
   });
 }
 
