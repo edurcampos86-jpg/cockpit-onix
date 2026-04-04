@@ -80,7 +80,7 @@ export async function fetchConversas(
 
       if (res.status === 429) {
         attempt++;
-        const backoff = 10000 * Math.pow(2, attempt - 1); // 10s, 20s, 40s, 80s, 160s
+        const backoff = 5000 * Math.pow(2, attempt - 1); // 5s, 10s, 20s, 40s, 80s
         console.log(`[Datacrazy] 429 em fetchConversas (instance ${instanceId}), retry ${attempt}/${maxRetries} em ${backoff}ms`);
         if (attempt >= maxRetries) {
           throw new Error(
@@ -166,7 +166,7 @@ export async function fetchMensagens(
 
       if (res.status === 429) {
         attempt++;
-        const backoff = 10000 * Math.pow(2, attempt - 1); // 10s, 20s, 40s, 80s, 160s
+        const backoff = 5000 * Math.pow(2, attempt - 1); // 5s, 10s, 20s, 40s, 80s
         console.log(`[Datacrazy] 429 em fetchMensagens (conversa ${conversaId}), retry ${attempt}/${maxRetries} em ${backoff}ms`);
         if (attempt >= maxRetries) {
           throw new Error(

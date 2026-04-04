@@ -101,7 +101,7 @@ export async function POST(req: NextRequest) {
   for (let vi = 0; vi < vendedores.length; vi++) {
     const vendedor = vendedores[vi];
     // Delay entre vendedores para evitar 429 no Datacrazy
-    if (vi > 0) await new Promise((r) => setTimeout(r, 10000));
+    if (vi > 0) await new Promise((r) => setTimeout(r, 5000));
 
     try {
       const config = VENDEDORES_CONFIG[vendedor];
@@ -110,11 +110,13 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      // 1. Fetch conversations from all instances for this vendedor
+      // 1. Fetch conversations from all instances for this vendedor (max 1 page = 100 per instance)
       let todasConversas: any[] = [];
-      for (const instanceId of config.instanceIds) {
+      for (let ii = 0; ii < config.instanceIds.length; ii++) {
+        const instanceId = config.instanceIds[ii];
+        if (ii > 0) await new Promise((r) => setTimeout(r, 2000));
         try {
-          const conversas = await fetchConversas(instanceId, token);
+          const conversas = await fetchConversas(instanceId, token, 1);
           todasConversas = todasConversas.concat(conversas);
         } catch (err: any) {
           errors.push(
@@ -141,7 +143,7 @@ export async function POST(req: NextRequest) {
         fim
       );
 
-      // 4. Get most recent 30 conversations
+      // 4. Get most recent 20 conversations (reduced from 30 for speed)
       const conversasRecentes = conversasPeriodo
         .sort((a, b) => {
           const da = new Date(
@@ -152,14 +154,14 @@ export async function POST(req: NextRequest) {
           ).getTime();
           return db - da;
         })
-        .slice(0, 30);
+        .slice(0, 20);
 
       // 5. Fetch messages for each conversation and build transcriptions
       const transcricoes: string[] = [];
       for (let ci = 0; ci < conversasRecentes.length; ci++) {
         const conversa = conversasRecentes[ci];
         // Delay entre conversas para evitar 429
-        if (ci > 0) await new Promise((r) => setTimeout(r, 2000));
+        if (ci > 0) await new Promise((r) => setTimeout(r, 1000));
         try {
           const mensagens = await fetchMensagens(conversa.id, token);
 

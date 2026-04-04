@@ -104,6 +104,9 @@ export function PeriodoSelector() {
         setLoadingIndex(i + 1);
       }
 
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4 * 60 * 1000); // 4 minutos
+
       const res = await fetch("/api/onix-corretora/analisar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -113,7 +116,10 @@ export function PeriodoSelector() {
           periodoFim: fim.toISOString(),
           periodo: periodoLabel,
         }),
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       const data = await res.json();
 
@@ -130,7 +136,11 @@ export function PeriodoSelector() {
         setErro("Nenhum relatorio foi gerado.");
       }
     } catch (err: any) {
-      setErro(err.message ?? "Erro ao conectar com o servidor.");
+      if (err.name === "AbortError") {
+        setErro("A analise excedeu o tempo limite (4 minutos). Tente com menos vendedores ou um periodo menor.");
+      } else {
+        setErro(err.message ?? "Erro ao conectar com o servidor.");
+      }
     } finally {
       setLoading(false);
       setLoadingVendedor(null);
