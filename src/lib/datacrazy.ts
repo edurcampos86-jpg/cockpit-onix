@@ -56,12 +56,14 @@ function delay(ms: number): Promise<void> {
 
 export async function fetchConversas(
   instanceId: string,
-  token: string
+  token: string,
+  maxPages: number = 3 // Limita a 3 páginas (300 conversas) — API retorna as mais recentes primeiro
 ): Promise<any[]> {
   const allConversas: any[] = [];
   let skip = 0;
   const take = 100;
   const maxRetries = 5;
+  let page = 0;
 
   while (true) {
     let attempt = 0;
@@ -125,8 +127,14 @@ export async function fetchConversas(
 
     if (items.length < take) break;
     skip += take;
+    page++;
 
-    await delay(500); // Maior intervalo entre páginas para evitar 429
+    if (page >= maxPages) {
+      console.log(`[Datacrazy] fetchConversas: limite de ${maxPages} paginas atingido (${allConversas.length} conversas)`);
+      break;
+    }
+
+    await delay(1000); // Intervalo entre páginas
   }
 
   return allConversas;
