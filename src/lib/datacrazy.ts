@@ -62,7 +62,7 @@ export async function fetchConversas(
   const allConversas: any[] = [];
   let skip = 0;
   const take = 100;
-  const maxRetries = 5;
+  const maxRetries = 2;
   let page = 0;
 
   while (true) {
@@ -80,12 +80,11 @@ export async function fetchConversas(
 
       if (res.status === 429) {
         attempt++;
-        const backoff = 5000 * Math.pow(2, attempt - 1); // 5s, 10s, 20s, 40s, 80s
+        const backoff = 5000 * attempt; // 5s, 10s
         console.log(`[Datacrazy] 429 em fetchConversas (instance ${instanceId}), retry ${attempt}/${maxRetries} em ${backoff}ms`);
         if (attempt >= maxRetries) {
-          throw new Error(
-            `fetchConversas rate limited after ${maxRetries} retries for instanceId=${instanceId}`
-          );
+          console.warn(`[Datacrazy] rate limit persistente — retornando ${allConversas.length} conversas parciais`);
+          return allConversas;
         }
         await delay(backoff);
         continue;
@@ -147,7 +146,7 @@ export async function fetchMensagens(
   const allMensagens: any[] = [];
   let skip = 0;
   const take = 50;
-  const maxRetries = 5;
+  const maxRetries = 2;
 
   while (true) {
     let attempt = 0;
@@ -166,12 +165,12 @@ export async function fetchMensagens(
 
       if (res.status === 429) {
         attempt++;
-        const backoff = 5000 * Math.pow(2, attempt - 1); // 5s, 10s, 20s, 40s, 80s
+        const backoff = 5000 * attempt; // 5s, 10s
         console.log(`[Datacrazy] 429 em fetchMensagens (conversa ${conversaId}), retry ${attempt}/${maxRetries} em ${backoff}ms`);
         if (attempt >= maxRetries) {
-          throw new Error(
-            `fetchMensagens rate limited after ${maxRetries} retries for conversaId=${conversaId}`
-          );
+          // Em vez de travar, retorna o que já tem e segue
+          console.warn(`[Datacrazy] rate limit persistente — retornando ${allMensagens.length} mensagens parciais`);
+          return allMensagens;
         }
         await delay(backoff);
         continue;
