@@ -19,18 +19,39 @@ import { identificarVendedorDoPayload } from "@/lib/integrations/zapier";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // 5 minutes for Railway
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const test = req.nextUrl.searchParams.get("test");
+  const tokenFromEnv = process.env.DATACRAZY_TOKEN ?? "";
+  const tokenFromDb = await getConfig("DATACRAZY_TOKEN") ?? "";
+  const token = tokenFromEnv || tokenFromDb;
+
+  // ?test=datacrazy — faz 1 chamada para testar conexão/rate limit
+  if (test === "datacrazy" && token) {
+    try {
+      const res = await fetch(
+        "https://api.g1.datacrazy.io/api/v1/conversations?instanceId=68f29107553523cea7840fdf&take=2&skip=0",
+        { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } }
+      );
+      const body = await res.text();
+      return NextResponse.json({
+        test: "datacrazy",
+        httpStatus: res.status,
+        bodyLen: body.length,
+        bodyPreview: body.substring(0, 200),
+      });
+    } catch (err: any) {
+      return NextResponse.json({ test: "datacrazy", error: err.message });
+    }
+  }
+
   const customKeys = Object.keys(process.env)
     .filter(k => !k.startsWith("RAILWAY_") && !k.startsWith("npm_") && !k.startsWith("NODE"))
     .sort();
 
-  const tokenFromEnv = process.env.DATACRAZY_TOKEN ?? "";
-  const tokenFromDb = await getConfig("DATACRAZY_TOKEN") ?? "";
-
   return NextResponse.json({
     status: "ok",
-    hasDatacrazyToken: !!(tokenFromEnv || tokenFromDb),
-    datacrazyLen: (tokenFromEnv || tokenFromDb).length,
+    hasDatacrazyToken: !!token,
+    datacrazyLen: token.length,
     tokenSource: tokenFromEnv ? "env" : tokenFromDb ? "db" : "none",
     hasAnthropicKey: !!process.env.ANTHROPIC_API_KEY,
     plaudViaZapier: true,
