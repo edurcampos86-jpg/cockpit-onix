@@ -193,18 +193,16 @@ export function Sidebar() {
           </button>
           {/* Botão de tema */}
           <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={toggleTheme}
-                className="flex items-center justify-center py-2 px-2 rounded-lg text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
-                aria-label={theme === "dark" ? "Ativar tema claro" : "Ativar tema escuro"}
-              >
-                {theme === "dark" ? (
-                  <Sun className="h-4 w-4" />
-                ) : (
-                  <Moon className="h-4 w-4" />
-                )}
-              </button>
+            <TooltipTrigger
+              onClick={toggleTheme}
+              className="flex items-center justify-center py-2 px-2 rounded-lg text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+              aria-label={theme === "dark" ? "Ativar tema claro" : "Ativar tema escuro"}
+            >
+              {theme === "dark" ? (
+                <Sun className="h-4 w-4" />
+              ) : (
+                <Moon className="h-4 w-4" />
+              )}
             </TooltipTrigger>
             <TooltipContent side="top">
               {theme === "dark" ? "Tema claro" : "Tema escuro"}
