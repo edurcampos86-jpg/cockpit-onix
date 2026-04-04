@@ -143,7 +143,7 @@ export async function POST(req: NextRequest) {
         fim
       );
 
-      // 4. Get most recent 20 conversations (reduced from 30 for speed)
+      // 4. Get most recent 15 conversations (rate limit = ~1 req/5s → 75s total)
       const conversasRecentes = conversasPeriodo
         .sort((a, b) => {
           const da = new Date(
@@ -154,14 +154,14 @@ export async function POST(req: NextRequest) {
           ).getTime();
           return db - da;
         })
-        .slice(0, 20);
+        .slice(0, 15);
 
       // 5. Fetch messages for each conversation and build transcriptions
       const transcricoes: string[] = [];
       for (let ci = 0; ci < conversasRecentes.length; ci++) {
         const conversa = conversasRecentes[ci];
-        // Delay entre conversas para evitar 429
-        if (ci > 0) await new Promise((r) => setTimeout(r, 1000));
+        // Delay entre conversas para evitar 429 (Datacrazy rate limit ~1 req/5s)
+        if (ci > 0) await new Promise((r) => setTimeout(r, 5000));
         try {
           const mensagens = await fetchMensagens(conversa.id, token);
 

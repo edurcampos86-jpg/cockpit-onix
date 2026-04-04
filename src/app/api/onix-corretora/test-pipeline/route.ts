@@ -63,7 +63,7 @@ export async function GET(req: NextRequest) {
           msgCount: msgs.length,
           elapsed: `${Date.now() - msgStart}ms`,
         });
-        await new Promise(r => setTimeout(r, 1000));
+        await new Promise(r => setTimeout(r, 5000));
       }
 
       return NextResponse.json({
@@ -92,7 +92,7 @@ export async function GET(req: NextRequest) {
         if (msgs.length < 3) continue;
         const nome = c.contact?.name ?? c.contact?.pushName ?? "Contato";
         transcricoes.push(buildTranscricao(msgs, nome));
-        await new Promise(r => setTimeout(r, 1000));
+        await new Promise(r => setTimeout(r, 5000));
       }
 
       return NextResponse.json({
