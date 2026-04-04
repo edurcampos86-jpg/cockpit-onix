@@ -141,12 +141,14 @@ export async function fetchConversas(
 
 export async function fetchMensagens(
   conversaId: string,
-  token: string
+  token: string,
+  maxPages: number = 1 // 1 pagina = 50 msgs max (suficiente para analise)
 ): Promise<any[]> {
   const allMensagens: any[] = [];
   let skip = 0;
   const take = 50;
   const maxRetries = 2;
+  let page = 0;
 
   while (true) {
     let attempt = 0;
@@ -196,8 +198,14 @@ export async function fetchMensagens(
 
     if (items.length < take) break;
     skip += take;
+    page++;
 
-    await delay(200);
+    if (page >= maxPages) {
+      console.log(`[Datacrazy] fetchMensagens: limite de ${maxPages} paginas (${allMensagens.length} msgs) para conversa ${conversaId}`);
+      break;
+    }
+
+    await delay(5000);
   }
 
   return allMensagens;
