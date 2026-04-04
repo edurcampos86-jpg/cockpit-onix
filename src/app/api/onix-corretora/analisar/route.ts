@@ -54,6 +54,8 @@ export async function GET(req: NextRequest) {
     datacrazyLen: token.length,
     tokenSource: tokenFromEnv ? "env" : tokenFromDb ? "db" : "none",
     hasAnthropicKey: !!process.env.ANTHROPIC_API_KEY,
+    anthropicKeyLen: (process.env.ANTHROPIC_API_KEY ?? "").length,
+    anthropicKeyPrefix: (process.env.ANTHROPIC_API_KEY ?? "").substring(0, 10),
     plaudViaZapier: true,
     envKeys: customKeys,
   });
