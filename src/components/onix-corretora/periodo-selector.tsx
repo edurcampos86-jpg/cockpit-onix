@@ -97,50 +97,65 @@ export function PeriodoSelector() {
     setErro(null);
     setResultado(null);
 
+    const todosRelatorios: Array<{ vendedor: string; id: string; periodo: string }> = [];
+    const todosErros: string[] = [];
+
     try {
-      // Simulate per-vendedor progress
+      // Processa 1 vendedor por vez para evitar timeout do Railway (~120s por request)
       for (let i = 0; i < vendedoresSelecionados.length; i++) {
-        setLoadingVendedor(vendedoresSelecionados[i]);
+        const vendedor = vendedoresSelecionados[i];
+        setLoadingVendedor(vendedor);
         setLoadingIndex(i + 1);
+
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 2 * 60 * 1000); // 2 min por vendedor
+
+          const res = await fetch("/api/onix-corretora/analisar", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              vendedores: [vendedor],
+              periodoInicio: inicio.toISOString(),
+              periodoFim: fim.toISOString(),
+              periodo: periodoLabel,
+            }),
+            signal: controller.signal,
+          });
+
+          clearTimeout(timeoutId);
+
+          const data = await res.json();
+
+          if (!res.ok) {
+            todosErros.push(`${vendedor}: ${data.error ?? "erro desconhecido"}`);
+            continue;
+          }
+
+          if (data.relatorios?.length > 0) {
+            todosRelatorios.push(...data.relatorios);
+          }
+          if (data.errors?.length > 0) {
+            todosErros.push(...data.errors);
+          }
+        } catch (err: any) {
+          if (err.name === "AbortError") {
+            todosErros.push(`${vendedor}: timeout (2 min)`);
+          } else {
+            todosErros.push(`${vendedor}: ${err.message}`);
+          }
+        }
       }
 
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 4 * 60 * 1000); // 4 minutos
-
-      const res = await fetch("/api/onix-corretora/analisar", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          vendedores: vendedoresSelecionados,
-          periodoInicio: inicio.toISOString(),
-          periodoFim: fim.toISOString(),
-          periodo: periodoLabel,
-        }),
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        setErro(data.error ?? "Erro desconhecido ao gerar analise.");
-        return;
-      }
-
-      if (data.relatorios && data.relatorios.length > 0) {
-        setResultado(data.relatorios);
-      } else if (data.errors && data.errors.length > 0) {
-        setErro(`Nenhum relatorio gerado. Erros: ${data.errors.join("; ")}`);
+      if (todosRelatorios.length > 0) {
+        setResultado(todosRelatorios);
+      } else if (todosErros.length > 0) {
+        setErro(`Nenhum relatorio gerado. Erros: ${todosErros.join("; ")}`);
       } else {
         setErro("Nenhum relatorio foi gerado.");
       }
     } catch (err: any) {
-      if (err.name === "AbortError") {
-        setErro("A analise excedeu o tempo limite (4 minutos). Tente com menos vendedores ou um periodo menor.");
-      } else {
-        setErro(err.message ?? "Erro ao conectar com o servidor.");
-      }
+      setErro(err.message ?? "Erro ao conectar com o servidor.");
     } finally {
       setLoading(false);
       setLoadingVendedor(null);
