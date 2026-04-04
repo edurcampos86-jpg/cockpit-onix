@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getConfig } from "@/lib/config-db";
 import {
   VENDEDORES_CONFIG,
   fetchConversas,
@@ -22,10 +23,15 @@ export async function GET() {
   const customKeys = Object.keys(process.env)
     .filter(k => !k.startsWith("RAILWAY_") && !k.startsWith("npm_") && !k.startsWith("NODE"))
     .sort();
+
+  const tokenFromEnv = process.env.DATACRAZY_TOKEN ?? "";
+  const tokenFromDb = await getConfig("DATACRAZY_TOKEN") ?? "";
+
   return NextResponse.json({
     status: "ok",
-    hasDatacrazyToken: !!process.env.DATACRAZY_TOKEN,
-    datacrazyLen: (process.env.DATACRAZY_TOKEN ?? "").length,
+    hasDatacrazyToken: !!(tokenFromEnv || tokenFromDb),
+    datacrazyLen: (tokenFromEnv || tokenFromDb).length,
+    tokenSource: tokenFromEnv ? "env" : tokenFromDb ? "db" : "none",
     hasAnthropicKey: !!process.env.ANTHROPIC_API_KEY,
     plaudViaZapier: true,
     envKeys: customKeys,
@@ -46,10 +52,10 @@ export async function POST(req: NextRequest) {
     periodo: string;
   } = body;
 
-  const token = process.env.DATACRAZY_TOKEN;
+  const token = await getConfig("DATACRAZY_TOKEN");
   if (!token) {
     return NextResponse.json(
-      { ok: false, error: "DATACRAZY_TOKEN nao configurado no ambiente." },
+      { ok: false, error: "DATACRAZY_TOKEN nao configurado. Use POST /api/admin/config para salvar no banco." },
       { status: 500 }
     );
   }

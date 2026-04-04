@@ -244,6 +244,16 @@ model Meeting {
 }
 
 // ============================================
+// CONFIGURAÇÕES DINÂMICAS (fallback p/ env vars)
+// ============================================
+
+model Config {
+  key       String   @id
+  value     String   @db.Text
+  updatedAt DateTime @updatedAt
+}
+
+// ============================================
 // ANALYTICS E FEEDBACK LOOP
 // ============================================
 
