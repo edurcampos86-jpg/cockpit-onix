@@ -177,7 +177,9 @@ export async function fetchMensagens(
     }
 
     const data = await res.json();
-    const items: any[] = Array.isArray(data) ? data : data.data ?? data.items ?? [];
+    const items: any[] = Array.isArray(data)
+      ? data
+      : data.messages ?? data.data ?? data.items ?? [];
 
     if (items.length === 0) break;
 
