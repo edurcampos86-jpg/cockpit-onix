@@ -5,7 +5,8 @@ import { jwtVerify } from "jose";
 const publicRoutes = [
   "/login",
   "/api/onix-corretora/ingest",
-  "/api/onix-corretora/analisar",  // GET diagnóstico (apenas lê flags, não expõe tokens)
+  "/api/onix-corretora/analisar",      // GET diagnóstico (apenas lê flags, não expõe tokens)
+  "/api/onix-corretora/test-pipeline", // Diagnóstico do pipeline
   "/api/integracoes/zapier/webhook",
 ];
 const secretKey = process.env.SESSION_SECRET;
