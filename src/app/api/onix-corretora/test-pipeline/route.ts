@@ -53,6 +53,9 @@ export async function GET(req: NextRequest) {
         return new Date(b.lastMessageDate ?? 0).getTime() - new Date(a.lastMessageDate ?? 0).getTime();
       }).slice(0, 3);
 
+      // Cooldown entre conversas e mensagens
+      await new Promise(r => setTimeout(r, 5000));
+
       const results = [];
       for (const c of recentes) {
         const msgStart = Date.now();

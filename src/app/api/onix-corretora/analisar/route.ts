@@ -156,6 +156,9 @@ export async function POST(req: NextRequest) {
         })
         .slice(0, 15);
 
+      // Cooldown entre fetchConversas e fetchMensagens
+      await new Promise((r) => setTimeout(r, 5000));
+
       // 5. Fetch messages for each conversation and build transcriptions
       const transcricoes: string[] = [];
       for (let ci = 0; ci < conversasRecentes.length; ci++) {
