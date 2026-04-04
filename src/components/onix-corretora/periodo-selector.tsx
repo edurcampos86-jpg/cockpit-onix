@@ -241,9 +241,11 @@ export function PeriodoSelector() {
                   </div>
                 </div>
 
-                <p className="text-xs text-muted-foreground mb-5">
-                  Este processo pode levar 2-4 minutos por vendedor.
-                </p>
+                <div className="rounded-lg bg-sidebar-accent border border-border p-3 mb-5 space-y-1.5">
+                  <p className="text-xs font-medium text-foreground">Fontes de dados:</p>
+                  <p className="text-xs text-muted-foreground">Conversas do CRM Datacrazy + gravacoes do Plaud (se configurado)</p>
+                  <p className="text-xs text-muted-foreground">Tempo estimado: 2-4 minutos por vendedor.</p>
+                </div>
 
                 <div className="flex gap-3">
                   <button

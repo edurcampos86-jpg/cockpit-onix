@@ -73,9 +73,10 @@ export async function analisarVendedor(params: {
   vendedor: string;
   periodo: string;
   transcricoes: string[];
+  transcricoesPlaud?: string[];   // gravações/reuniões do Plaud
   relatorioAnteriorSecao5?: string;
 }): Promise<string> {
-  const { vendedor, periodo, transcricoes, relatorioAnteriorSecao5 } = params;
+  const { vendedor, periodo, transcricoes, transcricoesPlaud = [], relatorioAnteriorSecao5 } = params;
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -85,23 +86,32 @@ export async function analisarVendedor(params: {
   const patProfile = PAT_PROFILES[vendedor] ?? "Perfil PAT nao encontrado.";
 
   const transcricoesTexto = transcricoes
-    .map((t, i) => `--- CONVERSA ${i + 1} ---\n${t}`)
+    .map((t, i) => `--- CONVERSA CRM ${i + 1} ---\n${t}`)
     .join("\n\n");
+
+  const plaudTexto = transcricoesPlaud.length > 0
+    ? `\n\nGRAVACOES E REUNIOES (Plaud) — ${transcricoesPlaud.length} arquivo(s):\n\n` +
+      transcricoesPlaud.map((t, i) => `--- GRAVACAO PLAUD ${i + 1} ---\n${t}`).join("\n\n")
+    : "";
 
   const retomadaInfo = relatorioAnteriorSecao5
     ? `\n\nACOES DO RELATORIO ANTERIOR (para verificar retomada):\n${relatorioAnteriorSecao5}`
     : "\n\n(Primeiro relatorio — sem retomada anterior)";
 
+  const fonteInfo = transcricoesPlaud.length > 0
+    ? `\n\nFONTES DE DADOS: ${transcricoes.length} conversas do CRM Datacrazy + ${transcricoesPlaud.length} gravacao(es) do Plaud. Analise AMBAS as fontes de forma integrada.`
+    : "";
+
   const userMessage = `VENDEDOR: ${vendedor}
 PERIODO: ${periodo}
 PERFIL PAT: ${patProfile}
-${retomadaInfo}
+${retomadaInfo}${fonteInfo}
 
-TRANSCRICOES DAS CONVERSAS (${transcricoes.length} no total):
+CONVERSAS DO CRM DATACRAZY (${transcricoes.length} no total):
 
-${transcricoesTexto}
+${transcricoesTexto}${plaudTexto}
 
-Analise as transcricoes acima e gere o relatorio completo de coaching no formato especificado.`;
+Analise todas as fontes acima de forma integrada e gere o relatorio completo de coaching no formato especificado. Ao contar conversas_analisadas no bloco METRICAS, some CRM + Plaud.`;
 
   const res = await fetch(CLAUDE_API_URL, {
     method: "POST",

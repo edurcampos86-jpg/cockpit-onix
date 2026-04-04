@@ -13,6 +13,10 @@ import {
   parseMetricas,
   extrairAcoes,
 } from "@/lib/claude-analisar";
+import {
+  buscarTranscricoesDoPeriodo,
+  formatarTranscricaoParaAnalise,
+} from "@/lib/plaud";
 
 export const maxDuration = 300; // 5 minutes for Railway
 
@@ -21,6 +25,8 @@ export async function GET() {
     status: "ok",
     hasDatacrazyToken: !!process.env.DATACRAZY_TOKEN,
     hasAnthropicKey: !!process.env.ANTHROPIC_API_KEY,
+    hasPlaudToken: !!process.env.PLAUD_TOKEN,
+    plaudApiDomain: process.env.PLAUD_API_DOMAIN ?? "api.plaud.ai (padrão)",
   });
 }
 
@@ -146,22 +152,44 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      // 6. Get last report's secao5 for retomada
+      // 6. Buscar transcrições do Plaud para o período (opcional — continua sem erro se token ausente)
+      let transcricoesPlaud: string[] = [];
+      const plaudToken = process.env.PLAUD_TOKEN;
+      if (plaudToken) {
+        try {
+          const { transcricoes: plaudFiles, totalArquivos } = await buscarTranscricoesDoPeriodo({
+            vendedor,
+            inicio,
+            fim,
+            token: plaudToken,
+          });
+          transcricoesPlaud = plaudFiles.map(formatarTranscricaoParaAnalise);
+          if (totalArquivos > 0) {
+            console.log(`[Plaud] ${vendedor}: ${totalArquivos} arquivo(s) encontrado(s) no período`);
+          }
+        } catch (err: any) {
+          // Plaud é opcional — apenas loga, não interrompe
+          console.warn(`[Plaud] Falha ao buscar transcrições para ${vendedor}: ${err.message}`);
+        }
+      }
+
+      // 7. Get last report's secao5 for retomada
       const ultimoRelatorio = await prisma.relatorio.findFirst({
         where: { vendedor },
         orderBy: { periodoInicio: "desc" },
         select: { secao5: true },
       });
 
-      // 7. Call Claude for analysis
+      // 8. Call Claude for analysis (CRM + Plaud integrados)
       const textoAnalise = await analisarVendedor({
         vendedor,
         periodo,
         transcricoes,
+        transcricoesPlaud,
         relatorioAnteriorSecao5: ultimoRelatorio?.secao5 ?? undefined,
       });
 
-      // 8. Parse the response
+      // 9. Parse the response
       const blocos = parseBlocos(textoAnalise);
       const metricasRaw = blocos["METRICAS"] ?? "";
       const metricas = parseMetricas(metricasRaw);
@@ -172,7 +200,7 @@ export async function POST(req: NextRequest) {
       const termometro = blocos["TERMOMETRO"] ?? "";
       const score = computeScore(termometro);
 
-      // 9. Create Relatorio + Acoes + Metrica in DB
+      // 10. Create Relatorio + Acoes + Metrica in DB
       const relatorio = await prisma.relatorio.create({
         data: {
           vendedor,
