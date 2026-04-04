@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-
-export const dynamic = "force-dynamic";
 import {
   VENDEDORES_CONFIG,
   fetchConversas,
@@ -20,6 +18,7 @@ import {
   formatarTranscricaoParaAnalise,
 } from "@/lib/plaud";
 
+export const dynamic = "force-dynamic";
 export const maxDuration = 300; // 5 minutes for Railway
 
 export async function GET() {
@@ -28,6 +27,7 @@ export async function GET() {
     hasDatacrazyToken: !!process.env.DATACRAZY_TOKEN,
     hasAnthropicKey: !!process.env.ANTHROPIC_API_KEY,
     hasPlaudToken: !!process.env.PLAUD_TOKEN,
+    plaudTokenLen: (process.env.PLAUD_TOKEN ?? "").length,
     plaudApiDomain: process.env.PLAUD_API_DOMAIN ?? "api.plaud.ai (padrão)",
   });
 }
