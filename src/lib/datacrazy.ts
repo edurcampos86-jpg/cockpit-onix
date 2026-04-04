@@ -61,19 +61,40 @@ export async function fetchConversas(
   const allConversas: any[] = [];
   let skip = 0;
   const take = 100;
+  const maxRetries = 4;
 
   while (true) {
-    const url = `${DATACRAZY_BASE_URL}/conversations?instanceId=${instanceId}&take=${take}&skip=${skip}`;
-    const res = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-    });
+    let attempt = 0;
+    let res: Response | null = null;
 
-    if (!res.ok) {
+    while (attempt < maxRetries) {
+      const url = `${DATACRAZY_BASE_URL}/conversations?instanceId=${instanceId}&take=${take}&skip=${skip}`;
+      res = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (res.status === 429) {
+        attempt++;
+        const backoff = 3000 * Math.pow(2, attempt - 1); // 3s, 6s, 12s, 24s
+        console.log(`[Datacrazy] 429 em fetchConversas (instance ${instanceId}), retry ${attempt}/${maxRetries} em ${backoff}ms`);
+        if (attempt >= maxRetries) {
+          throw new Error(
+            `fetchConversas rate limited after ${maxRetries} retries for instanceId=${instanceId}`
+          );
+        }
+        await delay(backoff);
+        continue;
+      }
+
+      break;
+    }
+
+    if (!res || !res.ok) {
       throw new Error(
-        `fetchConversas failed: ${res.status} ${res.statusText} for instanceId=${instanceId}`
+        `fetchConversas failed: ${res?.status} ${res?.statusText} for instanceId=${instanceId}`
       );
     }
 
@@ -105,7 +126,7 @@ export async function fetchConversas(
     if (items.length < take) break;
     skip += take;
 
-    await delay(200);
+    await delay(500); // Maior intervalo entre páginas para evitar 429
   }
 
   return allConversas;

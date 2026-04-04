@@ -77,7 +77,11 @@ export async function POST(req: NextRequest) {
   }> = [];
   const errors: string[] = [];
 
-  for (const vendedor of vendedores) {
+  for (let vi = 0; vi < vendedores.length; vi++) {
+    const vendedor = vendedores[vi];
+    // Delay entre vendedores para evitar 429 no Datacrazy
+    if (vi > 0) await new Promise((r) => setTimeout(r, 3000));
+
     try {
       const config = VENDEDORES_CONFIG[vendedor];
       if (!config) {
