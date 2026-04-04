@@ -78,7 +78,9 @@ export async function analisarVendedor(params: {
 }): Promise<string> {
   const { vendedor, periodo, transcricoes, transcricoesPlaud = [], relatorioAnteriorSecao5 } = params;
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  // Import dinâmico para evitar dependência circular
+  const { getConfig } = await import("@/lib/config-db");
+  const apiKey = await getConfig("ANTHROPIC_API_KEY");
   if (!apiKey) {
     throw new Error("ANTHROPIC_API_KEY nao configurada");
   }
