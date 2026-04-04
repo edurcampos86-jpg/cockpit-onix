@@ -13,18 +13,23 @@
 import { prisma } from "@/lib/prisma";
 
 /**
- * Returns process.env[key] if set, otherwise reads from Config table in DB.
+ * Returns config value: DB first (if exists), then process.env fallback.
+ * DB takes priority because Railway env vars can contain stale/placeholder values.
  */
 export async function getConfig(key: string): Promise<string | undefined> {
-  const envVal = process.env[key];
-  if (envVal) return envVal;
-
+  // DB first — always the freshest value
   try {
     const row = await prisma.config.findUnique({ where: { key } });
-    return row?.value ?? undefined;
+    if (row?.value) return row.value;
   } catch {
-    return undefined;
+    // DB unavailable — fall through to env
   }
+
+  // Env fallback
+  const envVal = process.env[key];
+  if (envVal && !envVal.startsWith("placeholder")) return envVal;
+
+  return undefined;
 }
 
 /**
