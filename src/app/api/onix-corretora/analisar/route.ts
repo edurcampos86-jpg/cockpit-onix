@@ -17,7 +17,7 @@ import {
 import { identificarVendedorDoPayload } from "@/lib/integrations/zapier";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 300; // 5 minutes for Railway
+export const maxDuration = 300; // 5 minutes timeout
 
 export async function GET(req: NextRequest) {
   const test = req.nextUrl.searchParams.get("test");
