@@ -107,7 +107,29 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    return NextResponse.json({ error: "step invalido. Use: conversas, mensagens, transcricao" });
+    if (step === "1msg") {
+      // Step single: fetch 1 specific conversation messages
+      const conversaId = req.nextUrl.searchParams.get("id") ?? "6981f24204e6a75d458bed5a";
+      const res = await fetch(
+        `https://api.g1.datacrazy.io/api/v1/conversations/${conversaId}/messages?take=5&skip=0`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+      const body = await res.text();
+      return NextResponse.json({
+        step: "1msg",
+        httpStatus: res.status,
+        bodyLen: body.length,
+        bodyPreview: body.substring(0, 300),
+        elapsed: `${Date.now() - start}ms`,
+      });
+    }
+
+    return NextResponse.json({ error: "step invalido. Use: conversas, mensagens, transcricao, 1msg" });
   } catch (err: any) {
     return NextResponse.json({
       step,
