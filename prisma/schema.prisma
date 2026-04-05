@@ -205,6 +205,27 @@ model Metrica {
   @@index([vendedor, createdAt])
 }
 
+model RelatorioColetivo {
+  id                  String   @id @default(cuid())
+  periodo             String
+  periodoInicio       DateTime
+  periodoFim          DateTime
+  dataExecucao        DateTime
+  vendedoresAnalisados String  // "Thiago Vergal,Rose Oliveira"
+  metricasConsolidadas String? @db.Text // JSON: totais + variações
+  scoreIndividual      String? @db.Text // JSON: scores por vendedor
+  termometroTime       String? @db.Text
+  objecoesRecorrentes  String? @db.Text
+  padroesPositivos     String? @db.Text
+  padroesRisco         String? @db.Text
+  scriptColetivo       String? @db.Text
+  planoColetivo        String? @db.Text
+  cumprimentoAnterior  String? @db.Text
+  createdAt            DateTime @default(now())
+
+  @@index([periodoInicio])
+}
+
 model Meta {
   id        String   @id @default(cuid())
   vendedor  String

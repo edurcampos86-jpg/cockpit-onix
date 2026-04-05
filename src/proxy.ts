@@ -7,6 +7,7 @@ const publicRoutes = [
   "/api/onix-corretora/ingest",
   "/api/onix-corretora/analisar",      // GET diagnóstico (apenas lê flags, não expõe tokens)
   "/api/onix-corretora/test-pipeline", // Diagnóstico do pipeline
+  "/api/onix-corretora/coletivo",      // Geração de relatório coletivo
   "/api/integracoes/zapier/webhook",
 ];
 const secretKey = process.env.SESSION_SECRET;

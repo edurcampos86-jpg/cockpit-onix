@@ -50,6 +50,7 @@ const mktNavigation = [
 const onixCorretorNavigation = [
   { name: "Painel", href: "/onix-corretora", icon: LayoutDashboard },
   { name: "Relatórios", href: "/onix-corretora/relatorios", icon: ClipboardList },
+  { name: "Padrões Coletivos", href: "/onix-corretora/coletivo", icon: Users },
   { name: "Plano de Ação", href: "/onix-corretora/acoes", icon: ListChecks },
   { name: "Comparativo", href: "/onix-corretora/comparativo", icon: BarChart2 },
   { name: "Boas Práticas", href: "/onix-corretora/praticas", icon: BookOpen },
