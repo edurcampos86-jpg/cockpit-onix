@@ -354,3 +354,32 @@ model ScriptAdjustment {
   recommendationId String
   recommendation   Recommendation @relation(fields: [recommendationId], references: [id])
 }
+
+// ============================================
+// PAINEL SEMANAL — METAS E PIPELINE
+// ============================================
+
+model MetaMensal {
+  id               String   @id @default(cuid())
+  mes              Int      // 1-12
+  ano              Int
+  metaFaturamento  Float    // valor da meta mensal em R$
+  faturamentoAtual Float    @default(0) // faturamento acumulado no mês
+  criadoEm         DateTime @default(now())
+  atualizadoEm     DateTime @updatedAt
+
+  @@unique([mes, ano])
+}
+
+model NegocioPipeline {
+  id              String   @id @default(cuid())
+  nomeCliente     String
+  valor           Float    // valor do negócio em R$
+  responsavel     String   // nome do vendedor
+  etapa           String   // etapa no pipeline
+  ultimaAtividade DateTime // data da última atividade registrada
+  externalId      String?  @unique // ID no CRM Datacrazy (futura integração)
+  ativo           Boolean  @default(true)
+  criadoEm        DateTime @default(now())
+  atualizadoEm    DateTime @updatedAt
+}
