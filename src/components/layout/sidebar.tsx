@@ -27,6 +27,7 @@ import {
   Presentation,
   AlertTriangle,
   GraduationCap,
+  Map,
   Sun,
   Moon,
 } from "lucide-react";
@@ -57,6 +58,7 @@ const onixCorretorNavigation = [
   { name: "Reuniao Semanal", href: "/onix-corretora/reuniao", icon: Presentation },
   { name: "Alertas Pipeline", href: "/onix-corretora/alertas", icon: AlertTriangle },
   { name: "Desenvolvimento", href: "/onix-corretora/desenvolvimento", icon: GraduationCap },
+  { name: "Projeto T&D", href: "/onix-corretora/projeto-td", icon: Map },
   { name: "Relatórios", href: "/onix-corretora/relatorios", icon: ClipboardList },
   { name: "Padrões Coletivos", href: "/onix-corretora/coletivo", icon: Users },
   { name: "Plano de Ação", href: "/onix-corretora/acoes", icon: ListChecks },
