@@ -405,3 +405,20 @@ model AlertaResolucao {
 
   @@index([negocioId])
 }
+
+// ============================================
+// RITUAIS DE GESTÃO
+// ============================================
+
+model RitualExecucao {
+  id        String   @id @default(cuid())
+  ritualId  String   // ID do ritual (micro-coaching, reuniao-segunda, etc.)
+  data      DateTime // data da ocorrência
+  realizado Boolean  @default(false)
+  notas     String?  @db.Text
+  criadoEm  DateTime @default(now())
+
+  @@unique([ritualId, data])
+  @@index([ritualId])
+  @@index([data])
+}

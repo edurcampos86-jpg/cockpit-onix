@@ -28,6 +28,7 @@ import {
   AlertTriangle,
   GraduationCap,
   Map,
+  CalendarCheck,
   Sun,
   Moon,
 } from "lucide-react";
@@ -59,6 +60,7 @@ const onixCorretorNavigation = [
   { name: "Alertas Pipeline", href: "/onix-corretora/alertas", icon: AlertTriangle },
   { name: "Desenvolvimento", href: "/onix-corretora/desenvolvimento", icon: GraduationCap },
   { name: "Projeto T&D", href: "/onix-corretora/projeto-td", icon: Map },
+  { name: "Rituais", href: "/onix-corretora/rituais", icon: CalendarCheck },
   { name: "Relatórios", href: "/onix-corretora/relatorios", icon: ClipboardList },
   { name: "Padrões Coletivos", href: "/onix-corretora/coletivo", icon: Users },
   { name: "Plano de Ação", href: "/onix-corretora/acoes", icon: ListChecks },
