@@ -25,6 +25,7 @@ import {
   UserCircle,
   Gauge,
   Presentation,
+  AlertTriangle,
   Sun,
   Moon,
 } from "lucide-react";
@@ -53,6 +54,7 @@ const onixCorretorNavigation = [
   { name: "Painel", href: "/onix-corretora", icon: LayoutDashboard },
   { name: "Painel Semanal", href: "/onix-corretora/painel-semanal", icon: Gauge },
   { name: "Reuniao Semanal", href: "/onix-corretora/reuniao", icon: Presentation },
+  { name: "Alertas Pipeline", href: "/onix-corretora/alertas", icon: AlertTriangle },
   { name: "Relatórios", href: "/onix-corretora/relatorios", icon: ClipboardList },
   { name: "Padrões Coletivos", href: "/onix-corretora/coletivo", icon: Users },
   { name: "Plano de Ação", href: "/onix-corretora/acoes", icon: ListChecks },

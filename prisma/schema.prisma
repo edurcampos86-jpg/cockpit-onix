@@ -372,14 +372,36 @@ model MetaMensal {
 }
 
 model NegocioPipeline {
-  id              String   @id @default(cuid())
+  id              String    @id @default(cuid())
   nomeCliente     String
-  valor           Float    // valor do negócio em R$
-  responsavel     String   // nome do vendedor
-  etapa           String   // etapa no pipeline
-  ultimaAtividade DateTime // data da última atividade registrada
-  externalId      String?  @unique // ID no CRM Datacrazy (futura integração)
-  ativo           Boolean  @default(true)
-  criadoEm        DateTime @default(now())
-  atualizadoEm    DateTime @updatedAt
+  valor           Float     // valor do negócio em R$
+  responsavel     String    // nome do vendedor
+  etapa           String    // etapa no pipeline
+  ultimaAtividade DateTime  // data da última atividade registrada
+  externalId      String?   @unique // ID no CRM Datacrazy (futura integração)
+  ativo           Boolean   @default(true)
+  motivoPerda     String?   // "preco" | "timing" | "concorrencia" | "atendimento" | "outro"
+  dataPerda       DateTime? // quando foi marcado como adormecido
+  dataRecontato   DateTime? // agenda de recontato (dataPerda + 60 dias)
+  criadoEm        DateTime  @default(now())
+  atualizadoEm    DateTime  @updatedAt
+  resolucoes      AlertaResolucao[]
+
+  @@index([ativo, ultimaAtividade])
+  @@index([etapa])
+}
+
+// ============================================
+// ALERTAS DE PIPELINE
+// ============================================
+
+model AlertaResolucao {
+  id          String   @id @default(cuid())
+  negocioId   String
+  negocio     NegocioPipeline @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  tipo        String   // "parado_48h" | "alto_ticket" | "reativacao_60d"
+  acaoTomada  String   @db.Text
+  resolvidoEm DateTime @default(now())
+
+  @@index([negocioId])
 }
