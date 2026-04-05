@@ -3,11 +3,60 @@ export const dynamic = "force-dynamic";
 import { prisma } from "@/lib/prisma";
 import Link from "next/link";
 import { FileText, Printer, Users } from "lucide-react";
+import { GerarColetivoButton } from "@/components/onix-corretora/gerar-coletivo-button";
 
 export default async function ColetivoPage() {
+  // Buscar relatorios coletivos existentes
   const relatorios = await prisma.relatorioColetivo.findMany({
     orderBy: { periodoInicio: "desc" },
   });
+
+  // Buscar periodos disponiveis (relatorios individuais de Thiago/Rose que ainda nao tem coletivo)
+  const vendedoresAlvo = ["Thiago Vergal", "Rose Oliveira"];
+
+  const relatoriosIndividuais = await prisma.relatorio.findMany({
+    where: { vendedor: { in: vendedoresAlvo } },
+    select: { vendedor: true, periodo: true, periodoInicio: true, periodoFim: true },
+    orderBy: { periodoInicio: "desc" },
+  });
+
+  // Agrupar por periodo
+  const periodosMap = new Map<string, {
+    periodo: string;
+    periodoInicio: Date;
+    periodoFim: Date;
+    vendedores: string[];
+  }>();
+
+  for (const r of relatoriosIndividuais) {
+    const key = r.periodoInicio.toISOString();
+    if (!periodosMap.has(key)) {
+      periodosMap.set(key, {
+        periodo: r.periodo,
+        periodoInicio: r.periodoInicio,
+        periodoFim: r.periodoFim,
+        vendedores: [],
+      });
+    }
+    const entry = periodosMap.get(key)!;
+    if (!entry.vendedores.includes(r.vendedor)) {
+      entry.vendedores.push(r.vendedor);
+    }
+  }
+
+  // Filtrar periodos que ainda nao tem coletivo gerado
+  const periodosComColetivo = new Set(
+    relatorios.map(r => r.periodoInicio.toISOString())
+  );
+
+  const periodosDisponiveis = Array.from(periodosMap.values())
+    .filter(p => !periodosComColetivo.has(p.periodoInicio.toISOString()))
+    .map(p => ({
+      periodo: p.periodo,
+      periodoInicio: p.periodoInicio.toISOString(),
+      periodoFim: p.periodoFim.toISOString(),
+      vendedores: p.vendedores,
+    }));
 
   return (
     <div className="space-y-6">
@@ -18,18 +67,25 @@ export default async function ColetivoPage() {
         </p>
       </div>
 
+      {/* Botao de gerar */}
+      <GerarColetivoButton periodos={periodosDisponiveis} />
+
+      {/* Lista de relatorios coletivos */}
       {relatorios.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
+        <div className="flex flex-col items-center justify-center py-12 text-center">
           <Users className="h-12 w-12 text-muted-foreground/50 mb-4" />
           <h3 className="text-lg font-medium text-muted-foreground">
-            Nenhum relatorio coletivo gerado
+            Nenhum relatorio coletivo gerado ainda
           </h3>
-          <p className="text-sm text-muted-foreground mt-1">
-            Gere os relatorios individuais de Thiago e Rose primeiro, depois gere o coletivo pelo Painel.
+          <p className="text-sm text-muted-foreground mt-1 max-w-md">
+            Use o botao acima para gerar a partir dos relatorios individuais de Thiago e Rose.
           </p>
         </div>
       ) : (
         <div className="space-y-3">
+          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+            Historico
+          </h2>
           {relatorios.map((rel) => {
             const vendedores = rel.vendedoresAnalisados.split(",");
 
@@ -47,7 +103,7 @@ export default async function ColetivoPage() {
                       {rel.periodo}
                     </div>
                     <div className="text-xs text-muted-foreground mt-0.5">
-                      {vendedores.length} assessores analisados · Gerado em{" "}
+                      {vendedores.length} assessores · Gerado em{" "}
                       {new Date(rel.dataExecucao).toLocaleDateString("pt-BR")}
                     </div>
                   </div>
