@@ -4,14 +4,20 @@
  */
 
 import { getIntegrationConfig } from "./config";
+import { getConfig } from "@/lib/config-db";
 
 const API_URL = "https://api.anthropic.com/v1/messages";
 
 async function getApiKey(): Promise<string> {
+  // DB first (most reliable), then integrations config, then env
+  const dbKey = await getConfig("ANTHROPIC_API_KEY");
+  if (dbKey) return dbKey;
+
   const config = await getIntegrationConfig();
-  const key = config.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY;
-  if (!key) throw new Error("ANTHROPIC_API_KEY não configurada. Acesse Integrações e insira sua chave da Anthropic.");
-  return key;
+  const key = config.ANTHROPIC_API_KEY;
+  if (key) return key;
+
+  throw new Error("ANTHROPIC_API_KEY nao configurada.");
 }
 
 interface ClaudeMessage {

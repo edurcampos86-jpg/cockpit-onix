@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getConfig } from "@/lib/config-db";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale/pt-BR";
 
@@ -29,7 +30,7 @@ Voce pode:
 Responda em portugues, de forma direta. Use markdown para estruturar respostas longas. Para sugestoes de prompt, use blocos de codigo.`;
 
 export async function POST(req: NextRequest) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = await getConfig("ANTHROPIC_API_KEY");
   if (!apiKey) {
     return new Response("ANTHROPIC_API_KEY nao configurada.", { status: 500 });
   }
@@ -83,7 +84,7 @@ export async function POST(req: NextRequest) {
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: "claude-sonnet-4-5",
+      model: "claude-sonnet-4-20250514",
       max_tokens: 2048,
       system: systemPrompt,
       messages,

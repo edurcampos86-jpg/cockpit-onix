@@ -83,9 +83,10 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  if (!process.env.ANTHROPIC_API_KEY) {
+  const anthropicKey = await getConfig("ANTHROPIC_API_KEY");
+  if (!anthropicKey) {
     return NextResponse.json(
-      { ok: false, error: "ANTHROPIC_API_KEY nao configurada no ambiente." },
+      { ok: false, error: "ANTHROPIC_API_KEY nao configurada. Use POST /api/admin/config para salvar." },
       { status: 500 }
     );
   }
