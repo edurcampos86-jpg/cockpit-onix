@@ -71,6 +71,8 @@ const onixCorretorNavigation = [
 
 const backofficeNavigation = [
   { name: "Painel", href: "/backoffice", icon: LayoutDashboard },
+  { name: "Clientes", href: "/backoffice/clientes", icon: Users },
+  { name: "Cadência 12-4-2", href: "/backoffice/cadencia", icon: CalendarCheck },
   { name: "Tarefas", href: "/backoffice/tarefas", icon: CheckSquare },
   { name: "Relatórios", href: "/backoffice/relatorios", icon: ClipboardList },
   { name: "Configurações", href: "/backoffice/configuracoes", icon: Settings },

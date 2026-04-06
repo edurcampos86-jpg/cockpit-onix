@@ -427,13 +427,147 @@ model RitualExecucao {
 // BACKOFFICE — DADOS DE CLIENTES
 // ============================================
 
+// ============================================
+// BACKOFFICE — CLIENTES (modelo Supernova 12-4-2)
+// ============================================
+
 model ClienteBackoffice {
-  id          String   @id @default(cuid())
-  nome        String
-  numeroConta String
-  saldo       Float    @default(0)
+  id            String   @id @default(cuid())
+  nome          String
+  numeroConta   String
+  saldo         Float    @default(0)
+
+  // Classificação ABC (Supernova)
+  // A = top clientes (12 contatos/ano), B = relacionamento ativo, C = manutenção
+  classificacao String   @default("C") // "A" | "B" | "C"
+  classificacaoManual Boolean @default(false) // true = travada, não recalcular
+
+  // Contato e relacionamento
+  email         String?
+  telefone      String?
+  aniversario   DateTime?
+  profissao     String?
+  nicho         String?  // "medico" | "empresario" | "executivo" | "outro"
+
+  // Storyselling / perfil emocional
+  perfilEmocional String? @db.Text // medos, sonhos, linguagem preferida
+  observacoes     String? @db.Text
+
+  // Cadência e promessa de serviço
+  ultimoContatoAt DateTime?
+  proximoContatoAt DateTime?
+
+  // Receita
+  receitaAnual  Float    @default(0)
+
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  interacoes  InteracaoCliente[]
+  metas       MetaCliente[]
+  eventosVida EventoVida[]
+  indicacoes  Indicacao[] @relation("ClienteIndicador")
+
   @@index([numeroConta])
+  @@index([classificacao])
+  @@index([proximoContatoAt])
+}
+
+// Registro de cada contato: 12-4-2 (12 ligações, 4 reuniões, 2 revisões por ano para clientes A)
+model InteracaoCliente {
+  id          String   @id @default(cuid())
+  clienteId   String
+  cliente     ClienteBackoffice @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  tipo        String   // "ligacao" | "reuniao" | "revisao" | "email" | "whatsapp" | "evento"
+  canal       String?  // "telefone" | "presencial" | "videoconferencia" | "email" | "whatsapp"
+  assunto     String
+  resumo      String?  @db.Text
+  data        DateTime @default(now())
+  duracaoMin  Int?
+
+  // Roteiro RCA (Rapid Client Assessment)
+  rcaNotas    String?  @db.Text
+
+  criadoEm    DateTime @default(now())
+
+  @@index([clienteId, data])
+  @@index([tipo])
+}
+
+// Mapa de metas de vida do cliente
+model MetaCliente {
+  id         String   @id @default(cuid())
+  clienteId  String
+  cliente    ClienteBackoffice @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  titulo     String
+  descricao  String?  @db.Text
+  prazoData  DateTime?
+  valorAlvo  Float?
+  status     String   @default("ativa") // "ativa" | "atingida" | "pausada" | "cancelada"
+  categoria  String?  // "aposentadoria" | "educacao" | "imovel" | "viagem" | "outro"
+
+  criadoEm   DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  @@index([clienteId])
+}
+
+// Eventos de vida (aniversários, casamentos, nascimentos)
+model EventoVida {
+  id         String   @id @default(cuid())
+  clienteId  String
+  cliente    ClienteBackoffice @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  tipo       String   // "aniversario" | "casamento" | "nascimento" | "formatura" | "outro"
+  titulo     String
+  data       DateTime
+  recorrente Boolean  @default(false)
+  lembrar    Boolean  @default(true)
+  notas      String?  @db.Text
+
+  criadoEm   DateTime @default(now())
+
+  @@index([data])
+  @@index([clienteId])
+}
+
+// CRM de indicações (referrals)
+model Indicacao {
+  id              String   @id @default(cuid())
+
+  // Quem indicou (cliente existente)
+  indicadorId     String?
+  indicador       ClienteBackoffice? @relation("ClienteIndicador", fields: [indicadorId], references: [id])
+
+  // Indicado (prospect)
+  nomeIndicado    String
+  emailIndicado   String?
+  telefoneIndicado String?
+
+  status          String   @default("recebida") // "recebida" | "contatada" | "reuniao" | "convertida" | "perdida"
+  valorEstimado   Float?
+  agradecimentoEnviado Boolean @default(false)
+  notas           String?  @db.Text
+
+  criadoEm        DateTime @default(now())
+  atualizadoEm    DateTime @updatedAt
+
+  @@index([status])
+}
+
+// Biblioteca de histórias/analogias para storyselling
+model StoryAnalogia {
+  id         String   @id @default(cuid())
+  titulo     String
+  categoria  String   // "aposentadoria" | "sucessao" | "risco" | "diversificacao" | "inflacao" | "disciplina"
+  analogia   String   @db.Text
+  quandoUsar String?  @db.Text
+  tags       String?  // comma-separated
+
+  criadoEm   DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  @@index([categoria])
 }
