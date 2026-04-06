@@ -69,6 +69,13 @@ const onixCorretorNavigation = [
   { name: "Perfis do Time", href: "/onix-corretora/perfis", icon: UserCircle },
 ];
 
+const backofficeNavigation = [
+  { name: "Painel", href: "/backoffice", icon: LayoutDashboard },
+  { name: "Tarefas", href: "/backoffice/tarefas", icon: CheckSquare },
+  { name: "Relatórios", href: "/backoffice/relatorios", icon: ClipboardList },
+  { name: "Configurações", href: "/backoffice/configuracoes", icon: Settings },
+];
+
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
@@ -77,10 +84,19 @@ export function Sidebar() {
   const { theme, toggleTheme } = useTheme();
 
   const isOnixCorretora = pathname.startsWith("/onix-corretora");
-  const navigation = isOnixCorretora ? onixCorretorNavigation : mktNavigation;
+  const isBackoffice = pathname.startsWith("/backoffice");
+  const navigation = isBackoffice
+    ? backofficeNavigation
+    : isOnixCorretora
+    ? onixCorretorNavigation
+    : mktNavigation;
 
-  const moduleLabel = isOnixCorretora ? "Onix Corretora" : "Mídias Sociais";
-  const moduleInitial = isOnixCorretora ? "C" : "M";
+  const moduleLabel = isBackoffice
+    ? "Backoffice"
+    : isOnixCorretora
+    ? "Onix Corretora"
+    : "Mídias Sociais";
+  const moduleInitial = isBackoffice ? "B" : isOnixCorretora ? "C" : "M";
 
   return (
     <aside
@@ -117,7 +133,7 @@ export function Sidebar() {
               onClick={() => router.push("/")}
               className={cn(
                 "flex-1 text-[11px] font-medium py-1 rounded-md transition-colors",
-                !isOnixCorretora
+                !isOnixCorretora && !isBackoffice
                   ? "bg-background text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-sidebar-foreground"
               )}
@@ -135,6 +151,17 @@ export function Sidebar() {
             >
               Corretora
             </button>
+            <button
+              onClick={() => router.push("/backoffice")}
+              className={cn(
+                "flex-1 text-[11px] font-medium py-1 rounded-md transition-colors",
+                isBackoffice
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-sidebar-foreground"
+              )}
+            >
+              Backoffice
+            </button>
           </div>
         </div>
       )}
@@ -145,6 +172,8 @@ export function Sidebar() {
           const isActive =
             item.href === "/onix-corretora"
               ? pathname === "/onix-corretora"
+              : item.href === "/backoffice"
+              ? pathname === "/backoffice"
               : item.href === "/"
               ? pathname === "/"
               : pathname.startsWith(item.href);
