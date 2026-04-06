@@ -422,3 +422,18 @@ model RitualExecucao {
   @@index([ritualId])
   @@index([data])
 }
+
+// ============================================
+// BACKOFFICE — DADOS DE CLIENTES
+// ============================================
+
+model ClienteBackoffice {
+  id          String   @id @default(cuid())
+  nome        String
+  numeroConta String
+  saldo       Float    @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([numeroConta])
+}

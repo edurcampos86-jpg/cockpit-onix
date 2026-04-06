@@ -1,8 +1,22 @@
 export const dynamic = "force-dynamic";
 
+import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/layout/page-header";
+import { DadosUpload } from "@/components/backoffice/dados-upload";
 
-export default function BackofficePage() {
+export default async function BackofficePage() {
+  let clientes: { id: string; nome: string; numeroConta: string; saldo: number }[] = [];
+  let total = 0;
+
+  try {
+    clientes = await prisma.clienteBackoffice.findMany({
+      orderBy: { nome: "asc" },
+    });
+    total = clientes.length;
+  } catch {
+    // Table may not exist yet
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -10,13 +24,8 @@ export default function BackofficePage() {
         description="Painel administrativo"
       />
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <div className="rounded-xl border bg-card p-6">
-          <h3 className="text-lg font-semibold mb-2">Em breve</h3>
-          <p className="text-sm text-muted-foreground">
-            O painel do Backoffice esta sendo configurado.
-          </p>
-        </div>
+      <div className="px-8">
+        <DadosUpload initialClientes={clientes} initialTotal={total} />
       </div>
     </div>
   );
