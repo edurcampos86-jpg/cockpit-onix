@@ -1,6 +1,5 @@
 import { prisma } from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
-import * as XLSX from "xlsx";
 
 export async function GET() {
   try {
@@ -17,44 +16,20 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    const formData = await request.formData();
-    const file = formData.get("file") as File | null;
+    const body = await request.json();
+    const { clientes } = body as { clientes: { nome: string; numeroConta: string; saldo: number }[] };
 
-    if (!file) {
-      return NextResponse.json({ error: "Nenhum arquivo enviado" }, { status: 400 });
+    if (!clientes || !Array.isArray(clientes) || clientes.length === 0) {
+      return NextResponse.json({ error: "Nenhum dado recebido" }, { status: 400 });
     }
 
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const workbook = XLSX.read(buffer, { type: "buffer" });
-    const sheetName = workbook.SheetNames[0];
-    const sheet = workbook.Sheets[sheetName];
-    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet);
-
-    if (rows.length === 0) {
-      return NextResponse.json({ error: "Planilha vazia" }, { status: 400 });
-    }
-
-    // Map columns flexibly (accept various header names)
-    const clientes = rows.map((row) => {
-      const nome = String(
-        row["nome"] ?? row["Nome"] ?? row["NOME"] ?? row["name"] ?? row["Name"] ?? ""
-      ).trim();
-
-      const numeroConta = String(
-        row["numero_conta"] ?? row["numeroConta"] ?? row["Numero da Conta"] ??
-        row["conta"] ?? row["Conta"] ?? row["CONTA"] ?? row["account"] ??
-        row["numero conta"] ?? row["Número da Conta"] ?? row["N Conta"] ?? ""
-      ).trim();
-
-      const saldoRaw =
-        row["saldo"] ?? row["Saldo"] ?? row["SALDO"] ?? row["balance"] ?? row["Balance"] ?? 0;
-      const saldo = typeof saldoRaw === "number" ? saldoRaw : parseFloat(String(saldoRaw).replace(/[^\d.,-]/g, "").replace(",", ".")) || 0;
-
-      return { nome, numeroConta, saldo };
-    });
-
-    // Filter out rows with empty name
-    const validClientes = clientes.filter((c) => c.nome.length > 0);
+    const validClientes = clientes
+      .map((c) => ({
+        nome: String(c.nome || "").trim(),
+        numeroConta: String(c.numeroConta || "").trim(),
+        saldo: typeof c.saldo === "number" ? c.saldo : parseFloat(String(c.saldo).replace(/[^\d.,-]/g, "").replace(",", ".")) || 0,
+      }))
+      .filter((c) => c.nome.length > 0);
 
     if (validClientes.length === 0) {
       return NextResponse.json(
@@ -73,7 +48,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("Erro ao importar clientes:", error);
-    return NextResponse.json({ error: "Erro ao processar arquivo" }, { status: 500 });
+    return NextResponse.json({ error: "Erro ao processar dados" }, { status: 500 });
   }
 }
 

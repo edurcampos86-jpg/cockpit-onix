@@ -1,7 +1,14 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { Upload, FileSpreadsheet, Trash2, AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+declare global {
+  interface Window {
+    XLSX: any;
+  }
+}
 
 interface Cliente {
   id: string;
@@ -15,6 +22,24 @@ interface DadosUploadProps {
   initialTotal: number;
 }
 
+function mapRowToCliente(row: Record<string, unknown>) {
+  const nome = String(
+    row["nome"] ?? row["Nome"] ?? row["NOME"] ?? row["name"] ?? row["Name"] ?? ""
+  ).trim();
+
+  const numeroConta = String(
+    row["numero_conta"] ?? row["numeroConta"] ?? row["Numero da Conta"] ??
+    row["conta"] ?? row["Conta"] ?? row["CONTA"] ?? row["account"] ??
+    row["numero conta"] ?? row["Número da Conta"] ?? row["N Conta"] ?? ""
+  ).trim();
+
+  const saldoRaw =
+    row["saldo"] ?? row["Saldo"] ?? row["SALDO"] ?? row["balance"] ?? row["Balance"] ?? 0;
+  const saldo = typeof saldoRaw === "number" ? saldoRaw : parseFloat(String(saldoRaw).replace(/[^\d.,-]/g, "").replace(",", ".")) || 0;
+
+  return { nome, numeroConta, saldo };
+}
+
 export function DadosUpload({ initialClientes, initialTotal }: DadosUploadProps) {
   const [clientes, setClientes] = useState<Cliente[]>(initialClientes);
   const [total, setTotal] = useState(initialTotal);
@@ -22,7 +47,20 @@ export function DadosUpload({ initialClientes, initialTotal }: DadosUploadProps)
   const [deleting, setDeleting] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [xlsxReady, setXlsxReady] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Load xlsx from CDN
+  useEffect(() => {
+    if (window.XLSX) {
+      setXlsxReady(true);
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = "https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js";
+    script.onload = () => setXlsxReady(true);
+    document.head.appendChild(script);
+  }, []);
 
   const clearMessage = () => setTimeout(() => setMessage(null), 5000);
 
@@ -38,16 +76,17 @@ export function DadosUpload({ initialClientes, initialTotal }: DadosUploadProps)
   }, []);
 
   const handleUpload = async (file: File) => {
-    const validTypes = [
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "application/vnd.ms-excel",
-      "text/csv",
-    ];
     const validExtensions = [".xlsx", ".xls", ".csv"];
     const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
 
-    if (!validTypes.includes(file.type) && !validExtensions.includes(ext)) {
+    if (!validExtensions.includes(ext)) {
       setMessage({ type: "error", text: "Formato invalido. Use .xlsx, .xls ou .csv" });
+      clearMessage();
+      return;
+    }
+
+    if (!xlsxReady || !window.XLSX) {
+      setMessage({ type: "error", text: "Biblioteca de leitura ainda carregando. Tente novamente." });
       clearMessage();
       return;
     }
@@ -56,12 +95,34 @@ export function DadosUpload({ initialClientes, initialTotal }: DadosUploadProps)
     setMessage(null);
 
     try {
-      const formData = new FormData();
-      formData.append("file", file);
+      // Parse Excel in the browser
+      const buffer = await file.arrayBuffer();
+      const workbook = window.XLSX.read(buffer, { type: "array" });
+      const sheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[sheetName];
+      const rows: Record<string, unknown>[] = window.XLSX.utils.sheet_to_json(sheet);
 
+      if (rows.length === 0) {
+        setMessage({ type: "error", text: "Planilha vazia" });
+        clearMessage();
+        setUploading(false);
+        return;
+      }
+
+      const parsedClientes = rows.map(mapRowToCliente).filter((c) => c.nome.length > 0);
+
+      if (parsedClientes.length === 0) {
+        setMessage({ type: "error", text: "Nenhum cliente valido. Verifique se a planilha tem coluna 'nome'." });
+        clearMessage();
+        setUploading(false);
+        return;
+      }
+
+      // Send parsed data as JSON
       const res = await fetch("/api/backoffice/clientes", {
         method: "POST",
-        body: formData,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientes: parsedClientes }),
       });
 
       const data = await res.json();
@@ -76,7 +137,7 @@ export function DadosUpload({ initialClientes, initialTotal }: DadosUploadProps)
       clearMessage();
       await fetchClientes();
     } catch {
-      setMessage({ type: "error", text: "Erro de conexao. Tente novamente." });
+      setMessage({ type: "error", text: "Erro ao processar arquivo. Verifique o formato." });
       clearMessage();
     } finally {
       setUploading(false);
