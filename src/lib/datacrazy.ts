@@ -216,6 +216,11 @@ export function filtrarConversasPorPeriodo(
   inicio: Date,
   fim: Date
 ): any[] {
+  // Buffer de 7 dias apos o fim do periodo para capturar conversas que
+  // continuaram apos o periodo mas tinham atividade durante ele.
+  // Sem esse buffer, conversas ativas durante o periodo mas com mensagens
+  // mais recentes (ex: hoje) seriam excluidas incorretamente.
+  const fimComBuffer = new Date(fim.getTime() + 7 * 24 * 60 * 60 * 1000);
   return conversas.filter((conversa) => {
     const lastMsg =
       conversa.lastMessageDate ??
@@ -223,7 +228,7 @@ export function filtrarConversasPorPeriodo(
       conversa.lastMessage?.createdAt;
     if (!lastMsg) return false;
     const d = new Date(lastMsg);
-    return d >= inicio && d <= fim;
+    return d >= inicio && d <= fimComBuffer;
   });
 }
 

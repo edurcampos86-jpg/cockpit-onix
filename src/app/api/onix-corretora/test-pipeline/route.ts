@@ -92,7 +92,7 @@ export async function GET(req: NextRequest) {
       const transcricoes: string[] = [];
       for (const c of recentes) {
         const msgs = await fetchMensagens(c.id, token);
-        if (msgs.length < 3) continue;
+        if (msgs.length < 2) continue;
         const nome = c.contact?.name ?? c.contact?.pushName ?? "Contato";
         transcricoes.push(buildTranscricao(msgs, nome));
         await new Promise(r => setTimeout(r, 5000));

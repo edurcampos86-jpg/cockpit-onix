@@ -145,6 +145,7 @@ export async function POST(req: NextRequest) {
         inicio,
         fim
       );
+      console.log(`[Analisar] ${vendedor}: ${todasConversas.length} conversas totais, ${conversasPeriodo.length} no periodo`);
 
       // 4. Get most recent 8 conversations (Railway proxy timeout ~120s)
       const conversasRecentes = conversasPeriodo
@@ -170,9 +171,10 @@ export async function POST(req: NextRequest) {
         if (ci > 0) await new Promise((r) => setTimeout(r, 3000));
         try {
           const mensagens = await fetchMensagens(conversa.id, token);
+          console.log(`[Analisar] ${vendedor}: conversa ${conversa.id} (${conversa.contact?.name ?? 'N/A'}) => ${mensagens.length} msgs`);
 
-          // Skip conversations with fewer than 3 messages
-          if (mensagens.length < 3) continue;
+          // Skip conversations with fewer than 2 messages
+          if (mensagens.length < 2) continue;
 
           const nomeContato =
             conversa.contact?.name ??
