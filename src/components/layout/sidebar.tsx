@@ -74,6 +74,7 @@ const backofficeNavigation = [
   { name: "Clientes", href: "/backoffice/clientes", icon: Users },
   { name: "Cadência 12-4-2", href: "/backoffice/cadencia", icon: CalendarCheck },
   { name: "Storyselling", href: "/backoffice/storyselling", icon: BookOpen },
+  { name: "Indicações", href: "/backoffice/indicacoes", icon: UserCircle },
   { name: "Tarefas", href: "/backoffice/tarefas", icon: CheckSquare },
   { name: "Relatórios", href: "/backoffice/relatorios", icon: ClipboardList },
   { name: "Configurações", href: "/backoffice/configuracoes", icon: Settings },
