@@ -21,6 +21,8 @@ export default async function ClienteDetalhePage({
       planoUmaPagina: true,
       checklist: true,
       metas: { orderBy: { criadoEm: "desc" } },
+      eventosVida: { orderBy: { data: "asc" } },
+      interacoes: { orderBy: { data: "desc" }, take: 50 },
     },
   });
 

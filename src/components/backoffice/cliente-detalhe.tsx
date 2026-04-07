@@ -11,6 +11,9 @@ import {
   Trash2,
   CheckCircle2,
   Circle,
+  Cake,
+  Sparkles,
+  ClipboardList,
 } from "lucide-react";
 import { ReferenciaLivro } from "./referencia-livro";
 import {
@@ -18,6 +21,7 @@ import {
   REF_ONE_PAGE_PLAN,
   REF_CHECKLIST_ORGANIZACAO,
   REF_MAPA_METAS,
+  REF_RCA,
 } from "@/lib/backoffice/referencias";
 
 interface Meta {
@@ -30,24 +34,49 @@ interface Meta {
   categoria: string | null;
 }
 
+interface EventoVida {
+  id: string;
+  tipo: string;
+  titulo: string;
+  data: string;
+  recorrente: boolean;
+  notas: string | null;
+}
+
+interface Interacao {
+  id: string;
+  tipo: string;
+  assunto: string;
+  resumo: string | null;
+  data: string;
+  rcaNotas: string | null;
+}
+
 interface Cliente {
   id: string;
   nome: string;
   classificacao: string;
   saldo: number;
+  perfilEmocional: string | null;
+  observacoes: string | null;
   perfilDescoberta: Record<string, string | null> | null;
   planoUmaPagina: Record<string, string | number | null> | null;
   checklist: Record<string, boolean | string | null> | null;
   metas: Meta[];
+  eventosVida: EventoVida[];
+  interacoes: Interacao[];
 }
 
-type Tab = "descoberta" | "plano" | "checklist" | "metas";
+type Tab = "descoberta" | "plano" | "checklist" | "metas" | "eventos" | "perfil" | "rca";
 
 const TABS: { id: Tab; label: string; icon: typeof Heart }[] = [
   { id: "descoberta", label: "Descoberta", icon: Heart },
   { id: "plano", label: "One-Page Plan", icon: FileText },
   { id: "checklist", label: "Organização", icon: CheckSquare },
   { id: "metas", label: "Metas de vida", icon: Target },
+  { id: "eventos", label: "Eventos de vida", icon: Cake },
+  { id: "perfil", label: "Perfil emocional", icon: Sparkles },
+  { id: "rca", label: "RCA / Reuniões", icon: ClipboardList },
 ];
 
 export function ClienteDetalhe({ cliente: inicial }: { cliente: Cliente }) {
@@ -103,6 +132,30 @@ export function ClienteDetalhe({ cliente: inicial }: { cliente: Cliente }) {
           clienteId={cliente.id}
           metas={cliente.metas}
           onChange={(metas) => setCliente({ ...cliente, metas })}
+        />
+      )}
+      {tab === "eventos" && (
+        <EventosTab
+          clienteId={cliente.id}
+          eventos={cliente.eventosVida}
+          onChange={(ev) => setCliente({ ...cliente, eventosVida: ev })}
+        />
+      )}
+      {tab === "perfil" && (
+        <PerfilEmocionalTab
+          clienteId={cliente.id}
+          perfilEmocional={cliente.perfilEmocional}
+          observacoes={cliente.observacoes}
+          onSave={(p, o) =>
+            setCliente({ ...cliente, perfilEmocional: p, observacoes: o })
+          }
+        />
+      )}
+      {tab === "rca" && (
+        <RcaTab
+          clienteId={cliente.id}
+          interacoes={cliente.interacoes}
+          onChange={(i) => setCliente({ ...cliente, interacoes: i })}
         />
       )}
     </div>
@@ -780,6 +833,426 @@ function MetasTab({
           {metas.length === 0 && !criando && (
             <p className="md:col-span-2 text-center text-sm text-muted-foreground py-8">
               Nenhuma meta cadastrada. Clique em &quot;Nova meta&quot; para começar.
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============ EVENTOS DE VIDA ============
+const TIPOS_EVENTO: { id: string; label: string }[] = [
+  { id: "aniversario", label: "Aniversário" },
+  { id: "casamento", label: "Casamento" },
+  { id: "nascimento", label: "Nascimento" },
+  { id: "formatura", label: "Formatura" },
+  { id: "outro", label: "Outro" },
+];
+
+function EventosTab({
+  clienteId,
+  eventos: iniciais,
+  onChange,
+}: {
+  clienteId: string;
+  eventos: EventoVida[];
+  onChange: (e: EventoVida[]) => void;
+}) {
+  const [eventos, setEventos] = useState(iniciais);
+  const [criando, setCriando] = useState(false);
+  const [form, setForm] = useState({
+    tipo: "aniversario",
+    titulo: "",
+    data: "",
+    recorrente: true,
+    notas: "",
+  });
+
+  const criar = async () => {
+    if (!form.titulo.trim() || !form.data) return;
+    const res = await fetch(`/api/backoffice/clientes/${clienteId}/eventos`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(form),
+    });
+    if (res.ok) {
+      const novo = await res.json();
+      const novos = [...eventos, novo].sort(
+        (a, b) => new Date(a.data).getTime() - new Date(b.data).getTime()
+      );
+      setEventos(novos);
+      onChange(novos);
+      setForm({ tipo: "aniversario", titulo: "", data: "", recorrente: true, notas: "" });
+      setCriando(false);
+    }
+  };
+
+  const remover = async (id: string) => {
+    const res = await fetch(`/api/backoffice/eventos/${id}`, { method: "DELETE" });
+    if (res.ok) {
+      const novos = eventos.filter((e) => e.id !== id);
+      setEventos(novos);
+      onChange(novos);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-pink-200 bg-pink-50 dark:border-pink-900/50 dark:bg-pink-950/20 p-4">
+        <p className="text-sm font-semibold text-pink-900 dark:text-pink-200 mb-1">
+          Por que isso importa?
+        </p>
+        <p className="text-xs text-pink-800/80 dark:text-pink-300/80">
+          Lembrar de aniversários, casamentos e nascimentos é o gesto mais barato e mais
+          impactante de um assessor Supernova. O cliente A não se lembra do retorno do mês
+          — ele se lembra de quem ligou no dia do filho dele.
+        </p>
+      </div>
+
+      <div className="rounded-xl border bg-card p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold">Eventos de vida</h3>
+          <button
+            onClick={() => setCriando(!criando)}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium"
+          >
+            <Plus className="h-4 w-4" /> Novo evento
+          </button>
+        </div>
+
+        {criando && (
+          <div className="mb-4 p-4 rounded-lg border-2 border-dashed border-primary/30 bg-primary/5 space-y-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <select
+                value={form.tipo}
+                onChange={(e) => setForm({ ...form, tipo: e.target.value })}
+                className="px-3 py-2 rounded-lg border bg-background text-sm"
+              >
+                {TIPOS_EVENTO.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="date"
+                value={form.data}
+                onChange={(e) => setForm({ ...form, data: e.target.value })}
+                className="px-3 py-2 rounded-lg border bg-background text-sm"
+              />
+            </div>
+            <input
+              type="text"
+              value={form.titulo}
+              onChange={(e) => setForm({ ...form, titulo: e.target.value })}
+              placeholder="Título (ex: Aniversário do filho João)"
+              className="w-full px-3 py-2 rounded-lg border bg-background text-sm"
+            />
+            <textarea
+              value={form.notas}
+              onChange={(e) => setForm({ ...form, notas: e.target.value })}
+              placeholder="Notas..."
+              rows={2}
+              className="w-full px-3 py-2 rounded-lg border bg-background text-sm"
+            />
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={form.recorrente}
+                onChange={(e) => setForm({ ...form, recorrente: e.target.checked })}
+              />
+              Recorrente (anual)
+            </label>
+            <div className="flex gap-2">
+              <button
+                onClick={criar}
+                disabled={!form.titulo.trim() || !form.data}
+                className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium disabled:opacity-50"
+              >
+                Salvar evento
+              </button>
+              <button onClick={() => setCriando(false)} className="px-4 py-2 rounded-lg border text-sm">
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-2">
+          {eventos.map((e) => (
+            <div
+              key={e.id}
+              className="flex items-center gap-3 p-3 rounded-lg border bg-muted/20"
+            >
+              <div className="w-10 h-10 rounded-lg bg-pink-100 dark:bg-pink-950/30 flex items-center justify-center shrink-0">
+                <Cake className="h-5 w-5 text-pink-600 dark:text-pink-400" />
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-semibold">{e.titulo}</p>
+                <p className="text-xs text-muted-foreground">
+                  {new Date(e.data).toLocaleDateString("pt-BR")} ·{" "}
+                  {TIPOS_EVENTO.find((t) => t.id === e.tipo)?.label ?? e.tipo}
+                  {e.recorrente && " · anual"}
+                </p>
+                {e.notas && <p className="text-xs text-muted-foreground mt-1">{e.notas}</p>}
+              </div>
+              <button onClick={() => remover(e.id)} className="opacity-50 hover:opacity-100">
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
+          ))}
+          {eventos.length === 0 && !criando && (
+            <p className="text-center text-sm text-muted-foreground py-6">
+              Nenhum evento cadastrado.
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============ PERFIL EMOCIONAL ============
+function PerfilEmocionalTab({
+  clienteId,
+  perfilEmocional: pInicial,
+  observacoes: oInicial,
+  onSave,
+}: {
+  clienteId: string;
+  perfilEmocional: string | null;
+  observacoes: string | null;
+  onSave: (p: string | null, o: string | null) => void;
+}) {
+  const [perfil, setPerfil] = useState(pInicial ?? "");
+  const [obs, setObs] = useState(oInicial ?? "");
+  const [salvando, setSalvando] = useState(false);
+  const [salvo, setSalvo] = useState(false);
+
+  const salvar = async () => {
+    setSalvando(true);
+    setSalvo(false);
+    try {
+      const res = await fetch(`/api/backoffice/clientes/${clienteId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ perfilEmocional: perfil, observacoes: obs }),
+      });
+      if (res.ok) {
+        onSave(perfil, obs);
+        setSalvo(true);
+        setTimeout(() => setSalvo(false), 2000);
+      }
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-purple-200 bg-purple-50 dark:border-purple-900/50 dark:bg-purple-950/20 p-4">
+        <p className="text-sm font-semibold text-purple-900 dark:text-purple-200 mb-1">
+          Perfil emocional (Storyselling)
+        </p>
+        <p className="text-xs text-purple-800/80 dark:text-purple-300/80">
+          Capture aqui a forma como o cliente fala, os medos que ele admite, os sonhos que
+          ilumina os olhos dele. É a base para escolher a analogia certa em cada conversa.
+        </p>
+      </div>
+
+      <div className="rounded-xl border bg-card p-6 space-y-4">
+        <Field label="Perfil emocional / linguagem do cliente">
+          <textarea
+            rows={5}
+            value={perfil}
+            onChange={(e) => setPerfil(e.target.value)}
+            placeholder="Como ele fala? O que o emociona? Que palavras ele usa? Que metáforas funcionam?"
+            className="w-full px-3 py-2 rounded-lg border bg-background text-sm"
+          />
+        </Field>
+        <Field label="Observações gerais">
+          <textarea
+            rows={4}
+            value={obs}
+            onChange={(e) => setObs(e.target.value)}
+            placeholder="Hobbies, time, família, restrições, preferências de contato..."
+            className="w-full px-3 py-2 rounded-lg border bg-background text-sm"
+          />
+        </Field>
+        <button
+          onClick={salvar}
+          disabled={salvando}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground font-medium disabled:opacity-50"
+        >
+          <Save className="h-4 w-4" />
+          {salvando ? "Salvando..." : salvo ? "Salvo!" : "Salvar perfil"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ============ RCA / REUNIÕES ============
+const RCA_ROTEIRO = [
+  "1. Mudanças de vida desde o último contato",
+  "2. Revisão de metas (atingidas, ajustadas, novas)",
+  "3. Performance da carteira vs. objetivo",
+  "4. Eventos de mercado relevantes para o cliente",
+  "5. Pendências de organização (checklist)",
+  "6. Indicações que ele queira fazer",
+  "7. Próximos passos e data do próximo contato",
+];
+
+function RcaTab({
+  clienteId,
+  interacoes: iniciais,
+  onChange,
+}: {
+  clienteId: string;
+  interacoes: Interacao[];
+  onChange: (i: Interacao[]) => void;
+}) {
+  const [interacoes, setInteracoes] = useState(iniciais);
+  const [criando, setCriando] = useState(false);
+  const [form, setForm] = useState({
+    tipo: "reuniao",
+    assunto: "",
+    resumo: "",
+    rcaNotas: "",
+  });
+
+  const criar = async () => {
+    if (!form.assunto.trim()) return;
+    const res = await fetch(`/api/backoffice/clientes/${clienteId}/interacoes`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(form),
+    });
+    if (res.ok) {
+      const nova = await res.json();
+      const novas = [nova, ...interacoes];
+      setInteracoes(novas);
+      onChange(novas);
+      setForm({ tipo: "reuniao", assunto: "", resumo: "", rcaNotas: "" });
+      setCriando(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <ReferenciaLivro referencias={REF_RCA} titulo="Rapid Client Assessment (RCA) — Supernova" />
+
+      <div className="rounded-xl border bg-card p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="font-semibold">Roteiro RCA padrão</h3>
+            <p className="text-xs text-muted-foreground">
+              Use este roteiro nas reuniões trimestrais com clientes A.
+            </p>
+          </div>
+          <button
+            onClick={() => setCriando(!criando)}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium"
+          >
+            <Plus className="h-4 w-4" /> Novo RCA
+          </button>
+        </div>
+
+        <ol className="space-y-1.5 mb-4">
+          {RCA_ROTEIRO.map((item, i) => (
+            <li key={i} className="text-sm text-muted-foreground">
+              {item}
+            </li>
+          ))}
+        </ol>
+
+        {criando && (
+          <div className="p-4 rounded-lg border-2 border-dashed border-primary/30 bg-primary/5 space-y-3 mb-4">
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { id: "ligacao", label: "Ligação" },
+                { id: "reuniao", label: "Reunião" },
+                { id: "revisao", label: "Revisão" },
+              ].map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => setForm({ ...form, tipo: t.id })}
+                  className={`px-3 py-2 rounded-lg border text-sm ${
+                    form.tipo === t.id
+                      ? "border-primary bg-primary/10 font-semibold"
+                      : "border-border"
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            <input
+              type="text"
+              value={form.assunto}
+              onChange={(e) => setForm({ ...form, assunto: e.target.value })}
+              placeholder="Assunto (ex: RCA Q2 2026)"
+              className="w-full px-3 py-2 rounded-lg border bg-background text-sm font-semibold"
+            />
+            <textarea
+              value={form.rcaNotas}
+              onChange={(e) => setForm({ ...form, rcaNotas: e.target.value })}
+              placeholder="Notas estruturadas seguindo o roteiro RCA acima..."
+              rows={6}
+              className="w-full px-3 py-2 rounded-lg border bg-background text-sm font-mono"
+            />
+            <textarea
+              value={form.resumo}
+              onChange={(e) => setForm({ ...form, resumo: e.target.value })}
+              placeholder="Resumo executivo (1-2 frases)"
+              rows={2}
+              className="w-full px-3 py-2 rounded-lg border bg-background text-sm"
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={criar}
+                disabled={!form.assunto.trim()}
+                className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium disabled:opacity-50"
+              >
+                Registrar
+              </button>
+              <button
+                onClick={() => setCriando(false)}
+                className="px-4 py-2 rounded-lg border text-sm"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-xl border bg-card p-6">
+        <h3 className="font-semibold mb-4">Histórico de contatos ({interacoes.length})</h3>
+        <div className="space-y-3">
+          {interacoes.map((i) => (
+            <div key={i.id} className="rounded-lg border p-3">
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-sm font-semibold">{i.assunto}</p>
+                <span className="text-xs text-muted-foreground">
+                  {new Date(i.data).toLocaleDateString("pt-BR")} · {i.tipo}
+                </span>
+              </div>
+              {i.resumo && <p className="text-xs text-muted-foreground mb-2">{i.resumo}</p>}
+              {i.rcaNotas && (
+                <details className="text-xs">
+                  <summary className="cursor-pointer text-primary">Ver notas RCA</summary>
+                  <pre className="mt-2 whitespace-pre-wrap font-mono text-xs bg-muted/30 p-2 rounded">
+                    {i.rcaNotas}
+                  </pre>
+                </details>
+              )}
+            </div>
+          ))}
+          {interacoes.length === 0 && (
+            <p className="text-center text-sm text-muted-foreground py-6">
+              Nenhum contato registrado ainda.
             </p>
           )}
         </div>
