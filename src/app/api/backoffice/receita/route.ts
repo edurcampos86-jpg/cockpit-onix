@@ -39,14 +39,84 @@ const toDate = (v: unknown): Date => {
   return new Date();
 };
 
-/** GET /api/backoffice/receita -> sumário + últimos lotes */
-export async function GET() {
+const norm = (s: string | null | undefined) =>
+  (s || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/\s+/g, " ")
+    .trim();
+
+/** Recalcula Cliente.receitaAnual com base na soma dos últimos 12 meses do ReceitaItem (match por nome). */
+async function recomputeReceitaClientes() {
+  const items = await prisma.receitaItem.findMany({ select: { data: true, faturamentoLiquido: true, nomeCliente: true } });
+  if (!items.length) return { atualizados: 0, total: 0 };
+  const maxData = items.reduce((m, r) => (r.data > m ? r.data : m), items[0].data);
+  const cutoff = new Date(maxData);
+  cutoff.setFullYear(cutoff.getFullYear() - 1);
+
+  const somaPorNome = new Map<string, number>();
+  for (const r of items) {
+    if (!r.nomeCliente || r.data < cutoff) continue;
+    const k = norm(r.nomeCliente);
+    somaPorNome.set(k, (somaPorNome.get(k) || 0) + r.faturamentoLiquido);
+  }
+
+  const clientes = await prisma.clienteBackoffice.findMany({ select: { id: true, nome: true } });
+  let atualizados = 0;
+  for (const c of clientes) {
+    const k = norm(c.nome);
+    let valor = somaPorNome.get(k) || 0;
+    if (!valor) {
+      // tenta primeiro nome
+      const first = k.split(" ")[0];
+      for (const [nk, v] of somaPorNome) {
+        if (nk.startsWith(first + " ") || nk === first) { valor = v; break; }
+      }
+    }
+    await prisma.clienteBackoffice.update({ where: { id: c.id }, data: { receitaAnual: valor } });
+    if (valor > 0) atualizados++;
+  }
+  return { atualizados, total: clientes.length };
+}
+
+/** GET /api/backoffice/receita -> sumário + últimos lotes (com filtros) */
+export async function GET(req: NextRequest) {
   try {
     const total = await prisma.receitaItem.count();
     if (total === 0) {
-      return NextResponse.json({ total: 0, faturamentoTotal: 0, liquidoTotal: 0, porParceiro: [], porProduto: [], porCliente: [], porMes: [] });
+      return NextResponse.json({ total: 0, faturamentoTotal: 0, liquidoTotal: 0, porParceiro: [], porProduto: [], porCliente: [], porMes: [], filtros: { clientes: [], assessores: [], anos: [] } });
     }
-    const all = await prisma.receitaItem.findMany({ orderBy: { data: "desc" } });
+    const sp = req.nextUrl.searchParams;
+    const fCliente = sp.get("cliente") || "";
+    const fAssessor = sp.get("assessor") || "";
+    const fAno = sp.get("ano") || "";
+    const fTrimestre = sp.get("trimestre") || ""; // "1".."4"
+    const fMes = sp.get("mes") || ""; // "1".."12"
+
+    const where: Record<string, unknown> = {};
+    if (fCliente) where.nomeCliente = fCliente;
+    if (fAssessor) where.assessor = fAssessor;
+    if (fAno) {
+      const y = parseInt(fAno, 10);
+      let mIni = 0, mFim = 12;
+      if (fMes) { mIni = parseInt(fMes, 10) - 1; mFim = mIni + 1; }
+      else if (fTrimestre) { mIni = (parseInt(fTrimestre, 10) - 1) * 3; mFim = mIni + 3; }
+      where.data = { gte: new Date(Date.UTC(y, mIni, 1)), lt: new Date(Date.UTC(y, mFim, 1)) };
+    }
+
+    const all = await prisma.receitaItem.findMany({ where, orderBy: { data: "desc" } });
+
+    // listas para o seletor (sempre baseadas no dataset completo)
+    const allMeta = await prisma.receitaItem.findMany({ select: { nomeCliente: true, assessor: true, data: true } });
+    const setCli = new Set<string>();
+    const setAss = new Set<string>();
+    const setAno = new Set<number>();
+    for (const r of allMeta) {
+      if (r.nomeCliente) setCli.add(r.nomeCliente);
+      if (r.assessor) setAss.add(r.assessor);
+      setAno.add(r.data.getFullYear());
+    }
     const faturamentoTotal = all.reduce((s, r) => s + r.faturamento, 0);
     const liquidoTotal = all.reduce((s, r) => s + r.faturamentoLiquido, 0);
 
@@ -80,6 +150,11 @@ export async function GET() {
       porProduto: groupSum("produto").slice(0, 20),
       porCliente: groupSum("nomeCliente").slice(0, 20),
       porMes: Array.from(porMesMap.values()).sort((a, b) => a.mes.localeCompare(b.mes)),
+      filtros: {
+        clientes: Array.from(setCli).sort(),
+        assessores: Array.from(setAss).sort(),
+        anos: Array.from(setAno).sort((a, b) => b - a),
+      },
     });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "erro" }, { status: 500 });
@@ -121,12 +196,25 @@ export async function POST(req: NextRequest) {
 
     await prisma.receitaItem.createMany({ data });
 
+    const sync = await recomputeReceitaClientes();
+
     return NextResponse.json({
       success: true,
-      message: `${data.length} lançamento(s) importado(s)${replace ? " (substituindo dados anteriores)" : ""}`,
+      message: `${data.length} lançamento(s) importado(s)${replace ? " (substituindo dados anteriores)" : ""} · receita atualizada em ${sync.atualizados}/${sync.total} clientes`,
       loteId,
       total: data.length,
+      sync,
     });
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : "erro" }, { status: 500 });
+  }
+}
+
+/** PATCH /api/backoffice/receita -> apenas re-sincroniza receita anual nos clientes */
+export async function PATCH() {
+  try {
+    const sync = await recomputeReceitaClientes();
+    return NextResponse.json({ success: true, ...sync });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "erro" }, { status: 500 });
   }

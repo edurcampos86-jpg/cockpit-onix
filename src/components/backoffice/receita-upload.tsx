@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Upload, FileSpreadsheet, Trash2, AlertCircle, CheckCircle2, Loader2, TrendingUp } from "lucide-react";
+import { Upload, FileSpreadsheet, Trash2, AlertCircle, CheckCircle2, Loader2, TrendingUp, RefreshCw, Filter } from "lucide-react";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 declare global {
@@ -20,6 +20,7 @@ interface Sumario {
   porProduto: Group[];
   porCliente: Group[];
   porMes: MesItem[];
+  filtros?: { clientes: string[]; assessores: string[]; anos: number[] };
 }
 
 const CHAVES = {
@@ -47,9 +48,14 @@ export function ReceitaUpload() {
   const [sumario, setSumario] = useState<Sumario | null>(null);
   const [uploading, setUploading] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [xlsxReady, setXlsxReady] = useState(false);
   const [msg, setMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [fCliente, setFCliente] = useState("");
+  const [fAssessor, setFAssessor] = useState("");
+  const [fAno, setFAno] = useState("");
+  const [fPeriodo, setFPeriodo] = useState(""); // "" | "Q1".."Q4" | "M1".."M12"
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -60,16 +66,35 @@ export function ReceitaUpload() {
     document.head.appendChild(s);
   }, []);
 
+  const clear = () => setTimeout(() => setMsg(null), 6000);
+
   const fetchSumario = useCallback(async () => {
     try {
-      const r = await fetch("/api/backoffice/receita");
+      const qs = new URLSearchParams();
+      if (fCliente) qs.set("cliente", fCliente);
+      if (fAssessor) qs.set("assessor", fAssessor);
+      if (fAno) qs.set("ano", fAno);
+      if (fPeriodo.startsWith("Q")) qs.set("trimestre", fPeriodo.slice(1));
+      else if (fPeriodo.startsWith("M")) qs.set("mes", fPeriodo.slice(1));
+      const r = await fetch("/api/backoffice/receita?" + qs.toString());
       if (r.ok) setSumario(await r.json());
     } catch { /* noop */ }
-  }, []);
+  }, [fCliente, fAssessor, fAno, fPeriodo]);
 
   useEffect(() => { fetchSumario(); }, [fetchSumario]);
 
-  const clear = () => setTimeout(() => setMsg(null), 6000);
+  const handleSync = async () => {
+    setSyncing(true);
+    try {
+      const r = await fetch("/api/backoffice/receita", { method: "PATCH" });
+      const d = await r.json();
+      if (r.ok) setMsg({ type: "success", text: `Receita atualizada em ${d.atualizados}/${d.total} clientes` });
+      else setMsg({ type: "error", text: d.error || "Erro" });
+      clear();
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const handleUpload = async (file: File, replace: boolean) => {
     if (!xlsxReady || !window.XLSX) {
@@ -172,14 +197,24 @@ export function ReceitaUpload() {
             </div>
           </div>
           {sumario && sumario.total > 0 && (
-            <button
-              onClick={handleDelete}
-              disabled={deleting}
-              className="flex items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-destructive/10 rounded-lg disabled:opacity-50"
-            >
-              {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-              Limpar dados
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleSync}
+                disabled={syncing}
+                className="flex items-center gap-2 px-3 py-2 text-sm rounded-lg border hover:bg-muted disabled:opacity-50"
+              >
+                {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                Atualizar receita dos clientes
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                className="flex items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-destructive/10 rounded-lg disabled:opacity-50"
+              >
+                {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                Limpar dados
+              </button>
+            </div>
           )}
         </div>
 
@@ -228,6 +263,51 @@ export function ReceitaUpload() {
           </div>
         )}
       </div>
+
+      {/* Filtros */}
+      {sumario && sumario.filtros && (sumario.filtros.clientes.length > 0 || sumario.filtros.assessores.length > 0) && (
+        <div className="rounded-xl border bg-card p-4">
+          <div className="flex items-center gap-2 mb-3 text-sm font-medium text-muted-foreground">
+            <Filter className="h-4 w-4" /> Filtros
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <select value={fCliente} onChange={(e) => setFCliente(e.target.value)} className="px-3 py-2 text-sm rounded-lg border bg-background">
+              <option value="">Todos os clientes</option>
+              {sumario.filtros.clientes.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <select value={fAssessor} onChange={(e) => setFAssessor(e.target.value)} className="px-3 py-2 text-sm rounded-lg border bg-background">
+              <option value="">Todos os assessores</option>
+              {sumario.filtros.assessores.map((a) => <option key={a} value={a}>{a}</option>)}
+            </select>
+            <select value={fAno} onChange={(e) => setFAno(e.target.value)} className="px-3 py-2 text-sm rounded-lg border bg-background">
+              <option value="">Todos os anos</option>
+              {sumario.filtros.anos.map((a) => <option key={a} value={a}>{a}</option>)}
+            </select>
+            <select value={fPeriodo} onChange={(e) => setFPeriodo(e.target.value)} disabled={!fAno} className="px-3 py-2 text-sm rounded-lg border bg-background disabled:opacity-50">
+              <option value="">Ano inteiro</option>
+              <optgroup label="Trimestre">
+                <option value="Q1">1º Trimestre</option>
+                <option value="Q2">2º Trimestre</option>
+                <option value="Q3">3º Trimestre</option>
+                <option value="Q4">4º Trimestre</option>
+              </optgroup>
+              <optgroup label="Mês">
+                {["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"].map((m, i) => (
+                  <option key={m} value={`M${i + 1}`}>{m}</option>
+                ))}
+              </optgroup>
+            </select>
+          </div>
+          {(fCliente || fAssessor || fAno || fPeriodo) && (
+            <button
+              onClick={() => { setFCliente(""); setFAssessor(""); setFAno(""); setFPeriodo(""); }}
+              className="mt-3 text-xs text-muted-foreground hover:text-foreground underline"
+            >
+              Limpar filtros
+            </button>
+          )}
+        </div>
+      )}
 
       {/* KPIs */}
       {sumario && sumario.total > 0 && (
