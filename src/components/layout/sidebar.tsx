@@ -75,6 +75,7 @@ const backofficeNavigation = [
   { name: "Storyselling", href: "/backoffice/storyselling", icon: BookOpen },
   { name: "Indicações", href: "/backoffice/indicacoes", icon: UserCircle },
   { name: "Performance", href: "/backoffice/performance", icon: Gauge },
+  { name: "Receita", href: "/backoffice/receita", icon: BarChart3 },
   { name: "Tarefas", href: "/backoffice/tarefas", icon: CheckSquare },
   { name: "Relatórios", href: "/backoffice/relatorios", icon: ClipboardList },
   { name: "Configurações", href: "/backoffice/configuracoes", icon: Settings },

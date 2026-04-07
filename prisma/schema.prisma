@@ -635,3 +635,28 @@ model StoryAnalogia {
 
   @@index([categoria])
 }
+
+// Lançamentos de receita por parceiro/produto/cliente (importados via planilha BTG)
+model ReceitaItem {
+  id            String   @id @default(cuid())
+  data          DateTime
+  faturamento   Float    @default(0)
+  imposto       Float    @default(0)
+  faturamentoLiquido Float @default(0)
+  assessor      String?
+  parceiro      String?
+  departamento  String?
+  classificacao String?
+  categoria     String?
+  produto       String?
+  nomeCliente   String?
+  loteId        String   // identifica a importação (para limpar/refazer)
+  criadoEm      DateTime @default(now())
+
+  @@index([data])
+  @@index([parceiro])
+  @@index([produto])
+  @@index([nomeCliente])
+  @@index([loteId])
+}
+
