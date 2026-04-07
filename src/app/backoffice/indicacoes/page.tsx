@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/layout/page-header";
 import { IndicacoesBoard } from "@/components/backoffice/indicacoes-board";
 import { ReferenciaLivro } from "@/components/backoffice/referencia-livro";
+import { ComoFunciona } from "@/components/backoffice/como-funciona";
 import { REF_INDICACOES } from "@/lib/backoffice/referencias";
 
 export default async function IndicacoesPage() {
@@ -55,6 +56,11 @@ export default async function IndicacoesPage() {
         description="Cada cliente A é uma fonte potencial de outros clientes A. Rastreie cada indicação."
       />
       <div className="px-8 space-y-6">
+        <ComoFunciona
+          proposito="Pipeline visual de cada indicação recebida — de quem veio, em que estágio está e quanto vale."
+          comoUsar="Cadastre toda nova indicação, mova pelo kanban conforme avança e marque o agradecimento ao indicador."
+          comoAjuda="Garante que nenhuma indicação se perca e que o cliente que indicou seja sempre reconhecido — o que gera mais indicações."
+        />
         <ReferenciaLivro
           referencias={REF_INDICACOES}
           titulo="Por que indicações são a alavanca de crescimento"

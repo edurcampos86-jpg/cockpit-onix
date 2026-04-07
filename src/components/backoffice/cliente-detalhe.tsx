@@ -16,6 +16,7 @@ import {
   ClipboardList,
 } from "lucide-react";
 import { ReferenciaLivro } from "./referencia-livro";
+import { ComoFunciona } from "./como-funciona";
 import {
   REF_DESCOBERTA_PROFUNDA,
   REF_ONE_PAGE_PLAN,
@@ -246,6 +247,11 @@ function DescobertaTab({
 
   return (
     <div className="space-y-4">
+      <ComoFunciona
+        proposito="Roteiro de descoberta emocional para entender valores, medos, sonhos e história do cliente."
+        comoUsar="Use na primeira reunião e revisite anualmente. Pergunte, escute e registre nas próprias palavras do cliente."
+        comoAjuda="Conecta a relação no nível humano — clientes que se sentem entendidos não vão embora por preço."
+      />
       <ReferenciaLivro
         referencias={REF_DESCOBERTA_PROFUNDA}
         titulo="Descoberta profunda — hemisfério direito (Storyselling)"
@@ -353,6 +359,11 @@ function PlanoTab({
 
   return (
     <div className="space-y-4">
+      <ComoFunciona
+        proposito="Plano financeiro de uma página: estado atual, metas, gaps e ações combinadas com o cliente."
+        comoUsar="Atualize após cada revisão. Imprima ou compartilhe — é o documento que o cliente leva para casa."
+        comoAjuda="Dá clareza imediata ao cliente do 'onde estou × onde quero chegar' e ancora todas as próximas reuniões."
+      />
       <ReferenciaLivro referencias={REF_ONE_PAGE_PLAN} titulo="One-Page Financial Plan (Supernova)" />
 
       {/* Visualização tipo "página única" */}
@@ -551,6 +562,11 @@ function ChecklistTab({
 
   return (
     <div className="space-y-4">
+      <ComoFunciona
+        proposito="Checklist da organização total da vida financeira do cliente: documentos, contas, seguros, sucessão."
+        comoUsar="Marque o que já está em ordem, identifique gaps e abra tarefas para os pendentes."
+        comoAjuda="Posiciona você como o orquestrador da vida financeira do cliente — não apenas mais um vendedor de produto."
+      />
       <ReferenciaLivro
         referencias={REF_CHECKLIST_ORGANIZACAO}
         titulo="Organização total da vida financeira"
@@ -707,6 +723,11 @@ function MetasTab({
 
   return (
     <div className="space-y-4">
+      <ComoFunciona
+        proposito="Mapa visual das metas de vida do cliente — com prazo, valor e progresso de cada uma."
+        comoUsar="Crie metas com o cliente, atualize o progresso a cada revisão e celebre quando uma é atingida."
+        comoAjuda="Transforma dinheiro em vida real. O cliente vê o investimento conectado aos sonhos dele, não a um número."
+      />
       <ReferenciaLivro referencias={REF_MAPA_METAS} titulo="Mapa de metas de vida (Storyselling + Supernova)" />
 
       <div className="rounded-xl border bg-card p-6">
@@ -899,6 +920,11 @@ function EventosTab({
 
   return (
     <div className="space-y-4">
+      <ComoFunciona
+        proposito="Linha do tempo dos eventos significativos da vida do cliente: aniversários, casamentos, nascimentos, conquistas."
+        comoUsar="Cadastre eventos recorrentes (aniversários) e únicos (casamento de filho). Use para gestos personalizados."
+        comoAjuda="Lembrar de detalhes da vida do cliente é o que diferencia um assessor Supernova de um vendedor de fundos."
+      />
       <div className="rounded-xl border border-pink-200 bg-pink-50 dark:border-pink-900/50 dark:bg-pink-950/20 p-4">
         <p className="text-sm font-semibold text-pink-900 dark:text-pink-200 mb-1">
           Por que isso importa?
@@ -1051,6 +1077,11 @@ function PerfilEmocionalTab({
 
   return (
     <div className="space-y-4">
+      <ComoFunciona
+        proposito="Notas sobre o perfil emocional do cliente: como ele toma decisões, como reage a perdas, qual a linguagem dele."
+        comoUsar="Anote observações após cada interação. Releia antes da próxima reunião para se sintonizar."
+        comoAjuda="Permite adaptar a comunicação ao estilo do cliente — racional, emocional, visual, narrativo."
+      />
       <div className="rounded-xl border border-purple-200 bg-purple-50 dark:border-purple-900/50 dark:bg-purple-950/20 p-4">
         <p className="text-sm font-semibold text-purple-900 dark:text-purple-200 mb-1">
           Perfil emocional (Storyselling)
@@ -1141,6 +1172,11 @@ function RcaTab({
 
   return (
     <div className="space-y-4">
+      <ComoFunciona
+        proposito="Roteiro de 7 pontos do Rapid Client Assessment para conduzir reuniões de revisão Supernova."
+        comoUsar="Antes da reunião, abra o RCA e siga os 7 itens. Anote as respostas e gere ações de follow-up."
+        comoAjuda="Padroniza a qualidade das revisões e garante que nada importante seja esquecido na conversa."
+      />
       <ReferenciaLivro referencias={REF_RCA} titulo="Rapid Client Assessment (RCA) — Supernova" />
 
       <div className="rounded-xl border bg-card p-6">

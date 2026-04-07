@@ -6,7 +6,7 @@ import { isConfigured } from "@/lib/integrations/config";
  * Retorna o status de configuração de cada integração
  */
 export async function GET() {
-  const [manychat, claudeAi, zapierSecret, googleClient, googleSecret, googleRefresh, metaToken] = await Promise.all([
+  const [manychat, claudeAi, zapierSecret, googleClient, googleSecret, googleRefresh, metaToken, btgId, btgSecret] = await Promise.all([
     isConfigured("MANYCHAT_API_TOKEN"),
     isConfigured("ANTHROPIC_API_KEY"),
     isConfigured("ZAPIER_WEBHOOK_SECRET"),
@@ -14,6 +14,8 @@ export async function GET() {
     isConfigured("GOOGLE_CLIENT_SECRET"),
     isConfigured("GOOGLE_REFRESH_TOKEN"),
     isConfigured("META_ACCESS_TOKEN"),
+    isConfigured("BTG_CLIENT_ID"),
+    isConfigured("BTG_CLIENT_SECRET"),
   ]);
 
   return NextResponse.json({
@@ -37,6 +39,10 @@ export async function GET() {
     meta: {
       configured: metaToken,
       status: metaToken ? "connected" : "disconnected",
+    },
+    btg_pactual: {
+      configured: btgId && btgSecret,
+      status: btgId && btgSecret ? "connected" : "disconnected",
     },
     manus: {
       configured: false,

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/layout/page-header";
 import { CadenciaBoard } from "@/components/backoffice/cadencia-board";
 import { ReferenciaLivro } from "@/components/backoffice/referencia-livro";
+import { ComoFunciona } from "@/components/backoffice/como-funciona";
 import { REF_CADENCIA_12_4_2 } from "@/lib/backoffice/referencias";
 
 export default async function CadenciaPage() {
@@ -71,6 +72,11 @@ export default async function CadenciaPage() {
       />
 
       <div className="px-8 space-y-6">
+        <ComoFunciona
+          proposito="Kanban de cadência mostrando quem está atrasado, quem deve ser contatado hoje, na semana e no mês."
+          comoUsar="Trabalhe da esquerda para a direita: zere atrasados primeiro, depois 'hoje', depois 'semana'. Registre cada toque."
+          comoAjuda="Transforma a promessa 12-4-2 em rotina visual — nenhum cliente A passa mais de 30 dias sem contato."
+        />
         <ReferenciaLivro
           referencias={REF_CADENCIA_12_4_2}
           titulo="A cadência 12-4-2 do método Supernova"

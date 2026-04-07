@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Users, Search, Edit2, Check, X } from "lucide-react";
+import { Users, Search, Edit2, Check, X, RefreshCw } from "lucide-react";
 
 interface Cliente {
   id: string;
@@ -37,6 +37,32 @@ export function ClientesTable({ clientes: iniciais }: { clientes: Cliente[] }) {
   const [busca, setBusca] = useState("");
   const [filtroClasse, setFiltroClasse] = useState<"todos" | "A" | "B" | "C">("todos");
   const [editando, setEditando] = useState<string | null>(null);
+  const [sincronizando, setSincronizando] = useState(false);
+  const [syncResult, setSyncResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  const sincronizarBtg = async () => {
+    if (sincronizando) return;
+    if (!confirm("Sincronizar saldos de todos os clientes via BTG Pactual? Pode levar alguns segundos.")) return;
+    setSincronizando(true);
+    setSyncResult(null);
+    try {
+      const res = await fetch("/api/backoffice/btg-sync", { method: "POST" });
+      const data = await res.json();
+      setSyncResult({ ok: !!data.success, msg: data.message || "Erro" });
+      if (data.detalhes && Array.isArray(data.detalhes)) {
+        setClientes((prev) =>
+          prev.map((c) => {
+            const det = data.detalhes.find((d: { conta: string }) => d.conta === c.numeroConta);
+            return det ? { ...c, saldo: det.saldoNovo } : c;
+          })
+        );
+      }
+    } catch (e) {
+      setSyncResult({ ok: false, msg: e instanceof Error ? e.message : "Erro" });
+    } finally {
+      setSincronizando(false);
+    }
+  };
 
   const filtrados = clientes.filter((c) => {
     if (filtroClasse !== "todos" && c.classificacao !== filtroClasse) return false;
@@ -110,7 +136,28 @@ export function ClientesTable({ clientes: iniciais }: { clientes: Cliente[] }) {
             Limpar filtro <X className="h-3 w-3" />
           </button>
         )}
+        <button
+          onClick={sincronizarBtg}
+          disabled={sincronizando}
+          className="px-3 py-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-sm flex items-center gap-2 hover:bg-emerald-500/20 disabled:opacity-50"
+          title="Buscar saldos atualizados via BTG Partner API"
+        >
+          <RefreshCw className={`h-4 w-4 ${sincronizando ? "animate-spin" : ""}`} />
+          {sincronizando ? "Sincronizando..." : "Sincronizar saldos BTG"}
+        </button>
       </div>
+
+      {syncResult && (
+        <div
+          className={`px-4 py-3 rounded-lg text-sm border ${
+            syncResult.ok
+              ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-400"
+              : "bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-400"
+          }`}
+        >
+          {syncResult.msg}
+        </div>
+      )}
 
       {/* Tabela */}
       <div className="rounded-xl border bg-card overflow-hidden">

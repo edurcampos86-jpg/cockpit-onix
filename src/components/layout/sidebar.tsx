@@ -49,7 +49,6 @@ const mktNavigation = [
   { name: "Analytics", href: "/analytics", icon: TrendingUp },
   { name: "KPIs", href: "/kpis", icon: Target },
   { name: "Reuniões", href: "/reunioes", icon: Mic },
-  { name: "Integrações", href: "/integracoes", icon: Plug },
   { name: "Configurações", href: "/configuracoes", icon: Settings },
 ];
 
@@ -211,6 +210,36 @@ export function Sidebar() {
           return link;
         })}
       </nav>
+
+      {/* Item fixo: Integrações (base de conhecimento compartilhada) */}
+      <div className="px-2 pb-2 border-t border-sidebar-border pt-2">
+        {(() => {
+          const isActive = pathname.startsWith("/integracoes");
+          const link = (
+            <Link
+              href="/integracoes"
+              className={cn(
+                "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
+                isActive
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-accent"
+              )}
+            >
+              <Plug className={cn("h-5 w-5 shrink-0", isActive && "text-primary")} />
+              {!collapsed && <span>Integrações</span>}
+            </Link>
+          );
+          if (collapsed) {
+            return (
+              <Tooltip>
+                <TooltipTrigger className="w-full">{link}</TooltipTrigger>
+                <TooltipContent side="right">Integrações</TooltipContent>
+              </Tooltip>
+            );
+          }
+          return link;
+        })()}
+      </div>
 
       {/* User info & collapse button */}
       <div className="border-t border-sidebar-border p-3">

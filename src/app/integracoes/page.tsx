@@ -13,6 +13,7 @@ import {
   AlertCircle,
   Settings,
   Key,
+  Landmark,
 } from "lucide-react";
 
 interface IntegrationConfig {
@@ -22,6 +23,7 @@ interface IntegrationConfig {
   icon: React.ReactNode;
   status: "connected" | "disconnected" | "coming_soon";
   envKey?: string;
+  extraEnvKey?: string;
   docsUrl?: string;
   features: string[];
 }
@@ -70,6 +72,22 @@ const INTEGRATIONS: IntegrationConfig[] = [
       "Análise com IA: extrair insights, ações e oportunidades",
       "Gerar roteiros personalizados baseados em reuniões reais",
       "Associar reuniões a leads do pipeline",
+    ],
+  },
+  {
+    id: "btg_pactual",
+    name: "BTG Pactual — Partner API",
+    description: "OAuth2 client_credentials via IaaS Auth — APIs de parceiro (Position, etc.) do BTG Pactual",
+    icon: <Landmark className="h-6 w-6" />,
+    status: "disconnected",
+    envKey: "BTG_CLIENT_SECRET",
+    extraEnvKey: "BTG_CLIENT_ID",
+    docsUrl: "https://developer-partner.btgpactual.com/documentation/api/auth",
+    features: [
+      "Autenticação via api.btgpactual.com/iaas-auth (Basic + client_credentials)",
+      "Token Bearer válido por 15 minutos com cache em memória",
+      "Header x-id-partner-request gerado automaticamente por requisição",
+      "Base para futuras integrações: Position Partner e demais APIs IaaS",
     ],
   },
   {
@@ -302,6 +320,47 @@ export default function IntegracoesPage() {
                               </span>
                             </div>
                           )}
+                          {integration.extraEnvKey && (
+                            <div className="space-y-1.5">
+                              <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                                <Key className="h-3 w-3" />
+                                {integration.extraEnvKey}
+                              </label>
+                              {maskedKeys[integration.extraEnvKey] && (
+                                <div className="text-[10px] text-emerald-400">
+                                  Configurado: {maskedKeys[integration.extraEnvKey]}
+                                </div>
+                              )}
+                              <input
+                                type="text"
+                                value={apiKeys[`${integration.id}__extra`] || ""}
+                                onChange={(e) =>
+                                  setApiKeys((prev) => ({ ...prev, [`${integration.id}__extra`]: e.target.value }))
+                                }
+                                placeholder={maskedKeys[integration.extraEnvKey] ? "Substituir..." : "Cole o Client ID aqui..."}
+                                className="w-full px-3 py-2 bg-background border border-input rounded-lg text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                              />
+                              <button
+                                onClick={async () => {
+                                  const v = apiKeys[`${integration.id}__extra`];
+                                  if (!v) return;
+                                  await fetch("/api/integracoes/config", {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ key: integration.extraEnvKey, value: v }),
+                                  });
+                                  setApiKeys((p) => ({ ...p, [`${integration.id}__extra`]: "" }));
+                                  await refreshStatus();
+                                  const c = await (await fetch("/api/integracoes/config")).json();
+                                  setMaskedKeys(c);
+                                }}
+                                disabled={!apiKeys[`${integration.id}__extra`]}
+                                className="px-3 py-1.5 text-xs font-medium rounded-lg border border-border text-foreground hover:bg-accent disabled:opacity-50"
+                              >
+                                Salvar Client ID
+                              </button>
+                            </div>
+                          )}
                           <div className="space-y-1.5">
                             <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
                               <Key className="h-3 w-3" />
@@ -341,6 +400,15 @@ export default function IntegracoesPage() {
                                   Sincronizar Leads
                                 </button>
                               </>
+                            )}
+                            {/* BTG Pactual: Testar token */}
+                            {integration.id === "btg_pactual" && statusMap.btg_pactual === "connected" && (
+                              <button
+                                onClick={() => handleTest("btg_pactual", "/api/integracoes/btg/test")}
+                                className="px-3 py-2 text-sm font-medium rounded-lg border border-border text-foreground hover:bg-accent transition-colors"
+                              >
+                                Testar Token
+                              </button>
                             )}
                             {/* Claude AI: Testar */}
                             {integration.id === "claude_ai" && statusMap.claude_ai === "connected" && (

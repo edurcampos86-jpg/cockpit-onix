@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/layout/page-header";
 import { ReferenciaLivro } from "@/components/backoffice/referencia-livro";
+import { ComoFunciona } from "@/components/backoffice/como-funciona";
 import { PerformanceDashboard } from "@/components/backoffice/performance-dashboard";
 import { REF_KPI_EXCELENCIA } from "@/lib/backoffice/referencias";
 
@@ -168,6 +169,11 @@ export default async function PerformancePage() {
         description="O painel de voo do assessor Supernova: cumprimento, conversão e crescimento."
       />
       <div className="px-8 space-y-6">
+        <ComoFunciona
+          proposito="Painel de excelência com KPIs de cumprimento da promessa, execução da cadência, indicações e metas."
+          comoUsar="Revise semanalmente. O semáforo de cumprimento da promessa A é o número que importa — mantenha acima de 80%."
+          comoAjuda="Mostra com objetividade se a operação Supernova está saudável e onde corrigir antes que vire risco de churn."
+        />
         <ReferenciaLivro
           referencias={REF_KPI_EXCELENCIA}
           titulo="O painel de excelência da equipe Supernova"

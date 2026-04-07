@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/layout/page-header";
 import { ClientesTable } from "@/components/backoffice/clientes-table";
 import { ReferenciaLivro } from "@/components/backoffice/referencia-livro";
+import { ComoFunciona } from "@/components/backoffice/como-funciona";
 import { REF_CLASSIFICACAO_ABC } from "@/lib/backoffice/referencias";
 
 export default async function ClientesPage() {
@@ -54,6 +55,11 @@ export default async function ClientesPage() {
       />
 
       <div className="px-8 space-y-6">
+        <ComoFunciona
+          proposito="Sua base completa de clientes segmentada em A, B e C — com saldo, receita, contatos e próximas ações."
+          comoUsar="Filtre por classe, ajuste manualmente quando necessário e clique no nome para abrir o dossiê completo do cliente."
+          comoAjuda="Garante que você invista o tempo certo em cada perfil — sem deixar um A esquecido nem desperdiçar horas em C."
+        />
         <ReferenciaLivro
           referencias={REF_CLASSIFICACAO_ABC}
           titulo="Por que classificar clientes em A, B e C?"

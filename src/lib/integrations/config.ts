@@ -17,6 +17,8 @@ export async function getIntegrationConfig(): Promise<Record<string, string>> {
     "GOOGLE_CLIENT_SECRET",
     "GOOGLE_REFRESH_TOKEN",
     "META_ACCESS_TOKEN",
+    "BTG_CLIENT_ID",
+    "BTG_CLIENT_SECRET",
   ];
   const config: Record<string, string> = {};
   for (const key of envKeys) {
