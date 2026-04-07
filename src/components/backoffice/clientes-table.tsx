@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Users, Search, Edit2, Check, X } from "lucide-react";
 
 interface Cliente {
@@ -172,7 +173,14 @@ export function ClientesTable({ clientes: iniciais }: { clientes: Cliente[] }) {
                       </button>
                     )}
                   </td>
-                  <td className="px-4 py-3 font-medium">{c.nome}</td>
+                  <td className="px-4 py-3 font-medium">
+                    <Link
+                      href={`/backoffice/clientes/${c.id}`}
+                      className="hover:underline hover:text-primary"
+                    >
+                      {c.nome}
+                    </Link>
+                  </td>
                   <td className="px-4 py-3 text-muted-foreground font-mono text-xs">
                     {c.numeroConta}
                   </td>

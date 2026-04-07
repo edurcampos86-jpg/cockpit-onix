@@ -467,6 +467,9 @@ model ClienteBackoffice {
   metas       MetaCliente[]
   eventosVida EventoVida[]
   indicacoes  Indicacao[] @relation("ClienteIndicador")
+  perfilDescoberta PerfilDescoberta?
+  planoUmaPagina   PlanoUmaPagina?
+  checklist        ChecklistOrganizacao?
 
   @@index([numeroConta])
   @@index([classificacao])
@@ -555,6 +558,67 @@ model Indicacao {
   atualizadoEm    DateTime @updatedAt
 
   @@index([status])
+}
+
+// Questionário de descoberta profunda (Storyselling — hemisfério direito)
+model PerfilDescoberta {
+  id          String   @id @default(cuid())
+  clienteId   String   @unique
+  cliente     ClienteBackoffice @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  valoresVida       String? @db.Text // o que mais importa
+  medos             String? @db.Text // medos financeiros / pesadelos
+  sonhos            String? @db.Text // o que faria se dinheiro não fosse problema
+  legado            String? @db.Text // o que quer deixar para a próxima geração
+  experienciaPrev   String? @db.Text // experiências passadas com investimentos
+  linguagemPref     String? // "tecnica" | "simples" | "visual" | "narrativa"
+  mentorReferencia  String? @db.Text // quem o cliente admira financeiramente
+  familiaSituacao   String? @db.Text // composição familiar e dependentes
+  perguntaMagica    String? @db.Text // resposta à "se tudo desse certo, como seria daqui a 5 anos?"
+
+  atualizadoEm DateTime @updatedAt
+  criadoEm     DateTime @default(now())
+}
+
+// One-Page Financial Plan (Supernova)
+model PlanoUmaPagina {
+  id          String   @id @default(cuid())
+  clienteId   String   @unique
+  cliente     ClienteBackoffice @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  visaoFamiliar     String? @db.Text
+  objetivoPrincipal String? @db.Text
+  horizonteAnos     Int?
+  perfilRisco       String? // "conservador" | "moderado" | "arrojado"
+  alocacaoAlvo      String? @db.Text // ex: "60% RF / 30% RV / 10% alternativos"
+  riscosPrincipais  String? @db.Text
+  proximosPassos    String? @db.Text
+  resumoExecutivo   String? @db.Text
+
+  atualizadoEm DateTime @updatedAt
+  criadoEm     DateTime @default(now())
+}
+
+// Checklist de organização financeira
+model ChecklistOrganizacao {
+  id          String   @id @default(cuid())
+  clienteId   String   @unique
+  cliente     ClienteBackoffice @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  testamento           Boolean @default(false)
+  seguroVida           Boolean @default(false)
+  planoSucessao        Boolean @default(false)
+  reservaEmergencia    Boolean @default(false)
+  planoSaude           Boolean @default(false)
+  procuracao           Boolean @default(false)
+  inventarioBens       Boolean @default(false)
+  beneficiariosAtual   Boolean @default(false)
+  declaracaoIR         Boolean @default(false)
+  planejamentoTributario Boolean @default(false)
+  notas                String? @db.Text
+
+  atualizadoEm DateTime @updatedAt
+  criadoEm     DateTime @default(now())
 }
 
 // Biblioteca de histórias/analogias para storyselling

@@ -107,6 +107,41 @@ export const REF_ONE_PAGE_PLAN: Referencia[] = [
   },
 ];
 
+export const REF_CHECKLIST_ORGANIZACAO: Referencia[] = [
+  {
+    livro: "The Supernova Advisor",
+    autor: "Rob Knapp",
+    conceito: "Organização total da vida financeira",
+    explicacao:
+      "O método Supernova começa pela organização: testamento, seguros, sucessão, reserva e documentação. Sem essa base, qualquer planejamento de investimentos fica frágil. O checklist é o ritual de entrada do cliente A.",
+  },
+  {
+    livro: "Marketing for Financial Advisors",
+    autor: "Eric Bradlow / Halloran",
+    conceito: "Wealth management holístico",
+    explicacao:
+      "O assessor deixa de ser vendedor de produto e passa a ser orquestrador da vida financeira do cliente quando assume responsabilidade pelos pilares de proteção, sucessão e tributação — não só rentabilidade.",
+  },
+];
+
+export const REF_MAPA_METAS: Referencia[] = [
+  {
+    livro: "Storyselling for Financial Advisors",
+    autor: "Scott West & Mitch Anthony",
+    conceito: "Goals-based planning",
+    explicacao:
+      "Storyselling defende que o cliente não compra retorno — compra a realização de objetivos de vida. Nomear cada meta (aposentadoria, casa de praia, faculdade dos filhos) e visualizá-la transforma a relação assessor-cliente.",
+    citacao: "Money is the means. The goal is the dream behind the money.",
+  },
+  {
+    livro: "The Supernova Advisor",
+    autor: "Rob Knapp",
+    conceito: "Revisão de metas trimestral",
+    explicacao:
+      "Metas viram parte do roteiro RCA das reuniões trimestrais — o assessor revisa progresso de cada meta e ajusta o plano com o cliente. É o que dá sentido às reuniões 12-4-2.",
+  },
+];
+
 export const REF_STORY_ANALOGIAS: Referencia[] = [
   {
     livro: "Storyselling for Financial Advisors",
