@@ -130,10 +130,11 @@ export function ReceitaUpload() {
         nomeCliente: pick(row, CHAVES.cliente),
       }));
 
+      void replace;
       const res = await fetch("/api/backoffice/receita", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rows, replace }),
+        body: JSON.stringify({ rows }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -242,8 +243,8 @@ export function ReceitaUpload() {
                 <p className="text-xs text-muted-foreground">
                   Colunas esperadas: Data, Faturamento, Imposto, Fat. Liquido, Assessor, Parceiro, Departamento, Classificação, Categoria, Produto, nm_Cliente
                 </p>
-                <p className="text-[10px] text-amber-700 dark:text-amber-400 mt-2">
-                  ⚠ A importação substitui os lançamentos anteriores (snapshot completo)
+                <p className="text-[10px] text-emerald-700 dark:text-emerald-400 mt-2">
+                  ✓ Importação incremental — duplicatas (mesma data, valores, parceiro, produto e cliente) são detectadas e ignoradas automaticamente
                 </p>
               </div>
             </div>

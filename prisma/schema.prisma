@@ -651,6 +651,7 @@ model ReceitaItem {
   produto       String?
   nomeCliente   String?
   loteId        String   // identifica a importação (para limpar/refazer)
+  hash          String?  @unique // dedupe: data+valores+parceiro+produto+cliente+assessor
   criadoEm      DateTime @default(now())
 
   @@index([data])

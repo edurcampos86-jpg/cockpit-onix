@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { randomUUID } from "crypto";
+import { randomUUID, createHash } from "crypto";
 
 interface RowIn {
   data?: string | number | Date | null;
@@ -165,21 +165,31 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const { rows, replace } = (await req.json()) as { rows: RowIn[]; replace?: boolean };
+    void replace;
     if (!Array.isArray(rows) || rows.length === 0) {
       return NextResponse.json({ error: "Nenhuma linha enviada" }, { status: 400 });
     }
     const loteId = randomUUID();
 
-    if (replace) {
-      await prisma.receitaItem.deleteMany({});
-    }
-
     const data = rows.map((r) => {
       const faturamento = num(r.faturamento);
       const imposto = num(r.imposto);
       const faturamentoLiquido = r.faturamentoLiquido != null ? num(r.faturamentoLiquido) : faturamento - imposto;
+      const dt = toDate(r.data);
+      const fingerprint = [
+        dt.toISOString().slice(0, 10),
+        faturamento.toFixed(4),
+        imposto.toFixed(4),
+        faturamentoLiquido.toFixed(4),
+        (r.assessor || "").trim(),
+        (r.parceiro || "").trim(),
+        (r.produto || "").trim(),
+        (r.categoria || "").trim(),
+        (r.nomeCliente || "").trim(),
+      ].join("|");
+      const hash = createHash("sha1").update(fingerprint).digest("hex");
       return {
-        data: toDate(r.data),
+        data: dt,
         faturamento,
         imposto,
         faturamentoLiquido,
@@ -191,18 +201,28 @@ export async function POST(req: NextRequest) {
         produto: r.produto || null,
         nomeCliente: r.nomeCliente || null,
         loteId,
+        hash,
       };
     });
 
-    await prisma.receitaItem.createMany({ data });
+    // dedupe interno do próprio lote
+    const seen = new Set<string>();
+    const uniq = data.filter((d) => (seen.has(d.hash) ? false : (seen.add(d.hash), true)));
+
+    const result = await prisma.receitaItem.createMany({ data: uniq, skipDuplicates: true });
+    const inseridos = result.count;
+    const ignorados = data.length - inseridos;
 
     const sync = await recomputeReceitaClientes();
+    const totalAgora = await prisma.receitaItem.count();
 
     return NextResponse.json({
       success: true,
-      message: `${data.length} lançamento(s) importado(s)${replace ? " (substituindo dados anteriores)" : ""} · receita atualizada em ${sync.atualizados}/${sync.total} clientes`,
+      message: `${inseridos} novo(s) · ${ignorados} duplicado(s) ignorado(s) · base com ${totalAgora} lançamentos · receita atualizada em ${sync.atualizados}/${sync.total} clientes`,
       loteId,
-      total: data.length,
+      inseridos,
+      ignorados,
+      total: totalAgora,
       sync,
     });
   } catch (e) {
