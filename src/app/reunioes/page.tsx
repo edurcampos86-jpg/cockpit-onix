@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { PageHeader } from "@/components/layout/page-header";
+import { ComoFunciona } from "@/components/layout/como-funciona";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Mic,
@@ -104,6 +105,12 @@ export default function ReunioesPage() {
           description="Transcrições do Plaud.ai e insights para roteiros"
         />
       </div>
+
+      <ComoFunciona
+        proposito="Inbox de transcrições do Plaud.ai (gravador). Cada reunião cliente/prospect entra aqui, é analisada por IA e vira matéria-prima para roteiros de Instagram."
+        comoUsar="Configure o Zapier (instruções abaixo) para enviar suas gravações automaticamente. Depois clique 'Analisar com IA' e use 'Gerar roteiro' nos quadros que combinam com a história."
+        comoAjuda="Suas reuniões reais viram conteúdo. Histórias verdadeiras de clientes (anonimizadas) viram posts de altíssima credibilidade — sem inventar."
+      />
 
       {/* Webhook info */}
       <Card className="mb-6 border-primary/20">

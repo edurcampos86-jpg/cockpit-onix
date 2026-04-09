@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { PageHeader } from "@/components/layout/page-header";
+import { ComoFunciona } from "@/components/layout/como-funciona";
 import { CalendarGrid } from "@/components/calendario/calendar-grid";
 import { CalendarWeekGrid } from "@/components/calendario/calendar-week-grid";
 import { CalendarFilters } from "@/components/calendario/calendar-filters";
@@ -193,6 +194,12 @@ export default function CalendarioPage() {
           </button>
         </div>
       </div>
+
+      <ComoFunciona
+        proposito="Calendário editorial: o lugar onde você planeja, agenda e visualiza todos os posts do Instagram em uma única linha do tempo."
+        comoUsar="Use a visão Semana para o trabalho do dia a dia e a visão Mês para enxergar a cobertura editorial. Clique em um dia vazio para criar um post e arraste cards para reagendar."
+        comoAjuda="Garante distribuição equilibrada entre os 5 Quadros Fixos, evita furos na semana e mostra rapidamente onde a regra 80/20 de CTAs está sendo respeitada."
+      />
 
       {/* Stats */}
       <CalendarStats posts={posts} />

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { PageHeader } from "@/components/layout/page-header";
+import { ComoFunciona } from "@/components/layout/como-funciona";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   ChevronLeft,
@@ -77,6 +78,12 @@ export default function RelatorioPage() {
           description="Resumo de performance e métricas da semana"
         />
       </div>
+
+      <ComoFunciona
+        proposito="Fechamento da semana: posts publicados, distribuição entre os 5 Quadros Fixos, regra 80/20 de CTAs, conclusão de tarefas e leads gerados."
+        comoUsar="Olhe primeiro a meta semanal de postagem (atingida ou não) e a regra 80/20. Use as setas para comparar com semanas anteriores e identificar tendência."
+        comoAjuda="Mostra se a semana foi consistente com o método ou se algum bloco foi negligenciado. É o seu retrovisor para corrigir a próxima semana."
+      />
 
       {/* Week navigation */}
       <div className="flex items-center gap-3 mb-6">

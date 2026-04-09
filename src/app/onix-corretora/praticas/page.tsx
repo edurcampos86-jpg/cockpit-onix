@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/layout/page-header";
+import { ComoFunciona } from "@/components/layout/como-funciona";
 import { BookOpen, Star, ChevronDown } from "lucide-react";
 
 const VENDEDORES = ["Eduardo Campos", "Thiago Vergal", "Rose Oliveira"];
@@ -64,6 +65,12 @@ export default async function PraticasPage() {
       />
 
       <div className="p-8 space-y-8">
+        <ComoFunciona
+          proposito="Biblioteca de abordagens positivas que cada vendedor usou nas conversas — extraídas automaticamente pela IA dos relatórios semanais."
+          comoUsar="Leia os destaques de cada vendedor para identificar técnicas que funcionaram. Use como repertório de exemplos reais nas reuniões 1:1 e treinamentos."
+          comoAjuda="Multiplica o que dá certo. Em vez de só apontar erros, replica acertos — transformando vitórias individuais em padrão do time."
+        />
+
         {!temDados ? (
           <div className="rounded-xl border border-dashed border-border p-12 text-center">
             <BookOpen className="h-10 w-10 text-muted-foreground mx-auto mb-4" />

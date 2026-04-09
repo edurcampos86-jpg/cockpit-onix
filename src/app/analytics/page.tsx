@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { PageHeader } from "@/components/layout/page-header";
+import { ComoFunciona } from "@/components/layout/como-funciona";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   TrendingUp,
@@ -239,6 +240,14 @@ export default function AnalyticsPage() {
           <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
           {loading ? "Analisando..." : "Gerar Análise Agora"}
         </button>
+      </div>
+
+      <div className="mb-6">
+        <ComoFunciona
+          proposito="Loop de feedback automático: a IA puxa as métricas reais do Instagram (alcance, engajamento, salvamentos) e gera descobertas + recomendações de ajuste nos roteiros."
+          comoUsar="Clique em 'Gerar Análise Agora' uma vez por semana. Leia as Descobertas para entender o que aconteceu e implemente as Recomendações de alta prioridade primeiro."
+          comoAjuda="Fecha o ciclo: você não posta no escuro. Cada semana o sistema aprende o que funcionou e ajusta os próximos roteiros automaticamente."
+        />
       </div>
 
       {/* Estado inicial */}

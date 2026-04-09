@@ -14,6 +14,8 @@ import {
   Target,
   Mic,
   Plug,
+  Compass,
+  BookMarked,
   Settings,
   ChevronLeft,
   ChevronRight,
@@ -212,13 +214,18 @@ export function Sidebar() {
         })}
       </nav>
 
-      {/* Item fixo: Integrações (base de conhecimento compartilhada) */}
-      <div className="px-2 pb-2 border-t border-sidebar-border pt-2">
-        {(() => {
-          const isActive = pathname.startsWith("/integracoes");
+      {/* Itens fixos compartilhados entre os módulos */}
+      <div className="px-2 pb-2 border-t border-sidebar-border pt-2 space-y-1">
+        {[
+          { href: "/metodo", label: "Método Onix", icon: Compass },
+          { href: "/glossario", label: "Glossário", icon: BookMarked },
+          { href: "/integracoes", label: "Integrações", icon: Plug },
+        ].map(({ href, label, icon: Icon }) => {
+          const isActive = pathname.startsWith(href);
           const link = (
             <Link
-              href="/integracoes"
+              key={href}
+              href={href}
               className={cn(
                 "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
                 isActive
@@ -226,20 +233,20 @@ export function Sidebar() {
                   : "text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-accent"
               )}
             >
-              <Plug className={cn("h-5 w-5 shrink-0", isActive && "text-primary")} />
-              {!collapsed && <span>Integrações</span>}
+              <Icon className={cn("h-5 w-5 shrink-0", isActive && "text-primary")} />
+              {!collapsed && <span>{label}</span>}
             </Link>
           );
           if (collapsed) {
             return (
-              <Tooltip>
+              <Tooltip key={href}>
                 <TooltipTrigger className="w-full">{link}</TooltipTrigger>
-                <TooltipContent side="right">Integrações</TooltipContent>
+                <TooltipContent side="right">{label}</TooltipContent>
               </Tooltip>
             );
           }
           return link;
-        })()}
+        })}
       </div>
 
       {/* User info & collapse button */}

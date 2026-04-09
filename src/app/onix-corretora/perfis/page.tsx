@@ -1,4 +1,5 @@
 import { PageHeader } from "@/components/layout/page-header";
+import { ComoFunciona } from "@/components/layout/como-funciona";
 import Link from "next/link";
 import { UserCircle, ChevronRight } from "lucide-react";
 
@@ -49,7 +50,13 @@ export default function PerfisPage() {
         description="Perfis comportamentais PAT — base para coaching e desenvolvimento semanal"
       />
 
-      <div className="p-8">
+      <div className="p-8 space-y-6">
+        <ComoFunciona
+          proposito="Ficha PAT (Perfil de Análise Transacional) de cada vendedor: como ele pensa, decide, age e como você deve abordá-lo no coaching."
+          comoUsar="Clique no card de cada pessoa para ver o perfil completo, gatilhos motivacionais, estilo de comunicação ideal e armadilhas a evitar."
+          comoAjuda="Personaliza a gestão. Mesma cobrança em pessoas diferentes gera resultados opostos — o PAT mostra o caminho para chegar em cada um."
+        />
+
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {PERFIS.map((p) => (
             <Link

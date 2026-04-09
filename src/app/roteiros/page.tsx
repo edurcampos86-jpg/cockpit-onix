@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { PageHeader } from "@/components/layout/page-header";
+import { ComoFunciona } from "@/components/layout/como-funciona";
 import { TemplateList } from "@/components/roteiros/template-list";
 import { ScriptList } from "@/components/roteiros/script-list";
 import { ScriptEditor } from "@/components/roteiros/script-editor";
@@ -131,6 +132,12 @@ export default function RoteirosPage() {
           Novo Roteiro
         </button>
       </div>
+
+      <ComoFunciona
+        proposito="Biblioteca de roteiros do Instagram. Templates são moldes reutilizáveis dos 5 Quadros Fixos; 'Meus Roteiros' são os textos finais que viram posts."
+        comoUsar="Comece pelos templates: clique em 'Usar template' para abrir um roteiro novo já com a estrutura do quadro. Edite, salve, e depois transforme em post no Calendário."
+        comoAjuda="Acelera a produção: você não escreve do zero, segue um padrão validado. Garante consistência de tom, gancho e CTA em todos os conteúdos."
+      />
 
       {/* Search + Filters */}
       <div className="flex flex-col md:flex-row gap-3 mb-6">

@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/layout/page-header";
+import { ComoFunciona } from "@/components/layout/como-funciona";
 import Link from "next/link";
 import { TrendingUp, TrendingDown, Minus, Users, CheckSquare, AlertCircle, FileText } from "lucide-react";
 import { PeriodoSelector } from "@/components/onix-corretora/periodo-selector";
@@ -72,6 +73,12 @@ export default async function OnixCorretoraDashboard() {
       <PageHeader title="Onix Corretora" description="Acompanhamento semanal de desenvolvimento comercial" />
 
       <div className="p-8 space-y-8">
+        <ComoFunciona
+          proposito="Painel central da Onix Corretora: como cada vendedor está performando na semana, quantos relatórios já foram analisados e onde existem ações pendentes."
+          comoUsar="Comece pelos cards de score (verde/amarelo/vermelho). Clique em 'Ver relatório' do vendedor para entender o que aconteceu, ou 'Ver ações' para o que precisa ser feito."
+          comoAjuda="Te dá uma fotografia de 30 segundos do time comercial. Você sabe quem precisa de atenção, quem está bem e onde direcionar reuniões 1:1."
+        />
+
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <div className="rounded-xl border border-border bg-card p-5">
             <div className="flex items-center gap-2 mb-2">

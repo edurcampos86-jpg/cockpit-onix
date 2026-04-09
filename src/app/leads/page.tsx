@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { PageHeader } from "@/components/layout/page-header";
+import { ComoFunciona } from "@/components/layout/como-funciona";
 import {
   Plus,
   Phone,
@@ -247,6 +248,12 @@ export default function LeadsPage() {
           Novo Lead
         </button>
       </div>
+
+      <ComoFunciona
+        proposito="Funil de leads gerados pelo Instagram (DMs, ManyChat, comentários). Cada coluna é uma etapa: Novo → Qualificado → Reunião → Proposta → Cliente Ativo."
+        comoUsar="Arraste cada lead para a etapa em que ele está. Use as temperaturas (Quente / Morno / Frio) para priorizar quem responder primeiro. Respeite o SLA de 30min para Novos."
+        comoAjuda="Mostra de uma vez quem está pronto para fechar e quem está esfriando. Evita perder lead por demora de resposta — primeiro contato em 30min dobra a conversão."
+      />
 
       {/* Filtros */}
       <div className="flex flex-wrap items-center gap-3 mb-4 shrink-0">

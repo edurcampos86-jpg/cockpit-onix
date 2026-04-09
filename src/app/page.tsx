@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/layout/page-header";
+import { ComoFunciona } from "@/components/layout/como-funciona";
 import { WeekCalendar } from "@/components/dashboard/week-calendar";
 import { TodayPanel } from "@/components/dashboard/today-panel";
 import { StatsCards } from "@/components/dashboard/stats-cards";
@@ -75,6 +76,12 @@ export default async function DashboardPage() {
       />
 
       <div className="p-8 space-y-8">
+        <ComoFunciona
+          proposito="Sua visão executiva da semana de mídias sociais. Mostra, em uma tela, se você está postando, se há pendências e o que precisa fazer hoje."
+          comoUsar="Comece o dia aqui. Olhe os 4 cards no topo, depois os alertas (atrasadas e que vencem em 24h) e por fim o calendário da semana com a aba 'Hoje' à direita."
+          comoAjuda="Evita você esquecer posts, perder prazos e furar a cadência dos Quadros Fixos. Centraliza tudo o que importa para o seu Instagram em um único painel."
+        />
+
         {/* Stats Cards */}
         <StatsCards
           weekPosts={weekPostStats}

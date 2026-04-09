@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { ComoFunciona } from "@/components/layout/como-funciona";
 import {
   AlertTriangle,
   Clock,
@@ -554,7 +555,12 @@ export function AlertasClient({ alertasParados, alertasAdormecidos, contadores, 
       </div>
 
       {/* Conteúdo */}
-      <div className="p-8">
+      <div className="p-8 space-y-6">
+        <ComoFunciona
+          proposito="Radar de risco do pipeline: negócios parados há mais de 48h, tickets críticos sem movimento e clientes adormecidos prontos para reativação."
+          comoUsar="Alterne entre 'Parados' e 'Adormecidos'. Filtre por prioridade, abra cada alerta e registre a ação tomada — o sistema rastreia a resolução."
+          comoAjuda="Recupera receita que estava escapando silenciosamente. Sem essa página, oportunidades ficariam esquecidas no funil até morrerem."
+        />
         {tab === "parados" && (
           <>
             {/* Filtros de prioridade */}

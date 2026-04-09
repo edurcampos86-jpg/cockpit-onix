@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { ComoFunciona } from "@/components/layout/como-funciona";
 import {
   CalendarDays,
   CheckCircle2,
@@ -361,7 +362,12 @@ export function RituaisClient({ rituais, ocorrencias, mes, ano, contadores }: Pr
       </div>
 
       {/* Conteúdo */}
-      <div className="p-8 max-w-5xl">
+      <div className="p-8 max-w-5xl space-y-6">
+        <ComoFunciona
+          proposito="Calendário e checklist de todos os rituais de gestão recorrentes — daily, weekly, monthly — com aderência histórica por ritual."
+          comoUsar="Veja no calendário o que tem hoje, marque cada execução como realizada e adicione notas. Acompanhe a aba de aderência para ver onde você está falhando."
+          comoAjuda="Disciplina é o que separa gestão consistente de gestão por crise. Os rituais aqui são o sistema operacional do cargo de gestor."
+        />
         {tab === "calendario" && (
           <>
             {/* Navegação de mês */}

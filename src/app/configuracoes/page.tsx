@@ -3,6 +3,7 @@
 import { useActionState, useEffect, useRef } from "react";
 import { changePassword, type ChangePasswordState } from "@/app/actions/settings";
 import { PageHeader } from "@/components/layout/page-header";
+import { ComoFunciona } from "@/components/layout/como-funciona";
 import { Lock, Eye, EyeOff, CheckCircle2, ShieldCheck, KeyRound } from "lucide-react";
 import { useState } from "react";
 
@@ -68,6 +69,12 @@ export default function ConfiguracoesPage() {
       />
 
       <div className="mt-8 space-y-8">
+        <ComoFunciona
+          proposito="Sua conta no Cockpit: senha de acesso e preferências pessoais."
+          comoUsar="Para trocar a senha, informe a atual e defina uma nova com pelo menos 8 caracteres misturando letras, números e símbolos."
+          comoAjuda="Mantém o acesso seguro ao seu Cockpit, que concentra dados sensíveis de carteira, leads e operação."
+        />
+
         {/* Change Password Section */}
         <div className="bg-card border border-border rounded-xl overflow-hidden">
           <div className="flex items-center gap-3 px-6 py-4 border-b border-border bg-accent/30">

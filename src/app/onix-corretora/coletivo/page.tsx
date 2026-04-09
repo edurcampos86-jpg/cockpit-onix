@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import Link from "next/link";
 import { FileText, Printer, Users } from "lucide-react";
 import { GerarColetivoButton } from "@/components/onix-corretora/gerar-coletivo-button";
+import { ComoFunciona } from "@/components/layout/como-funciona";
 
 export default async function ColetivoPage() {
   // Buscar relatorios coletivos existentes
@@ -66,6 +67,12 @@ export default async function ColetivoPage() {
           Visao consolidada do time comercial para a reuniao de terca-feira
         </p>
       </div>
+
+      <ComoFunciona
+        proposito="Síntese coletiva dos relatórios individuais — padrões comuns do time, gargalos compartilhados e oportunidades sistêmicas para a reunião semanal."
+        comoUsar="Gere o relatório coletivo a partir dos relatórios individuais já existentes. Use como pauta da reunião comercial de terça-feira."
+        comoAjuda="Acelera reuniões. Em vez de revisar cada vendedor isolado, foca no que afeta o time todo — economiza tempo e aumenta o impacto das decisões."
+      />
 
       {/* Botao de gerar */}
       <GerarColetivoButton periodos={periodosDisponiveis} />

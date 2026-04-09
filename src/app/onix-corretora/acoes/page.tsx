@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { PageHeader } from "@/components/layout/page-header";
+import { ComoFunciona } from "@/components/layout/como-funciona";
 import { CheckSquare, Circle } from "lucide-react";
 
 type Acao = {
@@ -84,6 +85,12 @@ function AcoesContent() {
       />
 
       <div className="p-8 space-y-6">
+        <ComoFunciona
+          proposito="Lista única de todas as ações que cada vendedor precisa executar na semana — extraídas dos relatórios de análise comercial."
+          comoUsar="Filtre por vendedor, marque cada ação como concluída ao executar. Use isso como sua agenda semanal de coaching com o time."
+          comoAjuda="Transforma os insights dos relatórios em movimento real. Sem essa página, as recomendações ficariam só no papel."
+        />
+
         {/* Filtro vendedor */}
         {!relatorioIdParam && (
           <div className="flex flex-wrap gap-2">

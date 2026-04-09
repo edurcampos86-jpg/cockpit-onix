@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/layout/page-header";
+import { ComoFunciona } from "@/components/layout/como-funciona";
 import Link from "next/link";
 import { CheckSquare, FileText, Printer } from "lucide-react";
 
@@ -35,6 +36,12 @@ export default async function RelatoriosPage({
       <PageHeader title="Relatorios Semanais" description="Historico de analises de desenvolvimento comercial" />
 
       <div className="p-8 space-y-6">
+        <ComoFunciona
+          proposito="Histórico de todos os relatórios semanais de análise de conversas comerciais já gerados pelo pipeline de IA."
+          comoUsar="Filtre por vendedor, abra um relatório para ver a análise completa, vá para 'Ações' para ver o checklist ou exporte em PDF para imprimir."
+          comoAjuda="Memória institucional do desenvolvimento comercial. Permite comparar evolução semana após semana e identificar padrões de longo prazo."
+        />
+
         <div className="flex flex-wrap gap-2">
           {VENDEDORES.map((v) => {
             const isActive = (!filtro && v === "Todos") || filtro === v;

@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/layout/page-header";
+import { ComoFunciona } from "@/components/layout/como-funciona";
 import Link from "next/link";
 import { ArrowRight, Target, TrendingUp } from "lucide-react";
 import { PAT_PROFILES } from "@/lib/pat-profiles";
@@ -55,7 +56,13 @@ export default async function DesenvolvimentoPage() {
         description="Acompanhamento individual do plano de carreira de cada assessor"
       />
 
-      <div className="p-8">
+      <div className="p-8 space-y-6">
+        <ComoFunciona
+          proposito="Trilha individual de carreira de cada assessor: onde está hoje, próximas competências a desenvolver e plano de ação personalizado."
+          comoUsar="Clique no card de cada vendedor para ver o roadmap detalhado da pessoa e o que trabalhar nas próximas reuniões 1:1."
+          comoAjuda="Estrutura o desenvolvimento humano do time. Sai do feeling de coaching e entra num plano longitudinal mensurável."
+        />
+
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 max-w-5xl">
           {vendedores.map((v) => (
             <Link

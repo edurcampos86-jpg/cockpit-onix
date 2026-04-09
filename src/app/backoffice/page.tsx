@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { DadosUpload } from "@/components/backoffice/dados-upload";
 import { DashboardSupernova } from "@/components/backoffice/dashboard-supernova";
 import { ReferenciaLivro } from "@/components/backoffice/referencia-livro";
-import { ComoFunciona } from "@/components/backoffice/como-funciona";
+import { ComoFunciona } from "@/components/layout/como-funciona";
 import { REF_PROMESSA_SERVICO, REF_CLIENTES_ORFAOS } from "@/lib/backoffice/referencias";
 
 export default async function BackofficePage() {

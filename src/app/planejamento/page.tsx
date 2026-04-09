@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { PageHeader } from "@/components/layout/page-header";
+import { ComoFunciona } from "@/components/layout/como-funciona";
 import { Card, CardContent } from "@/components/ui/card";
 import { Sparkles, CalendarDays, Loader2, CheckCircle2, AlertTriangle, ExternalLink } from "lucide-react";
 import { getThemesForPeriod, type SeasonalTheme } from "@/lib/seasonal-themes";
@@ -92,6 +93,12 @@ export default function PlanejamentoPage() {
       />
 
       <div className="mt-8 space-y-6">
+        <ComoFunciona
+          proposito="Gera de uma vez só 30 ou 60 dias inteiros de posts no Instagram, com roteiros, ganchos, CTAs e tarefas — usando IA combinada aos seus Quadros Fixos e temas sazonais."
+          comoUsar="Escolha o período (30 ou 60 dias), confira os temas sazonais sugeridos, opcionalmente adicione um tema guarda-chuva e clique em 'Gerar Planejamento com IA'."
+          comoAjuda="Tira você do bloqueio criativo e do 'o que vou postar essa semana'. Em poucos minutos você sai sem nada para um mês de conteúdo já agendado e com tarefas prontas."
+        />
+
         {/* Período */}
         <Card>
           <CardContent className="p-6">

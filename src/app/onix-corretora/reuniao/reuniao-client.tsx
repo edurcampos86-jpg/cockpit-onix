@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { ComoFunciona } from "@/components/layout/como-funciona";
 import {
   Users,
   User,
@@ -419,7 +420,12 @@ export function ReuniaoClient({ periodoAtual, periodos, coletivo, vendedores }: 
       </div>
 
       {/* Conteúdo */}
-      <div className="p-8">
+      <div className="p-8 space-y-6">
+        <ComoFunciona
+          proposito="Pauta da reunião comercial semanal no Formato C: visão do time + análise individual calibrada pelo perfil PAT de cada vendedor."
+          comoUsar="Comece pela aba 'Coletivo' (15 min de time), depois 'Individual' para cada um. Cada análise individual já vem com tom adaptado ao PAT do vendedor."
+          comoAjuda="Estrutura a reunião que mais consome tempo do gestor. Garante que toda terça você sai com clareza, alinhamento e plano — não com listas de problemas."
+        />
         {activeTab === "coletivo" ? (
           <ColetivoTab coletivo={coletivo} />
         ) : (

@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/layout/page-header";
+import { ComoFunciona } from "@/components/layout/como-funciona";
 import { TrendingUp, TrendingDown, Minus, Target } from "lucide-react";
 
 const VENDEDORES = ["Eduardo Campos", "Thiago Vergal", "Rose Oliveira"];
@@ -81,6 +82,12 @@ export default async function ComparativoPage() {
       />
 
       <div className="p-8 space-y-10">
+        <ComoFunciona
+          proposito="Visão lado a lado da evolução de cada vendedor: score, conversas, ações e métricas-chave semana após semana."
+          comoUsar="Compare as barras e deltas para identificar quem está melhorando, quem estagnou e quem regrediu. Use a meta como referência visual."
+          comoAjuda="Tira a subjetividade do acompanhamento. Ranking objetivo permite reconhecer evolução real e priorizar atenção em quem mais precisa."
+        />
+
         {!temDados ? (
           <div className="rounded-xl border border-dashed border-border p-12 text-center">
             <TrendingUp className="h-10 w-10 text-muted-foreground mx-auto mb-4" />

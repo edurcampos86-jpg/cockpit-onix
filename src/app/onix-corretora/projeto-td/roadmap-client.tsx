@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { ComoFunciona } from "@/components/layout/como-funciona";
 import {
   MapPin,
   CheckCircle2,
@@ -355,7 +356,12 @@ export function RoadmapClient({ anos, mesAtual, anoAtual, progressoProjeto, cont
       </div>
 
       {/* Conteúdo */}
-      <div className="p-8 max-w-4xl">
+      <div className="p-8 max-w-4xl space-y-6">
+        <ComoFunciona
+          proposito="Roadmap longitudinal do Projeto T&D (Treinamento & Desenvolvimento) — todas as fases plurianuais, marcos e entregas previstas."
+          comoUsar="Acompanhe a timeline visual: fases concluídas, em andamento e não iniciadas. Use como referência estratégica de longo prazo."
+          comoAjuda="Mantém o foco no projeto maior. Operação semanal não atropela visão estratégica — o T&D continua avançando mês a mês."
+        />
         {/* Timeline visual */}
         <TimelineBar mesAtual={mesAtual} anos={anos} />
 

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { PageHeader } from "@/components/layout/page-header";
+import { ComoFunciona } from "@/components/layout/como-funciona";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   MessageSquare,
@@ -254,6 +255,11 @@ export default function IntegracoesPage() {
       />
 
       <div className="mt-8 space-y-4">
+        <ComoFunciona
+          proposito="Catálogo das ferramentas externas conectadas ao Cockpit (ManyChat, Claude AI, Zapier/Plaud, BTG, Meta, etc.) e o que cada uma habilita."
+          comoUsar="Veja o status de cada conexão. Para conectar uma nova, siga as instruções no card. Cada integração desbloqueia um conjunto de automações listadas abaixo."
+          comoAjuda="Centraliza tudo num só lugar: você sabe rapidamente o que está ativo, o que precisa configurar, e quais automações dependem de quais conexões."
+        />
         {INTEGRATIONS.map((integration) => {
           // Usar status da API se disponível, senão o default hardcoded
           const liveStatus = statusMap[integration.id] || integration.status;

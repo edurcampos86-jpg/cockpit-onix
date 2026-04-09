@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { PageHeader } from "@/components/layout/page-header";
+import { ComoFunciona } from "@/components/layout/como-funciona";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   TrendingUp,
@@ -459,6 +460,12 @@ export default function KpisPage() {
       </PageHeader>
 
       <div className="p-6 md:p-8 space-y-6">
+        <ComoFunciona
+          proposito="Painel oficial de KPIs do Instagram, organizado em 4 camadas (Alcance → Engajamento → Conversão → Saúde do perfil) seguindo o funil AARRR adaptado."
+          comoUsar="Toda segunda-feira: preencha os 5 indicadores do Painel Essencial. Depois, expanda cada camada e atualize os KPIs detalhados. Salve a semana ao final."
+          comoAjuda="Substitui o achismo por dados. Cada camada responde uma pergunta de negócio: estou alcançando? engajando? convertendo? sustentando? Você sabe o que ajustar."
+        />
+
         {/* Save confirmation */}
         {saveMessage && (
           <div className="px-4 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-sm font-medium">

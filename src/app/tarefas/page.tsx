@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { PageHeader } from "@/components/layout/page-header";
+import { ComoFunciona } from "@/components/layout/como-funciona";
 import {
   Plus,
   Search,
@@ -207,6 +208,12 @@ export default function TarefasPage() {
           Nova Tarefa
         </button>
       </div>
+
+      <ComoFunciona
+        proposito="Lista única de tudo o que precisa ser feito para os posts saírem do papel: escrever roteiro, gravar, editar, publicar — automaticamente criadas a partir de cada post."
+        comoUsar="Foque primeiro nas atrasadas e nas que vencem em 24h (veja no Painel). Use o modo Kanban para arrastar entre Pendente → Em Progresso → Concluída."
+        comoAjuda="Garante que nenhum post fure por esquecimento operacional. Cada peça do conteúdo tem responsável, prazo e status visível."
+      />
 
       {/* Stats */}
       <div className="grid grid-cols-3 gap-4 mb-6 shrink-0">

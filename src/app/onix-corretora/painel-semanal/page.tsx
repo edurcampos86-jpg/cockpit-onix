@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/layout/page-header";
+import { ComoFunciona } from "@/components/layout/como-funciona";
 import { PainelClient } from "./painel-client";
 import {
   computeResultado,
@@ -78,7 +79,12 @@ export default async function PainelSemanalPage() {
         title="Painel Semanal"
         description="Visao executiva: resultado, processo e comportamento"
       />
-      <div className="p-4 md:p-8">
+      <div className="p-4 md:p-8 space-y-6">
+        <ComoFunciona
+          proposito="Visão executiva da semana em três dimensões: resultado (o que entregou), processo (como executou) e comportamento (como agiu)."
+          comoUsar="Leia as três colunas em conjunto. Resultado fraco com bom processo é diferente de resultado fraco com mau processo — o painel mostra a causa raiz."
+          comoAjuda="Evita decisões só por número. Separa quem está executando bem mas teve azar de quem precisa mesmo mudar comportamento."
+        />
         <PainelClient
           resultado={resultado}
           processo={processo}
