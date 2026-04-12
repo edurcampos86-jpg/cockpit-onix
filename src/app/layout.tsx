@@ -12,8 +12,8 @@ const poppins = Poppins({
 });
 
 export const metadata: Metadata = {
-  title: "Eduardo — Mídias Sociais",
-  description: "Painel de gestão de mídias sociais e conteúdo",
+  title: "Ecossistema Onix",
+  description: "Plataforma integrada de gestão — Onix Capital",
 };
 
 // Script inline executado antes do render para evitar flash de tema errado (FOUC)
