@@ -436,6 +436,7 @@ model ClienteBackoffice {
   nome          String
   numeroConta   String
   saldo         Float    @default(0)
+  saldoConta    Float    @default(0) // Saldo em conta corrente (cash disponível) — via BTG
 
   // Classificação ABC (Supernova)
   // A = top clientes (12 contatos/ano), B = relacionamento ativo, C = manutenção

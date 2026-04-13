@@ -13,6 +13,7 @@ export default async function ClientesPage() {
     nome: string;
     numeroConta: string;
     saldo: number;
+    saldoConta: number;
     classificacao: string;
     classificacaoManual: boolean;
     email: string | null;
@@ -33,6 +34,7 @@ export default async function ClientesPage() {
       nome: c.nome,
       numeroConta: c.numeroConta,
       saldo: c.saldo,
+      saldoConta: c.saldoConta,
       classificacao: c.classificacao,
       classificacaoManual: c.classificacaoManual,
       email: c.email,

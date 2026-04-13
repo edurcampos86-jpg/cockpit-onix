@@ -2,13 +2,20 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Users, Search, Edit2, Check, X, RefreshCw } from "lucide-react";
+import { Users, Search, Edit2, Check, X, RefreshCw, MessageCircle, Phone, Video, Loader2 } from "lucide-react";
+
+interface ContatoResumo {
+  data: string;
+  canal: "whatsapp" | "reuniao" | "ligacao";
+  resumo: string;
+}
 
 interface Cliente {
   id: string;
   nome: string;
   numeroConta: string;
   saldo: number;
+  saldoConta: number;
   classificacao: string;
   classificacaoManual: boolean;
   email: string | null;
@@ -19,6 +26,17 @@ interface Cliente {
   proximoContatoAt: Date | string | null;
   receitaAnual: number;
 }
+
+type FaixaSaldo = "todos" | "0-10k" | "10k-50k" | "50k-100k" | "100k-500k" | "500k+";
+
+const FAIXAS_SALDO: { valor: FaixaSaldo; label: string; min: number; max: number }[] = [
+  { valor: "todos", label: "Todos os saldos", min: 0, max: Infinity },
+  { valor: "0-10k", label: "Até R$ 10 mil", min: 0, max: 10_000 },
+  { valor: "10k-50k", label: "R$ 10k – 50k", min: 10_000, max: 50_000 },
+  { valor: "50k-100k", label: "R$ 50k – 100k", min: 50_000, max: 100_000 },
+  { valor: "100k-500k", label: "R$ 100k – 500k", min: 100_000, max: 500_000 },
+  { valor: "500k+", label: "Acima de R$ 500k", min: 500_000, max: Infinity },
+];
 
 const classCores: Record<string, string> = {
   A: "bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-900/30 dark:text-amber-200",
@@ -32,13 +50,35 @@ const classLegenda: Record<string, string> = {
   C: "Manutenção",
 };
 
+const canalIcone: Record<string, typeof MessageCircle> = {
+  whatsapp: MessageCircle,
+  reuniao: Video,
+  ligacao: Phone,
+};
+
+const canalCor: Record<string, string> = {
+  whatsapp: "text-green-600",
+  reuniao: "text-blue-600",
+  ligacao: "text-amber-600",
+};
+
+const canalLabel: Record<string, string> = {
+  whatsapp: "WhatsApp",
+  reuniao: "Reunião",
+  ligacao: "Ligação",
+};
+
 export function ClientesTable({ clientes: iniciais }: { clientes: Cliente[] }) {
   const [clientes, setClientes] = useState(iniciais);
   const [busca, setBusca] = useState("");
   const [filtroClasse, setFiltroClasse] = useState<"todos" | "A" | "B" | "C">("todos");
+  const [filtroSaldoConta, setFiltroSaldoConta] = useState<FaixaSaldo>("todos");
   const [editando, setEditando] = useState<string | null>(null);
   const [sincronizando, setSincronizando] = useState(false);
   const [syncResult, setSyncResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [buscandoContatos, setBuscandoContatos] = useState(false);
+  const [contatos, setContatos] = useState<Record<string, ContatoResumo[]>>({});
+  const [contatosCarregados, setContatosCarregados] = useState(false);
 
   const sincronizarBtg = async () => {
     if (sincronizando) return;
@@ -53,7 +93,7 @@ export function ClientesTable({ clientes: iniciais }: { clientes: Cliente[] }) {
         setClientes((prev) =>
           prev.map((c) => {
             const det = data.detalhes.find((d: { conta: string }) => d.conta === c.numeroConta);
-            return det ? { ...c, saldo: det.saldoNovo } : c;
+            return det ? { ...c, saldo: det.saldoNovo, saldoConta: det.saldoConta ?? c.saldoConta } : c;
           })
         );
       }
@@ -64,9 +104,34 @@ export function ClientesTable({ clientes: iniciais }: { clientes: Cliente[] }) {
     }
   };
 
+  const buscarUltimosContatos = async () => {
+    if (buscandoContatos) return;
+    setBuscandoContatos(true);
+    try {
+      const res = await fetch("/api/backoffice/clientes/ultimos-contatos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (data.contatos) {
+        setContatos(data.contatos);
+        setContatosCarregados(true);
+      }
+    } catch (e) {
+      console.error("Erro ao buscar contatos:", e);
+    } finally {
+      setBuscandoContatos(false);
+    }
+  };
+
   const filtrados = clientes.filter((c) => {
     if (filtroClasse !== "todos" && c.classificacao !== filtroClasse) return false;
     if (busca && !c.nome.toLowerCase().includes(busca.toLowerCase())) return false;
+    if (filtroSaldoConta !== "todos") {
+      const faixa = FAIXAS_SALDO.find((f) => f.valor === filtroSaldoConta);
+      if (faixa && (c.saldoConta < faixa.min || c.saldoConta >= faixa.max)) return false;
+    }
     return true;
   });
 
@@ -117,8 +182,8 @@ export function ClientesTable({ clientes: iniciais }: { clientes: Cliente[] }) {
       </div>
 
       {/* Busca + filtros */}
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <input
             type="text"
@@ -128,14 +193,44 @@ export function ClientesTable({ clientes: iniciais }: { clientes: Cliente[] }) {
             className="w-full pl-10 pr-4 py-2 rounded-lg border bg-background text-sm"
           />
         </div>
-        {filtroClasse !== "todos" && (
+
+        {/* Filtro por faixa de saldo em conta */}
+        <select
+          value={filtroSaldoConta}
+          onChange={(e) => setFiltroSaldoConta(e.target.value as FaixaSaldo)}
+          className="px-3 py-2 rounded-lg border bg-background text-sm"
+          title="Filtrar por saldo em conta corrente"
+        >
+          {FAIXAS_SALDO.map((f) => (
+            <option key={f.valor} value={f.valor}>
+              {f.label}
+            </option>
+          ))}
+        </select>
+
+        {(filtroClasse !== "todos" || filtroSaldoConta !== "todos") && (
           <button
-            onClick={() => setFiltroClasse("todos")}
+            onClick={() => { setFiltroClasse("todos"); setFiltroSaldoConta("todos"); }}
             className="px-3 py-2 rounded-lg border text-sm flex items-center gap-2"
           >
-            Limpar filtro <X className="h-3 w-3" />
+            Limpar filtros <X className="h-3 w-3" />
           </button>
         )}
+
+        <button
+          onClick={buscarUltimosContatos}
+          disabled={buscandoContatos}
+          className="px-3 py-2 rounded-lg border border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-400 text-sm flex items-center gap-2 hover:bg-violet-500/20 disabled:opacity-50"
+          title="Buscar últimos contatos via Datacraze (WhatsApp) e Plaud (reuniões)"
+        >
+          {buscandoContatos ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <MessageCircle className="h-4 w-4" />
+          )}
+          {buscandoContatos ? "Buscando..." : "Buscar contatos"}
+        </button>
+
         <button
           onClick={sincronizarBtg}
           disabled={sincronizando}
@@ -176,8 +271,12 @@ export function ClientesTable({ clientes: iniciais }: { clientes: Cliente[] }) {
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Nome</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Conta</th>
                 <th className="text-right px-4 py-3 font-medium text-muted-foreground">AUM</th>
+                <th className="text-right px-4 py-3 font-medium text-muted-foreground">Saldo Conta</th>
                 <th className="text-right px-4 py-3 font-medium text-muted-foreground">Receita/ano</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Último contato</th>
+                {contatosCarregados && (
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Contatos recentes</th>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -232,6 +331,13 @@ export function ClientesTable({ clientes: iniciais }: { clientes: Cliente[] }) {
                     {c.numeroConta}
                   </td>
                   <td className="px-4 py-3 text-right font-mono">{moeda(c.saldo)}</td>
+                  <td className="px-4 py-3 text-right font-mono">
+                    {c.saldoConta > 0 ? (
+                      <span className="text-emerald-700 dark:text-emerald-400">{moeda(c.saldoConta)}</span>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-right font-mono text-muted-foreground">
                     {moeda(c.receitaAnual)}
                   </td>
@@ -240,11 +346,16 @@ export function ClientesTable({ clientes: iniciais }: { clientes: Cliente[] }) {
                       ? new Date(c.ultimoContatoAt).toLocaleDateString("pt-BR")
                       : "—"}
                   </td>
+                  {contatosCarregados && (
+                    <td className="px-4 py-3">
+                      <ContatosBadges contatos={contatos[c.id] || []} />
+                    </td>
+                  )}
                 </tr>
               ))}
               {filtrados.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
+                  <td colSpan={contatosCarregados ? 8 : 7} className="px-4 py-8 text-center text-muted-foreground">
                     {clientes.length === 0
                       ? "Nenhum cliente importado. Use o upload no painel principal."
                       : "Nenhum cliente encontrado com os filtros atuais."}
@@ -255,6 +366,35 @@ export function ClientesTable({ clientes: iniciais }: { clientes: Cliente[] }) {
           </table>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ContatosBadges({ contatos }: { contatos: ContatoResumo[] }) {
+  if (contatos.length === 0) {
+    return <span className="text-xs text-muted-foreground">—</span>;
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      {contatos.map((c, i) => {
+        const Icone = canalIcone[c.canal] || Phone;
+        const cor = canalCor[c.canal] || "text-zinc-500";
+        const dataFormatada = c.data
+          ? new Date(c.data).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })
+          : "";
+        return (
+          <div
+            key={i}
+            className="flex items-center gap-1.5 text-xs group relative"
+            title={c.resumo}
+          >
+            <Icone className={`h-3.5 w-3.5 flex-shrink-0 ${cor}`} />
+            <span className="text-muted-foreground">{dataFormatada}</span>
+            <span className="truncate max-w-[120px] text-foreground/70">{c.resumo.substring(0, 40)}</span>
+          </div>
+        );
+      })}
     </div>
   );
 }

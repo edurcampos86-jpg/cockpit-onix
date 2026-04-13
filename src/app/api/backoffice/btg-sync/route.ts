@@ -12,7 +12,7 @@ export async function POST() {
   let failed = 0;
   let totalAum = 0;
   const erros: Array<{ conta: string; nome: string; motivo: string }> = [];
-  const detalhes: Array<{ conta: string; nome: string; saldoAnterior: number; saldoNovo: number; positionDate: string }> = [];
+  const detalhes: Array<{ conta: string; nome: string; saldoAnterior: number; saldoNovo: number; saldoConta: number; positionDate: string }> = [];
 
   let clientes: Array<{ id: string; nome: string; numeroConta: string; saldo: number }> = [];
   try {
@@ -35,18 +35,46 @@ export async function POST() {
         erros.push({ conta: c.numeroConta, nome: c.nome, motivo: msg });
         continue;
       }
-      const data = r.body as { TotalAmmount?: string; PositionDate?: string };
+      const data = r.body as {
+        TotalAmmount?: string;
+        PositionDate?: string;
+        CashBalance?: string;
+        AvailableBalance?: string;
+        AccountBalance?: string;
+        Products?: Array<{ ProductName?: string; TotalAmmount?: string; Balance?: string }>;
+      };
       const novoSaldo = data.TotalAmmount ? parseFloat(data.TotalAmmount) : 0;
       const positionDate = data.PositionDate ? new Date(data.PositionDate) : new Date();
+
+      // Extrair saldo em conta corrente (cash disponível)
+      let saldoConta = 0;
+      if (data.CashBalance) {
+        saldoConta = parseFloat(data.CashBalance);
+      } else if (data.AvailableBalance) {
+        saldoConta = parseFloat(data.AvailableBalance);
+      } else if (data.AccountBalance) {
+        saldoConta = parseFloat(data.AccountBalance);
+      } else if (data.Products && Array.isArray(data.Products)) {
+        // Procura produto de conta corrente no breakdown
+        const contaCorrente = data.Products.find((p) => {
+          const name = (p.ProductName || "").toLowerCase();
+          return name.includes("conta") || name.includes("cash") || name.includes("disponível") || name.includes("disponivel") || name.includes("saldo");
+        });
+        if (contaCorrente) {
+          saldoConta = parseFloat(contaCorrente.TotalAmmount || contaCorrente.Balance || "0");
+        }
+      }
+
       await prisma.clienteBackoffice.update({
         where: { id: c.id },
-        data: { saldo: novoSaldo },
+        data: { saldo: novoSaldo, saldoConta: isNaN(saldoConta) ? 0 : saldoConta },
       });
       detalhes.push({
         conta: c.numeroConta,
         nome: c.nome,
         saldoAnterior: c.saldo,
         saldoNovo: novoSaldo,
+        saldoConta: isNaN(saldoConta) ? 0 : saldoConta,
         positionDate: positionDate.toISOString(),
       });
       totalAum += novoSaldo;
