@@ -1,14 +1,24 @@
 const CLAUDE_API_URL = "https://api.anthropic.com/v1/messages";
 
 const PAT_PROFILES: Record<string, string> = {
-  "Eduardo Campos": `PAT 76 - Promocional de Acao Livre. Essencia: Entusiasmo e influencia. Pontos fortes: Conexao rapida com clientes, linguagem calorosa, cria rapport naturalmente. Pontos de atencao: Pode perder o fio da conversa em multiplos assuntos, follow-ups podem escapar. Orientacao: Tom narrativo e envolvente, reconheca seu impacto em pessoas, sugira acoes praticas e imediatas.`,
-  "Rose Oliveira": `PAT 118 - Intro-Diligente Livre. Essencia: Cuidado e consistencia. Pontos fortes: Atencao aos detalhes, segue processos, confiabilidade. Pontos de atencao: Pode evitar confronto direto com objecoes, suporte de 15% sob pressao. Orientacao: Reconheca esforco ANTES de qualquer melhoria, nunca use urgencia ou compare com colegas, passos concretos e estruturados.`,
-  "Thiago Vergal": `PAT 22 - Projetista Criativo. Essencia: Criatividade e precisao. Pontos fortes: Pensamento sistemico, apresentacoes tecnicas claras, foco em resultados. Pontos de atencao: Pode parecer frio/distante, empatia e escuta ativa precisam de atencao. Orientacao: Linguagem direta e tecnica, inclua dados/metricas, desafie com metas, seja objetivo sem redundancias.`,
+  "Eduardo Campos": `PAT 76 - Promocional de Acao Livre. Essencia: Entusiasmo e influencia. Pontos fortes: Conexao rapida com clientes, linguagem calorosa, cria rapport naturalmente. Pontos de atencao: Pode perder o fio da conversa em multiplos assuntos, follow-ups podem escapar. Orientacao: Tom narrativo e envolvente, reconheca seu impacto em pessoas, sugira acoes praticas e imediatas.
+
+REPERTORIO DE ANALOGIAS E METAFORAS (use de 2 a 3 por relatorio, distribuidas entre SECAO 0, SECAO 1 e SECAO 2, sempre conectando a observacao real da semana): maestro conduzindo uma orquestra, contador de historias em volta da fogueira, anfitriao em um jantar cheio de convidados, DJ lendo a pista para escolher a proxima musica, navegador em alto-mar que precisa ler o vento, ator em cena que precisa sustentar o arco do personagem ate o final, guia de expedicao que mantem o grupo coeso. A linguagem deve ser calorosa, cenica, com ritmo narrativo.`,
+  "Rose Oliveira": `PAT 118 - Intro-Diligente Livre. Essencia: Cuidado e consistencia. Pontos fortes: Atencao aos detalhes, segue processos, confiabilidade. Pontos de atencao: Pode evitar confronto direto com objecoes, suporte de 15% sob pressao. Orientacao: Reconheca esforco ANTES de qualquer melhoria, nunca use urgencia ou compare com colegas, passos concretos e estruturados.
+
+REPERTORIO DE ANALOGIAS E METAFORAS (use de 2 a 3 por relatorio, distribuidas entre SECAO 0, SECAO 1 e SECAO 2, sempre conectando a observacao real da semana): jardineira cuidando de uma planta antes de ela florescer, luthier afinando cada corda do violino, relojoeira ajustando cada engrenagem no silencio da oficina, bordadeira tecendo ponto por ponto, enfermeira que cuida do paciente ao longo do tratamento, bibliotecaria que conhece cada livro da estante, arquiteta de interiores que pensa no conforto de quem vai morar ali. A linguagem deve ser acolhedora, paciente, valorizando o processo.`,
+  "Thiago Vergal": `PAT 22 - Projetista Criativo. Essencia: Criatividade e precisao. Pontos fortes: Pensamento sistemico, apresentacoes tecnicas claras, foco em resultados. Pontos de atencao: Pode parecer frio/distante, empatia e escuta ativa precisam de atencao. Orientacao: Linguagem direta e tecnica, inclua dados/metricas, desafie com metas, seja objetivo sem redundancias.
+
+REPERTORIO DE ANALOGIAS E METAFORAS (use de 2 a 3 por relatorio, distribuidas entre SECAO 0, SECAO 1 e SECAO 2, sempre conectando a observacao real da semana): engenheiro calculando as tensoes de uma ponte, enxadrista lendo tres lances a frente, piloto checando cada instrumento antes da decolagem, arquiteto tracando a planta antes da primeira pedra, cirurgiao planejando cada incisao antes do bisturi, projetista de circuitos integrados onde cada componente precisa conversar, treinador analisando video do jogo para montar a estrategia. A linguagem deve ser direta, estruturada, com metafora objetiva que reforce precisao.`,
 };
 
 const SYSTEM_PROMPT = `Voce e um especialista em desenvolvimento comercial e vendas, com profundo conhecimento em perfis comportamentais PAT (Perfil de Atitude e Temperamento). Sua funcao e analisar transcricoes de conversas de vendedores e gerar relatorios estruturados de coaching.
 
 Ao analisar, considere o perfil PAT do vendedor para personalizar completamente o feedback — tanto no conteudo quanto no tom. Nunca use travessoes (—) nem emojis no relatorio.
+
+REGRA CRITICA DE EVIDENCIA: TODA observacao feita nas SECOES 1, 2, 3 e 4 DEVE ser ancorada em um trecho literal da conversa, entre aspas, com identificacao do cliente e de quem falou (CLIENTE ou VENDEDOR). Formato obrigatorio: Evidencia: [Cliente NOME] VENDEDOR: "trecho exato" | CLIENTE: "trecho exato". Trechos curtos (maximo 2 linhas cada). Nunca invente ou parafraseie — copie exatamente como aparece na transcricao. Se nao houver evidencia literal para sustentar um ponto, nao inclua o ponto.
+
+REGRA DE ANALOGIAS E METAFORAS: No perfil PAT do vendedor ha um REPERTORIO DE ANALOGIAS E METAFORAS especifico. Use de 2 a 3 analogias DESSE REPERTORIO distribuidas pelo relatorio (uma obrigatoriamente em SECAO 0, as outras em SECAO 1 ou SECAO 2), sempre conectadas a uma observacao real da semana. As analogias NAO substituem a evidencia literal — complementam o tom, aproximam a linguagem do perfil e ajudam a memorizar o aprendizado. Nao inclua analogia sem estar colada a um fato observado nas transcricoes. Nunca use analogias fora do repertorio do perfil.
 
 Gere a resposta EXATAMENTE neste formato de 10 blocos, sem adicionar texto antes ou depois:
 
@@ -35,13 +45,13 @@ Perfil: [nome do PAT] | [palavra-chave1], [palavra-chave2], [palavra-chave3]
 [Lente do Perfil — 5 a 8 linhas conectando o perfil PAT ao que foi observado especificamente nesta semana, de forma personalizada]
 
 === SECAO 1 ===
-[3 abordagens positivas observadas, com explicacao de por que foram eficazes e como elevar ainda mais cada uma]
+[3 abordagens positivas observadas. Para cada uma: descricao do que foi eficaz, Evidencia com trecho literal da conversa (obrigatorio), e como elevar ainda mais]
 
 === SECAO 2 ===
-[3 oportunidades de melhoria com scripts alternativos concretos para cada situacao identificada]
+[3 oportunidades de melhoria. Para cada uma: o que pode melhorar, Evidencia com trecho literal da conversa (obrigatorio), e script alternativo concreto]
 
 === SECAO 3 ===
-[3 objecoes recorrentes dos clientes, como o vendedor reagiu e qual seria a resposta ideal com script exato]
+[3 objecoes recorrentes dos clientes. Para cada uma: a objecao, Evidencia com trecho literal do CLIENTE (obrigatorio), como o vendedor reagiu (com trecho) e qual seria a resposta ideal com script exato]
 
 === SCRIPT_SEMANA ===
 Situacao: [quando o cliente diz ou faz X — baseado em situacao real observada]
@@ -49,7 +59,7 @@ Script: [frase exata para copiar e colar]
 Por que funciona: [1 a 2 linhas explicando a logica]
 
 === SECAO 4 ===
-[Voz do Cliente: percepcoes recorrentes, perguntas frequentes, reclamacoes e elogios identificados nas conversas]
+[Voz do Cliente: percepcoes recorrentes, perguntas frequentes, reclamacoes e elogios identificados. Para cada item, inclua Evidencia com trecho literal do CLIENTE e o nome do cliente]
 
 === SECAO 5 ===
 ACAO 1: [titulo da acao]

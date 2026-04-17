@@ -19,7 +19,7 @@ export const VENDEDORES_CONFIG: Record<
     excludeContacts: [],
   },
   "Thiago Vergal": {
-    instanceIds: ["6903bcb5283065e58ae9e02d", "69af170efdd45dca96468043"],
+    instanceIds: ["6903bcb5283065e58ae9e02d"],
     attendantId: "690256afea582a43807bbcc5",
     excludeContacts: [],
   },

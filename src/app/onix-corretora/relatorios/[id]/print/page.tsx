@@ -3,6 +3,70 @@ export const dynamic = "force-dynamic";
 import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
 import PrintTrigger from "./print-trigger";
+import {
+  ThumbsUp,
+  AlertTriangle,
+  MessageCircleQuestion,
+  Megaphone,
+  Target,
+  Quote,
+  Sparkles,
+  Thermometer,
+  RotateCcw,
+} from "lucide-react";
+
+// Renderiza o texto da secao realcando blocos "Evidencia:" como quote cards
+function RichSection({ texto }: { texto: string }) {
+  if (!texto) return null;
+  const linhas = texto.split("\n");
+  const blocks: Array<{ kind: "text" | "evidence"; content: string }> = [];
+  let buffer: string[] = [];
+  const flush = () => {
+    if (buffer.length > 0) {
+      blocks.push({ kind: "text", content: buffer.join("\n") });
+      buffer = [];
+    }
+  };
+  for (const l of linhas) {
+    if (/^\s*evid[eê]ncia\s*:/i.test(l)) {
+      flush();
+      blocks.push({ kind: "evidence", content: l.replace(/^\s*evid[eê]ncia\s*:\s*/i, "") });
+    } else {
+      buffer.push(l);
+    }
+  }
+  flush();
+  return (
+    <>
+      {blocks.map((b, i) =>
+        b.kind === "evidence" ? (
+          <div
+            key={i}
+            style={{
+              display: "flex",
+              gap: 6,
+              background: "rgba(255,255,255,0.7)",
+              border: "1px solid rgba(0,0,0,0.08)",
+              borderLeft: "3px solid rgba(0,0,0,0.35)",
+              borderRadius: 4,
+              padding: "6px 9px",
+              margin: "6px 0",
+              fontSize: 9.5,
+              fontStyle: "italic",
+              color: "#3A2E20",
+              lineHeight: 1.55,
+            }}
+          >
+            <Quote size={11} style={{ flexShrink: 0, marginTop: 2, opacity: 0.55 }} />
+            <span style={{ whiteSpace: "pre-wrap" }}>{b.content}</span>
+          </div>
+        ) : (
+          <div key={i} style={{ whiteSpace: "pre-wrap" }}>{b.content}</div>
+        ),
+      )}
+    </>
+  );
+}
 
 // ── PAT estatico por vendedor ────────────────────────────────────────────────
 const PAT_PERFIS: Record<string, {
@@ -128,6 +192,7 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
   const sectionHeaderStyle = (bg: string, color: string): React.CSSProperties => ({
     background: bg, padding: "7px 14px", fontSize: 10, fontWeight: 700,
     color, textTransform: "uppercase", letterSpacing: 0.5,
+    display: "flex", alignItems: "center", gap: 8,
   });
   const sectionBodyStyle = (bg: string, borderColor: string): React.CSSProperties => ({
     background: bg, padding: "12px 14px", fontSize: 10.5, lineHeight: 1.7,
@@ -219,7 +284,10 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
 
           {/* Essencia do Perfil */}
           <div style={sectionBoxStyle}>
-            <div style={sectionHeaderStyle(GOLD, "#2A1E00")}>Essencia do Perfil</div>
+            <div style={sectionHeaderStyle(GOLD, "#2A1E00")}>
+              <Sparkles size={13} />
+              Essencia do Perfil
+            </div>
             <div style={{ background: "#FEF9EC", padding: "10px 14px", fontSize: 10, color: "#2A2015", lineHeight: 1.6, borderBottom: `2px solid ${GOLD_D}`, fontStyle: "italic" }}>
               {pat.essencia}
             </div>
@@ -230,7 +298,10 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
           {/* Lente do Perfil — Esta Semana (secao0) */}
           {secao0 && (
             <div style={sectionBoxStyle}>
-              <div style={sectionHeaderStyle(GOLD, "#2A1E00")}>Lente do Perfil — Esta Semana</div>
+              <div style={sectionHeaderStyle(GOLD, "#2A1E00")}>
+                <Sparkles size={13} />
+                Lente do Perfil — Esta Semana
+              </div>
               <div style={{ ...sectionBodyStyle("#FEF9EC", GOLD_D), fontSize: 10.5 }}>
                 {secao0}
               </div>
@@ -254,9 +325,12 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
         <div style={{ padding: "28px 48px", flex: 1 }}>
           {/* Secao 1 — Abordagens Positivas */}
           <div style={sectionBoxStyle}>
-            <div style={sectionHeaderStyle(SECAO_CORES.secao1.cor, "#fff")}>1. {SECAO_CORES.secao1.label}</div>
+            <div style={sectionHeaderStyle(SECAO_CORES.secao1.cor, "#fff")}>
+              <ThumbsUp size={13} />
+              1. {SECAO_CORES.secao1.label}
+            </div>
             <div style={sectionBodyStyle(SECAO_CORES.secao1.bgCor, SECAO_CORES.secao1.cor)}>
-              {(relatorio as Record<string, unknown>).secao1 as string}
+              <RichSection texto={(relatorio as Record<string, unknown>).secao1 as string} />
             </div>
           </div>
 
@@ -264,9 +338,12 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
 
           {/* Secao 2 — Oportunidades de Melhoria */}
           <div style={sectionBoxStyle}>
-            <div style={sectionHeaderStyle(SECAO_CORES.secao2.cor, "#fff")}>2. {SECAO_CORES.secao2.label}</div>
+            <div style={sectionHeaderStyle(SECAO_CORES.secao2.cor, "#fff")}>
+              <AlertTriangle size={13} />
+              2. {SECAO_CORES.secao2.label}
+            </div>
             <div style={sectionBodyStyle(SECAO_CORES.secao2.bgCor, SECAO_CORES.secao2.cor)}>
-              {(relatorio as Record<string, unknown>).secao2 as string}
+              <RichSection texto={(relatorio as Record<string, unknown>).secao2 as string} />
             </div>
           </div>
         </div>
@@ -287,16 +364,22 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
         <div style={{ padding: "28px 48px", flex: 1 }}>
           {/* Secao 3 — Objecoes */}
           <div style={sectionBoxStyle}>
-            <div style={sectionHeaderStyle(SECAO_CORES.secao3.cor, "#fff")}>3. {SECAO_CORES.secao3.label}</div>
+            <div style={sectionHeaderStyle(SECAO_CORES.secao3.cor, "#fff")}>
+              <MessageCircleQuestion size={13} />
+              3. {SECAO_CORES.secao3.label}
+            </div>
             <div style={{ ...sectionBodyStyle(SECAO_CORES.secao3.bgCor, SECAO_CORES.secao3.cor), fontSize: 10 }}>
-              {(relatorio as Record<string, unknown>).secao3 as string}
+              <RichSection texto={(relatorio as Record<string, unknown>).secao3 as string} />
             </div>
           </div>
 
           {/* Script da Semana */}
           {scriptData && (
             <div style={sectionBoxStyle}>
-              <div style={sectionHeaderStyle(GOLD, "#2A1E00")}>Script da Semana</div>
+              <div style={sectionHeaderStyle(GOLD, "#2A1E00")}>
+                <Quote size={13} />
+                Script da Semana
+              </div>
               <div style={{ background: "#FEF9EC", padding: "10px 14px", borderBottom: `2px solid ${GOLD_D}` }}>
                 {scriptData.situacao && (
                   <div style={{ marginBottom: 8 }}>
@@ -326,16 +409,22 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
 
           {/* Secao 4 — Voz do Cliente */}
           <div style={sectionBoxStyle}>
-            <div style={sectionHeaderStyle(SECAO_CORES.secao4.cor, "#fff")}>4. {SECAO_CORES.secao4.label}</div>
+            <div style={sectionHeaderStyle(SECAO_CORES.secao4.cor, "#fff")}>
+              <Megaphone size={13} />
+              4. {SECAO_CORES.secao4.label}
+            </div>
             <div style={{ ...sectionBodyStyle(SECAO_CORES.secao4.bgCor, SECAO_CORES.secao4.cor), fontSize: 10 }}>
-              {(relatorio as Record<string, unknown>).secao4 as string}
+              <RichSection texto={(relatorio as Record<string, unknown>).secao4 as string} />
             </div>
           </div>
 
           {/* Termometro de Desempenho */}
           {termometroData.length > 0 && (
             <div style={sectionBoxStyle}>
-              <div style={sectionHeaderStyle(GOLD, "#2A1E00")}>Termometro de Desempenho</div>
+              <div style={sectionHeaderStyle(GOLD, "#2A1E00")}>
+                <Thermometer size={13} />
+                Termometro de Desempenho
+              </div>
               <div style={{ borderBottom: `2px solid ${GOLD_D}` }}>
                 {termometroData.map(({ dim, nivel }, i) => {
                   const cfg = nivel === "verde"
@@ -374,7 +463,10 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
           {/* Retomada da semana anterior */}
           {retomadaData.length > 0 && (
             <div style={sectionBoxStyle}>
-              <div style={sectionHeaderStyle("#6B6459", "#fff")}>Retomada da Semana Anterior</div>
+              <div style={sectionHeaderStyle("#6B6459", "#fff")}>
+                <RotateCcw size={13} />
+                Retomada da Semana Anterior
+              </div>
               <div style={{ borderBottom: `2px solid ${GOLD_D}` }}>
                 {retomadaData.map(({ titulo, status, evidencia }, i) => {
                   const s = status.toLowerCase();
@@ -401,7 +493,10 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
 
           {/* Secao 5 — Plano de Acao */}
           <div style={sectionBoxStyle}>
-            <div style={sectionHeaderStyle(SECAO_CORES.secao5.cor, "#fff")}>5. {SECAO_CORES.secao5.label}</div>
+            <div style={sectionHeaderStyle(SECAO_CORES.secao5.cor, "#fff")}>
+              <Target size={13} />
+              5. {SECAO_CORES.secao5.label}
+            </div>
             <div style={sectionBodyStyle(SECAO_CORES.secao5.bgCor, SECAO_CORES.secao5.cor)}>
               {(relatorio as Record<string, unknown>).secao5 as string}
             </div>

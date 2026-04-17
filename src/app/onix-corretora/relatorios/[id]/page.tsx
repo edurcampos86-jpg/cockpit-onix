@@ -4,22 +4,64 @@ import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/layout/page-header";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, CheckSquare, Circle, Printer } from "lucide-react";
+import { ArrowLeft, CheckSquare, Circle, Printer, ThumbsUp, AlertTriangle, MessageCircleQuestion, Megaphone, Target, Quote } from "lucide-react";
 
-const SECAO_LABELS: Record<string, { label: string; color: string }> = {
-  secao1: { label: "Abordagens Positivas da Semana", color: "text-green-400 border-green-400/30 bg-green-400/5" },
-  secao2: { label: "Oportunidades de Melhoria", color: "text-yellow-400 border-yellow-400/30 bg-yellow-400/5" },
-  secao3: { label: "Objecoes Encontradas", color: "text-blue-400 border-blue-400/30 bg-blue-400/5" },
-  secao4: { label: "Voz do Cliente", color: "text-purple-400 border-purple-400/30 bg-purple-400/5" },
-  secao5: { label: "Plano de Acao", color: "text-orange-400 border-orange-400/30 bg-orange-400/5" },
+const SECAO_LABELS: Record<string, { label: string; color: string; Icon: typeof ThumbsUp }> = {
+  secao1: { label: "Abordagens Positivas da Semana", color: "text-green-400 border-green-400/30 bg-green-400/5", Icon: ThumbsUp },
+  secao2: { label: "Oportunidades de Melhoria", color: "text-yellow-400 border-yellow-400/30 bg-yellow-400/5", Icon: AlertTriangle },
+  secao3: { label: "Objecoes Encontradas", color: "text-blue-400 border-blue-400/30 bg-blue-400/5", Icon: MessageCircleQuestion },
+  secao4: { label: "Voz do Cliente", color: "text-purple-400 border-purple-400/30 bg-purple-400/5", Icon: Megaphone },
+  secao5: { label: "Plano de Acao", color: "text-orange-400 border-orange-400/30 bg-orange-400/5", Icon: Target },
 };
 
+// Renderiza o texto da secao realcando blocos "Evidencia:" como quote cards
+function RichText({ texto }: { texto: string }) {
+  const linhas = texto.split("\n");
+  const blocks: Array<{ kind: "text" | "evidence"; content: string }> = [];
+  let buffer: string[] = [];
+
+  const flushText = () => {
+    if (buffer.length > 0) {
+      blocks.push({ kind: "text", content: buffer.join("\n") });
+      buffer = [];
+    }
+  };
+
+  for (const l of linhas) {
+    if (/^\s*evid[eê]ncia\s*:/i.test(l)) {
+      flushText();
+      blocks.push({ kind: "evidence", content: l.replace(/^\s*evid[eê]ncia\s*:\s*/i, "") });
+    } else {
+      buffer.push(l);
+    }
+  }
+  flushText();
+
+  return (
+    <div className="space-y-3">
+      {blocks.map((b, i) =>
+        b.kind === "evidence" ? (
+          <div key={i} className="flex gap-2 rounded-lg border border-foreground/10 bg-foreground/5 px-3 py-2 text-xs italic text-foreground/80">
+            <Quote className="h-3.5 w-3.5 shrink-0 mt-0.5 opacity-60" />
+            <span className="whitespace-pre-wrap leading-relaxed">{b.content}</span>
+          </div>
+        ) : (
+          <div key={i} className="text-sm text-foreground/90 whitespace-pre-wrap leading-relaxed">{b.content}</div>
+        ),
+      )}
+    </div>
+  );
+}
+
 function SecaoCard({ chave, texto }: { chave: string; texto: string }) {
-  const { label, color } = SECAO_LABELS[chave];
+  const { label, color, Icon } = SECAO_LABELS[chave];
   return (
     <div className={`rounded-xl border p-6 ${color}`}>
-      <h3 className="font-semibold mb-4 text-sm uppercase tracking-wide">{label}</h3>
-      <div className="text-sm text-foreground/90 whitespace-pre-wrap leading-relaxed">{texto}</div>
+      <h3 className="font-semibold mb-4 text-sm uppercase tracking-wide flex items-center gap-2">
+        <Icon className="h-4 w-4" />
+        {label}
+      </h3>
+      <RichText texto={texto} />
     </div>
   );
 }
