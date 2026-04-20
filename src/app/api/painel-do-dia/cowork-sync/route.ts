@@ -74,6 +74,7 @@ async function persistirCache(
 }
 
 type AcaoExternaInput = {
+  id?: string;
   externoId: string;
   titulo: string;
   concluida: boolean;
@@ -89,12 +90,16 @@ async function reconciliarAcoes(
   origem: "ms-todo" | "priority-matrix",
   items: AcaoExternaInput[]
 ) {
-  // Upsert por (userId, origem, externoId). Campos locais importante/noMeuDia
-  // nao sao sobrescritos se a fonte nao os fornecer.
   for (const item of items) {
-    const existente = await prisma.acaoPainel.findFirst({
-      where: { userId, origem, externoId: item.externoId },
-    });
+    // Correlaciona 1) por id local (quando cowork aplica um pending create),
+    // 2) ou por externoId (quando e leitura de estado da fonte)
+    const existente = item.id
+      ? await prisma.acaoPainel.findFirst({
+          where: { userId, origem, id: item.id },
+        })
+      : await prisma.acaoPainel.findFirst({
+          where: { userId, origem, externoId: item.externoId },
+        });
 
     if (existente) {
       await prisma.acaoPainel.update({
@@ -107,6 +112,7 @@ async function reconciliarAcoes(
           noMeuDia: item.noMeuDia ?? existente.noMeuDia,
           quadrante: item.quadrante ?? null,
           projetoPm: item.projetoPm ?? null,
+          externoId: item.externoId,
           pendingSync: false,
           syncOp: null,
           syncError: null,

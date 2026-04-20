@@ -112,6 +112,7 @@ Fazer um POST para `/api/painel-do-dia/cowork-sync` com o payload completo:
   "syncedAt": "2026-04-20T13:40:00-03:00",
   "items": [
     {
+      "id": "cmo7jjotf0002en1mqglzs40q",
       "externoId": "AAMkA...",
       "titulo": "Ligar pro cliente X",
       "concluida": false,
@@ -123,7 +124,13 @@ Fazer um POST para `/api/painel-do-dia/cowork-sync` com o payload completo:
 }
 ```
 
-O cockpit faz upsert por `(userId, origem, externoId)` e limpa `pendingSync`.
+Campo `id` **obrigatório quando fechando o loop de um pending create** — é o id local
+da `AcaoPainel` devolvido pelo `GET /cowork-sync`. Sem ele o cockpit acha que é uma
+leitura nova da fonte e cria registro duplicado. Para leituras puras (itens que já
+existem só na fonte), enviar só `externoId`.
+
+O cockpit correlaciona por `id` local (prioridade) ou por `(userId, origem, externoId)`
+e limpa `pendingSync`.
 
 ### 5. Escopo de extração
 
