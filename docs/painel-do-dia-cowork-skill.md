@@ -14,14 +14,34 @@ dados, e fala com o cockpit via endpoints REST.
 
 ## Gatilho
 
-O Eduardo diz, em conversa com o Claude:
+Dois caminhos disparam o procedimento:
 
+**1. Fala explícita do Eduardo:**
 - "sincroniza Microsoft agora"
 - "sincroniza Priority Matrix agora"
 - "sincroniza tudo agora"
 
-O Claude executa o procedimento abaixo. **Não há polling automático** — é
-sempre on-demand.
+**2. Botão "Sincronizar" no próprio painel**:
+- Cria uma `SyncRequest` (status `pending`) via `POST /api/painel-do-dia/sync-request`
+- Ao abrir o Claude Code na máquina do Eduardo, **checar a fila antes de qualquer outra
+  coisa**: `GET /api/painel-do-dia/sync-request`. Se houver pendentes, processar.
+
+**Não há polling automático** — é sempre on-demand (fala ou request enfileirada).
+
+### Gestão da fila de SyncRequest
+
+```
+GET    /api/painel-do-dia/sync-request           -> { pendentes: SyncRequest[] }
+POST   /api/painel-do-dia/sync-request           body: { sources: "all" | "microsoft" | "priority-matrix" }
+PATCH  /api/painel-do-dia/sync-request/[id]      body: { status, error? }
+```
+
+Fluxo típico:
+1. Marcar como `in-progress` (PATCH status).
+2. Executar o procedimento da seção abaixo.
+3. Marcar como `done` (ou `error` com mensagem) ao finalizar.
+
+Requests duplicadas pras mesmas fontes são idempotentes (POST devolve a existente).
 
 ## Procedimento completo
 

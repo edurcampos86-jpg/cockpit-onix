@@ -29,6 +29,7 @@ model User {
   prioridadesPainel PainelPrioridade[]
   acoesPainel       AcaoPainel[]
   cachesPainel      PainelCacheExterno[]
+  syncRequests      SyncRequest[]
 }
 
 // ============================================
@@ -727,5 +728,24 @@ model PainelCacheExterno {
 
   @@unique([userId, source])
   @@index([userId])
+}
+
+// Fila de pedidos de sync do usuario pro cowork (Chrome MCP).
+// O usuario aperta "Sincronizar" no painel -> cria um registro pending.
+// Quando o Claude Code roda na maquina dele, checa a fila, processa,
+// marca como done/error.
+model SyncRequest {
+  id          String    @id @default(cuid())
+  userId      String
+  sources     String    // "all" | "microsoft" | "priority-matrix"
+  status      String    @default("pending") // "pending" | "in-progress" | "done" | "error"
+  requestedAt DateTime  @default(now())
+  completedAt DateTime?
+  error       String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([userId, requestedAt])
 }
 

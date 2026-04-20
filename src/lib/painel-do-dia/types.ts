@@ -113,6 +113,7 @@ export type CoworkSyncPayload = {
     | EventoAgenda[]
     | EmailAcao[]
     | Array<{
+        id?: string; // id local (fecha loop de pending create)
         externoId: string;
         titulo: string;
         concluida: boolean;
@@ -122,4 +123,20 @@ export type CoworkSyncPayload = {
         quadrante?: QuadrantePM;
         projetoPm?: string;
       }>;
+};
+
+// ============================================
+// Fila de pedidos de sync (usuario → cowork)
+// ============================================
+
+export type SyncRequestSources = "all" | "microsoft" | "priority-matrix";
+export type SyncRequestStatus = "pending" | "in-progress" | "done" | "error";
+
+export type SyncRequestDTO = {
+  id: string;
+  sources: SyncRequestSources;
+  status: SyncRequestStatus;
+  requestedAt: string;
+  completedAt?: string;
+  error?: string;
 };
