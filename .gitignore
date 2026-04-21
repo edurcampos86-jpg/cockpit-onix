@@ -48,3 +48,4 @@ next-env.d.ts
 # database
 dev.db
 dev.db-journal
+.pglite-dev/
