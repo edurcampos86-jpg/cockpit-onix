@@ -30,6 +30,7 @@ export default async function PainelDoDiaPage() {
         <PainelDiaHeader
           data={payload.data}
           pendingSyncCount={payload.pendingSyncCount}
+          acoesPendentes={payload.acoes.filter((a) => a.pendingSync)}
         />
       </PageHeader>
 

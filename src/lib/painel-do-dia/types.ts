@@ -89,6 +89,10 @@ export type IntegracaoStatus = {
   status: "conectado" | "desconectado" | "erro" | "em-breve";
   ultimaSincronizacao?: string; // ISO 8601
   mensagemErro?: string;
+  /** Texto curto de roadmap para status "em-breve" — aparece em tooltip */
+  roadmapInfo?: string;
+  /** Sinaliza que a sessao da fonte precisa ser re-autenticada (ex.: Outlook bloqueado pelo banco) */
+  sessaoExpirada?: boolean;
 };
 
 export type PainelDoDiaPayload = {

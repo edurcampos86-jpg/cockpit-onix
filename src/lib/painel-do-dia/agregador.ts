@@ -203,6 +203,11 @@ async function carregarStatusIntegracoes(
           : mailCache.syncedAt)
       : calCache?.syncedAt ?? mailCache?.syncedAt;
 
+  // Sessao Microsoft considerada expirada se a ultima sync tem mais de 24h
+  // (cowork roda quando o Claude Code estoura — se a janela banco fecha, fica stale)
+  const msSessaoExpirada =
+    !!ultimaMs && Date.now() - ultimaMs.getTime() > 24 * 60 * 60 * 1000;
+
   // Priority Matrix: status derivado da ultima AcaoPainel sincronizada com origem priority-matrix
   const ultimaPm = await prisma.acaoPainel.findFirst({
     where: { userId, origem: "priority-matrix", externoId: { not: null } },
@@ -210,23 +215,40 @@ async function carregarStatusIntegracoes(
     select: { updatedAt: true },
   });
 
+  // Ordem de exibicao: fontes conectadas primeiro, depois roadmap por prioridade.
   return [
-    {
-      provider: "google",
-      status: "em-breve", // TODO: derivar do config.GOOGLE_REFRESH_TOKEN quando escopo gmail estiver plugado
-    },
     {
       provider: "microsoft",
       status: ultimaMs ? "conectado" : "desconectado",
       ultimaSincronizacao: ultimaMs?.toISOString(),
+      sessaoExpirada: msSessaoExpirada,
+      mensagemErro: msSessaoExpirada
+        ? "Ultima sincronia ha mais de 24h — banco pode ter deslogado. Reabra o Outlook/To Do no Edge."
+        : undefined,
     },
     {
       provider: "priority-matrix",
       status: ultimaPm ? "conectado" : "desconectado",
       ultimaSincronizacao: ultimaPm?.updatedAt.toISOString(),
     },
-    { provider: "plaud", status: "em-breve" },
-    { provider: "datacrazy", status: "em-breve" },
+    {
+      provider: "google",
+      status: "em-breve",
+      roadmapInfo:
+        "Google Calendar (pessoal edurcampos86@gmail.com) via OAuth server-side. Plugar quando o token refresh tiver escopo calendar.readonly.",
+    },
+    {
+      provider: "datacrazy",
+      status: "em-breve",
+      roadmapInfo:
+        "Agenda e historico de contatos do CRM Datacrazy via API oficial. Aguardando credencial do banco.",
+    },
+    {
+      provider: "plaud",
+      status: "em-breve",
+      roadmapInfo:
+        "Plaud AI: transcricao de reunioes via webhook Zapier. Infra ja existe em src/lib/plaud.ts — falta plugar na UI do Painel.",
+    },
   ];
 }
 

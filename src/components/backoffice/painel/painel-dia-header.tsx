@@ -12,6 +12,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { PendentesSyncDrawer } from "./pendentes-sync-drawer";
+import type { AcaoUnificada } from "@/lib/painel-do-dia/types";
 
 const fmtData = new Intl.DateTimeFormat("pt-BR", {
   weekday: "long",
@@ -25,13 +27,16 @@ const COMANDO_SYNC = "sincroniza tudo agora";
 export function PainelDiaHeader({
   data,
   pendingSyncCount,
+  acoesPendentes,
 }: {
   data: string;
   pendingSyncCount: number;
+  acoesPendentes: AcaoUnificada[];
 }) {
   const router = useRouter();
   const [isPending, start] = useTransition();
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [syncEnfileirado, setSyncEnfileirado] = useState(false);
   const [copiado, setCopiado] = useState(false);
   const [erroSync, setErroSync] = useState<string | null>(null);
@@ -67,9 +72,24 @@ export function PainelDiaHeader({
           {fmtData.format(new Date(`${data}T12:00:00-03:00`))}
         </span>
         {pendingSyncCount > 0 && (
-          <Badge variant="outline">
-            {pendingSyncCount} aguardando sync
-          </Badge>
+          <button
+            type="button"
+            onClick={() => setDrawerOpen(true)}
+            className="transition-opacity hover:opacity-80"
+            aria-label="Ver detalhes das sincronizações pendentes"
+          >
+            <Badge
+              variant="outline"
+              className={
+                acoesPendentes.some((a) => a.syncError)
+                  ? "border-destructive/40 text-destructive"
+                  : undefined
+              }
+            >
+              {pendingSyncCount} aguardando sync
+              {acoesPendentes.some((a) => a.syncError) && " ⚠"}
+            </Badge>
+          </button>
         )}
         <Button variant="default" size="sm" onClick={abrirSync}>
           <Zap className="h-4 w-4" />
@@ -142,6 +162,16 @@ export function PainelDiaHeader({
           </div>
         </DialogContent>
       </Dialog>
+
+      <PendentesSyncDrawer
+        pendentes={acoesPendentes}
+        open={drawerOpen}
+        onOpenChange={setDrawerOpen}
+        onForcarSync={() => {
+          setDrawerOpen(false);
+          abrirSync();
+        }}
+      />
     </>
   );
 }
