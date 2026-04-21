@@ -74,13 +74,16 @@ export async function POST(
     }
 
     // 3. Cria follow-up (proximo passo) como acao cockpit local
+    // noMeuDia=true garante que o item aparece no filtro "Hoje" assim que
+    // o usuario volta pro painel (classificarCamada retornaria null caso
+    // contrario, deixando o follow-up invisivel).
     if (body.proximoPasso && body.proximoPasso.trim().length > 0) {
       await tx.acaoPainel.create({
         data: {
           userId: session.userId,
           titulo: body.proximoPasso.trim(),
           origem: "cockpit",
-          noMeuDia: false,
+          noMeuDia: true,
           importante: true,
           quadrante: "Q2",
         },

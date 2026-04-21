@@ -3,6 +3,44 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import type { CriarAcaoInput } from "@/lib/painel-do-dia/types";
 
+/**
+ * GET /api/painel-do-dia/acoes
+ *
+ * Lista todas as AcaoPainel do usuario autenticado, sem filtro de camada.
+ * Inclui itens invisiveis no painel (noMeuDia=false e sem vence) — util pra
+ * debug, cleanup e para a Central de Sync (Sugestao 5).
+ *
+ * Query params opcionais:
+ *  - q: filtra por substring no titulo (case insensitive)
+ *  - concluida: "true" | "false"
+ */
+export async function GET(request: Request) {
+  const session = await getSession();
+  if (!session) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
+  const { searchParams } = new URL(request.url);
+  const q = searchParams.get("q")?.trim();
+  const concluidaParam = searchParams.get("concluida");
+
+  const acoes = await prisma.acaoPainel.findMany({
+    where: {
+      userId: session.userId,
+      ...(q ? { titulo: { contains: q, mode: "insensitive" } } : {}),
+      ...(concluidaParam === "true"
+        ? { concluida: true }
+        : concluidaParam === "false"
+        ? { concluida: false }
+        : {}),
+    },
+    orderBy: [{ concluida: "asc" }, { createdAt: "desc" }],
+    include: { clienteVinculado: { select: { id: true, nome: true } } },
+  });
+
+  return NextResponse.json({ acoes, total: acoes.length });
+}
+
 export async function POST(request: Request) {
   const session = await getSession();
   if (!session) {
