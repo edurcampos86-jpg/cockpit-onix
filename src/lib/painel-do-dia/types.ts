@@ -27,6 +27,12 @@ export type EventoAgenda = {
   linkReuniao?: string;
   organizador?: string;
   conflitaCom?: string[]; // ids de outros eventos
+  /**
+   * Origens adicionais que tambem possuem esta mesma entrada (dedupe cruzada).
+   * Ex.: evento do Outlook espelhado como tarefa no Priority Matrix.
+   * Preenchido pelo agregador apos deduplicarAcoesVsAgenda.
+   */
+  fontesExtras?: OrigemAcao[];
 };
 
 export type EmailAcao = {

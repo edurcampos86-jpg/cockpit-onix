@@ -5,9 +5,64 @@ import type {
   EmailAcao,
   EventoAgenda,
   IntegracaoStatus,
+  OrigemAcao,
   PainelDoDiaPayload,
   Prioridade,
 } from "./types";
+
+/**
+ * Normaliza um titulo para comparacao fuzzy entre agenda e acoes.
+ * Remove prefixo de horario "HH:MM ", sufixo "(HH:MM)", acentua, caixa e espacos duplicados.
+ */
+export function normalizarTitulo(titulo: string): string {
+  return titulo
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/^\d{1,2}:\d{2}\s+/, "")
+    .replace(/\s*\(\d{1,2}:\d{2}\)\s*$/, "")
+    .replace(/\s+/g, " ");
+}
+
+/**
+ * Remove das acoes itens que sao espelhos de eventos da agenda
+ * (caso tipico: Priority Matrix sincronizado com Outlook duplicando compromissos).
+ * Eventos que receberam espelho ganham `fontesExtras` com a origem duplicada,
+ * permitindo a UI mostrar badge combinada tipo "Outlook + Priority Matrix".
+ */
+export function deduplicarAcoesVsAgenda(
+  acoes: AcaoUnificada[],
+  agenda: EventoAgenda[]
+): { acoes: AcaoUnificada[]; agenda: EventoAgenda[] } {
+  if (agenda.length === 0) return { acoes, agenda };
+
+  const indice = new Map<string, EventoAgenda>();
+  for (const ev of agenda) {
+    const chave = normalizarTitulo(ev.titulo);
+    if (chave.length >= 3) indice.set(chave, ev);
+  }
+
+  const fontesExtras = new Map<string, Set<OrigemAcao>>();
+  const acoesFiltradas = acoes.filter((acao) => {
+    if (acao.origem === "cockpit") return true;
+    const match = indice.get(normalizarTitulo(acao.titulo));
+    if (!match) return true;
+    const set = fontesExtras.get(match.id) ?? new Set<OrigemAcao>();
+    set.add(acao.origem);
+    fontesExtras.set(match.id, set);
+    return false;
+  });
+
+  const agendaEnriquecida = agenda.map((ev) => {
+    const extras = fontesExtras.get(ev.id);
+    return extras && extras.size > 0
+      ? { ...ev, fontesExtras: Array.from(extras) }
+      : ev;
+  });
+
+  return { acoes: acoesFiltradas, agenda: agendaEnriquecida };
+}
 
 /**
  * Carrega o payload consolidado do Painel do Dia para um usuario e uma data.
@@ -52,15 +107,17 @@ export async function carregarPainelDoDia(
   const integracoes: IntegracaoStatus[] =
     resIntegracoes.status === "fulfilled" ? resIntegracoes.value : [];
 
+  const dedupe = deduplicarAcoesVsAgenda(acoes, caches.agenda);
+
   return {
     data,
-    agenda: caches.agenda,
+    agenda: dedupe.agenda,
     emails: caches.emails,
-    acoes,
+    acoes: dedupe.acoes,
     prioridades,
     integracoes,
     errosPorSecao,
-    pendingSyncCount: acoes.filter((a) => a.pendingSync).length,
+    pendingSyncCount: dedupe.acoes.filter((a) => a.pendingSync).length,
   };
 }
 

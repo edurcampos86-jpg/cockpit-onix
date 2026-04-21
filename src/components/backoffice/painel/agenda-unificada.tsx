@@ -64,9 +64,21 @@ function agruparPorSlot(eventos: EventoAgenda[]): SlotConteudo[] {
   return slots;
 }
 
+const LABEL_ORIGEM: Record<string, string> = {
+  google: "GCal",
+  "ms-calendar": "Outlook",
+  "priority-matrix": "PM",
+  "ms-todo": "To Do",
+  cockpit: "Cockpit",
+};
+
 function EventoBloco({ ev }: { ev: EventoAgenda }) {
   const inicio = new Date(ev.inicio);
   const fim = new Date(ev.fim);
+  const fontes = [
+    LABEL_ORIGEM[ev.origem] ?? ev.origem,
+    ...(ev.fontesExtras ?? []).map((f) => LABEL_ORIGEM[f] ?? f),
+  ];
   return (
     <div className="rounded-md ring-1 ring-foreground/10 bg-muted/40 p-2.5 border-l-2 border-l-primary/60">
       <div className="flex items-center justify-between gap-2">
@@ -83,7 +95,7 @@ function EventoBloco({ ev }: { ev: EventoAgenda }) {
             </Badge>
           )}
           <Badge variant="outline" className="h-4 px-1.5 text-[10px]">
-            {ev.origem === "google" ? "GCal" : "Outlook"}
+            {fontes.join(" + ")}
           </Badge>
         </div>
       </div>
