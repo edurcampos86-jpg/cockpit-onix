@@ -475,6 +475,7 @@ model ClienteBackoffice {
   perfilDescoberta PerfilDescoberta?
   planoUmaPagina   PlanoUmaPagina?
   checklist        ChecklistOrganizacao?
+  acoesVinculadas  AcaoPainel[] @relation("AcaoCliente")
 
   @@index([numeroConta])
   @@index([classificacao])
@@ -705,14 +706,24 @@ model AcaoPainel {
   pendingSync Boolean   @default(false)
   syncOp      String?   // "create" | "update" | "delete"
   syncError   String?
+
+  // Fecho de atividade (Sugestao 4: modal de encerramento)
+  resultado        String?  @db.Text // o que foi entregue / nota livre
+  tempoGastoMin    Int?              // tempo gasto em minutos
+  clienteVinculadoId String?         // FK opcional para ClienteBackoffice
+  concluidaEm      DateTime?         // timestamp do fecho (distinto de updatedAt)
+  registradaCrm    Boolean  @default(false) // true se virou InteracaoCliente
+
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clienteVinculado ClienteBackoffice? @relation("AcaoCliente", fields: [clienteVinculadoId], references: [id], onDelete: SetNull)
 
   @@index([userId, concluida])
   @@index([userId, origem])
   @@index([userId, pendingSync])
+  @@index([clienteVinculadoId])
 }
 
 // Cache de leitura das fontes externas sem write-back (Calendar + Mail).

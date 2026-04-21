@@ -32,6 +32,7 @@ import type {
   OrigemAcao,
   QuadrantePM,
 } from "@/lib/painel-do-dia/types";
+import { FecharAtividadeModal } from "./fechar-atividade-modal";
 
 type DestinoSelecionado =
   | "cockpit"
@@ -136,6 +137,8 @@ export function AcoesDoDia({
   const [destino, setDestino] = useState<DestinoSelecionado>("cockpit");
   const [camada, setCamada] = useState<Camada>("hoje");
   const [isPending, start] = useTransition();
+  const [acaoParaEncerrar, setAcaoParaEncerrar] =
+    useState<AcaoUnificada | null>(null);
 
   const hoje = useMemo(() => {
     const d = new Date();
@@ -193,9 +196,15 @@ export function AcoesDoDia({
   }
 
   async function toggle(acao: AcaoUnificada) {
+    // Ao marcar como concluida, abre o modal de encerramento estruturado.
+    // Desmarcar volta direto a ser PATCH simples.
+    if (!acao.concluida) {
+      setAcaoParaEncerrar(acao);
+      return;
+    }
     await fetch(`/api/painel-do-dia/acoes/${acao.id}`, {
       method: "PATCH",
-      body: JSON.stringify({ concluida: !acao.concluida }),
+      body: JSON.stringify({ concluida: false }),
       headers: { "Content-Type": "application/json" },
     });
     start(() => router.refresh());
@@ -417,6 +426,14 @@ export function AcoesDoDia({
           </div>
         )}
       </CardContent>
+
+      <FecharAtividadeModal
+        acao={acaoParaEncerrar}
+        open={!!acaoParaEncerrar}
+        onOpenChange={(open) => {
+          if (!open) setAcaoParaEncerrar(null);
+        }}
+      />
     </Card>
   );
 }

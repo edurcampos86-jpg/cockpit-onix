@@ -125,6 +125,7 @@ async function carregarAcoes(userId: string): Promise<AcaoUnificada[]> {
   const rows = await prisma.acaoPainel.findMany({
     where: { userId },
     orderBy: [{ concluida: "asc" }, { vence: "asc" }, { createdAt: "desc" }],
+    include: { clienteVinculado: { select: { id: true, nome: true } } },
   });
 
   return rows.map((r) => ({
@@ -141,6 +142,12 @@ async function carregarAcoes(userId: string): Promise<AcaoUnificada[]> {
     pendingSync: r.pendingSync,
     syncOp: (r.syncOp ?? undefined) as AcaoUnificada["syncOp"],
     syncError: r.syncError ?? undefined,
+    resultado: r.resultado ?? undefined,
+    tempoGastoMin: r.tempoGastoMin ?? undefined,
+    clienteVinculadoId: r.clienteVinculadoId ?? undefined,
+    clienteVinculadoNome: r.clienteVinculado?.nome ?? undefined,
+    concluidaEm: r.concluidaEm?.toISOString(),
+    registradaCrm: r.registradaCrm,
   }));
 }
 

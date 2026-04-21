@@ -60,6 +60,21 @@ export type AcaoUnificada = {
   pendingSync: boolean;
   syncOp?: SyncOperation;
   syncError?: string;
+  // Fecho de atividade (Sugestao 4)
+  resultado?: string;
+  tempoGastoMin?: number;
+  clienteVinculadoId?: string;
+  clienteVinculadoNome?: string;
+  concluidaEm?: string;
+  registradaCrm?: boolean;
+};
+
+export type EncerrarAcaoInput = {
+  resultado?: string;
+  tempoGastoMin?: number;
+  clienteVinculadoId?: string;
+  proximoPasso?: string; // titulo de follow-up a criar
+  registrarCrm?: boolean;
 };
 
 export type Prioridade = {
