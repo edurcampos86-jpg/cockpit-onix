@@ -12,6 +12,7 @@ export async function POST(request: Request) {
     data?: string;
     posicao?: number;
     texto?: string;
+    tempoEstimadoMin?: number | null;
   };
 
   if (!body.data || !body.posicao || !body.texto?.trim()) {
@@ -24,7 +25,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "posicao deve ser 1, 2 ou 3" }, { status: 400 });
   }
 
-  // Upsert respeita o unique (userId, data, posicao): substitui o texto se ja existir.
+  // Se o usuario edita o texto da sugestao, ela deixa de ser sugestao.
+  const tempo = body.tempoEstimadoMin ?? null;
+
   const prioridade = await prisma.painelPrioridade.upsert({
     where: {
       userId_data_posicao: {
@@ -33,12 +36,18 @@ export async function POST(request: Request) {
         posicao: body.posicao,
       },
     },
-    update: { texto: body.texto.trim() },
+    update: {
+      texto: body.texto.trim(),
+      tempoEstimadoMin: tempo,
+      sugeridaPorBoot: false,
+      bootMotivo: null,
+    },
     create: {
       userId: session.userId,
       data: body.data,
       posicao: body.posicao,
       texto: body.texto.trim(),
+      tempoEstimadoMin: tempo,
     },
   });
 

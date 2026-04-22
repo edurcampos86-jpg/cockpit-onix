@@ -30,6 +30,9 @@ model User {
   acoesPainel       AcaoPainel[]
   cachesPainel      PainelCacheExterno[]
   syncRequests      SyncRequest[]
+  painelSugestoes   PainelSugestao[]
+  painelRetros     PainelRetrospectiva[]
+  painelEmailsAI    PainelEmailAI[]
 }
 
 // ============================================
@@ -679,6 +682,20 @@ model PainelPrioridade {
   posicao    Int      // 1, 2 ou 3
   texto      String
   concluida  Boolean  @default(false)
+
+  // Sug 1 (Boot do Dia): prioridade sugerida automaticamente pela heurística
+  // noturna. Eduardo confirma/edita no painel.
+  sugeridaPorBoot Boolean @default(false)
+  bootMotivo      String? // ex: "cliente A sem contato ha 27 dias"
+
+  // Sug 2 (Deep Work blocks): tempo estimado para a prioridade + id do bloco
+  // de foco criado no calendario (Outlook/Google)
+  tempoEstimadoMin    Int?
+  focusBlockEventId   String?   // id do evento no calendario externo
+  focusBlockProvider  String?   // "google" | "ms-calendar" | "pending-cowork"
+  focusBlockStart     DateTime?
+  focusBlockEnd       DateTime?
+
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
@@ -713,6 +730,12 @@ model AcaoPainel {
   clienteVinculadoId String?         // FK opcional para ClienteBackoffice
   concluidaEm      DateTime?         // timestamp do fecho (distinto de updatedAt)
   registradaCrm    Boolean  @default(false) // true se virou InteracaoCliente
+
+  // Sug 2 (Deep Work): tempo estimado para execução — alimenta auto-blocking
+  tempoEstimadoMin Int?
+
+  // Sug 4 (Triagem AI de e-mails): origem foi um e-mail classificado pela IA
+  criadaDeEmailId  String? // id do PainelEmailAI que gerou a acao
 
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -758,5 +781,92 @@ model SyncRequest {
 
   @@index([userId, status])
   @@index([userId, requestedAt])
+}
+
+// Sug 3 (Auto-encerramento): sugestões geradas por automação que aparecem
+// como cards de ação rápida no painel. Ex.: "Encerrar reunião com Onix Corretora
+// que terminou há 30min". Eduardo aceita, adia ou ignora.
+model PainelSugestao {
+  id         String   @id @default(cuid())
+  userId     String
+  tipo       String   // "encerrar-reuniao" | "cliente-fora-cadencia" | "acao-zumbi"
+  titulo     String
+  descricao  String?  @db.Text
+  payload    Json     // dados estruturados específicos do tipo
+
+  // Estado
+  status       String   @default("pending") // "pending" | "accepted" | "snoozed" | "dismissed"
+  snoozedUntil DateTime?
+  resolvedAt   DateTime?
+
+  // Referencias opcionais
+  acaoId       String? // se a sugestao aponta pra uma AcaoPainel existente
+  clienteId    String? // se aponta para um ClienteBackoffice
+  eventoCalId  String? // id do evento na agenda (cowork cache)
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([userId, tipo])
+}
+
+// Sug 5 (Retrospectiva semanal): snapshot gerado todo domingo 20h Bahia com
+// métricas da semana + insight textual pelo Claude. Card fixo no painel de 2ª
+// até Eduardo dispensar.
+model PainelRetrospectiva {
+  id         String   @id @default(cuid())
+  userId     String
+  semanaInicio DateTime  // segunda-feira 00:00 Bahia
+  semanaFim    DateTime  // domingo 23:59 Bahia
+
+  // Metricas quantitativas (JSON com estrutura definida em types.ts)
+  metricas   Json
+  // Insight gerado pelo Claude (texto livre)
+  insight    String   @db.Text
+
+  dispensada  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, semanaInicio])
+  @@index([userId, createdAt])
+}
+
+// Sug 4 (Triagem AI de e-mails): classificação de cada e-mail puxado do
+// cache MS Mail. Alimenta o botao "Criar acao" com quadrante sugerido.
+model PainelEmailAI {
+  id         String   @id @default(cuid())
+  userId     String
+  externoId  String   // id do email no ms-mail
+  remetente  String
+  assunto    String
+  snippet    String   @db.Text
+
+  // Classificacao do Claude
+  tipo              String   // "acao" | "fyi" | "spam" | "agendamento" | "cliente_novo"
+  urgencia          String   // "alta" | "media" | "baixa"
+  quadranteSugerido String?  // "Q1" | "Q2" | "Q3" | "Q4"
+  tituloAcao        String?
+  venceSugerido     DateTime?
+  clienteVinculadoId String?
+
+  // Estado
+  processado      Boolean  @default(false) // virou AcaoPainel
+  arquivado       Boolean  @default(false) // usuario ignorou
+  acaoGeradaId    String?  // id da AcaoPainel criada
+
+  classificadoEm DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, externoId])
+  @@index([userId, processado])
+  @@index([userId, tipo])
 }
 

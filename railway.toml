@@ -1,0 +1,43 @@
+# Railway cron schedules para o Painel do Dia
+#
+# Todos horários em UTC (Bahia = UTC-3, sem horário de verão).
+#
+# Crons disparam HTTP GET contra as rotas /api/cron/* com o header
+# Authorization: Bearer $CRON_SECRET. Se CRON_SECRET estiver vazio,
+# cron-guard.ts libera (modo dev).
+
+[deploy]
+startCommand = "prisma db push --accept-data-loss && next start"
+
+# ────────────────────────────────────────────────────────────────────────
+# Sug 1 — Boot do Dia: gera sugestões de 3 prioridades
+#   Segunda a sexta, 07:30 Bahia = 10:30 UTC
+# ────────────────────────────────────────────────────────────────────────
+[[crons]]
+name = "boot-do-dia"
+schedule = "30 10 * * 1-5"
+command = "curl -fsS -H \"Authorization: Bearer $CRON_SECRET\" $RAILWAY_PUBLIC_DOMAIN/api/cron/boot-do-dia"
+
+# ────────────────────────────────────────────────────────────────────────
+# Sug 3 — Auto-encerramento pós-reunião: varre agenda a cada 15min
+# ────────────────────────────────────────────────────────────────────────
+[[crons]]
+name = "auto-encerrar"
+schedule = "*/15 * * * *"
+command = "curl -fsS -H \"Authorization: Bearer $CRON_SECRET\" $RAILWAY_PUBLIC_DOMAIN/api/cron/auto-encerrar"
+
+# ────────────────────────────────────────────────────────────────────────
+# Sug 4 — Triagem AI de e-mails: classifica inbox a cada 15min
+# ────────────────────────────────────────────────────────────────────────
+[[crons]]
+name = "triar-emails"
+schedule = "*/15 * * * *"
+command = "curl -fsS -H \"Authorization: Bearer $CRON_SECRET\" $RAILWAY_PUBLIC_DOMAIN/api/cron/triar-emails"
+
+# ────────────────────────────────────────────────────────────────────────
+# Sug 5 — Retrospectiva semanal: Domingo 20:00 Bahia = 23:00 UTC
+# ────────────────────────────────────────────────────────────────────────
+[[crons]]
+name = "retrospectiva-semanal"
+schedule = "0 23 * * 0"
+command = "curl -fsS -H \"Authorization: Bearer $CRON_SECRET\" $RAILWAY_PUBLIC_DOMAIN/api/cron/retrospectiva-semanal"

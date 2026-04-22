@@ -15,6 +15,8 @@ export async function PATCH(
   const body = (await request.json()) as {
     texto?: string;
     concluida?: boolean;
+    tempoEstimadoMin?: number | null;
+    aceitarSugestao?: boolean; // Sug 1: só confirma a sugestao existente
   };
 
   const existente = await prisma.painelPrioridade.findFirst({
@@ -24,12 +26,19 @@ export async function PATCH(
     return NextResponse.json({ error: "nao encontrada" }, { status: 404 });
   }
 
+  const data: Parameters<typeof prisma.painelPrioridade.update>[0]["data"] = {};
+  if (body.texto !== undefined) data.texto = body.texto.trim();
+  if (body.concluida !== undefined) data.concluida = body.concluida;
+  if (body.tempoEstimadoMin !== undefined)
+    data.tempoEstimadoMin = body.tempoEstimadoMin;
+  if (body.aceitarSugestao) {
+    data.sugeridaPorBoot = false;
+    data.bootMotivo = null;
+  }
+
   const atualizada = await prisma.painelPrioridade.update({
     where: { id },
-    data: {
-      texto: body.texto?.trim() ?? undefined,
-      concluida: body.concluida ?? undefined,
-    },
+    data,
   });
 
   return NextResponse.json(atualizada);

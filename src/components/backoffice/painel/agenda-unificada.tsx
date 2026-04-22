@@ -1,10 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, Calendar } from "lucide-react";
+import { AlertTriangle, Calendar, Info } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { EventoAgenda } from "@/lib/painel-do-dia/types";
 
@@ -118,6 +124,7 @@ export function AgendaUnificada({
     modo === "completo" ? slots : slots.filter((s) => s.eventos.length > 0);
 
   return (
+    <TooltipProvider>
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
         <CardTitle className="flex items-center gap-2">
@@ -125,6 +132,17 @@ export function AgendaUnificada({
           <span className="text-xs font-normal text-muted-foreground">
             08:00–20:00
           </span>
+          <Tooltip>
+            <TooltipTrigger render={<span className="cursor-help" />}>
+              <Info className="h-3.5 w-3.5 text-muted-foreground" />
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs">
+              Timeline unificada Outlook + Google Calendar, dedupe automático
+              por horário+título. Badge &ldquo;Outlook + PM&rdquo; quando o evento também
+              aparece no Priority Matrix. Conflitos de horário aparecem em
+              vermelho.
+            </TooltipContent>
+          </Tooltip>
         </CardTitle>
         {lista.length > 0 && (
           <Button
@@ -188,5 +206,6 @@ export function AgendaUnificada({
         )}
       </CardContent>
     </Card>
+    </TooltipProvider>
   );
 }

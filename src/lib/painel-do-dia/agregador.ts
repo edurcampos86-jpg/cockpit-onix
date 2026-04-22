@@ -3,11 +3,15 @@ import { prisma } from "@/lib/prisma";
 import type {
   AcaoUnificada,
   EmailAcao,
+  EmailClassificado,
   EventoAgenda,
   IntegracaoStatus,
   OrigemAcao,
   PainelDoDiaPayload,
   Prioridade,
+  QuadrantePM,
+  RetrospectivaPayload,
+  SugestaoPainelPayload,
 } from "./types";
 
 /**
@@ -79,11 +83,17 @@ export async function carregarPainelDoDia(
     resPrioridades,
     resCaches,
     resIntegracoes,
+    resRetros,
+    resSugestoes,
+    resEmailsAI,
   ] = await Promise.allSettled([
     carregarAcoes(userId),
     carregarPrioridades(userId, data),
     carregarCachesExternos(userId),
     carregarStatusIntegracoes(userId),
+    carregarRetrospectivaAtiva(userId),
+    carregarSugestoes(userId),
+    carregarEmailsClassificados(userId),
   ]);
 
   const errosPorSecao: PainelDoDiaPayload["errosPorSecao"] = {};
@@ -109,16 +119,118 @@ export async function carregarPainelDoDia(
 
   const dedupe = deduplicarAcoesVsAgenda(acoes, caches.agenda);
 
+  const retrospectiva =
+    resRetros.status === "fulfilled" ? resRetros.value : undefined;
+  const sugestoes: SugestaoPainelPayload[] =
+    resSugestoes.status === "fulfilled" ? resSugestoes.value : [];
+  const emailsAI = resEmailsAI.status === "fulfilled" ? resEmailsAI.value : new Map();
+
+  // Funde classificacao AI nos emails do cache
+  const emails: EmailClassificado[] = caches.emails.map((e) => {
+    const ai = emailsAI.get(e.id);
+    if (!ai) return e;
+    return {
+      ...e,
+      aiId: ai.id,
+      tipo: ai.tipo,
+      urgencia: ai.urgencia,
+      quadranteSugerido: ai.quadranteSugerido,
+      tituloAcao: ai.tituloAcao,
+      venceSugerido: ai.venceSugerido,
+      clienteVinculadoId: ai.clienteVinculadoId,
+      processado: ai.processado,
+    };
+  });
+
   return {
     data,
     agenda: dedupe.agenda,
-    emails: caches.emails,
+    emails,
     acoes: dedupe.acoes,
     prioridades,
     integracoes,
     errosPorSecao,
     pendingSyncCount: dedupe.acoes.filter((a) => a.pendingSync).length,
+    retrospectiva,
+    sugestoes,
   };
+}
+
+async function carregarRetrospectivaAtiva(
+  userId: string
+): Promise<RetrospectivaPayload | undefined> {
+  const r = await prisma.painelRetrospectiva.findFirst({
+    where: { userId, dispensada: false },
+    orderBy: { createdAt: "desc" },
+  });
+  if (!r) return undefined;
+  return {
+    id: r.id,
+    semanaInicio: r.semanaInicio.toISOString(),
+    semanaFim: r.semanaFim.toISOString(),
+    insight: r.insight,
+    metricas: r.metricas as unknown as RetrospectivaPayload["metricas"],
+  };
+}
+
+async function carregarSugestoes(userId: string): Promise<SugestaoPainelPayload[]> {
+  const rows = await prisma.painelSugestao.findMany({
+    where: {
+      userId,
+      status: { in: ["pending", "snoozed"] },
+      OR: [
+        { status: "pending" },
+        { snoozedUntil: { lte: new Date() } },
+      ],
+    },
+    orderBy: { createdAt: "desc" },
+    take: 10,
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    tipo: r.tipo as SugestaoPainelPayload["tipo"],
+    titulo: r.titulo,
+    descricao: r.descricao ?? undefined,
+    acaoId: r.acaoId ?? undefined,
+    clienteId: r.clienteId ?? undefined,
+    eventoCalId: r.eventoCalId ?? undefined,
+    payload: (r.payload as Record<string, unknown>) ?? {},
+    criadaEm: r.createdAt.toISOString(),
+  }));
+}
+
+async function carregarEmailsClassificados(userId: string): Promise<
+  Map<
+    string,
+    {
+      id: string;
+      tipo: "acao" | "fyi" | "spam" | "agendamento" | "cliente_novo";
+      urgencia: "alta" | "media" | "baixa";
+      quadranteSugerido?: QuadrantePM;
+      tituloAcao?: string;
+      venceSugerido?: string;
+      clienteVinculadoId?: string;
+      processado: boolean;
+    }
+  >
+> {
+  const rows = await prisma.painelEmailAI.findMany({
+    where: { userId, arquivado: false },
+  });
+  const m = new Map();
+  for (const r of rows) {
+    m.set(r.externoId, {
+      id: r.id,
+      tipo: r.tipo as "acao" | "fyi" | "spam" | "agendamento" | "cliente_novo",
+      urgencia: r.urgencia as "alta" | "media" | "baixa",
+      quadranteSugerido: (r.quadranteSugerido ?? undefined) as QuadrantePM | undefined,
+      tituloAcao: r.tituloAcao ?? undefined,
+      venceSugerido: r.venceSugerido?.toISOString(),
+      clienteVinculadoId: r.clienteVinculadoId ?? undefined,
+      processado: r.processado,
+    });
+  }
+  return m;
 }
 
 async function carregarAcoes(userId: string): Promise<AcaoUnificada[]> {
@@ -165,6 +277,13 @@ async function carregarPrioridades(
     posicao: r.posicao as 1 | 2 | 3,
     texto: r.texto,
     concluida: r.concluida,
+    sugeridaPorBoot: r.sugeridaPorBoot,
+    bootMotivo: r.bootMotivo ?? undefined,
+    tempoEstimadoMin: r.tempoEstimadoMin ?? undefined,
+    focusBlockEventId: r.focusBlockEventId ?? undefined,
+    focusBlockProvider: (r.focusBlockProvider ?? undefined) as Prioridade["focusBlockProvider"],
+    focusBlockStart: r.focusBlockStart?.toISOString(),
+    focusBlockEnd: r.focusBlockEnd?.toISOString(),
   }));
 }
 

@@ -9,6 +9,8 @@ import { AgendaUnificada } from "@/components/backoffice/painel/agenda-unificada
 import { EmailsAcao } from "@/components/backoffice/painel/emails-acao";
 import { AcoesDoDia } from "@/components/backoffice/painel/acoes-do-dia";
 import { IntegracoesStatus } from "@/components/backoffice/painel/integracoes-status";
+import { RetrospectivaCard } from "@/components/backoffice/painel/retrospectiva-card";
+import { SugestoesCard } from "@/components/backoffice/painel/sugestoes-card";
 import {
   carregarPainelDoDia,
   hojeBahia,
@@ -33,6 +35,18 @@ export default async function PainelDoDiaPage() {
           acoesPendentes={payload.acoes.filter((a) => a.pendingSync)}
         />
       </PageHeader>
+
+      {payload.retrospectiva && (
+        <div className="px-8">
+          <RetrospectivaCard retro={payload.retrospectiva} />
+        </div>
+      )}
+
+      {payload.sugestoes.length > 0 && (
+        <div className="px-8">
+          <SugestoesCard sugestoes={payload.sugestoes} />
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-6 px-8 lg:grid-cols-3">
         <div className="lg:col-span-1">

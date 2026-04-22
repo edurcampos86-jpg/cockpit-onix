@@ -1,6 +1,6 @@
 "use client";
 
-import { RefreshCw, Zap, Check, Copy } from "lucide-react";
+import { RefreshCw, Zap, Check, Copy, Info } from "lucide-react";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { PendentesSyncDrawer } from "./pendentes-sync-drawer";
 import type { AcaoUnificada } from "@/lib/painel-do-dia/types";
 
@@ -66,44 +72,88 @@ export function PainelDiaHeader({
   }
 
   return (
-    <>
+    <TooltipProvider>
       <div className="flex items-center gap-3">
         <span className="text-sm text-muted-foreground capitalize">
           {fmtData.format(new Date(`${data}T12:00:00-03:00`))}
         </span>
+        <Tooltip>
+          <TooltipTrigger render={<span className="cursor-help" />}>
+            <Info className="h-3.5 w-3.5 text-muted-foreground" />
+          </TooltipTrigger>
+          <TooltipContent className="max-w-sm">
+            Painel do Dia consolida tudo que importa hoje: 3 prioridades MIT,
+            agenda Outlook+GCal, e-mails classificados pela IA, ações Eisenhower,
+            retrospectiva semanal e sugestões da automação. Sincronização
+            bidirecional com MS To Do + Priority Matrix via Chrome MCP cowork.
+            Crons automáticos: Boot 07:30 · Auto-encerra reuniões cada 15min ·
+            Triagem e-mails cada 15min · Retro domingo 20h.
+          </TooltipContent>
+        </Tooltip>
         {pendingSyncCount > 0 && (
-          <button
-            type="button"
-            onClick={() => setDrawerOpen(true)}
-            className="transition-opacity hover:opacity-80"
-            aria-label="Ver detalhes das sincronizações pendentes"
-          >
-            <Badge
-              variant="outline"
-              className={
-                acoesPendentes.some((a) => a.syncError)
-                  ? "border-destructive/40 text-destructive"
-                  : undefined
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  onClick={() => setDrawerOpen(true)}
+                  className="transition-opacity hover:opacity-80"
+                  aria-label="Ver detalhes das sincronizações pendentes"
+                />
               }
             >
-              {pendingSyncCount} aguardando sync
-              {acoesPendentes.some((a) => a.syncError) && " ⚠"}
-            </Badge>
-          </button>
+              <Badge
+                variant="outline"
+                className={
+                  acoesPendentes.some((a) => a.syncError)
+                    ? "border-destructive/40 text-destructive"
+                    : undefined
+                }
+              >
+                {pendingSyncCount} aguardando sync
+                {acoesPendentes.some((a) => a.syncError) && " ⚠"}
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs">
+              Ações criadas/atualizadas localmente que ainda não foram
+              aplicadas no Outlook ou Priority Matrix. Clique para ver o
+              drawer com detalhes ou dispare uma nova sync.
+            </TooltipContent>
+          </Tooltip>
         )}
-        <Button variant="default" size="sm" onClick={abrirSync}>
-          <Zap className="h-4 w-4" />
-          Sincronizar
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => start(() => router.refresh())}
-          disabled={isPending}
-        >
-          <RefreshCw className={isPending ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-          Atualizar
-        </Button>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button variant="default" size="sm" onClick={abrirSync}>
+                <Zap className="h-4 w-4" />
+                Sincronizar
+              </Button>
+            }
+          />
+          <TooltipContent className="max-w-xs">
+            Enfileira um pedido pro Chrome MCP puxar Outlook + MS To Do +
+            Priority Matrix. Também empurra pendências locais. Executa na
+            próxima vez que o Claude Code rodar na máquina.
+          </TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => start(() => router.refresh())}
+                disabled={isPending}
+              >
+                <RefreshCw
+                  className={isPending ? "h-4 w-4 animate-spin" : "h-4 w-4"}
+                />
+                Atualizar
+              </Button>
+            }
+          />
+          <TooltipContent>Recarrega o painel sem refazer sync externa.</TooltipContent>
+        </Tooltip>
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -172,6 +222,6 @@ export function PainelDiaHeader({
           abrirSync();
         }}
       />
-    </>
+    </TooltipProvider>
   );
 }

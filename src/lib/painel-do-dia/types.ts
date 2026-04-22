@@ -82,6 +82,15 @@ export type Prioridade = {
   posicao: 1 | 2 | 3;
   texto: string;
   concluida: boolean;
+  // Sug 1 (Boot do Dia): sinaliza sugestão automática pendente de aceite
+  sugeridaPorBoot?: boolean;
+  bootMotivo?: string;
+  // Sug 2 (Deep Work): tempo estimado + bloco de foco criado
+  tempoEstimadoMin?: number;
+  focusBlockEventId?: string;
+  focusBlockProvider?: "google" | "ms-calendar" | "pending-cowork";
+  focusBlockStart?: string; // ISO
+  focusBlockEnd?: string; // ISO
 };
 
 export type IntegracaoStatus = {
@@ -95,15 +104,64 @@ export type IntegracaoStatus = {
   sessaoExpirada?: boolean;
 };
 
+export type RetrospectivaPayload = {
+  id: string;
+  semanaInicio: string; // ISO
+  semanaFim: string; // ISO
+  insight: string;
+  metricas: {
+    totalEncerradas: number;
+    tempoTotalMin: number;
+    tempoMedioEncerramentoHoras: number;
+    porQuadrante: Record<
+      "Q1" | "Q2" | "Q3" | "Q4" | "semQ",
+      { count: number; tempoMin: number }
+    >;
+    saudeSupernova: {
+      aFora: Array<{ id: string; nome: string; diasSemContato: number }>;
+      bFora: Array<{ id: string; nome: string; diasSemContato: number }>;
+    };
+    zumbis: Array<{ id: string; titulo: string; idadeDias: number }>;
+    topClientes: Array<{ id: string; nome: string; tempoMin: number }>;
+  };
+};
+
+export type SugestaoPainelPayload = {
+  id: string;
+  tipo: "encerrar-reuniao" | "cliente-fora-cadencia" | "acao-zumbi";
+  titulo: string;
+  descricao?: string;
+  acaoId?: string;
+  clienteId?: string;
+  eventoCalId?: string;
+  payload: Record<string, unknown>;
+  criadaEm: string;
+};
+
+export type EmailClassificado = EmailAcao & {
+  aiId?: string;
+  tipo?: "acao" | "fyi" | "spam" | "agendamento" | "cliente_novo";
+  urgencia?: "alta" | "media" | "baixa";
+  quadranteSugerido?: QuadrantePM;
+  tituloAcao?: string;
+  venceSugerido?: string;
+  clienteVinculadoId?: string;
+  processado?: boolean;
+};
+
 export type PainelDoDiaPayload = {
   data: string; // "YYYY-MM-DD" em America/Bahia
   agenda: EventoAgenda[];
-  emails: EmailAcao[];
+  emails: EmailClassificado[];
   acoes: AcaoUnificada[];
   prioridades: Prioridade[];
   integracoes: IntegracaoStatus[];
   errosPorSecao: Partial<Record<"agenda" | "emails" | "acoes", string>>;
   pendingSyncCount: number;
+  // Sug 5 (Retrospectiva): card fixo na segunda ate dispensar
+  retrospectiva?: RetrospectivaPayload;
+  // Sug 3 (Auto-encerramento / sugestoes de automacao)
+  sugestoes: SugestaoPainelPayload[];
 };
 
 // ============================================

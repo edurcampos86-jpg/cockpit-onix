@@ -2,6 +2,7 @@
 
 import {
   CheckSquare,
+  Info,
   Plus,
   Trash2,
   AlertCircle,
@@ -25,6 +26,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type {
   AcaoUnificada,
@@ -225,10 +232,25 @@ export function AcoesDoDia({
   }
 
   return (
+    <TooltipProvider>
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <CheckSquare className="h-5 w-5" /> Ações do Dia
+          <Tooltip>
+            <TooltipTrigger render={<span className="cursor-help" />}>
+              <Info className="h-3.5 w-3.5 text-muted-foreground" />
+            </TooltipTrigger>
+            <TooltipContent className="max-w-sm">
+              Todas as suas ações unificadas (Cockpit + MS To Do + Priority
+              Matrix) organizadas pela matriz de Eisenhower. Q1=crítico+urgente,
+              Q2=importante (foco), Q3=urgente+não-crítico (delegar),
+              Q4=rotina. Filtros no topo limitam por prazo: Hoje (vence
+              hoje ou &ldquo;no meu dia&rdquo;), Atrasadas, Próximas 48h, Rituais
+              (recorrentes). Ao marcar concluída abre modal de encerramento
+              com tempo gasto, cliente e próximo passo.
+            </TooltipContent>
+          </Tooltip>
         </CardTitle>
       </CardHeader>
       <CardContent className="px-4">
@@ -435,5 +457,6 @@ export function AcoesDoDia({
         }}
       />
     </Card>
+    </TooltipProvider>
   );
 }
