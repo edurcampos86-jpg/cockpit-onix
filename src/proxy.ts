@@ -9,6 +9,7 @@ const publicRoutes = [
   "/api/onix-corretora/test-pipeline", // Diagnóstico do pipeline
   "/api/onix-corretora/coletivo",      // Geração de relatório coletivo
   "/api/integracoes/zapier/webhook",
+  "/api/cron/",                        // Crons do Painel do Dia — autenticam via Bearer CRON_SECRET
 ];
 const secretKey = process.env.SESSION_SECRET;
 const encodedKey = new TextEncoder().encode(secretKey);
