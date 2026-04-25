@@ -33,10 +33,18 @@ export const MOTIVOS_SAIDA = [
   { value: "outro", label: "Outro" },
 ] as const;
 
+export const TIPOS_ACORDO = [
+  { value: "pro_labore", label: "Pró-labore (fixo mensal)" },
+  { value: "split", label: "Split de receita" },
+  { value: "comissao", label: "Comissão" },
+  { value: "misto", label: "Misto (fixo + variável)" },
+] as const;
+
 export type CargoFamiliaValue = (typeof CARGO_FAMILIAS)[number]["value"];
 export type TeamRoleValue = (typeof TEAM_ROLES)[number]["value"];
 export type PessoaStatusValue = (typeof PESSOA_STATUS)[number]["value"];
 export type MotivoSaidaValue = (typeof MOTIVOS_SAIDA)[number]["value"];
+export type TipoAcordoValue = (typeof TIPOS_ACORDO)[number]["value"];
 
 export function labelCargo(v: string | null | undefined): string {
   return CARGO_FAMILIAS.find((c) => c.value === v)?.label ?? "—";
@@ -49,6 +57,9 @@ export function labelStatus(v: string | null | undefined): string {
 }
 export function labelMotivoSaida(v: string | null | undefined): string {
   return MOTIVOS_SAIDA.find((c) => c.value === v)?.label ?? "—";
+}
+export function labelTipoAcordo(v: string | null | undefined): string {
+  return TIPOS_ACORDO.find((t) => t.value === v)?.label ?? "—";
 }
 
 /* ──────────────────────────────────────────────────────────────────────────

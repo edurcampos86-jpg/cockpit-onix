@@ -5,9 +5,8 @@ import {
   atualizarAcordoForm,
   encerrarAcordoForm,
   excluirAcordoForm,
-  TIPOS_ACORDO,
-  labelTipoAcordo,
 } from "@/app/actions/acordo-comercial";
+import { TIPOS_ACORDO, labelTipoAcordo } from "@/lib/team";
 import { cn } from "@/lib/utils";
 
 /**

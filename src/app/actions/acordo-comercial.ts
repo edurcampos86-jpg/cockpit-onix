@@ -3,23 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth-helpers";
-
-/* ──────────────────────────────────────────────────────────────────────────
-   Constantes — espelham o enum-via-string do schema
-   ────────────────────────────────────────────────────────────────────────── */
-
-export const TIPOS_ACORDO = [
-  { value: "pro_labore", label: "Pró-labore (fixo mensal)" },
-  { value: "split", label: "Split de receita" },
-  { value: "comissao", label: "Comissão" },
-  { value: "misto", label: "Misto (fixo + variável)" },
-] as const;
-
-export type TipoAcordoValue = (typeof TIPOS_ACORDO)[number]["value"];
-
-export function labelTipoAcordo(v: string | null | undefined): string {
-  return TIPOS_ACORDO.find((t) => t.value === v)?.label ?? "—";
-}
+import { TIPOS_ACORDO, type TipoAcordoValue } from "@/lib/team";
 
 function isTipo(v: string): v is TipoAcordoValue {
   return TIPOS_ACORDO.some((t) => t.value === v);
