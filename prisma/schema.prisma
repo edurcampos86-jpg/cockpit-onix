@@ -966,6 +966,9 @@ model Pessoa {
   // Fase 3 — PAT (perfil comportamental Criativa Humana)
   pats                   Pat[]
 
+  // Fase 4 — Reuniões do time (timeline tipo CRM)
+  participacoesReuniao   ReuniaoTimeParticipante[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1145,5 +1148,59 @@ model Pat {
 
   @@index([pessoaId, dataPat])
   @@index([pessoaId, uploadedAt])
+}
+
+// ============================================
+// TIME — REUNIÕES 1:1 / DE EQUIPE (Fase 4)
+// Admin sobe PDF da ata; Claude extrai resumo + proximos passos.
+// Permissao: admin ve todas, pessoa ve apenas as que ela participou.
+// Existe um model Meeting separado (alimentado por Plaud) — este e' especifico
+// pro modulo de gestao do TIME (1:1, feedback, comite, etc.).
+// ============================================
+
+model ReuniaoTime {
+  id String @id @default(cuid())
+
+  data      DateTime
+  titulo    String? // descritivo (ex.: "1:1 com João — Q2 review")
+  categoria String // "1_1_acompanhamento" | "feedback" | "avaliacao" | "alinhamento_metas" | "conversa_dificil" | "equipe" | "comite" | "outra"
+
+  // PDF da ata original (opcional — admin pode digitar manualmente)
+  filename  String?
+  pdfBase64 String? @db.Text
+  bytes     Int?
+
+  // Conteudo
+  transcricao    String? @db.Text // texto bruto (se admin colar manualmente)
+  resumo         String? @db.Text // gerado pela IA OU digitado
+  proximosPassos Json?            // [{ texto, concluido: bool, concluidoEm: ISO|null }]
+
+  // Quem criou (admin)
+  criadoPorUserId String?
+
+  // Status
+  status       String  @default("pendente") // "pendente" | "extraido" | "erro" | "manual"
+  erroMensagem String?
+
+  observacoes String? @db.Text // notas livres do admin
+
+  uploadedAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  participantes ReuniaoTimeParticipante[]
+
+  @@index([data])
+  @@index([categoria, data])
+}
+
+model ReuniaoTimeParticipante {
+  reuniaoId String
+  reuniao   ReuniaoTime @relation(fields: [reuniaoId], references: [id], onDelete: Cascade)
+
+  pessoaId String
+  pessoa   Pessoa @relation(fields: [pessoaId], references: [id], onDelete: Cascade)
+
+  @@id([reuniaoId, pessoaId])
+  @@index([pessoaId])
 }
 

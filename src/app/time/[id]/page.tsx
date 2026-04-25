@@ -29,6 +29,7 @@ import { NumerologiaSection } from "../_components/numerologia-section";
 import { AcordoComercialSection } from "../_components/acordo-comercial-section";
 import { ConviteSection } from "../_components/convite-section";
 import { PatSection } from "../_components/pat-section";
+import { ReunioesSection } from "../_components/reunioes-section";
 
 export const metadata = {
   title: "Ficha — Time — Cockpit Onix",
@@ -266,13 +267,20 @@ export default async function PessoaPage({
           />
         )}
 
+        {/* ── Reuniões — admin sempre vê; pessoa só vê as que ela participou ── */}
+        {(isAdmin(ctx) || ctx.pessoa?.id === pessoa.id) && (
+          <ReunioesSection
+            pessoaId={pessoa.id}
+            modo={isAdmin(ctx) ? "admin" : "propria"}
+          />
+        )}
+
         {/* ── Próximas fases (placeholders) ── */}
         <section className="rounded-xl border border-dashed border-border bg-card/40 p-6">
           <h2 className="text-sm font-semibold text-muted-foreground mb-3">
             Em fases futuras nesta ficha
           </h2>
           <ul className="text-xs text-muted-foreground space-y-1.5 list-disc list-inside">
-            <li>Timeline de reuniões 1:1 com extração IA de resumo + próximos passos — Fase 4</li>
             <li>Visões agregadas: heatmap por filial/departamento + sugestões de compatibilidade — Fase 5</li>
           </ul>
         </section>

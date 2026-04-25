@@ -40,11 +40,23 @@ export const TIPOS_ACORDO = [
   { value: "misto", label: "Misto (fixo + variável)" },
 ] as const;
 
+export const CATEGORIAS_REUNIAO = [
+  { value: "1_1_acompanhamento", label: "1:1 de acompanhamento" },
+  { value: "feedback", label: "Feedback" },
+  { value: "avaliacao", label: "Avaliação de desempenho" },
+  { value: "alinhamento_metas", label: "Alinhamento de metas" },
+  { value: "conversa_dificil", label: "Conversa difícil (PIP, advertência)" },
+  { value: "equipe", label: "Reunião de equipe" },
+  { value: "comite", label: "Comitê / governança" },
+  { value: "outra", label: "Outra" },
+] as const;
+
 export type CargoFamiliaValue = (typeof CARGO_FAMILIAS)[number]["value"];
 export type TeamRoleValue = (typeof TEAM_ROLES)[number]["value"];
 export type PessoaStatusValue = (typeof PESSOA_STATUS)[number]["value"];
 export type MotivoSaidaValue = (typeof MOTIVOS_SAIDA)[number]["value"];
 export type TipoAcordoValue = (typeof TIPOS_ACORDO)[number]["value"];
+export type CategoriaReuniaoValue = (typeof CATEGORIAS_REUNIAO)[number]["value"];
 
 export function labelCargo(v: string | null | undefined): string {
   return CARGO_FAMILIAS.find((c) => c.value === v)?.label ?? "—";
@@ -60,6 +72,9 @@ export function labelMotivoSaida(v: string | null | undefined): string {
 }
 export function labelTipoAcordo(v: string | null | undefined): string {
   return TIPOS_ACORDO.find((t) => t.value === v)?.label ?? "—";
+}
+export function labelCategoriaReuniao(v: string | null | undefined): string {
+  return CATEGORIAS_REUNIAO.find((c) => c.value === v)?.label ?? "—";
 }
 
 /* ──────────────────────────────────────────────────────────────────────────
