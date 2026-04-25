@@ -963,6 +963,9 @@ model Pessoa {
   acordosComerciais      AcordoComercial[]
   conviteOnboarding      ConviteOnboarding?
 
+  // Fase 3 — PAT (perfil comportamental Criativa Humana)
+  pats                   Pat[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1078,5 +1081,69 @@ model ConviteOnboarding {
   criadoEm DateTime @default(now())
 
   @@index([token])
+}
+
+// ============================================
+// TIME — PAT / PERFIL DE ADEQUAÇÃO DE TRABALHO (Fase 3)
+// Instrumento da Criativa Humana (criativahumana.com.br).
+// Cada pessoa tem N PATs ao longo do tempo (refazer anualmente).
+// Permissão: admin + a própria pessoa (liderança NÃO vê).
+// ============================================
+
+model Pat {
+  id String @id @default(cuid())
+
+  pessoaId String
+  pessoa   Pessoa @relation(fields: [pessoaId], references: [id], onDelete: Cascade)
+
+  // PDF original
+  filename  String?
+  pdfBase64 String? @db.Text // PDF em base64
+  bytes     Int?
+
+  // Quando o PAT foi aplicado (informado pelo PDF)
+  dataPat DateTime
+
+  // ── Campos resumo (extraídos pra busca/filtro/UI rápida) ──
+  perspectiva    String? // "Baixa" | "Média" | "Alta"
+  ambienteCelula Int? // 1-25 (posição na matriz)
+  ambienteNome   String? // "Crescimento" | "Estabilidade" | "Sustentação" | etc
+  orientacao     String? // "Social" | "Técnico" (lado predominante)
+  aproveitamento String? // "Subaproveitado" | "Bem Aproveitado" | "Sobreaproveitado"
+
+  // Top 3 competências estratégicas (em ordem de relevância)
+  principaisCompetencias String[] @default([])
+
+  // Tags/características em palavras-chave
+  caracteristicas String[] @default([])
+
+  // ── Dados estruturados completos (JSON — formatos definidos pelo parser) ──
+  estrutural               Json? // { spread, suporteEstrutural, perspectivaNum, aproveitamento, cicloAlerta }
+  iconeEstrutural          Json? // { analiseAprendizagem: {tipo, valor, intensidade}, ... × 6 dimensões }
+  tendencias               Json? // { foco: 18, orientacao: 81, acao, conexao, relacionamento, regras, suportePressao }
+  risco                    Json? // { estrutural, interno, atual, cicloAlerta, competencias: [{nome, potencial, esforco, comportamento}] }
+  competenciasEstrategicas Json? // [{ nome, potencial, esforco, comportamento }, ...] × 17
+  ambiente                 Json? // { celula, nome, desafios, habilidades, percepcao, caracteristicas, orientacoes, recomendacoes }
+
+  // ── Blocos narrativos (textos longos do PDF) ──
+  resumido  String? @db.Text // "Rápida descrição de habilidades"
+  detalhado String? @db.Text // bloco DETALHADO em markdown
+  sugestoes String? @db.Text // "Sugestões para desenvolvimento pessoal"
+  gerencial String? @db.Text // bloco GERENCIAL em markdown
+
+  // ── Status do parsing ──
+  status       String  @default("pendente") // "pendente" | "extraido" | "erro"
+  erroMensagem String?
+
+  // ── Campos textuais que o ADMIN escreve (não vêm do PDF) ──
+  pontosFortes      String? @db.Text
+  pontosAtencao     String? @db.Text
+  estiloComunicacao String? @db.Text
+
+  uploadedAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([pessoaId, dataPat])
+  @@index([pessoaId, uploadedAt])
 }
 

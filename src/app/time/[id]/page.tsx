@@ -28,6 +28,7 @@ import { cn } from "@/lib/utils";
 import { NumerologiaSection } from "../_components/numerologia-section";
 import { AcordoComercialSection } from "../_components/acordo-comercial-section";
 import { ConviteSection } from "../_components/convite-section";
+import { PatSection } from "../_components/pat-section";
 
 export const metadata = {
   title: "Ficha — Time — Cockpit Onix",
@@ -246,6 +247,14 @@ export default async function PessoaPage({
           />
         )}
 
+        {/* ── PAT — admin + a própria pessoa (liderança NÃO vê) ── */}
+        {(isAdmin(ctx) || ctx.pessoa?.id === pessoa.id) && (
+          <PatSection
+            pessoaId={pessoa.id}
+            modo={isAdmin(ctx) ? "admin" : "propria"}
+          />
+        )}
+
         {/* ── Numerologia (admin only) ── */}
         {isAdmin(ctx) && <NumerologiaSection pessoaId={pessoa.id} />}
 
@@ -263,8 +272,8 @@ export default async function PessoaPage({
             Em fases futuras nesta ficha
           </h2>
           <ul className="text-xs text-muted-foreground space-y-1.5 list-disc list-inside">
-            <li>PAT (perfil comportamental Criativa Humana) com histórico — Fase 3</li>
             <li>Timeline de reuniões 1:1 com extração IA de resumo + próximos passos — Fase 4</li>
+            <li>Visões agregadas: heatmap por filial/departamento + sugestões de compatibilidade — Fase 5</li>
           </ul>
         </section>
       </div>
