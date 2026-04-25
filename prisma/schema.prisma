@@ -960,6 +960,8 @@ model Pessoa {
   // Fase 2 — Numerologia & Contratos
   numerologia            Numerologia?
   contratoSocialUploads  ContratoSocialUpload[]
+  acordosComerciais      AcordoComercial[]
+  conviteOnboarding      ConviteOnboarding?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1021,5 +1023,60 @@ model ContratoSocialUpload {
   uploadedAt DateTime @default(now())
 
   @@index([pessoaId, uploadedAt])
+}
+
+// ============================================
+// TIME — ACORDO COMERCIAL (Fase 2B)
+// 100% restrito a admin para outros; pessoa vê o próprio histórico.
+// Não há cálculo de repasse — apenas armazenamento estruturado + PDF.
+// ============================================
+
+model AcordoComercial {
+  id String @id @default(cuid())
+
+  pessoaId String
+  pessoa   Pessoa @relation(fields: [pessoaId], references: [id], onDelete: Cascade)
+
+  tipo            String  // "pro_labore" | "split" | "comissao" | "misto"
+  regrasEspeciais String? @db.Text // texto livre — escala de split, gatilhos, bônus de meta
+
+  // PDF do contrato assinado (opcional — pode ser registrado sem PDF inicialmente)
+  contratoFilename String?
+  contratoMimeType String? @default("application/pdf")
+  contratoBase64   String? @db.Text
+  contratoBytes    Int?
+
+  // Vigência
+  dataInicio DateTime  @default(now())
+  dataFim    DateTime? // null = vigente
+
+  observacoes String? @db.Text // notas internas (admin only)
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  @@index([pessoaId, dataInicio])
+  @@index([pessoaId, dataFim])
+}
+
+// ============================================
+// TIME — CONVITE DE ONBOARDING (Fase 2C)
+// Admin gera um link público com token; pessoa abre, define senha,
+// vira User e ganha acesso ao Cockpit.
+// ============================================
+
+model ConviteOnboarding {
+  id String @id @default(cuid())
+
+  pessoaId String @unique // 1:1 — só 1 convite ativo por pessoa
+  pessoa   Pessoa @relation(fields: [pessoaId], references: [id], onDelete: Cascade)
+
+  token     String   @unique
+  expiresAt DateTime
+  usedAt    DateTime? // null = ainda não consumido
+
+  criadoEm DateTime @default(now())
+
+  @@index([token])
 }
 

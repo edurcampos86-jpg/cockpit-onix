@@ -26,6 +26,8 @@ import {
 } from "@/lib/team";
 import { cn } from "@/lib/utils";
 import { NumerologiaSection } from "../_components/numerologia-section";
+import { AcordoComercialSection } from "../_components/acordo-comercial-section";
+import { ConviteSection } from "../_components/convite-section";
 
 export const metadata = {
   title: "Ficha — Time — Cockpit Onix",
@@ -236,8 +238,24 @@ export default async function PessoaPage({
           </section>
         )}
 
+        {/* ── Acesso ao Cockpit (admin only) ── */}
+        {isAdmin(ctx) && (
+          <ConviteSection
+            pessoaId={pessoa.id}
+            pessoaNome={pessoa.apelido || pessoa.nomeCompleto}
+          />
+        )}
+
         {/* ── Numerologia (admin only) ── */}
         {isAdmin(ctx) && <NumerologiaSection pessoaId={pessoa.id} />}
+
+        {/* ── Acordo comercial — admin sempre vê; pessoa só vê o próprio ── */}
+        {(isAdmin(ctx) || ctx.pessoa?.id === pessoa.id) && (
+          <AcordoComercialSection
+            pessoaId={pessoa.id}
+            modo={isAdmin(ctx) ? "admin" : "propria"}
+          />
+        )}
 
         {/* ── Próximas fases (placeholders) ── */}
         <section className="rounded-xl border border-dashed border-border bg-card/40 p-6">
@@ -246,7 +264,6 @@ export default async function PessoaPage({
           </h2>
           <ul className="text-xs text-muted-foreground space-y-1.5 list-disc list-inside">
             <li>PAT (perfil comportamental Criativa Humana) com histórico — Fase 3</li>
-            <li>Acordo comercial — tipo, regras e contrato em PDF — Fase 2B</li>
             <li>Timeline de reuniões 1:1 com extração IA de resumo + próximos passos — Fase 4</li>
           </ul>
         </section>
