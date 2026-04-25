@@ -4,6 +4,7 @@ import { jwtVerify } from "jose";
 
 const publicRoutes = [
   "/login",
+  "/onboarding/",                      // Rota pública de onboarding por token (Fase 2C — gestão do time)
   "/api/onix-corretora/ingest",
   "/api/onix-corretora/analisar",      // GET diagnóstico (apenas lê flags, não expõe tokens)
   "/api/onix-corretora/test-pipeline", // Diagnóstico do pipeline
