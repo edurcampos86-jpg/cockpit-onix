@@ -38,6 +38,7 @@ import {
   Briefcase,
   Building2,
   UsersRound,
+  PieChart,
 } from "lucide-react";
 import { useState, useTransition, useEffect } from "react";
 import { cn } from "@/lib/utils";
@@ -96,6 +97,7 @@ const backofficeNavigation = [
 const sharedNavigation = [
   { name: "Método Onix", href: "/metodo", icon: Compass },
   { name: "Time", href: "/time", icon: UsersRound },
+  { name: "Insights do Time", href: "/time/insights", icon: PieChart },
   { name: "Glossário", href: "/glossario", icon: BookMarked },
   { name: "Integrações", href: "/integracoes", icon: Plug },
 ];
