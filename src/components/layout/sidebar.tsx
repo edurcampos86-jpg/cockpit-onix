@@ -37,6 +37,7 @@ import {
   Megaphone,
   Briefcase,
   Building2,
+  UsersRound,
 } from "lucide-react";
 import { useState, useTransition, useEffect } from "react";
 import { cn } from "@/lib/utils";
@@ -94,6 +95,7 @@ const backofficeNavigation = [
 
 const sharedNavigation = [
   { name: "Método Onix", href: "/metodo", icon: Compass },
+  { name: "Time", href: "/time", icon: UsersRound },
   { name: "Glossário", href: "/glossario", icon: BookMarked },
   { name: "Integrações", href: "/integracoes", icon: Plug },
 ];
@@ -130,7 +132,7 @@ function getActiveModuleId(pathname: string): string {
   if (pathname.startsWith("/onix-corretora")) return "corretora";
   if (pathname.startsWith("/backoffice")) return "backoffice";
   // Shared pages don't belong to a module
-  if (["/metodo", "/glossario", "/integracoes"].some((p) => pathname.startsWith(p))) return "";
+  if (["/metodo", "/time", "/glossario", "/integracoes"].some((p) => pathname.startsWith(p))) return "";
   return "mkt";
 }
 

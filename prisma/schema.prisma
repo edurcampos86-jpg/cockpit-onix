@@ -33,6 +33,7 @@ model User {
   painelSugestoes   PainelSugestao[]
   painelRetros     PainelRetrospectiva[]
   painelEmailsAI    PainelEmailAI[]
+  pessoa            Pessoa?
 }
 
 // ============================================
@@ -868,5 +869,157 @@ model PainelEmailAI {
   @@unique([userId, externoId])
   @@index([userId, processado])
   @@index([userId, tipo])
+}
+
+// ============================================
+// TIME — ORGANIZAÇÃO E PESSOAS (Fase 1)
+// Fases futuras adicionarão: PAT, AcordoComercial, ReuniaoTime
+// ============================================
+
+model Filial {
+  id        String   @id @default(cuid())
+  nome      String   @unique
+  cidade    String
+  estado    String
+  isMatriz  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  pessoas Pessoa[]
+}
+
+model Departamento {
+  id        String   @id @default(cuid())
+  nome      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  pessoas Pessoa[]
+  equipes Equipe[]
+}
+
+model Equipe {
+  id             String       @id @default(cuid())
+  nome           String
+  departamentoId String
+  departamento   Departamento @relation(fields: [departamentoId], references: [id])
+  liderId        String?
+  lider          Pessoa?      @relation("EquipeLider", fields: [liderId], references: [id])
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  pessoas Pessoa[]
+
+  @@unique([nome, departamentoId])
+  @@index([departamentoId])
+}
+
+model Pessoa {
+  id String @id @default(cuid())
+
+  // Identificação
+  nomeCompleto   String
+  apelido        String?
+  cpf            String    @unique
+  email          String    @unique
+  telefone       String?
+  dataNascimento DateTime?
+  cidade         String?
+  fotoUrl        String?
+
+  // Vínculo Onix
+  dataEntrada  DateTime  @default(now())
+  dataSaida    DateTime?
+  motivoSaida  String?   // "demissao" | "saida_voluntaria" | "fim_contrato" | "outro"
+  status       String    @default("ativo") // "ativo" | "arquivado"
+  cargoFamilia String    // "assessor_investimentos" | "socio" | "imobiliaria" | "corretora" | "qualidade" | "administrativo"
+  cargoTitulo  String?
+  teamRole     String    @default("colaborador") // "admin" | "lideranca" | "colaborador"
+  observacoes  String?   @db.Text
+
+  // Hierarquia organizacional
+  filialId       String
+  filial         Filial       @relation(fields: [filialId], references: [id])
+  departamentoId String
+  departamento   Departamento @relation(fields: [departamentoId], references: [id])
+  equipeId       String?
+  equipe         Equipe?      @relation(fields: [equipeId], references: [id])
+
+  // A quem se reporta (self-relation)
+  lideradoPorId String?
+  lideradoPor   Pessoa?  @relation("HierarquiaPessoa", fields: [lideradoPorId], references: [id])
+  lidera        Pessoa[] @relation("HierarquiaPessoa")
+
+  // Equipes que lidera
+  equipesLideradas Equipe[] @relation("EquipeLider")
+
+  // Link opcional para User (auth) — pessoa pode existir antes do convite
+  userId String? @unique
+  user   User?   @relation(fields: [userId], references: [id])
+
+  // Fase 2 — Numerologia & Contratos
+  numerologia            Numerologia?
+  contratoSocialUploads  ContratoSocialUpload[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([filialId, departamentoId])
+  @@index([teamRole])
+}
+
+// ============================================
+// TIME — NUMEROLOGIA (Fase 2A) — admin only
+// ============================================
+
+model Numerologia {
+  id String @id @default(cuid())
+
+  pessoaId String @unique
+  pessoa   Pessoa @relation(fields: [pessoaId], references: [id], onDelete: Cascade)
+
+  // Dados-fonte usados no cálculo (snapshot)
+  nomeFonte     String
+  dataNascFonte DateTime
+
+  // Os 6 números Pitagóricos
+  caminhoVida   Int
+  expressao     Int
+  alma          Int
+  personalidade Int
+  anoPessoal    Int
+  anoPessoalRef Int
+
+  karmicos      Int[] @default([])
+  masterNumbers Int[] @default([])
+
+  leitura String? @db.Text
+
+  calculatedAt DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model ContratoSocialUpload {
+  id String @id @default(cuid())
+
+  pessoaId String
+  pessoa   Pessoa @relation(fields: [pessoaId], references: [id], onDelete: Cascade)
+
+  filename  String
+  mimeType  String  @default("application/pdf")
+  pdfBase64 String  @db.Text
+  bytes     Int?
+
+  nomeExtraido     String?
+  cpfExtraido      String?
+  dataNascExtraida DateTime?
+
+  status        String @default("pendente") // "pendente" | "extraido" | "erro"
+  erroMensagem  String?
+
+  uploadedAt DateTime @default(now())
+
+  @@index([pessoaId, uploadedAt])
 }
 

@@ -2,6 +2,7 @@ import "dotenv/config";
 import { PrismaClient } from "../src/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import bcrypt from "bcryptjs";
+import { seedTime } from "./seed-time";
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
 const prisma = new PrismaClient({ adapter });
@@ -109,6 +110,9 @@ async function main() {
       });
     }
   }
+
+  // Seed do módulo Time (idempotente — não deleta nada de Pessoa)
+  await seedTime(prisma);
 
   console.log("Seed completed!");
   console.log("Login: 015.362.475-29 / Edu@203028");
