@@ -7,6 +7,7 @@ import { randomBytes } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth-helpers";
 import { createSession } from "@/lib/session";
+import { validatePassword, BCRYPT_ROUNDS } from "@/lib/security/password";
 
 const TOKEN_LIFETIME_DAYS = 7;
 const TOKEN_BYTES = 32; // 64 hex chars
@@ -108,7 +109,8 @@ export async function concluirOnboarding(formData: FormData): Promise<void> {
   const senhaConfirm = s(formData.get("senhaConfirm"));
 
   if (!token) throw new Error("Token ausente");
-  if (senha.length < 8) throw new Error("Senha deve ter pelo menos 8 caracteres");
+  const policy = validatePassword(senha);
+  if (!policy.ok) throw new Error(policy.error);
   if (senha !== senhaConfirm) throw new Error("Senhas não coincidem");
 
   const convite = await prisma.conviteOnboarding.findUnique({
@@ -136,7 +138,7 @@ export async function concluirOnboarding(formData: FormData): Promise<void> {
     throw new Error("Já existe usuário com esse CPF ou email no sistema");
   }
 
-  const passwordHash = bcrypt.hashSync(senha, 10);
+  const passwordHash = bcrypt.hashSync(senha, BCRYPT_ROUNDS);
 
   // Cria User + vincula a Pessoa + marca convite como usado, em transação
   const user = await prisma.$transaction(async (tx) => {

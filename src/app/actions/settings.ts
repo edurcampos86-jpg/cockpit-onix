@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
+import { validatePassword, BCRYPT_ROUNDS } from "@/lib/security/password";
 import bcrypt from "bcryptjs";
 
 export type ChangePasswordState = {
@@ -21,8 +22,9 @@ export async function changePassword(
     return { error: "Preencha todos os campos." };
   }
 
-  if (newPassword.length < 6) {
-    return { error: "A nova senha deve ter pelo menos 6 caracteres." };
+  const policy = validatePassword(newPassword);
+  if (!policy.ok) {
+    return { error: policy.error };
   }
 
   if (newPassword !== confirmPassword) {
@@ -52,7 +54,7 @@ export async function changePassword(
       return { error: "Senha atual incorreta." };
     }
 
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    const hashedPassword = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
 
     await prisma.user.update({
       where: { id: session.userId },

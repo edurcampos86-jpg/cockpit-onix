@@ -46,14 +46,17 @@ export interface AccountInfo {
   posts: number
 }
 
-// Configuração do proxy
-const PROXY_BASE_URL = process.env.INSTAGRAM_MCP_PROXY_URL || 'https://7890-iy7vpn8nxm398b0aib1c8-eb987d40.sg1.manus.computer'
-const PROXY_TOKEN = process.env.INSTAGRAM_MCP_PROXY_TOKEN || 'cockpit-onix-mcp-proxy-2026'
+// Configuração do proxy — exigida via env vars (sem fallback hardcoded).
+const PROXY_BASE_URL = process.env.INSTAGRAM_MCP_PROXY_URL
+const PROXY_TOKEN = process.env.INSTAGRAM_MCP_PROXY_TOKEN
 
 /**
  * Faz uma requisição autenticada ao proxy do Instagram MCP
  */
 async function proxyFetch(path: string): Promise<unknown> {
+  if (!PROXY_BASE_URL || !PROXY_TOKEN) {
+    throw new Error('Instagram MCP proxy não configurado (INSTAGRAM_MCP_PROXY_URL/TOKEN ausentes).')
+  }
   const url = `${PROXY_BASE_URL}${path}`
   const res = await fetch(url, {
     headers: {

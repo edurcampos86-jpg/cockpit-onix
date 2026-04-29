@@ -4,16 +4,26 @@
  */
 
 import { getIntegrationConfig } from "./config";
+import { safeEqual } from "@/lib/security/timing-safe";
 
 /**
- * Valida o webhook secret para autenticar requests do Zapier
+ * Valida o webhook secret para autenticar requests do Zapier.
+ * Default-deny: sem secret configurado, recusa todas as requests
+ * (em dev, permite via FLAG explícita ZAPIER_WEBHOOK_DEV_OPEN=true).
  */
 export async function validateWebhookSecret(secret: string): Promise<boolean> {
   const config = await getIntegrationConfig();
   const expectedSecret = config.ZAPIER_WEBHOOK_SECRET;
-  // Se não configurou secret, aceita qualquer request (dev mode)
-  if (!expectedSecret) return true;
-  return secret === expectedSecret;
+  if (!expectedSecret) {
+    if (
+      process.env.NODE_ENV !== "production" &&
+      process.env.ZAPIER_WEBHOOK_DEV_OPEN === "true"
+    ) {
+      return true;
+    }
+    return false;
+  }
+  return safeEqual(secret, expectedSecret);
 }
 
 /**

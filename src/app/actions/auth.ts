@@ -1,7 +1,9 @@
 "use server";
 
+import { headers } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { createSession, deleteSession } from "@/lib/session";
+import { rateLimit, resetRateLimit } from "@/lib/security/rate-limit";
 import bcrypt from "bcryptjs";
 import { redirect } from "next/navigation";
 
@@ -13,6 +15,17 @@ export type LoginState = {
 function cleanCpf(cpf: string): string {
   return cpf.replace(/\D/g, "");
 }
+
+async function clientIp(): Promise<string> {
+  const h = await headers();
+  return (
+    h.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    h.get("x-real-ip") ||
+    "unknown"
+  );
+}
+
+const LOGIN_LIMIT = { limit: 5, windowMs: 15 * 60 * 1000, blockMs: 30 * 60 * 1000 };
 
 export async function login(state: LoginState, formData: FormData): Promise<LoginState> {
   const rawCpf = formData.get("cpf") as string;
@@ -28,26 +41,42 @@ export async function login(state: LoginState, formData: FormData): Promise<Logi
     return { error: "CPF inválido. Digite os 11 dígitos." };
   }
 
+  const ip = await clientIp();
+  // Rate limit por IP+CPF — protege contra força bruta direcionada e spray
+  // (também aplicamos um limite por IP para cobrir enumeração).
+  const rlIpCpf = rateLimit(`login:${ip}:${cpf}`, LOGIN_LIMIT);
+  const rlIp = rateLimit(`login:${ip}`, { limit: 30, windowMs: 15 * 60 * 1000 });
+  if (!rlIpCpf.allowed || !rlIp.allowed) {
+    const wait = Math.ceil(
+      Math.max(
+        !rlIpCpf.allowed ? rlIpCpf.retryAfterMs : 0,
+        !rlIp.allowed ? rlIp.retryAfterMs : 0,
+      ) / 60000,
+    );
+    return { error: `Muitas tentativas. Tente novamente em ~${wait} minuto(s).` };
+  }
+
+  let user: { id: string; name: string; role: string; password: string } | null = null;
   try {
-    const user = await prisma.user.findUnique({
+    user = await prisma.user.findUnique({
       where: { cpf },
+      select: { id: true, name: true, role: true, password: true },
     });
-
-    if (!user) {
-      return { error: "CPF ou senha incorretos." };
-    }
-
-    const passwordMatch = await bcrypt.compare(password, user.password);
-
-    if (!passwordMatch) {
-      return { error: "CPF ou senha incorretos." };
-    }
-
-    await createSession(user.id, user.name, user.role);
   } catch (error) {
     console.error("Login error:", error);
     return { error: "Erro ao fazer login. Tente novamente." };
   }
+
+  // Sempre executamos bcrypt.compare para evitar oracle de tempo (user existe vs. não).
+  const fakeHash = "$2b$12$CwTycUXWue0Thq9StjUM0uJ8w6m1rO0Y7rQ2t6lKPv9wG2uFhK6Wm";
+  const passwordMatch = await bcrypt.compare(password, user?.password ?? fakeHash);
+
+  if (!user || !passwordMatch) {
+    return { error: "CPF ou senha incorretos." };
+  }
+
+  resetRateLimit(`login:${ip}:${cpf}`);
+  await createSession(user.id, user.name, user.role);
 
   redirect("/");
 }

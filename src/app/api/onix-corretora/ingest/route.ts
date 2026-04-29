@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { safeEqual } from "@/lib/security/timing-safe";
 
 function calcScore(conversas: number, semResposta: number, reunioes: number, perdidos: number): number {
   if (conversas === 0) return 0;
@@ -15,8 +16,12 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
 
-    const apiSecret = body.api_secret;
-    if (!apiSecret || apiSecret !== process.env.DASHBOARD_API_SECRET) {
+    const expected = process.env.DASHBOARD_API_SECRET;
+    if (!expected) {
+      // Default-deny: nunca rodar este endpoint sem secret configurado.
+      return NextResponse.json({ error: "ingest desabilitado" }, { status: 503 });
+    }
+    if (!safeEqual(typeof body.api_secret === "string" ? body.api_secret : "", expected)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 

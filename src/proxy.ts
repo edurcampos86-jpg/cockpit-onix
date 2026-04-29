@@ -2,52 +2,62 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { jwtVerify } from "jose";
 
-const publicRoutes = [
+/**
+ * Allowlist de rotas públicas. Cada entrada deve ser um path EXATO
+ * ou um prefixo terminado em "/" (ex.: "/onboarding/" libera apenas
+ * paths que começam com esse prefixo, e não "/onboardingfoo").
+ *
+ * Endpoints públicos têm seus próprios mecanismos:
+ *  - /api/onix-corretora/ingest        → DASHBOARD_API_SECRET (timing-safe)
+ *  - /api/onix-corretora/analisar/...  → diagnóstico read-only
+ *  - /api/integracoes/zapier/webhook   → ZAPIER_WEBHOOK_SECRET
+ *  - /api/cron/*                       → CRON_SECRET (Bearer)
+ */
+const exactPublic = new Set<string>([
   "/login",
-  "/onboarding/",                      // Rota pública de onboarding por token (Fase 2C — gestão do time)
   "/api/onix-corretora/ingest",
-  "/api/onix-corretora/analisar",      // GET diagnóstico (apenas lê flags, não expõe tokens)
-  "/api/onix-corretora/test-pipeline", // Diagnóstico do pipeline
-  "/api/onix-corretora/coletivo",      // Geração de relatório coletivo
+  "/api/onix-corretora/analisar",
+  "/api/onix-corretora/test-pipeline",
+  "/api/onix-corretora/coletivo",
   "/api/integracoes/zapier/webhook",
-  "/api/cron/",                        // Crons do Painel do Dia — autenticam via Bearer CRON_SECRET
-];
+]);
+const prefixPublic = ["/onboarding/", "/api/cron/"];
+
+// Extensões consideradas estáticas — checagem restritiva ao invés de
+// "qualquer path com ponto", que era um vetor de bypass.
+const STATIC_EXT_RE = /\.(?:ico|png|jpg|jpeg|gif|webp|svg|css|js|map|woff2?|ttf|eot|txt|xml|json|webmanifest)$/i;
+
 const secretKey = process.env.SESSION_SECRET;
-const encodedKey = new TextEncoder().encode(secretKey);
+const encodedKey = new TextEncoder().encode(secretKey || "dev-only-fallback-secret-change-me");
 
 async function verifySession(token: string) {
   try {
-    const { payload } = await jwtVerify(token, encodedKey, {
-      algorithms: ["HS256"],
-    });
+    const { payload } = await jwtVerify(token, encodedKey, { algorithms: ["HS256"] });
     return payload;
   } catch {
     return null;
   }
 }
 
+function isPublic(path: string): boolean {
+  if (exactPublic.has(path)) return true;
+  return prefixPublic.some((p) => path.startsWith(p));
+}
+
 export async function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;
 
-  // Allow public routes
-  if (publicRoutes.some((route) => path.startsWith(route))) {
+  if (isPublic(path)) {
     return NextResponse.next();
   }
 
-  // Allow static files and Next.js internals
-  if (
-    path.startsWith("/_next") ||
-    path.startsWith("/favicon") ||
-    path.includes(".")
-  ) {
+  if (path.startsWith("/_next/") || path === "/favicon.ico" || STATIC_EXT_RE.test(path)) {
     return NextResponse.next();
   }
 
-  // Check session cookie
   const sessionCookie = request.cookies.get("session")?.value;
 
   if (!sessionCookie) {
-    // Para rotas de API, retornar 401 em vez de redirect
     if (path.startsWith("/api/")) {
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
@@ -68,8 +78,11 @@ export async function proxy(request: NextRequest) {
     return response;
   }
 
-  // Injetar userId e role no header para uso nas API routes
+  // Sanitiza headers vindos do cliente para impedir falsificação de identidade
+  // através de x-user-id / x-user-role, antes de injetar os valores reais.
   const requestHeaders = new Headers(request.headers);
+  requestHeaders.delete("x-user-id");
+  requestHeaders.delete("x-user-role");
   requestHeaders.set("x-user-id", session.userId as string);
   requestHeaders.set("x-user-role", session.role as string);
 

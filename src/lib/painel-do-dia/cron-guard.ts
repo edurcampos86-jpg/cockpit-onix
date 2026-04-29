@@ -1,22 +1,26 @@
 import "server-only";
 import { NextResponse } from "next/server";
+import { safeEqual } from "@/lib/security/timing-safe";
 
 /**
  * Cron guard: valida `Authorization: Bearer <CRON_SECRET>` no header.
  *
- * Railway dispara os cron endpoints via `railway.toml`. Configure
- * CRON_SECRET no painel de variables do Railway.
- *
- * Em dev local: deixar CRON_SECRET vazio desativa o guard (liberado
- * pra testar com `curl localhost:3000/api/cron/boot-do-dia`).
+ * Default-deny: em produção, exige CRON_SECRET configurado.
+ * Em dev: pode rodar aberto se CRON_DEV_OPEN=true (opt-in explícito).
  */
 export function guardCron(request: Request): NextResponse | null {
   const secret = process.env.CRON_SECRET?.trim();
-  if (!secret) return null; // dev mode, sem guard
+
+  if (!secret) {
+    if (process.env.NODE_ENV !== "production" && process.env.CRON_DEV_OPEN === "true") {
+      return null;
+    }
+    return NextResponse.json({ error: "cron secret not configured" }, { status: 503 });
+  }
 
   const auth = request.headers.get("authorization");
   const token = auth?.startsWith("Bearer ") ? auth.slice(7) : null;
-  if (token !== secret) {
+  if (!safeEqual(token, secret)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
   return null;

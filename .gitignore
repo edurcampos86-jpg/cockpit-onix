@@ -44,6 +44,7 @@ next-env.d.ts
 
 # integration secrets
 .integrations.json
+.integrations.enc.json
 
 # database
 dev.db

@@ -10,13 +10,22 @@ export interface SessionPayload {
 }
 
 const secretKey = process.env.SESSION_SECRET;
-const encodedKey = new TextEncoder().encode(secretKey);
+if (!secretKey || secretKey.length < 32) {
+  // Falha cedo: rodar com SESSION_SECRET fraco/ausente é um risco crítico.
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("SESSION_SECRET ausente ou muito curto (mínimo 32 caracteres) em produção.");
+  }
+}
+const encodedKey = new TextEncoder().encode(secretKey || "dev-only-fallback-secret-change-me");
+
+const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+const SESSION_TTL_JWT = "1d";
 
 export async function encrypt(payload: SessionPayload) {
   return new SignJWT(payload as unknown as Record<string, unknown>)
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
-    .setExpirationTime("7d")
+    .setExpirationTime(SESSION_TTL_JWT)
     .sign(encodedKey);
 }
 
@@ -27,21 +36,21 @@ export async function decrypt(session: string | undefined = "") {
     });
     return payload as unknown as SessionPayload;
   } catch {
-    console.log("Failed to verify session");
     return null;
   }
 }
 
 export async function createSession(userId: string, name: string, role: string) {
-  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
   const session = await encrypt({ userId, name, role, expiresAt });
   const cookieStore = await cookies();
 
   cookieStore.set("session", session, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    // Sempre Secure; em dev sobre HTTP os browsers ignoram em localhost (OK).
+    secure: true,
     expires: expiresAt,
-    sameSite: "lax",
+    sameSite: "strict",
     path: "/",
   });
 }
