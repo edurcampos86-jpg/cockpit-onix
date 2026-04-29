@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import type { CriarAcaoInput } from "@/lib/painel-do-dia/types";
+import { acaoPainelSchema } from "@/lib/security/schemas";
 
 /**
  * GET /api/painel-do-dia/acoes
@@ -21,7 +21,7 @@ export async function GET(request: Request) {
   }
 
   const { searchParams } = new URL(request.url);
-  const q = searchParams.get("q")?.trim();
+  const q = searchParams.get("q")?.trim().slice(0, 200);
   const concluidaParam = searchParams.get("concluida");
 
   const acoes = await prisma.acaoPainel.findMany({
@@ -47,13 +47,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const body = (await request.json()) as CriarAcaoInput;
-  if (!body.titulo?.trim()) {
-    return NextResponse.json({ error: "titulo obrigatorio" }, { status: 400 });
+  let raw: unknown;
+  try {
+    raw = await request.json();
+  } catch {
+    return NextResponse.json({ error: "JSON inválido" }, { status: 400 });
   }
-  if (!["cockpit", "ms-todo", "priority-matrix"].includes(body.origem)) {
-    return NextResponse.json({ error: "origem invalida" }, { status: 400 });
+  const parsed = acaoPainelSchema.safeParse(raw);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: "payload inválido", issues: parsed.error.issues.slice(0, 5) },
+      { status: 400 },
+    );
   }
+  const body = parsed.data;
 
   // Origens externas criadas pelo painel entram com pendingSync=true:
   // o cowork (Chrome MCP) aplica na fonte na proxima sincronia e preenche externoId.

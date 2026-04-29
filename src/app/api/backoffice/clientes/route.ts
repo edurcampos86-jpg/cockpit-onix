@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
+import { clientesBatchSchema } from "@/lib/security/schemas";
 
 // Calcula cortes ABC: A = top 20%, B = próximos 30%, C = resto
 function calcularCortesABC(saldos: number[]): { corteA: number; corteB: number } {
@@ -23,16 +24,22 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  let raw: unknown;
   try {
-    const body = await request.json();
-    const { clientes } = body as {
-      clientes: { nome: string; numeroConta: string; saldo: number }[];
-    };
+    raw = await request.json();
+  } catch {
+    return NextResponse.json({ error: "JSON inválido" }, { status: 400 });
+  }
+  const parsed = clientesBatchSchema.safeParse(raw);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: "payload inválido", issues: parsed.error.issues.slice(0, 5) },
+      { status: 400 },
+    );
+  }
+  const { clientes } = parsed.data;
 
-    if (!clientes || !Array.isArray(clientes) || clientes.length === 0) {
-      return NextResponse.json({ error: "Nenhum dado recebido" }, { status: 400 });
-    }
-
+  try {
     const validClientes = clientes
       .map((c) => ({
         nome: String(c.nome || "").trim(),

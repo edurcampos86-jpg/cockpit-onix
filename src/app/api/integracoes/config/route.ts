@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getIntegrationConfig, setIntegrationConfig } from "@/lib/integrations/config";
+import { integrationConfigSchema } from "@/lib/security/schemas";
 
 export async function GET() {
   const config = await getIntegrationConfig();
@@ -12,16 +13,20 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  let body: unknown;
+  let raw: unknown;
   try {
-    body = await request.json();
+    raw = await request.json();
   } catch {
     return NextResponse.json({ error: "JSON inválido" }, { status: 400 });
   }
-  const { key, value } = (body ?? {}) as { key?: unknown; value?: unknown };
-  if (typeof key !== "string" || typeof value !== "string" || !key || !value) {
-    return NextResponse.json({ error: "Key and value required" }, { status: 400 });
+  const parsed = integrationConfigSchema.safeParse(raw);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: "payload inválido", issues: parsed.error.issues.slice(0, 5) },
+      { status: 400 },
+    );
   }
+  const { key, value } = parsed.data;
 
   try {
     await setIntegrationConfig(key, value);

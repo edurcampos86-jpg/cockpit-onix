@@ -22,6 +22,11 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // 2FA TOTP — totpSecret é cifrado a nível de aplicação (AES-GCM com SECRETS_ENCRYPTION_KEY).
+  totpEnabled         Boolean  @default(false)
+  totpSecret          String?
+  totpRecoveryHashes  String[] @default([]) // sha256 dos códigos de recuperação (um-uso)
+
   posts             Post[]
   scripts           Script[]
   tasks             Task[]

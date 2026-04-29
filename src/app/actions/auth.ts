@@ -2,16 +2,22 @@
 
 import { headers } from "next/headers";
 import { prisma } from "@/lib/prisma";
-import { createSession, deleteSession } from "@/lib/session";
+import {
+  createSession,
+  deleteSession,
+  signTotpChallenge,
+  verifyTotpChallenge,
+} from "@/lib/session";
 import { rateLimit, resetRateLimit } from "@/lib/security/rate-limit";
+import { consumeLoginCode } from "@/app/actions/two-factor";
 import bcrypt from "bcryptjs";
 import { redirect } from "next/navigation";
 
-export type LoginState = {
-  error?: string;
-} | undefined;
+export type LoginState =
+  | { error?: string; needsTotp?: false }
+  | { needsTotp: true; challenge: string; error?: string }
+  | undefined;
 
-// Remove formatting from CPF (dots and dashes)
 function cleanCpf(cpf: string): string {
   return cpf.replace(/\D/g, "");
 }
@@ -26,6 +32,7 @@ async function clientIp(): Promise<string> {
 }
 
 const LOGIN_LIMIT = { limit: 5, windowMs: 15 * 60 * 1000, blockMs: 30 * 60 * 1000 };
+const TOTP_LIMIT = { limit: 8, windowMs: 15 * 60 * 1000, blockMs: 30 * 60 * 1000 };
 
 export async function login(state: LoginState, formData: FormData): Promise<LoginState> {
   const rawCpf = formData.get("cpf") as string;
@@ -42,8 +49,6 @@ export async function login(state: LoginState, formData: FormData): Promise<Logi
   }
 
   const ip = await clientIp();
-  // Rate limit por IP+CPF — protege contra força bruta direcionada e spray
-  // (também aplicamos um limite por IP para cobrir enumeração).
   const rlIpCpf = rateLimit(`login:${ip}:${cpf}`, LOGIN_LIMIT);
   const rlIp = rateLimit(`login:${ip}`, { limit: 30, windowMs: 15 * 60 * 1000 });
   if (!rlIpCpf.allowed || !rlIp.allowed) {
@@ -56,18 +61,25 @@ export async function login(state: LoginState, formData: FormData): Promise<Logi
     return { error: `Muitas tentativas. Tente novamente em ~${wait} minuto(s).` };
   }
 
-  let user: { id: string; name: string; role: string; password: string } | null = null;
+  let user:
+    | {
+        id: string;
+        name: string;
+        role: string;
+        password: string;
+        totpEnabled: boolean;
+      }
+    | null = null;
   try {
     user = await prisma.user.findUnique({
       where: { cpf },
-      select: { id: true, name: true, role: true, password: true },
+      select: { id: true, name: true, role: true, password: true, totpEnabled: true },
     });
   } catch (error) {
     console.error("Login error:", error);
     return { error: "Erro ao fazer login. Tente novamente." };
   }
 
-  // Sempre executamos bcrypt.compare para evitar oracle de tempo (user existe vs. não).
   const fakeHash = "$2b$12$CwTycUXWue0Thq9StjUM0uJ8w6m1rO0Y7rQ2t6lKPv9wG2uFhK6Wm";
   const passwordMatch = await bcrypt.compare(password, user?.password ?? fakeHash);
 
@@ -76,8 +88,54 @@ export async function login(state: LoginState, formData: FormData): Promise<Logi
   }
 
   resetRateLimit(`login:${ip}:${cpf}`);
+
+  if (user.totpEnabled) {
+    // Não cria sessão ainda — devolve um challenge curto; o cliente envia
+    // junto do código TOTP/recuperação para concluir o login.
+    const challenge = await signTotpChallenge(user.id);
+    return { needsTotp: true, challenge };
+  }
+
   await createSession(user.id, user.name, user.role);
 
+  redirect("/");
+}
+
+export type VerifyTotpState =
+  | { error?: string }
+  | undefined;
+
+export async function verifyLoginTotp(
+  state: VerifyTotpState,
+  formData: FormData,
+): Promise<VerifyTotpState> {
+  const challenge = String(formData.get("challenge") || "");
+  const code = String(formData.get("code") || "");
+
+  const claim = await verifyTotpChallenge(challenge);
+  if (!claim) return { error: "Sessão de login expirou — comece de novo." };
+
+  const ip = await clientIp();
+  const rl = rateLimit(`totp:${ip}:${claim.userId}`, TOTP_LIMIT);
+  if (!rl.allowed) {
+    const wait = Math.ceil(rl.retryAfterMs / 60000);
+    return { error: `Muitas tentativas. Tente em ~${wait} min.` };
+  }
+
+  if (!code) return { error: "Informe o código." };
+
+  const ok = await consumeLoginCode(claim.userId, code);
+  if (!ok) return { error: "Código inválido." };
+
+  resetRateLimit(`totp:${ip}:${claim.userId}`);
+
+  const user = await prisma.user.findUnique({
+    where: { id: claim.userId },
+    select: { id: true, name: true, role: true },
+  });
+  if (!user) return { error: "Usuário não encontrado." };
+
+  await createSession(user.id, user.name, user.role);
   redirect("/");
 }
 

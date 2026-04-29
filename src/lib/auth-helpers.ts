@@ -75,17 +75,29 @@ export async function requireLideranca(): Promise<AuthContext> {
 
 /**
  * Pode ver a ficha da pessoa-alvo?
+ *
+ * Padrão default-deny — quem pode ver:
  * - Admin: sempre
- * - A própria pessoa: sempre vê a própria
- * - Liderança: vê pessoas do mesmo departamento ou que reportam à hierarquia dela
- *   (checagem completa via SQL — esta função é só fallback de UI)
- * - Colaborador: vê dados públicos de qualquer pessoa ativa (a granularidade fica
- *   na seção; ex.: numerologia/acordo nunca vêm para colaborador)
+ * - A própria pessoa: sempre
+ * - Liderança ou colaborador: precisa estar no mesmo departamento da pessoa-alvo
+ *
+ * Para a versão completa por hierarquia (chefe/subordinado direto), use a
+ * checagem SQL específica nas queries — esta função é o gate de UI/handlers.
  */
-export function canViewPessoa(ctx: AuthContext, targetPessoaId: string): boolean {
+export async function canViewPessoa(
+  ctx: AuthContext,
+  targetPessoaId: string,
+): Promise<boolean> {
   if (isAdmin(ctx)) return true;
-  if (ctx.pessoa?.id === targetPessoaId) return true;
-  return true; // visibilidade básica é pública para o time; campos sensíveis filtram em outra camada
+  if (!ctx.pessoa) return false;
+  if (ctx.pessoa.id === targetPessoaId) return true;
+
+  const target = await prisma.pessoa.findUnique({
+    where: { id: targetPessoaId },
+    select: { departamentoId: true },
+  });
+  if (!target) return false;
+  return target.departamentoId === ctx.pessoa.departamentoId;
 }
 
 /** Pode ver dados sensíveis (numerologia, acordo comercial) da pessoa-alvo? */

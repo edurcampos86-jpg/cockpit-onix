@@ -66,3 +66,26 @@ export async function deleteSession() {
   const cookieStore = await cookies();
   cookieStore.delete("session");
 }
+
+/**
+ * Token intermediário emitido após senha OK quando o usuário tem 2FA ativo.
+ * Vida curta (5 min), assinado com a mesma chave da sessão. NÃO autoriza
+ * acesso a rotas — só comprova que a senha foi validada para a etapa TOTP.
+ */
+export async function signTotpChallenge(userId: string): Promise<string> {
+  return new SignJWT({ userId, scope: "totp-challenge" })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime("5m")
+    .sign(encodedKey);
+}
+
+export async function verifyTotpChallenge(token: string): Promise<{ userId: string } | null> {
+  try {
+    const { payload } = await jwtVerify(token, encodedKey, { algorithms: ["HS256"] });
+    if (payload.scope !== "totp-challenge" || typeof payload.userId !== "string") return null;
+    return { userId: payload.userId };
+  } catch {
+    return null;
+  }
+}

@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
 import { validateWebhookSecret, normalizePayload } from "@/lib/integrations/zapier";
 import { analyzeMeeting } from "@/lib/integrations/claude-ai";
+import { zapierPlaudPayloadSchema } from "@/lib/security/schemas";
 
 /**
  * POST /api/integracoes/zapier/webhook
@@ -26,8 +27,20 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const rawBody = await request.json();
-    const payload = normalizePayload(rawBody);
+    let rawBody: unknown;
+    try {
+      rawBody = await request.json();
+    } catch {
+      return NextResponse.json({ error: "JSON inválido" }, { status: 400 });
+    }
+    const validated = zapierPlaudPayloadSchema.safeParse(rawBody);
+    if (!validated.success) {
+      return NextResponse.json(
+        { error: "payload inválido", issues: validated.error.issues.slice(0, 5) },
+        { status: 400 },
+      );
+    }
+    const payload = normalizePayload(validated.data as Record<string, unknown>);
 
     // Verificar duplicata
     if (payload.external_id) {
