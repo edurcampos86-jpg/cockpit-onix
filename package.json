@@ -8,6 +8,7 @@
     "start": "prisma db push --accept-data-loss && next start",
     "lint": "eslint",
     "postinstall": "prisma generate",
+    "check:env": "tsx scripts/verify-security-env.ts",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
     "db:seed:time": "tsx prisma/seed-time.ts"
