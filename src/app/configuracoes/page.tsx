@@ -1,9 +1,11 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ShieldCheck } from "lucide-react";
+import { ShieldCheck, FileSearch } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { ComoFunciona } from "@/components/layout/como-funciona";
 import { getSession } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
+import { getAuthContext, isAdmin } from "@/lib/auth-helpers";
 import { ChangePasswordForm } from "./change-password-form";
 import { TwoFactorCard } from "@/components/two-factor/two-factor-card";
 
@@ -16,6 +18,8 @@ export default async function ConfiguracoesPage() {
     select: { totpEnabled: true },
   });
   const totpEnabled = user?.totpEnabled ?? false;
+  const ctx = await getAuthContext();
+  const showAuditLink = isAdmin(ctx);
 
   return (
     <div className="p-6 md:p-8 max-w-4xl">
@@ -34,6 +38,26 @@ export default async function ConfiguracoesPage() {
         <ChangePasswordForm />
 
         <TwoFactorCard enabled={totpEnabled} />
+
+        {showAuditLink && (
+          <Link
+            href="/configuracoes/seguranca"
+            className="block bg-card border border-border rounded-xl overflow-hidden hover:bg-accent/30 transition-colors"
+          >
+            <div className="flex items-center gap-3 px-6 py-4">
+              <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center">
+                <FileSearch className="h-4 w-4 text-primary" />
+              </div>
+              <div className="flex-1">
+                <h2 className="text-base font-semibold text-foreground">Auditoria de Segurança</h2>
+                <p className="text-xs text-muted-foreground">
+                  Visualize logins, alterações de 2FA, troca de senha e mudanças de integração (admin)
+                </p>
+              </div>
+              <span className="text-muted-foreground">&rarr;</span>
+            </div>
+          </Link>
+        )}
 
         <div className="bg-card border border-border rounded-xl overflow-hidden">
           <div className="flex items-center gap-3 px-6 py-4 border-b border-border bg-accent/30">

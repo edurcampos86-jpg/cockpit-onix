@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getIntegrationConfig, setIntegrationConfig } from "@/lib/integrations/config";
 import { integrationConfigSchema } from "@/lib/security/schemas";
+import { logSecurityEvent, SecurityEventType } from "@/lib/security/audit";
+import { headers } from "next/headers";
 
 export async function GET() {
   const config = await getIntegrationConfig();
@@ -36,6 +38,14 @@ export async function POST(request: NextRequest) {
       { status: 400 },
     );
   }
+
+  // Registra a alteração — userId vem do header injetado pelo middleware.
+  const h = await headers();
+  await logSecurityEvent({
+    type: SecurityEventType.INTEGRATION_SECRET_SET,
+    userId: h.get("x-user-id"),
+    metadata: { key },
+  });
 
   return NextResponse.json({ success: true, key, masked: "••••••" + value.slice(-4) });
 }

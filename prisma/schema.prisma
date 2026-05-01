@@ -39,6 +39,7 @@ model User {
   painelRetros     PainelRetrospectiva[]
   painelEmailsAI    PainelEmailAI[]
   pessoa            Pessoa?
+  securityEvents    SecurityEvent[]
 }
 
 // ============================================
@@ -1207,5 +1208,30 @@ model ReuniaoTimeParticipante {
 
   @@id([reuniaoId, pessoaId])
   @@index([pessoaId])
+}
+
+// ============================================
+// SECURITY EVENTS — auditoria
+// Cada evento sensível (login, 2FA, troca de senha, integrações) gera um
+// registro aqui. Suporte a forense pós-incidente e detecção de anomalias.
+// userId pode ser null em login fail (CPF não existe) ou eventos de sistema.
+// ============================================
+
+model SecurityEvent {
+  id        String   @id @default(cuid())
+  type      String   // ex.: "login.ok" | "login.fail" | "totp.enable" | "password.change" | ...
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  cpfHash   String?  // sha256 do CPF (em login fail sem userId), pra correlacionar tentativas
+  ip        String?
+  userAgent String?  @db.Text
+  success   Boolean  @default(true)
+  metadata  Json?    // contexto adicional, sem PII (rate-limit hit, key trocada, etc.)
+  createdAt DateTime @default(now())
+
+  @@index([type, createdAt])
+  @@index([userId, createdAt])
+  @@index([createdAt])
+  @@index([ip, createdAt])
 }
 

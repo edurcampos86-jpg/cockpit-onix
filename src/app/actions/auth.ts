@@ -10,6 +10,8 @@ import {
 } from "@/lib/session";
 import { rateLimit, resetRateLimit } from "@/lib/security/rate-limit";
 import { consumeLoginCode } from "@/app/actions/two-factor";
+import { logSecurityEvent, SecurityEventType } from "@/lib/security/audit";
+import { getSession } from "@/lib/session";
 import bcrypt from "bcryptjs";
 import { redirect } from "next/navigation";
 
@@ -58,6 +60,12 @@ export async function login(state: LoginState, formData: FormData): Promise<Logi
         !rlIp.allowed ? rlIp.retryAfterMs : 0,
       ) / 60000,
     );
+    await logSecurityEvent({
+      type: SecurityEventType.LOGIN_RATE_LIMITED,
+      cpf,
+      success: false,
+      metadata: { waitMinutes: wait },
+    });
     return { error: `Muitas tentativas. Tente novamente em ~${wait} minuto(s).` };
   }
 
@@ -84,6 +92,13 @@ export async function login(state: LoginState, formData: FormData): Promise<Logi
   const passwordMatch = await bcrypt.compare(password, user?.password ?? fakeHash);
 
   if (!user || !passwordMatch) {
+    await logSecurityEvent({
+      type: SecurityEventType.LOGIN_FAIL,
+      userId: user?.id ?? null,
+      cpf,
+      success: false,
+      metadata: { reason: user ? "wrong_password" : "unknown_cpf" },
+    });
     return { error: "CPF ou senha incorretos." };
   }
 
@@ -96,6 +111,11 @@ export async function login(state: LoginState, formData: FormData): Promise<Logi
     return { needsTotp: true, challenge };
   }
 
+  await logSecurityEvent({
+    type: SecurityEventType.LOGIN_OK,
+    userId: user.id,
+    metadata: { totp: false },
+  });
   await createSession(user.id, user.name, user.role);
 
   redirect("/");
@@ -125,7 +145,14 @@ export async function verifyLoginTotp(
   if (!code) return { error: "Informe o código." };
 
   const ok = await consumeLoginCode(claim.userId, code);
-  if (!ok) return { error: "Código inválido." };
+  if (!ok) {
+    await logSecurityEvent({
+      type: SecurityEventType.LOGIN_TOTP_FAIL,
+      userId: claim.userId,
+      success: false,
+    });
+    return { error: "Código inválido." };
+  }
 
   resetRateLimit(`totp:${ip}:${claim.userId}`);
 
@@ -135,11 +162,23 @@ export async function verifyLoginTotp(
   });
   if (!user) return { error: "Usuário não encontrado." };
 
+  await logSecurityEvent({
+    type: SecurityEventType.LOGIN_TOTP_OK,
+    userId: user.id,
+    metadata: { totp: true },
+  });
   await createSession(user.id, user.name, user.role);
   redirect("/");
 }
 
 export async function logout() {
+  const session = await getSession();
+  if (session) {
+    await logSecurityEvent({
+      type: SecurityEventType.LOGOUT,
+      userId: session.userId,
+    });
+  }
   await deleteSession();
   redirect("/login");
 }

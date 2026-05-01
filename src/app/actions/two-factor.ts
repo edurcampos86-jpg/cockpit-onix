@@ -11,6 +11,7 @@ import {
   otpauthUrl,
   verifyTotp,
 } from "@/lib/security/totp";
+import { logSecurityEvent, SecurityEventType } from "@/lib/security/audit";
 
 export type SetupTotpResult =
   | {
@@ -64,6 +65,11 @@ export async function setupTotp(): Promise<SetupTotpResult> {
     },
   });
 
+  await logSecurityEvent({
+    type: SecurityEventType.TOTP_SETUP_START,
+    userId: session.userId,
+  });
+
   return { ok: true, secret, otpauth, recoveryCodes };
 }
 
@@ -89,6 +95,11 @@ export async function confirmTotp(formData: FormData): Promise<SimpleResult> {
   await prisma.user.update({
     where: { id: session.userId },
     data: { totpEnabled: true },
+  });
+
+  await logSecurityEvent({
+    type: SecurityEventType.TOTP_ENABLE,
+    userId: session.userId,
   });
 
   return { ok: true };
@@ -127,6 +138,12 @@ export async function disableTotp(formData: FormData): Promise<SimpleResult> {
   await prisma.user.update({
     where: { id: session.userId },
     data: { totpEnabled: false, totpSecret: null, totpRecoveryHashes: [] },
+  });
+
+  await logSecurityEvent({
+    type: SecurityEventType.TOTP_DISABLE,
+    userId: session.userId,
+    metadata: { via: recoveryOk ? "recovery_code" : "totp" },
   });
 
   return { ok: true };

@@ -3,6 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { validatePassword, BCRYPT_ROUNDS } from "@/lib/security/password";
+import { logSecurityEvent, SecurityEventType } from "@/lib/security/audit";
 import bcrypt from "bcryptjs";
 
 export type ChangePasswordState = {
@@ -59,6 +60,11 @@ export async function changePassword(
     await prisma.user.update({
       where: { id: session.userId },
       data: { password: hashedPassword },
+    });
+
+    await logSecurityEvent({
+      type: SecurityEventType.PASSWORD_CHANGE,
+      userId: session.userId,
     });
 
     return { success: true };
