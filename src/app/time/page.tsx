@@ -16,7 +16,7 @@ import {
 import { cn } from "@/lib/utils";
 
 export const metadata = {
-  title: "Time — Cockpit Onix",
+  title: "Time — Ecossistema Onix",
 };
 
 type SearchParams = Promise<{

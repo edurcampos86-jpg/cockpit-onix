@@ -3,7 +3,7 @@ import { ComoFunciona } from "@/components/layout/como-funciona";
 import { BookMarked } from "lucide-react";
 
 export const metadata = {
-  title: "Glossário — Cockpit Onix",
+  title: "Glossário — Ecossistema Onix",
 };
 
 type Termo = {
@@ -16,7 +16,7 @@ type Termo = {
 const TERMOS: Termo[] = [
   // Geral
   {
-    termo: "Cockpit Onix",
+    termo: "Ecossistema Onix",
     area: "Geral",
     definicao:
       "Painel de gestão integrado da Onix Co com três módulos: MKT (mídias sociais), Corretora (gestão comercial) e Backoffice (carteira de clientes Supernova).",
@@ -133,12 +133,12 @@ export default function GlossarioPage() {
     <div className="min-h-screen">
       <PageHeader
         title="Glossário"
-        description="Vocabulário comum do Cockpit Onix — termos, siglas e conceitos usados no sistema"
+        description="Vocabulário comum do Ecossistema Onix — termos, siglas e conceitos usados no sistema"
       />
 
       <div className="p-8 space-y-6 max-w-5xl">
         <ComoFunciona
-          proposito="Dicionário único de todos os termos, siglas e conceitos que aparecem no Cockpit Onix — para que ninguém precise adivinhar o que algo significa."
+          proposito="Dicionário único de todos os termos, siglas e conceitos que aparecem no Ecossistema Onix — para que ninguém precise adivinhar o que algo significa."
           comoUsar="Procure pelo termo agrupado por área. Use como referência rápida quando encontrar uma sigla nova ou quando treinar alguém."
           comoAjuda="Onboarding instantâneo. Pessoa nova entende o vocabulário sem ter que perguntar. Reduz desalinhamento e acelera autonomia."
         />

@@ -34,7 +34,7 @@ import { AlertasBanner } from "../_components/alertas-banner";
 import { CompatibilidadeSection } from "../_components/compatibilidade-section";
 
 export const metadata = {
-  title: "Ficha — Time — Cockpit Onix",
+  title: "Ficha — Time — Ecossistema Onix",
 };
 
 export default async function PessoaPage({
@@ -166,7 +166,7 @@ export default async function PessoaPage({
             value={labelTeamRole(pessoa.teamRole)}
           />
           <Row
-            label="Acesso ao Cockpit"
+            label="Acesso ao Ecossistema"
             value={pessoa.user ? "Sim — login ativo" : "Ainda não convidado"}
           />
         </Section>
@@ -245,7 +245,7 @@ export default async function PessoaPage({
           </section>
         )}
 
-        {/* ── Acesso ao Cockpit (admin only) ── */}
+        {/* ── Acesso ao Ecossistema (admin only) ── */}
         {isAdmin(ctx) && (
           <ConviteSection
             pessoaId={pessoa.id}

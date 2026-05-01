@@ -10,7 +10,7 @@ export const metadata = {
 /**
  * Rota PÚBLICA — não chama requireSession.
  * Recebe um token de convite gerado pelo admin e permite à pessoa criar a senha
- * e ter seu primeiro acesso ao Cockpit.
+ * e ter seu primeiro acesso ao Ecossistema.
  */
 export default async function OnboardingPage({
   params,
@@ -65,7 +65,7 @@ export default async function OnboardingPage({
     return (
       <ConviteInvalido
         titulo="Acesso já existe"
-        mensagem="Você já tem login no Cockpit. Acesse pela página de login."
+        mensagem="Você já tem login no Ecossistema. Acesse pela página de login."
       />
     );
   }

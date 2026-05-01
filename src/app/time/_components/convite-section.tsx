@@ -40,7 +40,7 @@ export async function ConviteSection({
           <div>
             <p className="text-sm font-medium text-foreground">Login ativo</p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              {pessoaNome} já tem acesso ao Cockpit. Não é necessário convite.
+              {pessoaNome} já tem acesso ao Ecossistema. Não é necessário convite.
             </p>
           </div>
         </div>
@@ -99,7 +99,7 @@ export async function ConviteSection({
             {path}
           </code>
           <p className="text-[10px] text-muted-foreground italic">
-            Use o domínio do seu Cockpit ao mandar — ex.: https://cockpit-onix-app-production.up.railway.app{path}
+            Use o domínio do seu Ecossistema ao mandar — ex.: https://cockpit-onix-app-production.up.railway.app{path}
           </p>
 
           <div className="flex items-center gap-2 pt-1">
@@ -202,7 +202,7 @@ export async function ConviteSection({
             <LinkIcon className="h-4 w-4 text-muted-foreground" />
           </div>
           <div className="flex-1">
-            <p className="text-sm font-medium text-foreground">Sem acesso ao Cockpit</p>
+            <p className="text-sm font-medium text-foreground">Sem acesso ao Ecossistema</p>
             <p className="text-xs text-muted-foreground mt-0.5">
               Gere um link de convite pra {pessoaNome} criar a senha e logar pela primeira vez.
               O link vale 7 dias.
@@ -231,7 +231,7 @@ function SectionShell({ children }: { children: React.ReactNode }) {
       <header className="flex items-center justify-between gap-3 mb-4">
         <div className="flex items-center gap-2">
           <LinkIcon className="h-4 w-4 text-blue-500" />
-          <h2 className="text-sm font-semibold text-foreground">Acesso ao Cockpit</h2>
+          <h2 className="text-sm font-semibold text-foreground">Acesso ao Ecossistema</h2>
         </div>
       </header>
       {children}

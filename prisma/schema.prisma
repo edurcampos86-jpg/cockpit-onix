@@ -706,7 +706,7 @@ model PainelPrioridade {
   @@index([userId, data])
 }
 
-// Acoes unificadas do painel: local (cockpit) + MS To Do + Priority Matrix
+// Acoes unificadas do painel: local (do ecossistema) + MS To Do + Priority Matrix
 // Write-back bidirecional via cowork (Chrome MCP): pendingSync=true dispara
 // aplicação na origem na próxima sincronia.
 model AcaoPainel {
@@ -718,7 +718,7 @@ model AcaoPainel {
   importante  Boolean   @default(false)
   noMeuDia    Boolean   @default(false)
   quadrante   String?   // "Q1" | "Q2" | "Q3" | "Q4" (só Priority Matrix)
-  origem      String    // "cockpit" | "ms-todo" | "priority-matrix"
+  origem      String    // "local" | "ms-todo" | "priority-matrix"
   externoId   String?   // id na fonte externa (preenchido após sync)
   projetoPm   String?   // nome do projeto no Priority Matrix
   pendingSync Boolean   @default(false)
@@ -1068,7 +1068,7 @@ model AcordoComercial {
 // ============================================
 // TIME — CONVITE DE ONBOARDING (Fase 2C)
 // Admin gera um link público com token; pessoa abre, define senha,
-// vira User e ganha acesso ao Cockpit.
+// vira User e ganha acesso ao Ecossistema.
 // ============================================
 
 model ConviteOnboarding {

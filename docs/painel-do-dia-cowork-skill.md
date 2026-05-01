@@ -5,12 +5,12 @@
 ## Contexto
 
 As fontes **Microsoft (Outlook + To Do)** e **Priority Matrix (Appfluence)**
-não usam OAuth backend no cockpit. O tenant Microsoft corporativo do BTG
+não usam OAuth backend no ecossistema. O tenant Microsoft corporativo do BTG
 bloqueia app registration, e Priority Matrix não tem API pública aberta.
 
 Em vez disso, o Claude Code do Eduardo, rodando na máquina dele com a
 extensão Chrome MCP conectada, abre as apps web dessas fontes, lê/escreve
-dados, e fala com o cockpit via endpoints REST.
+dados, e fala com o ecossistema via endpoints REST.
 
 ## Gatilho
 
@@ -45,10 +45,10 @@ Requests duplicadas pras mesmas fontes são idempotentes (POST devolve a existen
 
 ## Procedimento completo
 
-### 1. Autenticar-se no cockpit
+### 1. Autenticar-se no ecossistema
 
 O endpoint exige cookie `session` (JWT). Se o Claude não tiver sessão,
-pedir para o Eduardo fazer login no cockpit e copiar o cookie, ou reautenticar
+pedir para o Eduardo fazer login no ecossistema e copiar o cookie, ou reautenticar
 no navegador controlado pelo Chrome MCP.
 
 ### 2. Drenar fila de writes pendentes (write-back)
@@ -83,7 +83,7 @@ Cada `AcaoPainel` traz `syncOp` ∈ `"create" | "update" | "delete"`, `origem`,
 
 Após aplicar com sucesso, capturar o `externoId` da fonte e reportar.
 
-### 4. Ler estado atualizado + reportar no cockpit
+### 4. Ler estado atualizado + reportar no ecossistema
 
 Fazer um POST para `/api/painel-do-dia/cowork-sync` com o payload completo:
 
@@ -145,11 +145,11 @@ Fazer um POST para `/api/painel-do-dia/cowork-sync` com o payload completo:
 ```
 
 Campo `id` **obrigatório quando fechando o loop de um pending create** — é o id local
-da `AcaoPainel` devolvido pelo `GET /cowork-sync`. Sem ele o cockpit acha que é uma
+da `AcaoPainel` devolvido pelo `GET /cowork-sync`. Sem ele o ecossistema acha que é uma
 leitura nova da fonte e cria registro duplicado. Para leituras puras (itens que já
 existem só na fonte), enviar só `externoId`.
 
-O cockpit correlaciona por `id` local (prioridade) ou por `(userId, origem, externoId)`
+O ecossistema correlaciona por `id` local (prioridade) ou por `(userId, origem, externoId)`
 e limpa `pendingSync`.
 
 ### 5. Escopo de extração
@@ -173,7 +173,7 @@ Isso deixa a badge de erro visível no painel e o usuário decide.
 
 ## Troubleshooting
 
-- **Cookie de sessão expirado**: pedir login no cockpit
+- **Cookie de sessão expirado**: pedir login no ecossistema
 - **Outlook Web pede MFA**: avisar o Eduardo — ele faz o passo manual, depois
   reiniciar o procedimento
 - **Priority Matrix deslogado**: idem Outlook

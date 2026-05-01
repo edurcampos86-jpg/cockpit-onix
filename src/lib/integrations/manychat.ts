@@ -193,7 +193,7 @@ export async function setCustomFieldByName(subscriberId: string, fieldName: stri
 }
 
 // ============================================
-// HELPER: Mapear subscriber para Lead do Cockpit
+// HELPER: Mapear subscriber para Lead do Ecossistema
 // ============================================
 
 const KEYWORD_PRODUCT_MAP: Record<string, string> = {

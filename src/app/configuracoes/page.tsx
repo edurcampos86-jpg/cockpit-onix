@@ -70,9 +70,9 @@ export default function ConfiguracoesPage() {
 
       <div className="mt-8 space-y-8">
         <ComoFunciona
-          proposito="Sua conta no Cockpit: senha de acesso e preferências pessoais."
+          proposito="Sua conta no Ecossistema: senha de acesso e preferências pessoais."
           comoUsar="Para trocar a senha, informe a atual e defina uma nova com pelo menos 8 caracteres misturando letras, números e símbolos."
-          comoAjuda="Mantém o acesso seguro ao seu Cockpit, que concentra dados sensíveis de carteira, leads e operação."
+          comoAjuda="Mantém o acesso seguro ao seu Ecossistema, que concentra dados sensíveis de carteira, leads e operação."
         />
 
         {/* Change Password Section */}
@@ -84,7 +84,7 @@ export default function ConfiguracoesPage() {
             <div>
               <h2 className="text-base font-semibold text-foreground">Alterar Senha</h2>
               <p className="text-xs text-muted-foreground">
-                Atualize sua senha de acesso ao Cockpit
+                Atualize sua senha de acesso ao Ecossistema
               </p>
             </div>
           </div>

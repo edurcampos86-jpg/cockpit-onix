@@ -12,7 +12,7 @@ import { createPessoaAndRedirect } from "@/app/actions/time";
 import { PessoaForm } from "../_components/pessoa-form";
 
 export const metadata = {
-  title: "Nova pessoa — Time — Cockpit Onix",
+  title: "Nova pessoa — Time — Ecossistema Onix",
 };
 
 export default async function NovaPessoaPage() {

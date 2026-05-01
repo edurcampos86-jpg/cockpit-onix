@@ -75,7 +75,7 @@ const LABEL_ORIGEM: Record<string, string> = {
   "ms-calendar": "Outlook",
   "priority-matrix": "PM",
   "ms-todo": "To Do",
-  cockpit: "Cockpit",
+  local: "Local",
 };
 
 function EventoBloco({ ev }: { ev: EventoAgenda }) {

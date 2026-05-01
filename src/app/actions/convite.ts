@@ -44,7 +44,7 @@ export async function gerarConvite(
   if (pessoa.userId) {
     return {
       ok: false,
-      error: "Pessoa já tem login ativo no Cockpit. Não precisa de convite.",
+      error: "Pessoa já tem login ativo no Ecossistema. Não precisa de convite.",
     };
   }
 

@@ -8,7 +8,7 @@ import { analyzeMeeting } from "@/lib/integrations/claude-ai";
  * Webhook que recebe dados do Plaud.ai via Zapier
  *
  * Fluxo: Plaud grava reunião → Zapier detecta → POST para este endpoint
- *        → Cockpit armazena → Claude AI analisa e extrai insights para roteiros
+ *        → Ecossistema armazena → Claude AI analisa e extrai insights para roteiros
  *
  * Configuração no Zapier:
  * 1. Trigger: Plaud.ai "New Recording" (ou equivalente)
@@ -127,7 +127,7 @@ export async function POST(request: NextRequest) {
 export async function GET() {
   return NextResponse.json({
     status: "active",
-    service: "Cockpit Onix - Plaud.ai Webhook",
+    service: "Ecossistema Onix - Plaud.ai Webhook",
     accepts: "POST with JSON body containing meeting transcription data",
   });
 }

@@ -28,8 +28,8 @@ export const RITUAIS: RitualDefinicao[] = [
     cor: "#FFB114",
   },
   {
-    id: "relatorio-cockpit",
-    titulo: "Relatorio Cockpit + Audio",
+    id: "relatorio-ecossistema",
+    titulo: "Relatorio Ecossistema + Audio",
     descricao: "Envio do relatorio semanal individual com audio personalizado por perfil PAT",
     frequencia: "semanal",
     diaSemana: 5, // sexta
@@ -41,7 +41,7 @@ export const RITUAIS: RitualDefinicao[] = [
   {
     id: "reuniao-segunda",
     titulo: "Reuniao de Segunda",
-    descricao: "Reuniao coletiva: revisao do cockpit, padroes da semana, plano de acao",
+    descricao: "Reuniao coletiva: revisao do ecossistema, padroes da semana, plano de acao",
     frequencia: "semanal",
     diaSemana: 1, // segunda
     duracao: "45 min",

@@ -23,7 +23,7 @@ import { labelCargo, pessoaIniciais } from "@/lib/team";
 import { cn } from "@/lib/utils";
 
 export const metadata = {
-  title: "Insights do Time — Cockpit Onix",
+  title: "Insights do Time — Ecossistema Onix",
 };
 
 /**

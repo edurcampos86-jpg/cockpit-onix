@@ -1,6 +1,6 @@
 /**
  * Claude AI Integration — Geração de Roteiros e Análise de Conteúdo
- * Usa a API da Anthropic (claude-sonnet-4-5) para automações inteligentes do Cockpit Onix.
+ * Usa a API da Anthropic (claude-sonnet-4-5) para automações inteligentes do Ecossistema Onix.
  */
 
 import { getIntegrationConfig } from "./config";

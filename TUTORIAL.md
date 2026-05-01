@@ -1,4 +1,4 @@
-# Cockpit Onix — Tutorial Completo do Sistema
+# Ecossistema Onix — Tutorial Completo do Sistema
 
 **Versão:** 1.0 | **Data:** 31/03/2026 | **Autor:** Claude Code + Eduardo Campos
 
@@ -6,7 +6,7 @@
 
 ## 1. Visão Geral
 
-O **Cockpit Onix** (Eduardo — Mídias Sociais) é um painel de comando completo para gerenciar toda a operação de marketing de conteúdo, funil de vendas e automação do Grupo Onix.
+O **Ecossistema Onix** (Eduardo — Mídias Sociais) é um painel de comando completo para gerenciar toda a operação de marketing de conteúdo, funil de vendas e automação do Grupo Onix.
 
 ### Stack Tecnológica
 - **Frontend/Backend:** Next.js 16 (App Router) + TypeScript
@@ -132,7 +132,7 @@ Central de conexão com ferramentas externas.
 **Status:** Token configurado, pronto para uso.
 
 1. O token API já foi obtido (ManyChat > Configurações > API)
-2. Na página Integrações do Cockpit, o token está salvo
+2. Na página Integrações do Ecossistema, o token está salvo
 3. Clique "Sincronizar Leads" para importar contatos
 
 **O que acontece automaticamente:**
@@ -154,7 +154,7 @@ Central de conexão com ferramentas externas.
 2. Vá em Integrações > Outlook > "Autorizar Outlook"
 3. Faça login com sua conta Microsoft
 4. Aceite as permissões (Calendários, Email)
-5. Será redirecionado de volta ao Cockpit com a integração ativa
+5. Será redirecionado de volta ao Ecossistema com a integração ativa
 
 **Funcionalidades após ativação:**
 - "Sincronizar Agenda" cria eventos no Outlook para posts agendados e gravações
@@ -177,7 +177,7 @@ Central de conexão com ferramentas externas.
 ### 3.4 Plaud.ai via Google Drive
 **Status:** 4 reuniões já importadas, funcionando.
 
-**Fluxo atual:** Plaud exporta transcrições como Google Docs → Sync manual/Zapier → Cockpit armazena e analisa
+**Fluxo atual:** Plaud exporta transcrições como Google Docs → Sync manual/Zapier → Ecossistema armazena e analisa
 
 **Para automatizar via Zapier:**
 1. No Zapier, crie um novo Zap
@@ -193,7 +193,7 @@ Central de conexão com ferramentas externas.
 
 ### Diretórios principais
 ```
-cockpit-onix/
+ecossistema-onix/
 ├── prisma/
 │   ├── schema.prisma          # Modelos: User, Post, Script, Task, Lead, Meeting
 │   └── seed.ts                # Dados iniciais (2 users, 5 templates, 5 posts, 20 tasks)
@@ -300,4 +300,4 @@ npm start
 
 ---
 
-*Documento gerado em 31/03/2026 — Cockpit Onix v1.0*
+*Documento gerado em 31/03/2026 — Ecossistema Onix v1.0*

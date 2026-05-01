@@ -1,6 +1,6 @@
 /**
  * Google Calendar API Client
- * Sincroniza posts agendados do Cockpit Onix com o Google Calendar
+ * Sincroniza posts agendados do Ecossistema Onix com o Google Calendar
  */
 
 import { google, calendar_v3 } from "googleapis";
@@ -178,14 +178,14 @@ export function buildPostEvent(post: PostForCalendar): calendar_v3.Schema$Event 
   return {
     summary: `${emoji} ${post.title}`,
     description: [
-      `Post agendado no Cockpit Onix`,
+      `Post agendado no Ecossistema Onix`,
       ``,
       `Formato: ${post.format}`,
       `Quadro: ${categoryLabel}`,
       post.ctaType ? `CTA: ${post.ctaType}` : null,
       `Status: ${post.status}`,
       ``,
-      `🔗 Cockpit Onix`,
+      `🔗 Ecossistema Onix`,
     ].filter(Boolean).join("\n"),
     start: { dateTime: startDateTime, timeZone: TIMEZONE },
     end: { dateTime: endDateTime, timeZone: TIMEZONE },

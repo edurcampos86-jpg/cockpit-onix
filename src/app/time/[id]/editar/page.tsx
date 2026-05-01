@@ -19,7 +19,7 @@ import {
 import { PessoaForm } from "../../_components/pessoa-form";
 
 export const metadata = {
-  title: "Editar pessoa — Time — Cockpit Onix",
+  title: "Editar pessoa — Time — Ecossistema Onix",
 };
 
 export default async function EditarPessoaPage({
