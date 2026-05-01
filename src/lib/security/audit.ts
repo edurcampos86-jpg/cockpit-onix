@@ -20,6 +20,7 @@ export const SecurityEventType = {
   TOTP_DISABLE: "totp.disable",
   INTEGRATION_SECRET_SET: "integration.secret_set",
   ACCOUNT_LOCKED: "account.locked",
+  AUDIT_PURGE: "audit.purge",
 } as const;
 
 export type SecurityEventType =

@@ -41,3 +41,12 @@ command = "curl -fsS -H \"Authorization: Bearer $CRON_SECRET\" $RAILWAY_PUBLIC_D
 name = "retrospectiva-semanal"
 schedule = "0 23 * * 0"
 command = "curl -fsS -H \"Authorization: Bearer $CRON_SECRET\" $RAILWAY_PUBLIC_DOMAIN/api/cron/retrospectiva-semanal"
+
+# ────────────────────────────────────────────────────────────────────────
+# Audit log — purga eventos > SECURITY_AUDIT_RETENTION_DAYS (default 90)
+#   Diário, 04:00 Bahia = 07:00 UTC
+# ────────────────────────────────────────────────────────────────────────
+[[crons]]
+name = "purge-security-events"
+schedule = "0 7 * * *"
+command = "curl -fsS -H \"Authorization: Bearer $CRON_SECRET\" $RAILWAY_PUBLIC_DOMAIN/api/cron/purge-security-events"

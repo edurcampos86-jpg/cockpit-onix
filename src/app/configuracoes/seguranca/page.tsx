@@ -1,4 +1,4 @@
-import { Shield, ShieldCheck, ShieldAlert, ShieldX, Key, KeyRound, LogIn, LogOut, UserCog, AlertTriangle } from "lucide-react";
+import { Shield, ShieldCheck, ShieldAlert, ShieldX, Key, KeyRound, LogIn, LogOut, UserCog, AlertTriangle, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { requireAdmin } from "@/lib/auth-helpers";
 import { listRecentEvents, type SecurityEventRow } from "@/lib/security/audit";
@@ -16,6 +16,7 @@ const EVENT_LABEL: Record<string, { label: string; icon: typeof Shield; tone: "o
   "totp.disable":         { label: "Desativou 2FA",                  icon: ShieldAlert,  tone: "warn" },
   "integration.secret_set": { label: "Secret de integração alterado", icon: UserCog,    tone: "warn" },
   "account.locked":       { label: "Conta bloqueada",                icon: AlertTriangle, tone: "fail" },
+  "audit.purge":          { label: "Purga automática de auditoria",  icon: Trash2,       tone: "info" },
 };
 
 const TONE_CLASSES: Record<"ok" | "warn" | "fail" | "info", string> = {
