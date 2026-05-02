@@ -67,15 +67,11 @@ export async function resetPassword(
   formData: FormData,
 ): Promise<ResetPasswordState> {
   const rawCpf = formData.get("cpf") as string;
-  const secret = formData.get("secret") as string;
+  const secret = (formData.get("secret") as string) || "";
   const novaSenha = formData.get("novaSenha") as string;
   const confirmar = formData.get("confirmar") as string;
 
-  const expectedSecret = process.env.PASSWORD_RESET_SECRET;
-  if (!expectedSecret) {
-    return { ok: false, error: "Reset de senha não configurado. Defina PASSWORD_RESET_SECRET no Railway." };
-  }
-  if (!rawCpf || !secret || !novaSenha || !confirmar) {
+  if (!rawCpf || !novaSenha || !confirmar) {
     return { ok: false, error: "Preencha todos os campos." };
   }
   if (novaSenha !== confirmar) {
@@ -84,13 +80,28 @@ export async function resetPassword(
   if (novaSenha.length < 6) {
     return { ok: false, error: "Senha deve ter pelo menos 6 caracteres." };
   }
-  if (secret !== expectedSecret) {
-    return { ok: false, error: "Código de reset inválido." };
-  }
 
   const cpf = cleanCpf(rawCpf);
   if (cpf.length !== 11) {
     return { ok: false, error: "CPF inválido." };
+  }
+
+  // Bootstrap mode: se ainda não há nenhum admin no sistema, permite reset sem secret
+  // (caso típico: primeira instalação, ou banco recriado). Quando já existe um admin,
+  // exige PASSWORD_RESET_SECRET pra evitar que qualquer um resete senha de qualquer admin.
+  const adminCount = await prisma.user.count({ where: { role: "admin" } });
+  const isBootstrap = adminCount === 0;
+  if (!isBootstrap) {
+    const expectedSecret = process.env.PASSWORD_RESET_SECRET;
+    if (!expectedSecret) {
+      return { ok: false, error: "Reset de senha não configurado. Defina PASSWORD_RESET_SECRET no Railway." };
+    }
+    if (!secret) {
+      return { ok: false, error: "Código de reset obrigatório (sistema já tem admin cadastrado)." };
+    }
+    if (secret !== expectedSecret) {
+      return { ok: false, error: "Código de reset inválido." };
+    }
   }
 
   try {

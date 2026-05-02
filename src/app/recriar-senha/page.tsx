@@ -2,7 +2,7 @@
 
 import { resetPassword, type ResetPasswordState } from "@/app/actions/auth";
 import { useActionState, useState, useEffect } from "react";
-import { Lock, User, KeyRound, ShieldCheck } from "lucide-react";
+import { Lock, User, KeyRound, ShieldCheck, ChevronDown } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -17,6 +17,7 @@ function formatCpf(value: string): string {
 export default function RecriarSenhaPage() {
   const [state, action, pending] = useActionState<ResetPasswordState, FormData>(resetPassword, undefined);
   const [cpfDisplay, setCpfDisplay] = useState("");
+  const [mostrarSecret, setMostrarSecret] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -57,23 +58,36 @@ export default function RecriarSenhaPage() {
               </div>
             </div>
 
-            <div className="space-y-2">
-              <label htmlFor="secret" className="text-sm font-medium text-foreground">Código de reset</label>
-              <div className="relative">
-                <ShieldCheck className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <input
-                  id="secret"
-                  name="secret"
-                  type="password"
-                  placeholder="Definido em PASSWORD_RESET_SECRET"
-                  required
-                  className="w-full pl-10 pr-4 py-2.5 bg-background border border-input rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-colors text-sm"
-                />
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Configure essa env var no Railway antes de usar.
-              </p>
+            {/* Código de reset escondido por padrão (modo bootstrap dispensa).
+                Aparece quando o usuário expande "opções avançadas" ou quando o servidor exigir. */}
+            <div>
+              <button
+                type="button"
+                onClick={() => setMostrarSecret((v) => !v)}
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+              >
+                <ChevronDown className={`h-3 w-3 transition-transform ${mostrarSecret ? "rotate-180" : ""}`} />
+                Tenho um código de reset (opcional)
+              </button>
             </div>
+            {mostrarSecret && (
+              <div className="space-y-2">
+                <label htmlFor="secret" className="text-sm font-medium text-foreground">Código de reset</label>
+                <div className="relative">
+                  <ShieldCheck className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <input
+                    id="secret"
+                    name="secret"
+                    type="password"
+                    placeholder="PASSWORD_RESET_SECRET (Railway)"
+                    className="w-full pl-10 pr-4 py-2.5 bg-background border border-input rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-colors text-sm"
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Obrigatório quando já existe um admin cadastrado.
+                </p>
+              </div>
+            )}
 
             <div className="space-y-2">
               <label htmlFor="novaSenha" className="text-sm font-medium text-foreground">Nova senha</label>
