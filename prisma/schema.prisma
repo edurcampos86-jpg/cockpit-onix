@@ -469,6 +469,18 @@ model ClienteBackoffice {
   // Receita
   receitaAnual  Float    @default(0)
 
+  // Dados BTG sincronizados via API
+  cpfCnpj            String?  // taxIdentification do holder (CPF ou CNPJ)
+  perfilInvestidor   String?  // Suitability: "conservador" | "moderado" | "sofisticado"
+  suitabilityValidoAte DateTime? // Validade do perfil suitability
+  assessorCge        String?  // CGE do assessor responsável (Relacionamento Conta×Parceiro)
+  assessorNome       String?  // Nome do assessor (cache pra exibir)
+  breakdownProdutos  Json?    // Breakdown completo da posição BTG (renda fixa, fundos, equities, etc.)
+  positionDate       DateTime? // Data da última posição BTG
+  coHolders          Json?    // Co-titulares da conta
+  usuariosBtg        Json?    // Lista de usuários da conta no BTG (nome, email, telefone, isOwner)
+  ultimaSyncBtg      DateTime? // Quando foi a última sincronização BTG (qualquer endpoint)
+
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -480,10 +492,62 @@ model ClienteBackoffice {
   planoUmaPagina   PlanoUmaPagina?
   checklist        ChecklistOrganizacao?
   acoesVinculadas  AcaoPainel[] @relation("AcaoCliente")
+  movimentacoesBtg MovimentacaoBtg[]
 
   @@index([numeroConta])
   @@index([classificacao])
   @@index([proximoContatoAt])
+  @@index([assessorCge])
+  @@index([cpfCnpj])
+}
+
+// ============================================
+// MOVIMENTAÇÕES BTG (timeline financeira do cliente)
+// ============================================
+
+model MovimentacaoBtg {
+  id          String   @id @default(cuid())
+  clienteId   String
+  cliente     ClienteBackoffice @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  numeroConta String   // redundante com cliente.numeroConta mas facilita debug
+  data        DateTime // data da movimentação
+  tipo        String   // ex: "DEPÓSITO DE CUSTÓDIA", "RESGATE", "APLICAÇÃO", etc.
+  descricao   String?  @db.Text // descrição livre vinda do BTG
+  mercado     String?  // ex: "RENDA_FIXA", "FUNDOS", "BOLSA", "PREVIDENCIA"
+  ativo       String?  // ex: "CDB BTG 120% CDI"
+  valor       Float    // valor bruto (grossValue)
+  valorLiquido Float?  // se BTG fornecer netValue separado
+  hashUnico   String   @unique // hash data+conta+tipo+valor+ativo pra dedup
+
+  payloadBruto Json?   // snapshot completo da movimentação como veio do BTG (debug)
+  createdAt   DateTime @default(now())
+
+  @@index([clienteId, data])
+  @@index([numeroConta])
+  @@index([data])
+  @@index([tipo])
+}
+
+// ============================================
+// LOG DE EXECUÇÕES BTG (auditoria)
+// ============================================
+
+model BtgSyncLog {
+  id          String   @id @default(cuid())
+  tipo        String   // "import" | "enrich" | "movements" | "webhook" | "balances"
+  iniciado    DateTime @default(now())
+  finalizado  DateTime?
+  sucesso     Boolean  @default(false)
+  contasProcessadas Int @default(0)
+  contasComErro    Int @default(0)
+  resumo      String?  @db.Text
+  erros       Json?    // lista de erros { conta, motivo }
+  trigger     String?  // "manual" | "cron" | "webhook"
+  userId      String?  // quem disparou se foi manual
+
+  @@index([tipo, iniciado])
+  @@index([iniciado])
 }
 
 // Registro de cada contato: 12-4-2 (12 ligações, 4 reuniões, 2 revisões por ano para clientes A)
@@ -706,7 +770,7 @@ model PainelPrioridade {
   @@index([userId, data])
 }
 
-// Acoes unificadas do painel: local (cockpit) + MS To Do + Priority Matrix
+// Acoes unificadas do painel: local (ecossistema) + MS To Do + Priority Matrix
 // Write-back bidirecional via cowork (Chrome MCP): pendingSync=true dispara
 // aplicação na origem na próxima sincronia.
 model AcaoPainel {
@@ -718,7 +782,7 @@ model AcaoPainel {
   importante  Boolean   @default(false)
   noMeuDia    Boolean   @default(false)
   quadrante   String?   // "Q1" | "Q2" | "Q3" | "Q4" (só Priority Matrix)
-  origem      String    // "cockpit" | "ms-todo" | "priority-matrix"
+  origem      String    // "local" | "ms-todo" | "priority-matrix"
   externoId   String?   // id na fonte externa (preenchido após sync)
   projetoPm   String?   // nome do projeto no Priority Matrix
   pendingSync Boolean   @default(false)

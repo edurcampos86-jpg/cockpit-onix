@@ -191,7 +191,7 @@ export async function criarAcaoDeEmail(
     data: {
       userId,
       titulo: email.tituloAcao ?? email.assunto,
-      origem: "cockpit",
+      origem: "local",
       quadrante: email.quadranteSugerido ?? undefined,
       importante:
         email.quadranteSugerido === "Q1" || email.quadranteSugerido === "Q2",

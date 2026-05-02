@@ -4,7 +4,7 @@ import * as manychat from "@/lib/integrations/manychat";
 
 /**
  * POST /api/integracoes/manychat/sync
- * Importa leads do ManyChat para o pipeline do Cockpit
+ * Importa leads do ManyChat para o pipeline do Ecossistema
  */
 export async function POST() {
   try {

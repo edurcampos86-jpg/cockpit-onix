@@ -256,7 +256,7 @@ export default function IntegracoesPage() {
 
       <div className="mt-8 space-y-4">
         <ComoFunciona
-          proposito="Catálogo das ferramentas externas conectadas ao Cockpit (ManyChat, Claude AI, Zapier/Plaud, BTG, Meta, etc.) e o que cada uma habilita."
+          proposito="Catálogo das ferramentas externas conectadas ao Ecossistema (ManyChat, Claude AI, Zapier/Plaud, BTG, Meta, etc.) e o que cada uma habilita."
           comoUsar="Veja o status de cada conexão. Para conectar uma nova, siga as instruções no card. Cada integração desbloqueia um conjunto de automações listadas abaixo."
           comoAjuda="Centraliza tudo num só lugar: você sabe rapidamente o que está ativo, o que precisa configurar, e quais automações dependem de quais conexões."
         />
@@ -495,12 +495,12 @@ export default function IntegracoesPage() {
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {[
-              { title: "Lead quente → Notificação instantânea", desc: "ManyChat detecta lead quente → push notification no celular + card no pipeline", tools: "ManyChat + Cockpit" },
+              { title: "Lead quente → Notificação instantânea", desc: "ManyChat detecta lead quente → push notification no celular + card no pipeline", tools: "ManyChat + Ecossistema" },
               { title: "Post publicado → CTA automático", desc: "Publicação via Meta API → ManyChat ativa resposta automática nos comentários", tools: "Meta API + ManyChat" },
-              { title: "Post agendado → Evento no calendário", desc: "Post criado no Cockpit → Evento automático no Google Calendar com horário de publicação", tools: "Google Calendar + Cockpit" },
-              { title: "Performance acima da média → Impulsionar", desc: "Reel com engajamento acima de 2% → alerta para impulsionar com tráfego pago", tools: "Meta API + Cockpit" },
-              { title: "Cross-sell 30 dias → Alerta automático", desc: "Cliente completa 30 dias → Manus sugere abordagem de seguro de vida ou consórcio", tools: "Manus + Cockpit" },
-              { title: "Agenda do dia → Bloquear horário de gravação", desc: "Sync automático entre calendário editorial e Google Calendar para reservar horários", tools: "Google Calendar + Cockpit" },
+              { title: "Post agendado → Evento no calendário", desc: "Post criado no Ecossistema → Evento automático no Google Calendar com horário de publicação", tools: "Google Calendar + Ecossistema" },
+              { title: "Performance acima da média → Impulsionar", desc: "Reel com engajamento acima de 2% → alerta para impulsionar com tráfego pago", tools: "Meta API + Ecossistema" },
+              { title: "Cross-sell 30 dias → Alerta automático", desc: "Cliente completa 30 dias → Manus sugere abordagem de seguro de vida ou consórcio", tools: "Manus + Ecossistema" },
+              { title: "Agenda do dia → Bloquear horário de gravação", desc: "Sync automático entre calendário editorial e Google Calendar para reservar horários", tools: "Google Calendar + Ecossistema" },
             ].map((auto, i) => (
               <div key={i} className="bg-card border border-border rounded-lg p-3">
                 <p className="text-sm font-medium text-foreground">{auto.title}</p>

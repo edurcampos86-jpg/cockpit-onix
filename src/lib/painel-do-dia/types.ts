@@ -2,7 +2,7 @@
  * Tipos compartilhados do Painel do Dia.
  *
  * Fontes:
- * - cockpit: local, gravado no Prisma (AcaoPainel + Task)
+ * - local: gravado no Prisma (AcaoPainel + Task) — ações criadas dentro do ecossistema
  * - google: Google Calendar + Gmail via OAuth backend (usa google-calendar.ts)
  * - ms-todo | ms-calendar | ms-mail: Microsoft via cowork (Chrome MCP → cache)
  * - priority-matrix: Appfluence via cowork (Chrome MCP → AcaoPainel)
@@ -10,7 +10,7 @@
  * - datacrazy: API direta (src/lib/datacrazy.ts)
  */
 
-export type OrigemAcao = "cockpit" | "ms-todo" | "priority-matrix";
+export type OrigemAcao = "local" | "ms-todo" | "priority-matrix";
 
 export type QuadrantePM = "Q1" | "Q2" | "Q3" | "Q4";
 
@@ -186,7 +186,7 @@ export type AtualizarAcaoInput = Partial<
 >;
 
 // ============================================
-// Payload do cowork-sync (Chrome MCP → cockpit)
+// Payload do cowork-sync (Chrome MCP → ecossistema)
 // ============================================
 
 export type CoworkSyncPayload = {

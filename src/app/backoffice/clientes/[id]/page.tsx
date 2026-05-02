@@ -6,6 +6,7 @@ import { ArrowLeft } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/layout/page-header";
 import { ClienteDetalhe } from "@/components/backoffice/cliente-detalhe";
+import { ClienteBtgSection } from "@/components/backoffice/cliente-btg-section";
 
 export default async function ClienteDetalhePage({
   params,
@@ -14,17 +15,24 @@ export default async function ClienteDetalhePage({
 }) {
   const { id } = await params;
 
-  const cliente = await prisma.clienteBackoffice.findUnique({
-    where: { id },
-    include: {
-      perfilDescoberta: true,
-      planoUmaPagina: true,
-      checklist: true,
-      metas: { orderBy: { criadoEm: "desc" } },
-      eventosVida: { orderBy: { data: "asc" } },
-      interacoes: { orderBy: { data: "desc" }, take: 50 },
-    },
-  });
+  const [cliente, movimentacoes] = await Promise.all([
+    prisma.clienteBackoffice.findUnique({
+      where: { id },
+      include: {
+        perfilDescoberta: true,
+        planoUmaPagina: true,
+        checklist: true,
+        metas: { orderBy: { criadoEm: "desc" } },
+        eventosVida: { orderBy: { data: "asc" } },
+        interacoes: { orderBy: { data: "desc" }, take: 50 },
+      },
+    }),
+    prisma.movimentacaoBtg.findMany({
+      where: { clienteId: id },
+      orderBy: { data: "desc" },
+      take: 30,
+    }),
+  ]);
 
   if (!cliente) notFound();
 
@@ -41,6 +49,10 @@ export default async function ClienteDetalhePage({
         >
           <ArrowLeft className="h-4 w-4" /> Voltar para lista de clientes
         </Link>
+        <ClienteBtgSection
+          cliente={JSON.parse(JSON.stringify(cliente))}
+          movimentacoes={JSON.parse(JSON.stringify(movimentacoes))}
+        />
         <ClienteDetalhe cliente={JSON.parse(JSON.stringify(cliente))} />
       </div>
     </div>

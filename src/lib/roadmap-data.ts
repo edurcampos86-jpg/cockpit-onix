@@ -34,14 +34,14 @@ export const ROADMAP: AnoRoadmap[] = [
     fases: [
       {
         id: "1-1",
-        titulo: "MVP — Ciclo Cockpit",
-        descricao: "Implantar ciclo semanal: cockpit + reuniao de segunda",
+        titulo: "MVP — Ciclo Ecossistema",
+        descricao: "Implantar ciclo semanal: ecossistema + reuniao de segunda",
         mesInicio: 1,
         mesFim: 1,
         ano: 1,
         entregas: [
           "Pipeline Python gerando relatorios semanais",
-          "Cockpit web com dashboard e relatorios",
+          "Ecossistema web com dashboard e relatorios",
           "Painel Semanal para segunda-feira",
           "Reuniao de segunda com Formato C",
         ],
@@ -275,7 +275,7 @@ export const ROADMAP: AnoRoadmap[] = [
         mesFim: 48,
         ano: 4,
         entregas: [
-          "Segundo departamento usando o cockpit",
+          "Segundo departamento usando o ecossistema",
           "Trilhas de desenvolvimento customizadas",
           "Ciclo semanal funcionando autonomamente",
         ],

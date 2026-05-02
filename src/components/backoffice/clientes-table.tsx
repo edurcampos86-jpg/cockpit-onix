@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Users, Search, Edit2, Check, X, RefreshCw, MessageCircle, Phone, Video, Loader2 } from "lucide-react";
+import { Users, Search, Edit2, Check, X, RefreshCw, MessageCircle, Phone, Video, Loader2, Download, Sparkles, Activity } from "lucide-react";
 
 interface ContatoResumo {
   data: string;
@@ -75,6 +75,9 @@ export function ClientesTable({ clientes: iniciais }: { clientes: Cliente[] }) {
   const [filtroSaldoConta, setFiltroSaldoConta] = useState<FaixaSaldo>("todos");
   const [editando, setEditando] = useState<string | null>(null);
   const [sincronizando, setSincronizando] = useState(false);
+  const [importando, setImportando] = useState(false);
+  const [enriquecendo, setEnriquecendo] = useState(false);
+  const [sincMovs, setSincMovs] = useState(false);
   const [syncResult, setSyncResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const [buscandoContatos, setBuscandoContatos] = useState(false);
   const [contatos, setContatos] = useState<Record<string, ContatoResumo[]>>({});
@@ -101,6 +104,61 @@ export function ClientesTable({ clientes: iniciais }: { clientes: Cliente[] }) {
       setSyncResult({ ok: false, msg: e instanceof Error ? e.message : "Erro" });
     } finally {
       setSincronizando(false);
+    }
+  };
+
+  const importarBtg = async () => {
+    if (importando) return;
+    if (!confirm("Importar todos os clientes do BTG via Base de Contas + Dados Cadastrais + Saldo + Posição? Pode levar alguns minutos por causa do rate limit do Dados Cadastrais (60 req/min).")) return;
+    setImportando(true);
+    setSyncResult(null);
+    try {
+      const res = await fetch("/api/backoffice/btg-import", { method: "POST" });
+      const data = await res.json();
+      setSyncResult({ ok: !!data.success, msg: data.message || "Erro" });
+      if (data.success) {
+        setTimeout(() => window.location.reload(), 1500);
+      }
+    } catch (e) {
+      setSyncResult({ ok: false, msg: e instanceof Error ? e.message : "Erro" });
+    } finally {
+      setImportando(false);
+    }
+  };
+
+  const enriquecerBtg = async () => {
+    if (enriquecendo) return;
+    if (!confirm("Enriquecer todos os clientes com Suitability + Assessor + Receita do BTG? Pode levar alguns minutos.")) return;
+    setEnriquecendo(true);
+    setSyncResult(null);
+    try {
+      const res = await fetch("/api/backoffice/btg-enrich", { method: "POST" });
+      const data = await res.json();
+      setSyncResult({ ok: !!data.success, msg: data.message || "Erro" });
+    } catch (e) {
+      setSyncResult({ ok: false, msg: e instanceof Error ? e.message : "Erro" });
+    } finally {
+      setEnriquecendo(false);
+    }
+  };
+
+  const sincronizarMovimentacoes = async () => {
+    if (sincMovs) return;
+    if (!confirm("Sincronizar movimentações dos últimos 7 dias?")) return;
+    setSincMovs(true);
+    setSyncResult(null);
+    try {
+      const res = await fetch("/api/backoffice/btg-movements-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scope: "weekly" }),
+      });
+      const data = await res.json();
+      setSyncResult({ ok: !!data.success, msg: data.message || "Erro" });
+    } catch (e) {
+      setSyncResult({ ok: false, msg: e instanceof Error ? e.message : "Erro" });
+    } finally {
+      setSincMovs(false);
     }
   };
 
@@ -239,6 +297,36 @@ export function ClientesTable({ clientes: iniciais }: { clientes: Cliente[] }) {
         >
           <RefreshCw className={`h-4 w-4 ${sincronizando ? "animate-spin" : ""}`} />
           {sincronizando ? "Sincronizando..." : "Sincronizar saldos BTG"}
+        </button>
+
+        <button
+          onClick={importarBtg}
+          disabled={importando}
+          className="px-3 py-2 rounded-lg border border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-400 text-sm flex items-center gap-2 hover:bg-sky-500/20 disabled:opacity-50"
+          title="Importar todos os clientes do BTG (Base de Contas + Cadastrais + Saldo + Posição)"
+        >
+          {importando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+          {importando ? "Importando..." : "Importar do BTG"}
+        </button>
+
+        <button
+          onClick={enriquecerBtg}
+          disabled={enriquecendo}
+          className="px-3 py-2 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400 text-sm flex items-center gap-2 hover:bg-amber-500/20 disabled:opacity-50"
+          title="Enriquecer com Suitability + Assessor + Receita do BTG"
+        >
+          {enriquecendo ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+          {enriquecendo ? "Enriquecendo..." : "Enriquecer dados"}
+        </button>
+
+        <button
+          onClick={sincronizarMovimentacoes}
+          disabled={sincMovs}
+          className="px-3 py-2 rounded-lg border border-zinc-500/30 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300 text-sm flex items-center gap-2 hover:bg-zinc-500/20 disabled:opacity-50"
+          title="Sincronizar movimentações dos últimos 7 dias"
+        >
+          {sincMovs ? <Loader2 className="h-4 w-4 animate-spin" /> : <Activity className="h-4 w-4" />}
+          {sincMovs ? "Sincronizando..." : "Sync Movimentações"}
         </button>
       </div>
 

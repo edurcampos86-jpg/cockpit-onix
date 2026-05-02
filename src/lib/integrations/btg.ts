@@ -52,16 +52,44 @@ export async function getAccessToken(scope = ""): Promise<BtgToken> {
   return token;
 }
 
-const POSITION_BASE = "https://api.btgpactual.com/iaas-api-position";
+// Hosts das APIs IaaS BTG (descobertos via portal developer-partner)
+const HOSTS = {
+  position: "https://api.btgpactual.com/iaas-api-position",
+  accountManagement: "https://api.btgpactual.com/iaas-account-management",
+  accountBase: "https://api.btgpactual.com/api-account-base",
+  accountBalance: "https://api.btgpactual.com/api-account-balance",
+  suitability: "https://api.btgpactual.com/iaas-suitability",
+  accountAdvisor: "https://api.btgpactual.com/iaas-account-advisor",
+  operation: "https://api.btgpactual.com/iaas-api-operation",
+  rmReports: "https://api.btgpactual.com/api-rm-reports",
+  partnerReportHub: "https://api.btgpactual.com/api-partner-report-hub",
+} as const;
 
-async function authedGet(path: string): Promise<{ status: number; body: unknown; raw: string }> {
+export type ApiHostKey = keyof typeof HOSTS;
+
+export interface BtgResponse {
+  status: number;
+  body: unknown;
+  raw: string;
+}
+
+async function authedRequest(
+  host: ApiHostKey,
+  path: string,
+  init: { method?: string; body?: unknown } = {},
+): Promise<BtgResponse> {
   const token = await getAccessToken();
-  const res = await fetch(`${POSITION_BASE}${path}`, {
-    method: "GET",
-    headers: {
-      "x-id-partner-request": crypto.randomUUID(),
-      access_token: token.access_token,
-    },
+  const headers: Record<string, string> = {
+    "x-id-partner-request": crypto.randomUUID(),
+    access_token: token.access_token,
+  };
+  if (init.body !== undefined) {
+    headers["Content-Type"] = "application/json";
+  }
+  const res = await fetch(`${HOSTS[host]}${path}`, {
+    method: init.method || "GET",
+    headers,
+    body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
   });
   const raw = await res.text();
   let body: unknown = raw;
@@ -69,14 +97,156 @@ async function authedGet(path: string): Promise<{ status: number; body: unknown;
   return { status: res.status, body, raw };
 }
 
-/** Busca posição de uma conta específica do parceiro */
-export async function getPositionByAccount(accountNumber: string) {
-  return authedGet(`/api/v1/position/${encodeURIComponent(accountNumber)}`);
+// Helper legado mantido pra compatibilidade com código antigo
+async function authedGet(path: string) {
+  return authedRequest("position", path);
 }
 
-/** Solicita o arquivo de posições consolidadas do parceiro (todas as contas) */
+// ===== POSIÇÃO (iaas-api-position) =====
+
+export async function getPositionByAccount(accountNumber: string) {
+  return authedRequest("position", `/api/v1/position/${encodeURIComponent(accountNumber)}`);
+}
+
 export async function getPartnerPositions() {
-  return authedGet(`/api/v1/position/partner`);
+  return authedRequest("position", `/api/v1/position/partner`);
+}
+
+/** Dispara geração de posições por parceiro — resposta vem via webhook */
+export async function refreshPartnerPositions() {
+  return authedRequest("position", `/api/v1/position/refresh`);
+}
+
+// ===== BASE DE CONTAS (api-account-base) =====
+// Lista canônica de contas do parceiro — fonte da verdade pra "quem é cliente Onix"
+
+export async function listAllAccounts() {
+  return authedRequest("accountBase", `/api/v1/account-base/accounts`);
+}
+
+export async function listSensitiveAccounts() {
+  return authedRequest("accountBase", `/api/v1/sensitive-account/accounts`);
+}
+
+// ===== DADOS CADASTRAIS (iaas-account-management) =====
+// Síncrono · 60 req/min — usar com rate limit
+
+export async function getAccountInformation(accountNumber: string) {
+  return authedRequest(
+    "accountManagement",
+    `/api/v1/account-management/account/${encodeURIComponent(accountNumber)}/information`,
+  );
+}
+
+// ===== SALDO DE CONTAS (api-account-balance) =====
+// Saldo de TODAS as contas em UMA chamada
+
+export async function listAllBalances() {
+  return authedRequest("accountBalance", `/api/v1/account-balance/list`);
+}
+
+// ===== SUITABILITY (iaas-suitability) =====
+
+export async function getSuitability(accountNumber: string) {
+  return authedRequest(
+    "suitability",
+    `/api/v1/suitability/account/${encodeURIComponent(accountNumber)}`,
+  );
+}
+
+export async function getSuitabilityInfo(accountNumber: string) {
+  return authedRequest(
+    "suitability",
+    `/api/v1/suitability/account/${encodeURIComponent(accountNumber)}/info`,
+  );
+}
+
+// ===== RELACIONAMENTO CONTA × ASSESSOR (iaas-account-advisor) =====
+
+/** Lista todas contas do parceiro com seus assessores responsáveis */
+export async function getAccountsByAdvisor() {
+  return authedRequest("accountAdvisor", `/api/v1/advisor/link/account`);
+}
+
+export async function getAccountsByCge(cge: string) {
+  return authedRequest("accountAdvisor", `/api/v1/advisor/accounts?cge=${encodeURIComponent(cge)}`);
+}
+
+export async function getOfficeInformations() {
+  return authedRequest("accountAdvisor", `/api/v1/advisor/office-informations`);
+}
+
+// ===== MOVIMENTAÇÕES (iaas-api-operation) =====
+
+export async function getMovementsByAccountFull(accountNumber: string) {
+  return authedRequest("operation", `/api/v1/operation-history/full/${encodeURIComponent(accountNumber)}`);
+}
+
+export async function getMovementsByAccountMonthly(accountNumber: string) {
+  return authedRequest("operation", `/api/v1/operation-history/monthly/${encodeURIComponent(accountNumber)}`);
+}
+
+export async function getMovementsByAccountWeekly(accountNumber: string) {
+  return authedRequest("operation", `/api/v1/operation-history/weekly/${encodeURIComponent(accountNumber)}`);
+}
+
+export async function getMovementsByPartnerMonthly() {
+  return authedRequest("operation", `/api/v1/operation-history/monthly`);
+}
+
+export async function getMovementsByPartnerWeekly() {
+  return authedRequest("operation", `/api/v1/operation-history/weekly`);
+}
+
+export async function postMovementsByPartnerPeriod(startDate: string, endDate: string) {
+  return authedRequest("operation", `/api/v1/operation-history/period`, {
+    method: "POST",
+    body: { startDate, endDate },
+  });
+}
+
+// ===== RELATÓRIOS GERENCIAIS — COMISSÕES (api-rm-reports) =====
+// Resposta tipicamente vem via webhook (assíncrono)
+
+export async function getCommissionReport() {
+  return authedRequest("rmReports", `/api/v1/rm-reports/commission`);
+}
+
+export async function getMonthlyCommissionReport(refDate: string) {
+  return authedRequest("rmReports", `/api/v1/rm-reports/monthly-commission`, {
+    method: "POST",
+    body: { refDate },
+  });
+}
+
+// ===== STVM / NET NEW MONEY (api-partner-report-hub) =====
+
+export async function getStvmReport(startDate: string, endDate: string) {
+  return authedRequest("partnerReportHub", `/api/v1/report/stvm`, {
+    method: "POST",
+    body: { startDate, endDate },
+  });
+}
+
+// ===== RATE LIMITER (pra Dados Cadastrais — 60 req/min) =====
+
+export async function rateLimitedSequential<T, R>(
+  items: T[],
+  fn: (item: T, index: number) => Promise<R>,
+  opts: { maxPerMinute: number; onProgress?: (done: number, total: number) => void } = { maxPerMinute: 55 },
+): Promise<R[]> {
+  const results: R[] = [];
+  const minIntervalMs = Math.ceil(60_000 / opts.maxPerMinute);
+  for (let i = 0; i < items.length; i++) {
+    const start = Date.now();
+    results.push(await fn(items[i], i));
+    if (opts.onProgress) opts.onProgress(i + 1, items.length);
+    const elapsed = Date.now() - start;
+    if (elapsed < minIntervalMs && i < items.length - 1) {
+      await new Promise((r) => setTimeout(r, minIntervalMs - elapsed));
+    }
+  }
+  return results;
 }
 
 export async function testConnection(): Promise<{ success: boolean; message: string }> {

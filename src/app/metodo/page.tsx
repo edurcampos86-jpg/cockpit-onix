@@ -3,7 +3,7 @@ import { ComoFunciona } from "@/components/layout/como-funciona";
 import { Compass, Layers, Target, Zap, BookOpen } from "lucide-react";
 
 export const metadata = {
-  title: "Método Onix — Cockpit",
+  title: "Método Onix — Ecossistema",
 };
 
 export default function MetodoPage() {
@@ -11,12 +11,12 @@ export default function MetodoPage() {
     <div className="min-h-screen">
       <PageHeader
         title="Método Onix"
-        description="Os fundamentos por trás do Cockpit — por que o sistema é assim e como tudo se conecta"
+        description="Os fundamentos por trás do Ecossistema — por que o sistema é assim e como tudo se conecta"
       />
 
       <div className="p-8 space-y-6 max-w-4xl">
         <ComoFunciona
-          proposito="Explica o método de gestão por trás do Cockpit Onix. Os três módulos não são pastas de funcionalidades — são respostas a três perguntas estratégicas distintas."
+          proposito="Explica o método de gestão por trás do Ecossistema Onix. Os três módulos não são pastas de funcionalidades — são respostas a três perguntas estratégicas distintas."
           comoUsar="Leia uma vez para entender o pano de fundo. Volte aqui sempre que precisar relembrar por que uma página existe ou como tomar uma decisão entre módulos."
           comoAjuda="Dá clareza estratégica. A ferramenta deixa de ser uma coleção de telas e vira um sistema com lógica própria — e isso muda como você usa cada página."
         />

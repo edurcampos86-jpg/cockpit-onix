@@ -42,7 +42,7 @@ import type {
 import { FecharAtividadeModal } from "./fechar-atividade-modal";
 
 type DestinoSelecionado =
-  | "cockpit"
+  | "local"
   | "ms-todo"
   | "priority-matrix:Q1"
   | "priority-matrix:Q2"
@@ -52,7 +52,7 @@ type DestinoSelecionado =
 type Camada = "hoje" | "atrasadas" | "proximas-48h" | "rituais";
 
 const rotuloOrigem: Record<OrigemAcao, string> = {
-  cockpit: "Cockpit",
+  local: "Local",
   "ms-todo": "MS To Do",
   "priority-matrix": "Priority Matrix",
 };
@@ -141,7 +141,7 @@ export function AcoesDoDia({
 }) {
   const router = useRouter();
   const [novoTitulo, setNovoTitulo] = useState("");
-  const [destino, setDestino] = useState<DestinoSelecionado>("cockpit");
+  const [destino, setDestino] = useState<DestinoSelecionado>("local");
   const [camada, setCamada] = useState<Camada>("hoje");
   const [isPending, start] = useTransition();
   const [acaoParaEncerrar, setAcaoParaEncerrar] =
@@ -242,7 +242,7 @@ export function AcoesDoDia({
               <Info className="h-3.5 w-3.5 text-muted-foreground" />
             </TooltipTrigger>
             <TooltipContent className="max-w-sm">
-              Todas as suas ações unificadas (Cockpit + MS To Do + Priority
+              Todas as suas ações unificadas (Local + MS To Do + Priority
               Matrix) organizadas pela matriz de Eisenhower. Q1=crítico+urgente,
               Q2=importante (foco), Q3=urgente+não-crítico (delegar),
               Q4=rotina. Filtros no topo limitam por prazo: Hoje (vence
@@ -308,7 +308,7 @@ export function AcoesDoDia({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="cockpit">Cockpit (local)</SelectItem>
+              <SelectItem value="local">Local</SelectItem>
               <SelectItem value="ms-todo">MS To Do</SelectItem>
               <SelectItem value="priority-matrix:Q1">
                 Priority Matrix — Q1

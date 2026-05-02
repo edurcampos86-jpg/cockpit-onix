@@ -267,7 +267,7 @@ export function FecharAtividadeModal({
               onChange={(e) => setProximoPasso(e.target.value)}
             />
             <p className="text-[11px] text-muted-foreground">
-              Se preenchido, vira uma nova acao Q2 no Cockpit.
+              Se preenchido, vira uma nova acao Q2 no Painel.
             </p>
           </div>
 

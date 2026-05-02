@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils";
 import type { AcaoUnificada, OrigemAcao } from "@/lib/painel-do-dia/types";
 
 const rotuloOrigem: Record<OrigemAcao, string> = {
-  cockpit: "Cockpit",
+  local: "Local",
   "ms-todo": "MS To Do",
   "priority-matrix": "Priority Matrix",
 };

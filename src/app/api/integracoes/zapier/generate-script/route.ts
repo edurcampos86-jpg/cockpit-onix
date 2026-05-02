@@ -21,7 +21,7 @@ import { generateScriptForPost } from "@/lib/integrations/claude-ai";
  *      "category": "onix_pratica" | "alerta_patrimonial" | "patrimonio_mimimi" | "pergunta_semana" | "sabado_bastidores",
  *      "format": "reel" | "carrossel" | "story",
  *      "topic": "contexto adicional (opcional)",
- *      "authorId": "ID do usuário no Cockpit (opcional — usa admin se omitido)",
+ *      "authorId": "ID do usuário no Ecossistema (opcional — usa admin se omitido)",
  *      "scheduledDate": "2026-04-01" (opcional — agendamento automático)
  *    }
  *
@@ -151,7 +151,7 @@ export async function POST(request: NextRequest) {
       },
       message: postId
         ? `Roteiro gerado e post agendado para ${scheduledDate}`
-        : "Roteiro gerado e salvo no Cockpit",
+        : "Roteiro gerado e salvo no Ecossistema",
     }, { status: 201 });
 
   } catch (error) {
@@ -173,7 +173,7 @@ export async function POST(request: NextRequest) {
 export async function GET() {
   return NextResponse.json({
     status: "active",
-    service: "Cockpit Onix — Geração de Roteiros via IA",
+    service: "Ecossistema Onix — Geração de Roteiros via IA",
     version: "v4",
     accepts: "POST com JSON: { title, category, format, topic?, authorId?, scheduledDate? }",
     categories: ["onix_pratica", "alerta_patrimonial", "patrimonio_mimimi", "pergunta_semana", "sabado_bastidores"],

@@ -16,7 +16,7 @@ EQUIPE:
 SISTEMA DE RELATORIOS:
 Pipeline semanal: busca conversas CRM Datacrazy, analise Claude AI, PDF, Slack.
 Relatorio tem 10 blocos: METRICAS, RETOMADA, TERMOMETRO, SECAO 0 (Lente PAT), SECAO 1-5, SCRIPT_SEMANA.
-O cockpit web exibe historico, comparativos, checklist de acoes e pagina de impressao.
+O ecossistema web exibe historico, comparativos, checklist de acoes e pagina de impressao.
 
 [CONTEXT_HERE]
 

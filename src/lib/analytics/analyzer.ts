@@ -365,7 +365,7 @@ function gerarRecomendacoes(
       tipo: 'horario',
       titulo: 'Publicar nos horários de pico do Roberto (12:00-12:30)',
       descricao: 'O persona Roberto (médico, 38-52 anos) está mais ativo entre 12:00-12:30 (intervalo de plantão/consultório). Publicar no horário em que o Roberto está mais ativo aumenta o alcance inicial do post, que é determinante para o algoritmo decidir se vai distribuir o conteúdo para mais pessoas.',
-      acao: 'Agendar publicações para 12:00-12:30, especialmente segunda-feira (P1) e terça-feira (P2). Use a função de agendamento do Cockpit para programar com antecedência.',
+      acao: 'Agendar publicações para 12:00-12:30, especialmente segunda-feira (P1) e terça-feira (P2). Use a função de agendamento do Ecossistema para programar com antecedência.',
       impactoEsperado: '+20% de alcance inicial (fator determinante para o algoritmo)',
       prioridade: 'media',
     })

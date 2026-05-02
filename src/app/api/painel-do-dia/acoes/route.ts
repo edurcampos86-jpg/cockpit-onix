@@ -51,13 +51,13 @@ export async function POST(request: Request) {
   if (!body.titulo?.trim()) {
     return NextResponse.json({ error: "titulo obrigatorio" }, { status: 400 });
   }
-  if (!["cockpit", "ms-todo", "priority-matrix"].includes(body.origem)) {
+  if (!["local", "ms-todo", "priority-matrix"].includes(body.origem)) {
     return NextResponse.json({ error: "origem invalida" }, { status: 400 });
   }
 
   // Origens externas criadas pelo painel entram com pendingSync=true:
   // o cowork (Chrome MCP) aplica na fonte na proxima sincronia e preenche externoId.
-  const precisaSync = body.origem !== "cockpit";
+  const precisaSync = body.origem !== "local";
 
   const acao = await prisma.acaoPainel.create({
     data: {

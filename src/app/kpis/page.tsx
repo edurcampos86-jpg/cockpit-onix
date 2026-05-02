@@ -132,7 +132,8 @@ const CAMADAS: CamadaDefinition[] = [
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────
 
-const STORAGE_KEY = "cockpit-onix-kpis";
+const STORAGE_KEY = "ecossistema-onix-kpis";
+const LEGACY_STORAGE_KEY = "cockpit-onix-kpis";
 
 function getCurrentWeekLabel(): string {
   const now = new Date();
@@ -151,7 +152,15 @@ function loadAllWeeks(): WeekData[] {
   if (typeof window === "undefined") return [];
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
+    if (raw) return JSON.parse(raw);
+    // Migração one-shot da chave antiga (cockpit-onix-kpis → ecossistema-onix-kpis)
+    const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
+    if (legacy) {
+      localStorage.setItem(STORAGE_KEY, legacy);
+      localStorage.removeItem(LEGACY_STORAGE_KEY);
+      return JSON.parse(legacy);
+    }
+    return [];
   } catch {
     return [];
   }

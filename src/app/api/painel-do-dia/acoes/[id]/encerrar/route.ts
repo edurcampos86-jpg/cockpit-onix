@@ -9,7 +9,7 @@ import type { EncerrarAcaoInput } from "@/lib/painel-do-dia/types";
  * Fecho estruturado de uma acao: marca como concluida, guarda resultado,
  * tempo gasto, cliente vinculado e cria InteracaoCliente no CRM quando
  * `registrarCrm` true + cliente informado. Opcionalmente cria follow-up
- * como nova AcaoPainel (origem=cockpit) se `proximoPasso` informado.
+ * como nova AcaoPainel (origem=local) se `proximoPasso` informado.
  *
  * Atende Sugestao 4 do roadmap do Painel do Dia.
  */
@@ -33,7 +33,7 @@ export async function POST(
   }
 
   const agora = new Date();
-  const precisaSync = existente.origem !== "cockpit";
+  const precisaSync = existente.origem !== "local";
   const registrarCrm =
     !!body.registrarCrm && !!body.clienteVinculadoId && !existente.registradaCrm;
 
@@ -73,7 +73,7 @@ export async function POST(
       });
     }
 
-    // 3. Cria follow-up (proximo passo) como acao cockpit local
+    // 3. Cria follow-up (proximo passo) como acao local
     // noMeuDia=true garante que o item aparece no filtro "Hoje" assim que
     // o usuario volta pro painel (classificarCamada retornaria null caso
     // contrario, deixando o follow-up invisivel).
@@ -82,7 +82,7 @@ export async function POST(
         data: {
           userId: session.userId,
           titulo: body.proximoPasso.trim(),
-          origem: "cockpit",
+          origem: "local",
           noMeuDia: true,
           importante: true,
           quadrante: "Q2",

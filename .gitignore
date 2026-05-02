@@ -49,3 +49,6 @@ next-env.d.ts
 dev.db
 dev.db-journal
 .pglite-dev/
+
+# editor/hook tmp backups
+*.tmp.[0-9]*

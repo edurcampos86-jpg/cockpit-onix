@@ -22,7 +22,7 @@ export async function PATCH(
     return NextResponse.json({ error: "nao encontrada" }, { status: 404 });
   }
 
-  const precisaSync = existente.origem !== "cockpit";
+  const precisaSync = existente.origem !== "local";
 
   const atualizada = await prisma.acaoPainel.update({
     where: { id },
@@ -65,7 +65,7 @@ export async function DELETE(
   }
 
   // Acao local: delete direto. Externa: marca syncOp=delete para o cowork remover na origem.
-  if (existente.origem === "cockpit") {
+  if (existente.origem === "local") {
     await prisma.acaoPainel.delete({ where: { id } });
     return NextResponse.json({ id, deletada: true });
   }

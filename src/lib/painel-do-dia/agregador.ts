@@ -49,7 +49,7 @@ export function deduplicarAcoesVsAgenda(
 
   const fontesExtras = new Map<string, Set<OrigemAcao>>();
   const acoesFiltradas = acoes.filter((acao) => {
-    if (acao.origem === "cockpit") return true;
+    if (acao.origem === "local") return true;
     const match = indice.get(normalizarTitulo(acao.titulo));
     if (!match) return true;
     const set = fontesExtras.get(match.id) ?? new Set<OrigemAcao>();
