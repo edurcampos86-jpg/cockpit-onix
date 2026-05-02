@@ -27,17 +27,19 @@ export async function POST(req: NextRequest) {
   });
 
   const r = await btg.getStvmReport(startDate, endDate);
+  const ok = r.status === 200 || r.status === 202;
+  const isPending = r.status === 202;
 
   await prisma.btgSyncLog.update({
     where: { id: log.id },
     data: {
       finalizado: new Date(),
-      sucesso: r.status === 200,
-      resumo: `${startDate} → ${endDate} · status=${r.status}`,
+      sucesso: ok,
+      resumo: `${startDate} → ${endDate} · status=${r.status}${isPending ? " (pendente — relatório vem via webhook)" : ""}`,
     },
   });
 
-  if (r.status !== 200) {
+  if (!ok) {
     return NextResponse.json(
       {
         success: false,
@@ -46,6 +48,17 @@ export async function POST(req: NextRequest) {
       },
       { status: 502 },
     );
+  }
+
+  if (isPending) {
+    // 202 Accepted: BTG vai gerar o relatório e mandar via webhook /api/webhooks/btg.
+    return NextResponse.json({
+      success: true,
+      pending: true,
+      message: `Relatório STVM solicitado (${startDate} → ${endDate}). BTG vai processar e enviar via webhook quando pronto.`,
+      startDate,
+      endDate,
+    });
   }
 
   return NextResponse.json({ success: true, startDate, endDate, data: r.body });

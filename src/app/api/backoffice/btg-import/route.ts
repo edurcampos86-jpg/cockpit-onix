@@ -68,14 +68,19 @@ export async function POST() {
 
   // 2. Saldos (tolerante)
   const saldosMap = new Map<string, { saldo: number; saldoConta: number }>();
+  let balancesShape = "";
+  let balancesSample = "";
   try {
     const balancesRes = await btg.listAllBalances();
+    balancesShape = shapeOf(balancesRes.body);
+    balancesSample = balancesRes.raw.slice(0, 500);
     if (balancesRes.status === 200) {
       for (const b of parseBalanceList(balancesRes.body)) {
         saldosMap.set(normalizeAccount(b.numeroConta), { saldo: b.saldoTotal, saldoConta: b.saldoConta });
       }
+      console.log(`[btg-import] listAllBalances parseou ${saldosMap.size} contas. Shape: ${balancesShape}`);
     } else {
-      console.warn(`[btg-import] listAllBalances ${balancesRes.status}: ${balancesRes.raw.slice(0, 200)}`);
+      console.warn(`[btg-import] listAllBalances ${balancesRes.status}: ${balancesSample}`);
     }
   } catch (e) {
     console.warn(`[btg-import] listAllBalances erro:`, e);
@@ -158,18 +163,21 @@ export async function POST() {
       sucesso: erros.length === 0,
       contasProcessadas: criados + atualizados,
       contasComErro: erros.length,
-      resumo: `${criados} criado(s), ${atualizados} atualizado(s), ${erros.length} erro(s). AUM total: R$ ${totalAum.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`,
+      resumo: `${criados} criado(s), ${atualizados} atualizado(s), ${erros.length} erro(s). Saldos parseados: ${saldosMap.size}/${contas.length} (shape: ${balancesShape}). AUM total: R$ ${totalAum.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`,
       erros: erros.length > 0 ? erros : undefined,
     },
   });
 
   return NextResponse.json({
     success: true,
-    message: `${criados} cliente(s) criado(s), ${atualizados} atualizado(s), ${erros.length} erro(s). AUM total: R$ ${totalAum.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`,
+    message: `${criados} cliente(s) criado(s), ${atualizados} atualizado(s), ${erros.length} erro(s). Saldos parseados: ${saldosMap.size}/${contas.length}. AUM total: R$ ${totalAum.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`,
     criados,
     atualizados,
     totalContas: contas.length,
     totalAum,
+    saldosParseados: saldosMap.size,
+    balancesShape,
+    balancesSample: saldosMap.size === 0 ? balancesSample : undefined,
     erros: erros.slice(0, 50),
   });
 }

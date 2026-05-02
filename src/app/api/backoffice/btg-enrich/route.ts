@@ -7,11 +7,14 @@ import * as btg from "@/lib/integrations/btg";
  * POST /api/backoffice/btg-enrich
  *
  * Enriquece ClienteBackoffice já existentes com:
- * - Suitability (perfilInvestidor + validade)
- * - Relacionamento Conta×Assessor (assessorCge + assessorNome)
- * - Comissões (receitaAnual estimada = mês × 12)
+ * - Suitability (perfilInvestidor + validade) — 1 chamada por cliente, rate limit 60/min
+ * - Relacionamento Conta×Assessor (assessorCge + assessorNome) — 1 chamada global
+ * - Comissões (receitaAnual estimada = mês × 12) — 1 chamada global
  *
- * Query: ?clienteId=xxx (opcional — se não passar, processa todos os clientes com numeroConta)
+ * Query params:
+ * - ?clienteId=xxx — processa só 1 cliente (útil pra detalhe)
+ * - ?offset=0&limit=20 — pagina pra evitar timeout. Default limit=20 (~22s pra 20 contas com rate limit).
+ *   Frontend deve chamar em loop até resposta com hasMore=false.
  */
 export async function POST(req: NextRequest) {
   const session = await getSession();
@@ -20,9 +23,11 @@ export async function POST(req: NextRequest) {
   }
 
   const clienteIdFiltro = req.nextUrl.searchParams.get("clienteId");
+  const offset = parseInt(req.nextUrl.searchParams.get("offset") || "0", 10);
+  const limit = Math.min(parseInt(req.nextUrl.searchParams.get("limit") || "20", 10), 25);
 
   const log = await prisma.btgSyncLog.create({
-    data: { tipo: "enrich", trigger: "manual", userId: session.userId },
+    data: { tipo: "enrich", trigger: "manual", userId: session.userId, resumo: `offset=${offset} limit=${limit}` },
   });
 
   // 1. Mapa conta → assessor (1 chamada)
@@ -57,10 +62,15 @@ export async function POST(req: NextRequest) {
     console.warn(`[btg-enrich] getCommissionReport erro:`, e);
   }
 
-  // 3. Lista clientes a enriquecer
+  // 3. Lista clientes a enriquecer (paginado pra evitar timeout)
+  const where = clienteIdFiltro ? { id: clienteIdFiltro } : { numeroConta: { not: "" } };
+  const totalClientes = clienteIdFiltro ? 1 : await prisma.clienteBackoffice.count({ where });
   const clientes = await prisma.clienteBackoffice.findMany({
-    where: clienteIdFiltro ? { id: clienteIdFiltro } : { numeroConta: { not: "" } },
+    where,
     select: { id: true, numeroConta: true },
+    orderBy: { id: "asc" },
+    skip: clienteIdFiltro ? 0 : offset,
+    take: clienteIdFiltro ? 1 : limit,
   });
 
   let comSuitability = 0;
@@ -120,6 +130,9 @@ export async function POST(req: NextRequest) {
     { maxPerMinute: 55 },
   );
 
+  const nextOffset = offset + clientes.length;
+  const hasMore = !clienteIdFiltro && nextOffset < totalClientes;
+
   await prisma.btgSyncLog.update({
     where: { id: log.id },
     data: {
@@ -127,19 +140,23 @@ export async function POST(req: NextRequest) {
       sucesso: erros.length === 0,
       contasProcessadas: enriquecidos,
       contasComErro: erros.length,
-      resumo: `${enriquecidos} enriquecido(s) · ${comSuitability} c/ suitability · ${comAssessor} c/ assessor · ${comReceita} c/ receita`,
+      resumo: `${enriquecidos} enriquecido(s) · ${comSuitability} c/ suitability · ${comAssessor} c/ assessor · ${comReceita} c/ receita · batch ${offset}-${nextOffset}/${totalClientes}`,
       erros: erros.length > 0 ? erros : undefined,
     },
   });
 
   return NextResponse.json({
     success: true,
-    message: `${enriquecidos} cliente(s) enriquecido(s). Suitability: ${comSuitability}, Assessor: ${comAssessor}, Receita: ${comReceita}.`,
+    message: `Batch ${offset + 1}-${nextOffset} de ${totalClientes}: ${enriquecidos} enriquecido(s). Suitability: ${comSuitability}, Assessor: ${comAssessor}, Receita: ${comReceita}.`,
     enriquecidos,
     comSuitability,
     comAssessor,
     comReceita,
-    erros: erros.slice(0, 50),
+    offset,
+    nextOffset,
+    totalClientes,
+    hasMore,
+    erros: erros.slice(0, 20),
   });
 }
 

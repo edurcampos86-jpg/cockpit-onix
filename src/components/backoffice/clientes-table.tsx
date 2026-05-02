@@ -128,13 +128,42 @@ export function ClientesTable({ clientes: iniciais }: { clientes: Cliente[] }) {
 
   const enriquecerBtg = async () => {
     if (enriquecendo) return;
-    if (!confirm("Enriquecer todos os clientes com Suitability + Assessor + Receita do BTG? Pode levar alguns minutos.")) return;
+    if (!confirm("Enriquecer todos os clientes com Suitability + Assessor + Receita do BTG? Vai rodar em batches de 20 — pode levar alguns minutos.")) return;
     setEnriquecendo(true);
     setSyncResult(null);
+    let offset = 0;
+    let totalEnriquecidos = 0;
+    let totalSuit = 0;
+    let totalAssessor = 0;
+    let totalReceita = 0;
+    let totalErros = 0;
     try {
-      const res = await fetch("/api/backoffice/btg-enrich", { method: "POST" });
-      const data = await res.json();
-      setSyncResult({ ok: !!data.success, msg: data.message || "Erro" });
+      while (true) {
+        setSyncResult({ ok: true, msg: `Enriquecendo... batch a partir do offset ${offset}` });
+        const res = await fetch(`/api/backoffice/btg-enrich?offset=${offset}&limit=20`, { method: "POST" });
+        const data = await res.json();
+        if (!data.success) {
+          setSyncResult({ ok: false, msg: data.message || "Erro" });
+          break;
+        }
+        totalEnriquecidos += data.enriquecidos || 0;
+        totalSuit += data.comSuitability || 0;
+        totalAssessor += data.comAssessor || 0;
+        totalReceita += data.comReceita || 0;
+        totalErros += (data.erros?.length || 0);
+        offset = data.nextOffset;
+        setSyncResult({
+          ok: true,
+          msg: `Progresso: ${offset}/${data.totalClientes} · ${totalEnriquecidos} enriquecidos · ${totalSuit} c/ suitability · ${totalAssessor} c/ assessor · ${totalReceita} c/ receita${totalErros > 0 ? ` · ${totalErros} erros` : ""}`,
+        });
+        if (!data.hasMore) {
+          setSyncResult({
+            ok: true,
+            msg: `Concluído! ${totalEnriquecidos}/${data.totalClientes} enriquecidos · ${totalSuit} c/ suitability · ${totalAssessor} c/ assessor · ${totalReceita} c/ receita${totalErros > 0 ? ` · ${totalErros} erros` : ""}`,
+          });
+          break;
+        }
+      }
     } catch (e) {
       setSyncResult({ ok: false, msg: e instanceof Error ? e.message : "Erro" });
     } finally {

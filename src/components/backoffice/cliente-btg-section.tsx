@@ -1,10 +1,14 @@
-import { Landmark, ShieldCheck, UserCog, TrendingUp, TrendingDown, Clock } from "lucide-react";
+"use client";
+
+import { useState } from "react";
+import { Landmark, ShieldCheck, UserCog, TrendingUp, TrendingDown, Clock, RefreshCcw, Sparkles, Loader2 } from "lucide-react";
 
 interface CoHolder { name?: string; taxIdentification?: string }
 interface UsuarioBtg { name?: string; userEmail?: string; phoneNumber?: string; isOwner?: boolean }
 interface BreakdownItem { ProductName?: string; productName?: string; TotalAmmount?: string | number; Balance?: string | number }
 
 interface ClienteBtg {
+  id: string;
   cpfCnpj: string | null;
   perfilInvestidor: string | null;
   suitabilityValidoAte: string | Date | null;
@@ -54,6 +58,10 @@ export function ClienteBtgSection({
   cliente: ClienteBtg;
   movimentacoes: MovimentacaoView[];
 }) {
+  const [buscandoCadastrais, setBuscandoCadastrais] = useState(false);
+  const [enriquecendo, setEnriquecendo] = useState(false);
+  const [actionMsg, setActionMsg] = useState<{ ok: boolean; msg: string } | null>(null);
+
   const coHolders = (cliente.coHolders as CoHolder[] | null) || [];
   const usuarios = (cliente.usuariosBtg as UsuarioBtg[] | null) || [];
   const breakdown = (cliente.breakdownProdutos as BreakdownItem[] | { Products?: BreakdownItem[] } | null);
@@ -67,13 +75,73 @@ export function ClienteBtgSection({
     cliente.cpfCnpj || cliente.perfilInvestidor || cliente.assessorNome || cliente.positionDate ||
     coHolders.length > 0 || usuarios.length > 0 || breakdownArr.length > 0;
 
+  const buscarCadastrais = async () => {
+    if (buscandoCadastrais) return;
+    setBuscandoCadastrais(true);
+    setActionMsg(null);
+    try {
+      const res = await fetch(`/api/backoffice/clientes/${cliente.id}/btg-cadastrais`, { method: "POST" });
+      const data = await res.json();
+      setActionMsg({ ok: !!data.success, msg: data.message || "Erro" });
+      if (data.success) setTimeout(() => window.location.reload(), 1500);
+    } catch (e) {
+      setActionMsg({ ok: false, msg: e instanceof Error ? e.message : "Erro" });
+    } finally {
+      setBuscandoCadastrais(false);
+    }
+  };
+
+  const enriquecerCliente = async () => {
+    if (enriquecendo) return;
+    setEnriquecendo(true);
+    setActionMsg(null);
+    try {
+      const res = await fetch(`/api/backoffice/btg-enrich?clienteId=${cliente.id}`, { method: "POST" });
+      const data = await res.json();
+      setActionMsg({ ok: !!data.success, msg: data.message || "Erro" });
+      if (data.success) setTimeout(() => window.location.reload(), 1500);
+    } catch (e) {
+      setActionMsg({ ok: false, msg: e instanceof Error ? e.message : "Erro" });
+    } finally {
+      setEnriquecendo(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="rounded-xl border bg-card p-6 space-y-4">
-        <div className="flex items-center gap-3">
-          <Landmark className="h-5 w-5 text-sky-600" />
-          <h3 className="font-semibold">Dados BTG</h3>
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-3">
+            <Landmark className="h-5 w-5 text-sky-600" />
+            <h3 className="font-semibold">Dados BTG</h3>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={buscarCadastrais}
+              disabled={buscandoCadastrais}
+              className="px-3 py-1.5 rounded-lg border border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-400 text-xs flex items-center gap-1.5 hover:bg-sky-500/20 disabled:opacity-50"
+              title="Buscar nome, CPF, e-mail e telefone do BTG (Account Information)"
+            >
+              {buscandoCadastrais ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCcw className="h-3 w-3" />}
+              {buscandoCadastrais ? "Buscando..." : "Buscar cadastrais"}
+            </button>
+            <button
+              onClick={enriquecerCliente}
+              disabled={enriquecendo}
+              className="px-3 py-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400 text-xs flex items-center gap-1.5 hover:bg-amber-500/20 disabled:opacity-50"
+              title="Suitability + Assessor + Receita pra esse cliente"
+            >
+              {enriquecendo ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+              {enriquecendo ? "Enriquecendo..." : "Enriquecer"}
+            </button>
+          </div>
         </div>
+
+        {actionMsg && (
+          <div className={`text-xs rounded p-2 border ${actionMsg.ok ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-400" : "bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-400"}`}>
+            {actionMsg.msg}
+          </div>
+        )}
 
         {!temDadosBtg ? (
           <p className="text-sm text-muted-foreground">
