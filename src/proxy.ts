@@ -4,12 +4,14 @@ import { jwtVerify } from "jose";
 
 const publicRoutes = [
   "/login",
+  "/recriar-senha",                    // Reset de senha — protegido por PASSWORD_RESET_SECRET
   "/onboarding/",                      // Rota pública de onboarding por token (Fase 2C — gestão do time)
   "/api/onix-corretora/ingest",
   "/api/onix-corretora/analisar",      // GET diagnóstico (apenas lê flags, não expõe tokens)
   "/api/onix-corretora/test-pipeline", // Diagnóstico do pipeline
   "/api/onix-corretora/coletivo",      // Geração de relatório coletivo
   "/api/integracoes/zapier/webhook",
+  "/api/webhooks/btg",                 // Webhook BTG — autentica via x-webhook-secret se configurado
   "/api/cron/",                        // Crons do Painel do Dia — autenticam via Bearer CRON_SECRET
 ];
 const secretKey = process.env.SESSION_SECRET;

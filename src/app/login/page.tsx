@@ -4,6 +4,7 @@ import { login, type LoginState } from "@/app/actions/auth";
 import { useActionState } from "react";
 import { Lock, User } from "lucide-react";
 import { useState } from "react";
+import Link from "next/link";
 
 function formatCpf(value: string): string {
   const digits = value.replace(/\D/g, "").slice(0, 11);
@@ -91,6 +92,13 @@ export default function LoginPage() {
             >
               {pending ? "Entrando..." : "Entrar"}
             </button>
+
+            <Link
+              href="/recriar-senha"
+              className="block text-center text-sm text-muted-foreground hover:text-foreground transition-colors pt-2"
+            >
+              Esqueci minha senha
+            </Link>
           </form>
         </div>
 
