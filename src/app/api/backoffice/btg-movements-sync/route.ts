@@ -37,6 +37,7 @@ export async function POST(req: NextRequest) {
   let movimentosNovos = 0;
   let movimentosDuplicados = 0;
   let movimentosOrfaos = 0;
+  let pendingViaWebhook = false;
   const erros: Array<{ etapa: string; conta?: string; motivo: string }> = [];
   const contasComMovimentos = new Set<string>();
 
@@ -109,6 +110,8 @@ export async function POST(req: NextRequest) {
       const r = await btg.postMovementsByPartnerPeriod(body.startDate, body.endDate);
       if (r.status === 200) {
         await processarLista(parseMovements(r.body));
+      } else if (r.status === 202) {
+        pendingViaWebhook = true;
       } else {
         erros.push({ etapa: "postMovementsByPartnerPeriod", motivo: extractErrorMessage(r.body) || `HTTP ${r.status}` });
       }
@@ -118,6 +121,8 @@ export async function POST(req: NextRequest) {
       const r = await helper();
       if (r.status === 200) {
         await processarLista(parseMovements(r.body));
+      } else if (r.status === 202) {
+        pendingViaWebhook = true;
       } else {
         erros.push({ etapa: scope, motivo: extractErrorMessage(r.body) || `HTTP ${r.status}` });
       }
@@ -126,6 +131,9 @@ export async function POST(req: NextRequest) {
     erros.push({ etapa: "scope-handler", motivo: e instanceof Error ? e.message : "?" });
   }
 
+  const resumoBase = `scope=${scope} · ${movimentosNovos} novos · ${movimentosDuplicados} dup · ${movimentosOrfaos} órfãos · ${contasComMovimentos.size} contas`;
+  const resumoFinal = pendingViaWebhook ? `${resumoBase} · pending (202 — vem via webhook)` : resumoBase;
+
   await prisma.btgSyncLog.update({
     where: { id: log.id },
     data: {
@@ -133,14 +141,17 @@ export async function POST(req: NextRequest) {
       sucesso: erros.length === 0,
       contasProcessadas: contasComMovimentos.size,
       contasComErro: erros.length,
-      resumo: `scope=${scope} · ${movimentosNovos} novos · ${movimentosDuplicados} dup · ${movimentosOrfaos} órfãos · ${contasComMovimentos.size} contas`,
+      resumo: resumoFinal,
       erros: erros.length > 0 ? erros : undefined,
     },
   });
 
   return NextResponse.json({
     success: true,
-    message: `${movimentosNovos} mov novo(s), ${movimentosDuplicados} duplicado(s), ${movimentosOrfaos} órfão(s) ignorado(s). ${contasComMovimentos.size} conta(s) com movimentos.`,
+    pending: pendingViaWebhook,
+    message: pendingViaWebhook
+      ? `Solicitação aceita pelo BTG (202). Movimentações virão via webhook quando processadas.`
+      : `${movimentosNovos} mov novo(s), ${movimentosDuplicados} duplicado(s), ${movimentosOrfaos} órfão(s) ignorado(s). ${contasComMovimentos.size} conta(s) com movimentos.`,
     scope,
     movimentosNovos,
     movimentosDuplicados,
