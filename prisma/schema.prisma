@@ -463,8 +463,11 @@ model ClienteBackoffice {
   observacoes     String? @db.Text
 
   // Cadência e promessa de serviço
-  ultimoContatoAt DateTime?
-  proximoContatoAt DateTime?
+  ultimoContatoAt DateTime? // qualquer canal (WhatsApp, ligação, reunião, manual)
+  ultimaReuniaoAt DateTime? // só reuniões (Plaud + manual tipo=reuniao)
+  proximaReuniaoAt DateTime? // próxima reunião agendada (Calendar / Datacrazy multiservice)
+  proximoContatoAt DateTime? // próximo contato planejado (qualquer canal)
+  ultimaSyncDatacrazy DateTime? // quando rodou último sync de contatos (Datacrazy + Plaud)
 
   // Receita
   receitaAnual  Float    @default(0)

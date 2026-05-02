@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Users, Search, Edit2, Check, X, RefreshCw, MessageCircle, Phone, Video, Loader2, Download, Sparkles, Activity } from "lucide-react";
+import { Users, Search, Edit2, Check, X, RefreshCw, MessageCircle, Phone, Video, Loader2, Download, Sparkles, Activity, CalendarClock } from "lucide-react";
 
 interface ContatoResumo {
   data: string;
@@ -23,6 +23,8 @@ interface Cliente {
   profissao: string | null;
   nicho: string | null;
   ultimoContatoAt: Date | string | null;
+  ultimaReuniaoAt: Date | string | null;
+  proximaReuniaoAt: Date | string | null;
   proximoContatoAt: Date | string | null;
   receitaAnual: number;
 }
@@ -78,6 +80,7 @@ export function ClientesTable({ clientes: iniciais }: { clientes: Cliente[] }) {
   const [importando, setImportando] = useState(false);
   const [enriquecendo, setEnriquecendo] = useState(false);
   const [sincMovs, setSincMovs] = useState(false);
+  const [syncDatacrazy, setSyncDatacrazy] = useState(false);
   const [syncResult, setSyncResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const [buscandoContatos, setBuscandoContatos] = useState(false);
   const [contatos, setContatos] = useState<Record<string, ContatoResumo[]>>({});
@@ -212,6 +215,25 @@ export function ClientesTable({ clientes: iniciais }: { clientes: Cliente[] }) {
     }
   };
 
+  const sincronizarDatacrazy = async () => {
+    if (syncDatacrazy) return;
+    if (!confirm("Sincronizar com Datacrazy + Plaud? Atualiza último contato e última reunião pra cada cliente. Pode levar alguns minutos.")) return;
+    setSyncDatacrazy(true);
+    setSyncResult(null);
+    try {
+      const res = await fetch("/api/backoffice/datacrazy-sync", { method: "POST" });
+      const data = await res.json();
+      setSyncResult({ ok: !!data.success, msg: data.message || "Erro" });
+      if (data.success) {
+        setTimeout(() => window.location.reload(), 1500);
+      }
+    } catch (e) {
+      setSyncResult({ ok: false, msg: e instanceof Error ? e.message : "Erro" });
+    } finally {
+      setSyncDatacrazy(false);
+    }
+  };
+
   const filtrados = clientes.filter((c) => {
     if (filtroClasse !== "todos" && c.classificacao !== filtroClasse) return false;
     if (busca && !c.nome.toLowerCase().includes(busca.toLowerCase())) return false;
@@ -308,7 +330,7 @@ export function ClientesTable({ clientes: iniciais }: { clientes: Cliente[] }) {
           onClick={buscarUltimosContatos}
           disabled={buscandoContatos}
           className="px-3 py-2 rounded-lg border border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-400 text-sm flex items-center gap-2 hover:bg-violet-500/20 disabled:opacity-50"
-          title="Buscar últimos contatos via Datacraze (WhatsApp) e Plaud (reuniões)"
+          title="Mostrar últimos contatos na tabela (não persiste — só visualização)"
         >
           {buscandoContatos ? (
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -316,6 +338,16 @@ export function ClientesTable({ clientes: iniciais }: { clientes: Cliente[] }) {
             <MessageCircle className="h-4 w-4" />
           )}
           {buscandoContatos ? "Buscando..." : "Buscar contatos"}
+        </button>
+
+        <button
+          onClick={sincronizarDatacrazy}
+          disabled={syncDatacrazy}
+          className="px-3 py-2 rounded-lg border border-fuchsia-500/30 bg-fuchsia-500/10 text-fuchsia-700 dark:text-fuchsia-400 text-sm flex items-center gap-2 hover:bg-fuchsia-500/20 disabled:opacity-50"
+          title="Sincronizar último contato (Datacrazy WhatsApp) e última reunião (Plaud) PERSISTINDO no banco"
+        >
+          {syncDatacrazy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarClock className="h-4 w-4" />}
+          {syncDatacrazy ? "Sincronizando..." : "Sync Datacrazy"}
         </button>
 
         <button
@@ -391,6 +423,8 @@ export function ClientesTable({ clientes: iniciais }: { clientes: Cliente[] }) {
                 <th className="text-right px-4 py-3 font-medium text-muted-foreground">Saldo Conta</th>
                 <th className="text-right px-4 py-3 font-medium text-muted-foreground">Receita/ano</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Último contato</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Última reunião</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Próxima reunião</th>
                 {contatosCarregados && (
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Contatos recentes</th>
                 )}
@@ -463,6 +497,20 @@ export function ClientesTable({ clientes: iniciais }: { clientes: Cliente[] }) {
                       ? new Date(c.ultimoContatoAt).toLocaleDateString("pt-BR")
                       : "—"}
                   </td>
+                  <td className="px-4 py-3 text-muted-foreground text-xs">
+                    {c.ultimaReuniaoAt
+                      ? new Date(c.ultimaReuniaoAt).toLocaleDateString("pt-BR")
+                      : "—"}
+                  </td>
+                  <td className="px-4 py-3 text-xs">
+                    {c.proximaReuniaoAt ? (
+                      <span className="text-emerald-700 dark:text-emerald-400 font-medium">
+                        {new Date(c.proximaReuniaoAt).toLocaleDateString("pt-BR")}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </td>
                   {contatosCarregados && (
                     <td className="px-4 py-3">
                       <ContatosBadges contatos={contatos[c.id] || []} />
@@ -472,7 +520,7 @@ export function ClientesTable({ clientes: iniciais }: { clientes: Cliente[] }) {
               ))}
               {filtrados.length === 0 && (
                 <tr>
-                  <td colSpan={contatosCarregados ? 8 : 7} className="px-4 py-8 text-center text-muted-foreground">
+                  <td colSpan={contatosCarregados ? 10 : 9} className="px-4 py-8 text-center text-muted-foreground">
                     {clientes.length === 0
                       ? "Nenhum cliente importado. Use o upload no painel principal."
                       : "Nenhum cliente encontrado com os filtros atuais."}

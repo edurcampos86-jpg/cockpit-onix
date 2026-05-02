@@ -21,6 +21,8 @@ export default async function ClientesPage() {
     profissao: string | null;
     nicho: string | null;
     ultimoContatoAt: Date | null;
+    ultimaReuniaoAt: Date | null;
+    proximaReuniaoAt: Date | null;
     proximoContatoAt: Date | null;
     receitaAnual: number;
   }> = [];
@@ -42,6 +44,8 @@ export default async function ClientesPage() {
       profissao: c.profissao,
       nicho: c.nicho,
       ultimoContatoAt: c.ultimoContatoAt,
+      ultimaReuniaoAt: c.ultimaReuniaoAt,
+      proximaReuniaoAt: c.proximaReuniaoAt,
       proximoContatoAt: c.proximoContatoAt,
       receitaAnual: c.receitaAnual,
     }));
