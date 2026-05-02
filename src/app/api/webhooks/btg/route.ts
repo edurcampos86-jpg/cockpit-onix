@@ -6,15 +6,31 @@ import { prisma } from "@/lib/prisma";
  * POST /api/webhooks/btg
  *
  * Endpoint público que recebe pushes do BTG (configurar URL no portal de parceiros).
- * Validação opcional via header x-webhook-secret se BTG_WEBHOOK_SECRET estiver setado.
+ * Quando BTG_WEBHOOK_SECRET está setado, valida em vários formatos comuns:
+ *   - Authorization: Bearer {secret}
+ *   - Authorization: ApiKey {secret}
+ *   - Authorization: {secret} (raw)
+ *   - X-API-Key: {secret}
+ *   - x-api-key: {secret}
+ *   - apikey: {secret}
+ *   - x-webhook-secret: {secret}
  * Sempre retorna 200 quando consegue parsear (BTG re-tenta em 4xx/5xx).
  */
 export async function POST(req: NextRequest) {
-  // Validação de secret (se configurado)
   const secret = process.env.BTG_WEBHOOK_SECRET;
   if (secret) {
-    const got = req.headers.get("x-webhook-secret");
-    if (got !== secret) {
+    const auth = req.headers.get("authorization") || "";
+    const candidates = [
+      auth,
+      auth.replace(/^Bearer\s+/i, ""),
+      auth.replace(/^ApiKey\s+/i, ""),
+      req.headers.get("x-api-key") || "",
+      req.headers.get("apikey") || "",
+      req.headers.get("x-webhook-secret") || "",
+      req.headers.get("x-btg-signature") || "",
+    ];
+    if (!candidates.some((c) => c === secret)) {
+      console.warn("[btg-webhook] secret inválido — headers:", Object.fromEntries(req.headers.entries()));
       return NextResponse.json({ success: false, message: "Secret inválido" }, { status: 401 });
     }
   } else {
