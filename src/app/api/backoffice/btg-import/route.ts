@@ -100,94 +100,54 @@ export async function POST() {
     console.warn(`[btg-import] getPartnerPositions erro:`, e);
   }
 
-  // 4. Dados cadastrais por conta (rate-limited)
+  // 4. Upsert por conta — usa só Base de Contas + Saldo + Posição (rápido).
+  // Dados Cadastrais (60 req/min, demorado) ficam no /btg-enrich pra evitar timeout.
   const erros: Array<{ conta: string; etapa: string; motivo: string }> = [];
   let criados = 0;
   let atualizados = 0;
 
-  await btg.rateLimitedSequential(
-    contas,
-    async (conta) => {
-      const numeroConta = normalizeAccount(conta.numeroConta);
-      try {
-        const infoRes = await btg.getAccountInformation(numeroConta);
-        let nome: string | null = null;
-        let cpfCnpj: string | null = null;
-        let email: string | null = null;
-        let telefone: string | null = null;
-        let coHolders: unknown = null;
-        let usuariosBtg: unknown = null;
+  for (const conta of contas) {
+    const numeroConta = normalizeAccount(conta.numeroConta);
+    try {
+      const saldos = saldosMap.get(numeroConta) || { saldo: 0, saldoConta: 0 };
+      const posicao = posicoesMap.get(numeroConta);
+      const aum = posicao?.aum ?? saldos.saldo;
 
-        if (infoRes.status === 200) {
-          const parsed = parseAccountInformation(infoRes.body);
-          nome = parsed.nome;
-          cpfCnpj = parsed.cpfCnpj;
-          email = parsed.email;
-          telefone = parsed.telefone;
-          coHolders = parsed.coHolders;
-          usuariosBtg = parsed.usuariosBtg;
-        } else if (infoRes.status !== 404) {
-          erros.push({
-            conta: numeroConta,
-            etapa: "getAccountInformation",
-            motivo: extractErrorMessage(infoRes.body) || `HTTP ${infoRes.status}`,
-          });
-        }
+      const existente = await prisma.clienteBackoffice.findFirst({
+        where: { numeroConta },
+        select: { id: true },
+      });
 
-        const saldos = saldosMap.get(numeroConta) || { saldo: 0, saldoConta: 0 };
-        const posicao = posicoesMap.get(numeroConta);
-        const aum = posicao?.aum ?? saldos.saldo;
-
-        const existente = await prisma.clienteBackoffice.findFirst({
-          where: { numeroConta },
-          select: { id: true, nome: true, cpfCnpj: true, email: true, telefone: true, coHolders: true, usuariosBtg: true },
+      if (existente) {
+        await prisma.clienteBackoffice.update({
+          where: { id: existente.id },
+          data: {
+            saldo: aum,
+            saldoConta: saldos.saldoConta,
+            breakdownProdutos: (posicao?.breakdown as never) ?? undefined,
+            positionDate: posicao?.positionDate ?? undefined,
+            ultimaSyncBtg: new Date(),
+          },
         });
-
-        if (existente) {
-          // Atualiza só campos BTG (sempre saldos/posição) + cadastrais só se ainda vazios
-          await prisma.clienteBackoffice.update({
-            where: { id: existente.id },
-            data: {
-              saldo: aum,
-              saldoConta: saldos.saldoConta,
-              breakdownProdutos: (posicao?.breakdown as never) ?? undefined,
-              positionDate: posicao?.positionDate ?? undefined,
-              ultimaSyncBtg: new Date(),
-              // Nome: substitui apenas placeholder "Cliente NNN", preserva nome editado
-              nome: shouldReplaceName(existente.nome, nome) ? nome! : undefined,
-              cpfCnpj: existente.cpfCnpj || cpfCnpj || undefined,
-              email: existente.email || email || undefined,
-              telefone: existente.telefone || telefone || undefined,
-              coHolders: existente.coHolders ? undefined : ((coHolders as never) ?? undefined),
-              usuariosBtg: existente.usuariosBtg ? undefined : ((usuariosBtg as never) ?? undefined),
-            },
-          });
-          atualizados++;
-        } else {
-          await prisma.clienteBackoffice.create({
-            data: {
-              numeroConta,
-              nome: nome || `Cliente ${numeroConta}`,
-              saldo: aum,
-              saldoConta: saldos.saldoConta,
-              cpfCnpj,
-              email,
-              telefone,
-              coHolders: (coHolders as never) ?? undefined,
-              usuariosBtg: (usuariosBtg as never) ?? undefined,
-              breakdownProdutos: (posicao?.breakdown as never) ?? undefined,
-              positionDate: posicao?.positionDate ?? undefined,
-              ultimaSyncBtg: new Date(),
-            },
-          });
-          criados++;
-        }
-      } catch (e) {
-        erros.push({ conta: numeroConta, etapa: "upsert", motivo: e instanceof Error ? e.message : "erro desconhecido" });
+        atualizados++;
+      } else {
+        await prisma.clienteBackoffice.create({
+          data: {
+            numeroConta,
+            nome: `Cliente ${numeroConta}`,
+            saldo: aum,
+            saldoConta: saldos.saldoConta,
+            breakdownProdutos: (posicao?.breakdown as never) ?? undefined,
+            positionDate: posicao?.positionDate ?? undefined,
+            ultimaSyncBtg: new Date(),
+          },
+        });
+        criados++;
       }
-    },
-    { maxPerMinute: 55 },
-  );
+    } catch (e) {
+      erros.push({ conta: numeroConta, etapa: "upsert", motivo: e instanceof Error ? e.message : "erro desconhecido" });
+    }
+  }
 
   const totalAum = Array.from(posicoesMap.values()).reduce((s, p) => s + p.aum, 0);
 
