@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
+import { ComoFunciona } from "@/components/layout/como-funciona";
 import { requireAdmin } from "@/lib/auth-helpers";
 import {
   listFiliais,
@@ -40,7 +41,12 @@ export default async function NovaPessoaPage() {
         </Link>
       </PageHeader>
 
-      <div className="p-8 max-w-3xl">
+      <div className="p-8 max-w-3xl space-y-6">
+        <ComoFunciona
+          proposito="Cadastro de uma nova pessoa no time: identificação, vínculo Onix (entrada/cargo) e hierarquia organizacional (filial, departamento, equipe, liderança)."
+          comoUsar="Preencha os campos obrigatórios — nome, CPF, email e dados do vínculo. Liderança é opcional (deixe em branco se reporta direto ao Eduardo). Depois de salvar, gera o convite de acesso pela ficha da pessoa."
+          comoAjuda="Mantém o organograma sempre atualizado, alimenta automaticamente as relações de chefia, e habilita os módulos PAT, acordo comercial e onboarding pra esse membro."
+        />
         <PessoaForm
           action={createPessoaAndRedirect}
           filiais={filiais}

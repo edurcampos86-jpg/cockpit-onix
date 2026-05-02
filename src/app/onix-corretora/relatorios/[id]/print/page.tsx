@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
 import PrintTrigger from "./print-trigger";
+import { ComoFunciona } from "@/components/layout/como-funciona";
 import {
   ThumbsUp,
   AlertTriangle,
@@ -213,6 +214,14 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
         }
       `}</style>
       <PrintTrigger />
+
+      <div className="no-print" style={{ padding: "16px 24px", background: "#f8fafc" }}>
+        <ComoFunciona
+          proposito="Versão pra impressão / PDF do relatório individual. Layout limpo em A4 com seções (positivo, melhoria, objeções, voz do cliente, plano de ação) e evidências em destaque."
+          comoUsar="A impressão abre sozinha. Cancele se quiser revisar primeiro. Pra gerar PDF: escolha ‘Salvar como PDF’ no diálogo de impressão. Use no 1:1 ou pra arquivar."
+          comoAjuda="O vendedor leva pra casa — ou guarda em pasta — o relatório que vai discutir na reunião. Mantém a evidência das conversas reais como referência."
+        />
+      </div>
 
       {/* ══════════════ PAGINA 1: CAPA + LENTE DO PERFIL ══════════════ */}
       <div style={pageStyle}>

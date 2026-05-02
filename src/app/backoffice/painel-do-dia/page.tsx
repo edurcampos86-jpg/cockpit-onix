@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
 import { PageHeader } from "@/components/layout/page-header";
+import { ComoFunciona } from "@/components/layout/como-funciona";
 import { PainelDiaHeader } from "@/components/backoffice/painel/painel-dia-header";
 import { PrioridadesCard } from "@/components/backoffice/painel/prioridades-card";
 import { AgendaUnificada } from "@/components/backoffice/painel/agenda-unificada";
@@ -35,6 +36,14 @@ export default async function PainelDoDiaPage() {
           acoesPendentes={payload.acoes.filter((a) => a.pendingSync)}
         />
       </PageHeader>
+
+      <div className="px-8">
+        <ComoFunciona
+          proposito="Sua tela de comando do dia: agenda, e-mails que pedem ação, prioridades e tarefas unificadas (locais + MS To Do + Priority Matrix) num único lugar."
+          comoUsar="Comece definindo as 3 prioridades do dia. Use ‘Sincronizar’ pra atualizar Outlook/To Do/Priority Matrix via cowork. Ao concluir uma ação, registre o fecho (tempo, cliente, próximo passo) — vira histórico no CRM."
+          comoAjuda="Substitui ficar pulando entre apps. Você abre o sistema de manhã, vê tudo que importa hoje e fecha o dia com tudo registrado — sem retrabalho de anotação manual."
+        />
+      </div>
 
       {payload.retrospectiva && (
         <div className="px-8">

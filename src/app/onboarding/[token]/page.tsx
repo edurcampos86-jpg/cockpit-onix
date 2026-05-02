@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { concluirOnboarding } from "@/app/actions/convite";
 import { CheckCircle2, Lock, Sparkles, AlertTriangle, XCircle } from "lucide-react";
+import { ComoFunciona } from "@/components/layout/como-funciona";
 
 export const metadata = {
   title: "Onboarding — Ecossistema Onix",
@@ -72,7 +73,8 @@ export default async function OnboardingPage({
 
   return (
     <main className="min-h-screen flex items-center justify-center bg-background p-6">
-      <div className="w-full max-w-md rounded-2xl border border-border bg-card p-8 shadow-lg">
+      <div className="w-full max-w-2xl space-y-6">
+        <div className="w-full max-w-md mx-auto rounded-2xl border border-border bg-card p-8 shadow-lg">
         <div className="flex items-center gap-3 mb-6">
           <div className="h-10 w-10 rounded-lg bg-primary flex items-center justify-center">
             <Sparkles className="h-5 w-5 text-primary-foreground" />
@@ -143,6 +145,13 @@ export default async function OnboardingPage({
           Convite expira em{" "}
           {convite.expiresAt.toLocaleDateString("pt-BR", { day: "numeric", month: "long" })}
         </p>
+        </div>
+
+        <ComoFunciona
+          proposito="Primeiro acesso ao Ecossistema Onix. Esse link foi gerado pelo admin e vincula você (pessoa do time) a um login com seu CPF."
+          comoUsar="Defina uma senha de pelo menos 8 caracteres e confirme. Após salvar, você cai direto no sistema, autenticado. O link só serve uma vez — depois é login normal pelo CPF."
+          comoAjuda="Sem dependência de email pra recuperar senha — o admin sempre pode regerar um novo link de convite pela sua ficha do Time se você precisar redefinir."
+        />
       </div>
     </main>
   );

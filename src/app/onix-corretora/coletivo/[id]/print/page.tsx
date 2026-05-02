@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
 import PrintTrigger from "./print-trigger";
+import { ComoFunciona } from "@/components/layout/como-funciona";
 
 // ── Vendedores ───────────────────────────────────────────────────────────────
 const VENDEDOR_CFG: Record<string, { cor: string; corBg: string; inicial: string; pat: string }> = {
@@ -176,6 +177,14 @@ export default async function PrintColetivoPage({ params }: { params: Promise<{ 
         }
       `}</style>
       <PrintTrigger />
+
+      <div className="no-print" style={{ padding: "16px 24px", background: "#f8fafc" }}>
+        <ComoFunciona
+          proposito="Versão pra impressão / PDF do relatório coletivo. Layout otimizado pra papel A4, com capa, métricas, termômetro, padrões e script."
+          comoUsar="A janela de impressão abre automaticamente. Se quiser revisar antes, cancele — você ainda vê o conteúdo na tela. Pra gerar PDF: ‘Salvar como PDF’ no diálogo de impressão."
+          comoAjuda="Material físico ou em PDF pra distribuir antes da reunião de terça (Formato C). Quem prefere ler em papel ou marcar à mão tem o mesmo conteúdo da tela."
+        />
+      </div>
 
       {/* ══════════════ PAGINA 1: CAPA + METRICAS + TERMOMETRO ══════════════ */}
       <div style={pageStyle}>

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
+import { ComoFunciona } from "@/components/layout/como-funciona";
 import { requireAdmin } from "@/lib/auth-helpers";
 import {
   getPessoa,
@@ -58,6 +59,11 @@ export default async function EditarPessoaPage({
       </PageHeader>
 
       <div className="p-8 max-w-3xl space-y-6">
+        <ComoFunciona
+          proposito="Edição da ficha cadastral da pessoa: identificação, cargo, hierarquia e — quando a pessoa sai da Onix — arquivamento com data e motivo de saída."
+          comoUsar="Edite o que precisar e clique Salvar. Pra arquivar (offboarding), use o bloco vermelho no fim, com data e motivo. Pessoa arquivada some das listas ativas mas mantém histórico."
+          comoAjuda="Mantém o organograma sempre fiel à realidade e preserva a memória institucional de quem passou pelo time, sem deletar dados."
+        />
         <PessoaForm
           action={updatePessoaAndRedirect}
           pessoa={{

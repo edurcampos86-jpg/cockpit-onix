@@ -4,6 +4,7 @@ import { login, type LoginState } from "@/app/actions/auth";
 import { useActionState } from "react";
 import { Lock, User } from "lucide-react";
 import { useState } from "react";
+import { ComoFunciona } from "@/components/layout/como-funciona";
 
 function formatCpf(value: string): string {
   const digits = value.replace(/\D/g, "").slice(0, 11);
@@ -19,7 +20,8 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
-      <div className="w-full max-w-md">
+      <div className="w-full max-w-2xl space-y-6">
+        <div className="max-w-md mx-auto w-full">
         {/* Logo */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary/10 border border-primary/20 mb-4">
@@ -97,6 +99,13 @@ export default function LoginPage() {
         <p className="text-center text-xs text-muted-foreground mt-6">
           Onix Capital &copy; {new Date().getFullYear()} &mdash; Acesso restrito
         </p>
+        </div>
+
+        <ComoFunciona
+          proposito="Ecossistema Onix — painel de comando do Grupo Onix com três módulos (MKT, Corretora, Backoffice). Use seu CPF e senha pessoal."
+          comoUsar="Digite o CPF (com pontos e traço, formato automático) e a senha. Primeiro acesso? Você recebeu um link de convite — abra ele em vez de logar aqui."
+          comoAjuda="Esqueceu a senha? Peça ao admin pra gerar um novo link de convite na sua ficha do Time. Tudo que você fizer fica vinculado ao seu CPF — histórico, ações, fechamentos."
+        />
       </div>
     </div>
   );

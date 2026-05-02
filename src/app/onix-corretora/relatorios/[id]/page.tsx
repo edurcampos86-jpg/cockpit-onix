@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/layout/page-header";
+import { ComoFunciona } from "@/components/layout/como-funciona";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, CheckSquare, Circle, Printer, ThumbsUp, AlertTriangle, MessageCircleQuestion, Megaphone, Target, Quote } from "lucide-react";
@@ -109,6 +110,13 @@ export default async function RelatorioDetalhePage({
       </PageHeader>
 
       <div className="p-8">
+        <div className="mb-6">
+          <ComoFunciona
+            proposito="Relatório semanal individual gerado por IA a partir das conversas reais do vendedor: abordagens positivas, oportunidades, objeções, voz do cliente e plano de ação calibrado pelo PAT."
+            comoUsar="Leia na ordem das seções. Cada bloco ‘Evidência:’ é um trecho real da conversa que justifica a observação. O Plano de Ação no fim já vem com itens marcáveis — ative os que vão valer pra essa semana."
+            comoAjuda="Coaching deixa de ser feeling e vira evidência. O vendedor sabe exatamente o que fazer, com exemplo concreto, e o gestor entra na reunião com a pauta pronta."
+          />
+        </div>
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
           {/* Secoes do relatorio */}
           <div className="xl:col-span-2 space-y-6">

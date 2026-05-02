@@ -15,6 +15,7 @@ import {
   Cake,
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
+import { ComoFunciona } from "@/components/layout/como-funciona";
 import { getAuthContext, canManageTeam, isAdmin } from "@/lib/auth-helpers";
 import {
   getPessoa,
@@ -79,6 +80,11 @@ export default async function PessoaPage({
       </PageHeader>
 
       <div className="p-8 max-w-5xl space-y-6">
+        <ComoFunciona
+          proposito="Ficha completa da pessoa: identificação, vínculo Onix, hierarquia, PAT (perfil comportamental), acordo comercial, numerologia, reuniões e compatibilidade com colegas."
+          comoUsar="Quem pode editar é admin (botão no canto). Cada bloco abre quando você rola — alguns só aparecem pra admin (numerologia, observações). Liderança vê tudo do liderado exceto PAT."
+          comoAjuda="Concentra tudo que importa pra coaching, gestão de carreira e calibração de comunicação por perfil. Substitui planilha + pasta + memória do gestor."
+        />
         {/* ── Banner de alertas ── */}
         <AlertasBanner pessoaId={pessoa.id} />
 

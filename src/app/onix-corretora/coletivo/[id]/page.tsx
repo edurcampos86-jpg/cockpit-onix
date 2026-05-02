@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Printer } from "lucide-react";
+import { ComoFunciona } from "@/components/layout/como-funciona";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -55,6 +56,12 @@ export default async function ColetivoDetailPage({ params }: { params: Promise<{
           Imprimir / PDF
         </Link>
       </div>
+
+      <ComoFunciona
+        proposito="Síntese coletiva da semana cruzando todos os relatórios individuais: métricas consolidadas, scores, termômetro do time, objeções recorrentes, padrões positivos/de risco e script coletivo."
+        comoUsar="É o material da reunião de terça (Formato C). Leia na ordem: métricas → padrões positivos (replicar) → padrões de risco (calibrar) → script coletivo. Use ‘Imprimir / PDF’ pra distribuir antes."
+        comoAjuda="Tira da cabeça do gestor a tarefa de costurar uma narrativa coletiva. A IA já cruzou os relatórios — você foca em decidir e calibrar, não em compilar."
+      />
 
       {/* Metricas Consolidadas */}
       {rel.metricasConsolidadas && (

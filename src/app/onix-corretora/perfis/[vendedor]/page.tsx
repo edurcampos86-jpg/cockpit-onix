@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/layout/page-header";
+import { ComoFunciona } from "@/components/layout/como-funciona";
 import Link from "next/link";
 import { ArrowLeft, Star, AlertTriangle, MessageSquare, Zap, Heart } from "lucide-react";
 import { prisma } from "@/lib/prisma";
@@ -153,6 +154,11 @@ export default async function PerfilVendedorPage({
       </PageHeader>
 
       <div className="p-8 space-y-6">
+        <ComoFunciona
+          proposito="Perfil PAT individual: essência comportamental, pontos fortes, pontos de atenção, comportamento sob pressão e — o mais importante — como dar feedback que funciona pra esse perfil."
+          comoUsar="Leia antes de qualquer reunião 1:1 ou feedback. ‘Como dar feedback’ é o atalho prático: usa palavras-chave do PAT, evita gatilhos, calibra tom. Compatibilidade com colegas aparece na ficha do Time."
+          comoAjuda="Mesma cobrança em pessoas diferentes gera resultados opostos. PAT evita feedback genérico que machuca uns e passa em branco com outros."
+        />
         {/* Cabecalho do perfil */}
         <div className={`rounded-2xl border ${perfil.borda} bg-gradient-to-br ${perfil.cor} p-6`}>
           <div className="flex items-start gap-5">

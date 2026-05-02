@@ -12,6 +12,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
+import { ComoFunciona } from "@/components/layout/como-funciona";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -466,6 +467,11 @@ export function TrilhaClient({
 
       {/* Conteúdo */}
       <div className="p-8 space-y-8 max-w-4xl">
+        <ComoFunciona
+          proposito="Trilha de desenvolvimento individual: cargo atual → cargo alvo, fases com objetivos e KPIs de meta, benchmark evolutivo (score, taxa de resposta, reuniões) e próximo marco."
+          comoUsar="Acompanhe a fase atual e o que ainda falta. Use o gráfico pra ver evolução semanal versus a meta da fase. O resumo do PAT no topo lembra como calibrar a comunicação durante coaching."
+          comoAjuda="Transforma carreira em algo concreto e mensurável — a pessoa sabe onde está, o que falta e o que será cobrado. O gestor coacheia com base em dados, não em sensação."
+        />
         {/* Benchmark Evolutivo */}
         <section>
           <div className="flex items-center gap-2 mb-4">
