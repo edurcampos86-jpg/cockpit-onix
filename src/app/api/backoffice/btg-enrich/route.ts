@@ -208,17 +208,28 @@ function parseSuitability(body: unknown): SuitabilityParsed {
       break;
     }
   }
-  const raw = pickString(p, [
-    "profileRisk",
-    "profile",
-    "risk",
-    "riskProfile",
-    "investorProfile",
-    "perfil",
-    "perfilInvestidor",
-    "perfilRisco",
-  ]);
-  const validUntilStr = pickString(p, ["validUntil", "expirationDate", "expiresAt", "dueDate", "validade"]);
+  // BTG /suitability/account/{n} retorna { profileRisk: { code: "SOPH", description: "Sofisticado" } }
+  // BTG /suitability/account/{n}/info retorna { code, initDate, expirationDate, description } flat
+  let raw: string | null = null;
+  const profileRiskObj = p.profileRisk;
+  if (profileRiskObj && typeof profileRiskObj === "object" && !Array.isArray(profileRiskObj)) {
+    raw = pickString(profileRiskObj as Record<string, unknown>, ["description", "code", "name"]);
+  }
+  if (!raw) {
+    raw = pickString(p, [
+      "description",
+      "code",
+      "profileRisk",
+      "profile",
+      "risk",
+      "riskProfile",
+      "investorProfile",
+      "perfil",
+      "perfilInvestidor",
+      "perfilRisco",
+    ]);
+  }
+  const validUntilStr = pickString(p, ["expirationDate", "validUntil", "expiresAt", "dueDate", "validade"]);
   return {
     perfil: raw ? normalizePerfil(raw) : null,
     validUntil: validUntilStr ? safeDate(validUntilStr) : null,
@@ -227,9 +238,10 @@ function parseSuitability(body: unknown): SuitabilityParsed {
 
 function normalizePerfil(raw: string): string | null {
   const s = raw.toLowerCase().trim();
-  if (s.includes("conserv")) return "conservador";
-  if (s.includes("moderad")) return "moderado";
-  if (s.includes("sofist") || s.includes("agress") || s.includes("arroj")) return "sofisticado";
+  // Códigos BTG: CONS = conservador, MOD = moderado, SOPH/AGR = sofisticado
+  if (s === "cons" || s.includes("conserv")) return "conservador";
+  if (s === "mod" || s.includes("moderad")) return "moderado";
+  if (s === "soph" || s === "agr" || s.includes("sofist") || s.includes("agress") || s.includes("arroj")) return "sofisticado";
   return s || null;
 }
 
