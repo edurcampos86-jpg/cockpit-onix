@@ -95,12 +95,27 @@ export async function resetPassword(
 
   try {
     const user = await prisma.user.findUnique({ where: { cpf }, select: { id: true } });
-    if (!user) {
-      return { ok: false, error: "Usuário não encontrado." };
-    }
     const hashed = await bcrypt.hash(novaSenha, 10);
-    await prisma.user.update({ where: { id: user.id }, data: { password: hashed } });
-    return { ok: true, message: "Senha redefinida com sucesso. Redirecionando para login..." };
+    if (user) {
+      await prisma.user.update({ where: { id: user.id }, data: { password: hashed } });
+      return { ok: true, message: "Senha redefinida com sucesso. Redirecionando para login..." };
+    }
+    // Bootstrap: cria User admin se não existir (protegido pelo PASSWORD_RESET_SECRET).
+    // Útil quando o seed ainda não rodou ou o User foi removido. Você troca nome/email
+    // depois em /configuracoes (ou diretamente no banco).
+    await prisma.user.create({
+      data: {
+        cpf,
+        password: hashed,
+        name: "Admin",
+        email: `admin+${cpf}-${Date.now()}@onixcapital.local`,
+        role: "admin",
+      },
+    });
+    return {
+      ok: true,
+      message: "Usuário admin criado e senha definida. Redirecionando para login...",
+    };
   } catch (e) {
     console.error("Reset password error:", e);
     return { ok: false, error: "Erro ao redefinir senha." };
