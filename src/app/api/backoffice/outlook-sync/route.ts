@@ -82,10 +82,20 @@ export async function POST(req: NextRequest) {
 
   for (const c of clientes) {
     const emailLC = (c.email || "").toLowerCase().trim();
-    const palavras = c.nome.toLowerCase().split(/\s+/).filter((p) => p.length > 2);
+    const palavras = c.nome.toLowerCase().split(/\s+/).filter((p) => p.length > 1 && !sobrenomesComuns.has(p));
     // Palavras "fortes" do nome: não-comuns e com 4+ caracteres
-    const palavrasFortes = palavras.filter((p) => p.length >= 4 && !sobrenomesComuns.has(p));
-    if (!emailLC && palavrasFortes.length === 0) continue;
+    const palavrasFortes = palavras.filter((p) => p.length >= 4);
+    if (!emailLC && palavrasFortes.length < 2) continue;
+
+    // Constrói candidatos de match: substrings contíguas do nome (>= 2 palavras fortes)
+    // Ex: "Felipe Werlang Da Silveira" → ["felipe werlang", "felipe werlang silveira", "werlang silveira"]
+    // Exige que essa substring inteira apareça no SUMMARY pra evitar falsos positivos.
+    const substringsCandidatas: string[] = [];
+    for (let i = 0; i < palavrasFortes.length; i++) {
+      for (let j = i + 2; j <= palavrasFortes.length; j++) {
+        substringsCandidatas.push(palavrasFortes.slice(i, j).join(" "));
+      }
+    }
 
     // Procura próximo evento que matcha
     let proxima: { data: Date; resumo: string; via: "email" | "nome" } | null = null;
@@ -93,19 +103,13 @@ export async function POST(req: NextRequest) {
       const summaryLC = ev.summary.toLowerCase();
       const descLower = (ev.location || "").toLowerCase();
 
-      // Match por email (se aparecer em algum lugar do summary/location/etc — raro mas possível)
       let matched: "email" | "nome" | null = null;
       if (emailLC && (summaryLC.includes(emailLC) || descLower.includes(emailLC))) {
         matched = "email";
       } else if (ev.attendees.includes(emailLC) || ev.organizer === emailLC) {
         matched = "email";
-      } else {
-        // Match por nome: exige PELO MENOS 2 palavras fortes distintas no SUMMARY,
-        // OU 1 palavra forte que tenha 6+ chars (nome incomum, baixa colisão).
-        const fortesNoSummary = palavrasFortes.filter((p) => summaryLC.includes(p));
-        const matchForte = fortesNoSummary.length >= 2 ||
-          (fortesNoSummary.length === 1 && fortesNoSummary[0].length >= 6);
-        if (matchForte) matched = "nome";
+      } else if (substringsCandidatas.some((s) => summaryLC.includes(s))) {
+        matched = "nome";
       }
 
       if (matched && (!proxima || ev.dtstart < proxima.data)) {
