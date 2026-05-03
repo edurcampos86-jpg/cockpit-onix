@@ -19,6 +19,7 @@ interface AgentMeta {
 
 function pickAgentIdForPath(pathname: string): string {
   if (pathname.startsWith("/onix-corretora")) return "corretora";
+  if (pathname.startsWith("/kpis") || pathname.startsWith("/analytics")) return "kpis";
   return "cockpit";
 }
 

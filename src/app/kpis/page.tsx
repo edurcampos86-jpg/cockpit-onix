@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { PageHeader } from "@/components/layout/page-header";
 import { ComoFunciona } from "@/components/layout/como-funciona";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { BriefingPanel } from "@/components/kpis/briefing-panel";
 import {
   TrendingUp,
   TrendingDown,
@@ -474,6 +475,8 @@ export default function KpisPage() {
           comoUsar="Toda segunda-feira: preencha os 5 indicadores do Painel Essencial. Depois, expanda cada camada e atualize os KPIs detalhados. Salve a semana ao final."
           comoAjuda="Substitui o achismo por dados. Cada camada responde uma pergunta de negócio: estou alcançando? engajando? convertendo? sustentando? Você sabe o que ajustar."
         />
+
+        <BriefingPanel />
 
         {/* Save confirmation */}
         {saveMessage && (

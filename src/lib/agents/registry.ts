@@ -1,10 +1,12 @@
 import type { Agent } from "./types";
 import { cockpitAgent } from "./agents/cockpit";
 import { corretoraAgent } from "./agents/corretora";
+import { kpisAgent } from "./agents/kpis";
 
 const AGENTS: Record<string, Agent> = {
   [cockpitAgent.id]: cockpitAgent,
   [corretoraAgent.id]: corretoraAgent,
+  [kpisAgent.id]: kpisAgent,
 };
 
 export function getAgent(id: string): Agent | null {
@@ -23,5 +25,6 @@ export function listAgentMetadata(): Array<Pick<Agent, "id" | "name" | "subtitle
 
 export function pickAgentForPath(pathname: string): string {
   if (pathname.startsWith("/onix-corretora")) return "corretora";
+  if (pathname.startsWith("/kpis") || pathname.startsWith("/analytics")) return "kpis";
   return "cockpit";
 }
