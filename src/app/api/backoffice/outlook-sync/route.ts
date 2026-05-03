@@ -70,10 +70,22 @@ export async function POST(req: NextRequest) {
   let matchPorEmail = 0;
   const erros: Array<{ etapa: string; motivo: string }> = [];
 
+  // Sobrenomes muito comuns que isoladamente causam falsos positivos
+  const sobrenomesComuns = new Set([
+    "silva", "santos", "souza", "souza", "oliveira", "pereira", "ferreira", "alves",
+    "lima", "gomes", "ribeiro", "carvalho", "araujo", "araújo", "almeida", "rodrigues",
+    "nascimento", "barbosa", "rocha", "dias", "moreira", "nunes", "marques", "cardoso",
+    "teixeira", "correia", "fernandes", "azevedo", "martins", "freitas", "barros",
+    "pinto", "moura", "cavalcanti", "andrade", "costa", "junior", "neto", "filho",
+    "de", "da", "do", "dos", "das",
+  ]);
+
   for (const c of clientes) {
     const emailLC = (c.email || "").toLowerCase().trim();
-    const partesNome = c.nome.toLowerCase().split(/\s+/).filter((p) => p.length > 3);
-    if (!emailLC && partesNome.length === 0) continue;
+    const palavras = c.nome.toLowerCase().split(/\s+/).filter((p) => p.length > 2);
+    // Palavras "fortes" do nome: não-comuns e com 4+ caracteres
+    const palavrasFortes = palavras.filter((p) => p.length >= 4 && !sobrenomesComuns.has(p));
+    if (!emailLC && palavrasFortes.length === 0) continue;
 
     // Procura próximo evento que matcha
     let proxima: { data: Date; resumo: string; via: "email" | "nome" } | null = null;
@@ -87,8 +99,13 @@ export async function POST(req: NextRequest) {
         matched = "email";
       } else if (ev.attendees.includes(emailLC) || ev.organizer === emailLC) {
         matched = "email";
-      } else if (partesNome.some((p) => summaryLC.includes(p))) {
-        matched = "nome";
+      } else {
+        // Match por nome: exige PELO MENOS 2 palavras fortes distintas no SUMMARY,
+        // OU 1 palavra forte que tenha 6+ chars (nome incomum, baixa colisão).
+        const fortesNoSummary = palavrasFortes.filter((p) => summaryLC.includes(p));
+        const matchForte = fortesNoSummary.length >= 2 ||
+          (fortesNoSummary.length === 1 && fortesNoSummary[0].length >= 6);
+        if (matchForte) matched = "nome";
       }
 
       if (matched && (!proxima || ev.dtstart < proxima.data)) {
