@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Users, Search, Edit2, Check, X, RefreshCw, MessageCircle, Phone, Video, Loader2, Download, Sparkles, Activity, CalendarClock } from "lucide-react";
+import { Users, Search, Edit2, Check, X, RefreshCw, MessageCircle, Phone, Video, Loader2, Download, Sparkles, Activity, CalendarClock, CalendarPlus } from "lucide-react";
 
 interface ContatoResumo {
   data: string;
@@ -81,6 +81,7 @@ export function ClientesTable({ clientes: iniciais }: { clientes: Cliente[] }) {
   const [enriquecendo, setEnriquecendo] = useState(false);
   const [sincMovs, setSincMovs] = useState(false);
   const [syncDatacrazy, setSyncDatacrazy] = useState(false);
+  const [syncOutlook, setSyncOutlook] = useState(false);
   const [syncResult, setSyncResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const [buscandoContatos, setBuscandoContatos] = useState(false);
   const [contatos, setContatos] = useState<Record<string, ContatoResumo[]>>({});
@@ -234,6 +235,25 @@ export function ClientesTable({ clientes: iniciais }: { clientes: Cliente[] }) {
     }
   };
 
+  const sincronizarOutlook = async () => {
+    if (syncOutlook) return;
+    if (!confirm("Sincronizar próxima reunião agendada via Outlook (ICS)? Lê próximos 60 dias e atribui a cada cliente cujo email aparece no evento.")) return;
+    setSyncOutlook(true);
+    setSyncResult(null);
+    try {
+      const res = await fetch("/api/backoffice/outlook-sync", { method: "POST" });
+      const data = await res.json();
+      setSyncResult({ ok: !!data.success, msg: data.message || "Erro" });
+      if (data.success) {
+        setTimeout(() => window.location.reload(), 1500);
+      }
+    } catch (e) {
+      setSyncResult({ ok: false, msg: e instanceof Error ? e.message : "Erro" });
+    } finally {
+      setSyncOutlook(false);
+    }
+  };
+
   const filtrados = clientes.filter((c) => {
     if (filtroClasse !== "todos" && c.classificacao !== filtroClasse) return false;
     if (busca && !c.nome.toLowerCase().includes(busca.toLowerCase())) return false;
@@ -348,6 +368,16 @@ export function ClientesTable({ clientes: iniciais }: { clientes: Cliente[] }) {
         >
           {syncDatacrazy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarClock className="h-4 w-4" />}
           {syncDatacrazy ? "Sincronizando..." : "Sync Datacrazy"}
+        </button>
+
+        <button
+          onClick={sincronizarOutlook}
+          disabled={syncOutlook}
+          className="px-3 py-2 rounded-lg border border-indigo-500/30 bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 text-sm flex items-center gap-2 hover:bg-indigo-500/20 disabled:opacity-50"
+          title="Sincronizar próximas reuniões agendadas no Outlook (calendário publicado via ICS)"
+        >
+          {syncOutlook ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarPlus className="h-4 w-4" />}
+          {syncOutlook ? "Lendo Outlook..." : "Sync Outlook"}
         </button>
 
         <button
