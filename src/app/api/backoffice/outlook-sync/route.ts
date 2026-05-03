@@ -58,48 +58,56 @@ export async function POST(req: NextRequest) {
   // Eventos futuros dentro do horizonte
   const futuros = events.filter((e) => e.dtstart >= agora && e.dtstart <= limite);
 
-  // Mapa email -> data do próximo evento (mínimo)
-  const emailParaProximo = new Map<string, { data: Date; resumo: string }>();
-  for (const ev of futuros) {
-    const emails = new Set<string>(ev.attendees);
-    if (ev.organizer) emails.add(ev.organizer);
-    for (const email of emails) {
-      const cur = emailParaProximo.get(email);
-      if (!cur || ev.dtstart < cur.data) {
-        emailParaProximo.set(email, { data: ev.dtstart, resumo: ev.summary });
-      }
-    }
-  }
-
-  // Busca clientes com email
+  // Busca todos os clientes (não só com email — vamos fazer match por SUMMARY também)
   const clientes = await prisma.clienteBackoffice.findMany({
-    where: { email: { not: null } },
     select: { id: true, email: true, nome: true },
   });
 
+  // Pra cada cliente, achar próximo evento que cite o nome dele em SUMMARY ou tenha o email
+  // (Outlook ICS publicado não expõe ATTENDEE/ORGANIZER por privacy — usa SUMMARY)
   let atualizados = 0;
-  let limpos = 0;
+  let matchPorNome = 0;
+  let matchPorEmail = 0;
   const erros: Array<{ etapa: string; motivo: string }> = [];
 
   for (const c of clientes) {
     const emailLC = (c.email || "").toLowerCase().trim();
-    if (!emailLC) continue;
-    const proxEvento = emailParaProximo.get(emailLC);
-    try {
-      if (proxEvento) {
+    const partesNome = c.nome.toLowerCase().split(/\s+/).filter((p) => p.length > 3);
+    if (!emailLC && partesNome.length === 0) continue;
+
+    // Procura próximo evento que matcha
+    let proxima: { data: Date; resumo: string; via: "email" | "nome" } | null = null;
+    for (const ev of futuros) {
+      const summaryLC = ev.summary.toLowerCase();
+      const descLower = (ev.location || "").toLowerCase();
+
+      // Match por email (se aparecer em algum lugar do summary/location/etc — raro mas possível)
+      let matched: "email" | "nome" | null = null;
+      if (emailLC && (summaryLC.includes(emailLC) || descLower.includes(emailLC))) {
+        matched = "email";
+      } else if (ev.attendees.includes(emailLC) || ev.organizer === emailLC) {
+        matched = "email";
+      } else if (partesNome.some((p) => summaryLC.includes(p))) {
+        matched = "nome";
+      }
+
+      if (matched && (!proxima || ev.dtstart < proxima.data)) {
+        proxima = { data: ev.dtstart, resumo: ev.summary, via: matched };
+      }
+    }
+
+    if (proxima) {
+      try {
         await prisma.clienteBackoffice.update({
           where: { id: c.id },
-          data: { proximaReuniaoAt: proxEvento.data },
+          data: { proximaReuniaoAt: proxima.data },
         });
         atualizados++;
-      } else {
-        // Limpa proximaReuniaoAt se estava no passado (data já passou e nenhum evento novo)
-        // Comentado pra não apagar reuniões registradas manualmente — ativar se quiser comportamento estrito
-        // await prisma.clienteBackoffice.update({ where: { id: c.id }, data: { proximaReuniaoAt: null } });
-        // limpos++;
+        if (proxima.via === "email") matchPorEmail++;
+        else matchPorNome++;
+      } catch (e) {
+        erros.push({ etapa: "update", motivo: `${c.id}: ${e instanceof Error ? e.message : "?"}` });
       }
-    } catch (e) {
-      erros.push({ etapa: "update", motivo: `${c.id}: ${e instanceof Error ? e.message : "?"}` });
     }
   }
 
@@ -110,19 +118,19 @@ export async function POST(req: NextRequest) {
       sucesso: erros.length === 0,
       contasProcessadas: atualizados,
       contasComErro: erros.length,
-      resumo: `${atualizados} cliente(s) com próxima reunião · ${futuros.length} eventos futuros (${lookaheadDias}d) · ${events.length} eventos no calendário · ${emailParaProximo.size} emails únicos como participante`,
+      resumo: `${atualizados} cliente(s) c/ próxima reunião · match: ${matchPorNome} por nome no título, ${matchPorEmail} por email · ${futuros.length}/${events.length} eventos futuros (${lookaheadDias}d)`,
       erros: erros.length > 0 ? erros : undefined,
     },
   });
 
   return NextResponse.json({
     success: true,
-    message: `${atualizados} cliente(s) com próxima reunião agendada. ${futuros.length} eventos futuros, ${emailParaProximo.size} participantes únicos.`,
+    message: `${atualizados} cliente(s) com próxima reunião agendada. Match: ${matchPorNome} pelo nome no título, ${matchPorEmail} pelo email. ${futuros.length} eventos futuros (${lookaheadDias}d).`,
     atualizados,
-    limpos,
+    matchPorNome,
+    matchPorEmail,
     eventosFuturos: futuros.length,
     eventosTotal: events.length,
-    emailsUnicos: emailParaProximo.size,
     lookaheadDias,
     erros: erros.slice(0, 20),
   });
