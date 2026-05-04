@@ -99,7 +99,7 @@ export async function ConviteSection({
             {path}
           </code>
           <p className="text-[10px] text-muted-foreground italic">
-            Use o domínio do seu Ecossistema ao mandar — ex.: https://cockpit-onix-app-production.up.railway.app{path}
+            Use o domínio do seu Ecossistema ao mandar — ex.: https://ecossistemaonix.com.br{path}
           </p>
 
           <div className="flex items-center gap-2 pt-1">
