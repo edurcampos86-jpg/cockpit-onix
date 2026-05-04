@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { prisma } from "@/lib/prisma";
+import { getSession } from "@/lib/session";
 import { PageHeader } from "@/components/layout/page-header";
 import { ClientesTable } from "@/components/backoffice/clientes-table";
 import { ReferenciaLivro } from "@/components/backoffice/referencia-livro";
@@ -8,6 +9,9 @@ import { ComoFunciona } from "@/components/backoffice/como-funciona";
 import { REF_CLASSIFICACAO_ABC } from "@/lib/backoffice/referencias";
 
 export default async function ClientesPage() {
+  const session = await getSession();
+  const isAdmin = session?.role === "admin";
+
   let clientes: Array<{
     id: string;
     nome: string;
@@ -71,7 +75,7 @@ export default async function ClientesPage() {
           titulo="Por que classificar clientes em A, B e C?"
         />
 
-        <ClientesTable clientes={clientes} />
+        <ClientesTable clientes={clientes} isAdmin={isAdmin} />
       </div>
     </div>
   );

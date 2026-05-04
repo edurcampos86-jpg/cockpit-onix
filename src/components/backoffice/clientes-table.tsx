@@ -1,8 +1,74 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { Users, Search, Edit2, Check, X, RefreshCw, MessageCircle, Phone, Video, Loader2, Download, Sparkles, Activity, CalendarClock, CalendarPlus } from "lucide-react";
+import { Users, Search, Edit2, Check, X, RefreshCw, MessageCircle, Phone, Video, Loader2, Download, Sparkles, Activity, CalendarClock, CalendarPlus, FileSpreadsheet, Upload } from "lucide-react";
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+declare global {
+  interface Window {
+    XLSX: any;
+  }
+}
+
+const HEADER_MAP: Record<string, string> = {
+  nome: "nome",
+  name: "nome",
+  cliente: "nome",
+  numeroconta: "numeroConta",
+  numerodaconta: "numeroConta",
+  numero_conta: "numeroConta",
+  conta: "numeroConta",
+  account: "numeroConta",
+  nconta: "numeroConta",
+  cpf: "cpfCnpj",
+  cnpj: "cpfCnpj",
+  cpfcnpj: "cpfCnpj",
+  documento: "cpfCnpj",
+  saldo: "saldo",
+  aum: "saldo",
+  patrimonio: "saldo",
+  balance: "saldo",
+  saldoconta: "saldoConta",
+  saldocontacorrente: "saldoConta",
+  saldocc: "saldoConta",
+  cash: "saldoConta",
+  email: "email",
+  emailprincipal: "email",
+  telefone: "telefone",
+  celular: "telefone",
+  fone: "telefone",
+  whatsapp: "telefone",
+  profissao: "profissao",
+  profession: "profissao",
+  ocupacao: "profissao",
+  nicho: "nicho",
+  segmento: "nicho",
+  classificacao: "classificacao",
+  classe: "classificacao",
+  abc: "classificacao",
+  receita: "receitaAnual",
+  receitaanual: "receitaAnual",
+  receitaano: "receitaAnual",
+};
+
+function normHeader(h: string): string {
+  return String(h)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function mapRowToCliente(row: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(row)) {
+    const target = HEADER_MAP[normHeader(k)];
+    if (!target) continue;
+    if (out[target] === undefined || out[target] === "") out[target] = v;
+  }
+  return out;
+}
 
 interface ContatoResumo {
   data: string;
@@ -70,7 +136,13 @@ const canalLabel: Record<string, string> = {
   ligacao: "Ligação",
 };
 
-export function ClientesTable({ clientes: iniciais }: { clientes: Cliente[] }) {
+export function ClientesTable({
+  clientes: iniciais,
+  isAdmin = false,
+}: {
+  clientes: Cliente[];
+  isAdmin?: boolean;
+}) {
   const [clientes, setClientes] = useState(iniciais);
   const [busca, setBusca] = useState("");
   const [filtroClasse, setFiltroClasse] = useState<"todos" | "A" | "B" | "C">("todos");
@@ -86,6 +158,119 @@ export function ClientesTable({ clientes: iniciais }: { clientes: Cliente[] }) {
   const [buscandoContatos, setBuscandoContatos] = useState(false);
   const [contatos, setContatos] = useState<Record<string, ContatoResumo[]>>({});
   const [contatosCarregados, setContatosCarregados] = useState(false);
+  const [importandoPlanilha, setImportandoPlanilha] = useState(false);
+  const [exportando, setExportando] = useState(false);
+  const [xlsxReady, setXlsxReady] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    if (typeof window === "undefined") return;
+    if (window.XLSX) {
+      setXlsxReady(true);
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = "https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js";
+    script.onload = () => setXlsxReady(true);
+    document.head.appendChild(script);
+  }, [isAdmin]);
+
+  const importarPlanilha = async (file: File) => {
+    if (importandoPlanilha) return;
+    const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
+    if (![".xlsx", ".xls", ".csv"].includes(ext)) {
+      setSyncResult({ ok: false, msg: "Formato inválido. Use .xlsx, .xls ou .csv." });
+      return;
+    }
+    if (!xlsxReady || !window.XLSX) {
+      setSyncResult({ ok: false, msg: "Biblioteca de leitura ainda carregando, tente em 1s." });
+      return;
+    }
+    setImportandoPlanilha(true);
+    setSyncResult(null);
+    try {
+      const buffer = await file.arrayBuffer();
+      const workbook = window.XLSX.read(buffer, { type: "array", cellDates: true });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows: Record<string, unknown>[] = window.XLSX.utils.sheet_to_json(sheet, { defval: "" });
+      const parsed = rows.map(mapRowToCliente).filter((c) => String(c.nome ?? "").trim().length > 0);
+      if (parsed.length === 0) {
+        setSyncResult({ ok: false, msg: "Nenhuma linha válida. Verifique se há coluna 'nome'." });
+        return;
+      }
+      const res = await fetch("/api/backoffice/clientes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientes: parsed }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSyncResult({ ok: false, msg: data.error || "Erro ao importar." });
+        return;
+      }
+      setSyncResult({ ok: true, msg: data.message || "Importação concluída." });
+      setTimeout(() => window.location.reload(), 1200);
+    } catch (e) {
+      setSyncResult({ ok: false, msg: e instanceof Error ? e.message : "Erro ao processar arquivo." });
+    } finally {
+      setImportandoPlanilha(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const exportarPlanilha = async () => {
+    if (exportando) return;
+    if (!xlsxReady || !window.XLSX) {
+      setSyncResult({ ok: false, msg: "Biblioteca de exportação ainda carregando, tente em 1s." });
+      return;
+    }
+    setExportando(true);
+    setSyncResult(null);
+    try {
+      const res = await fetch("/api/backoffice/clientes");
+      const data = await res.json();
+      if (!res.ok) {
+        setSyncResult({ ok: false, msg: data.error || "Erro ao buscar clientes." });
+        return;
+      }
+      const rows = (data.clientes || []).map((c: Record<string, unknown>) => ({
+        nome: c.nome ?? "",
+        numero_conta: c.numeroConta ?? "",
+        cpf_cnpj: c.cpfCnpj ?? "",
+        saldo: c.saldo ?? 0,
+        saldo_conta: c.saldoConta ?? 0,
+        classificacao: c.classificacao ?? "",
+        email: c.email ?? "",
+        telefone: c.telefone ?? "",
+        profissao: c.profissao ?? "",
+        nicho: c.nicho ?? "",
+        receita_anual: c.receitaAnual ?? 0,
+        ultimo_contato: c.ultimoContatoAt
+          ? new Date(c.ultimoContatoAt as string).toISOString().slice(0, 10)
+          : "",
+        ultima_reuniao: c.ultimaReuniaoAt
+          ? new Date(c.ultimaReuniaoAt as string).toISOString().slice(0, 10)
+          : "",
+        proxima_reuniao: c.proximaReuniaoAt
+          ? new Date(c.proximaReuniaoAt as string).toISOString().slice(0, 10)
+          : "",
+        proximo_contato: c.proximoContatoAt
+          ? new Date(c.proximoContatoAt as string).toISOString().slice(0, 10)
+          : "",
+      }));
+      const ws = window.XLSX.utils.json_to_sheet(rows);
+      const wb = window.XLSX.utils.book_new();
+      window.XLSX.utils.book_append_sheet(wb, ws, "Clientes");
+      const stamp = new Date().toISOString().slice(0, 10);
+      window.XLSX.writeFile(wb, `clientes-onix-${stamp}.xlsx`);
+      setSyncResult({ ok: true, msg: `${rows.length} clientes exportados.` });
+    } catch (e) {
+      setSyncResult({ ok: false, msg: e instanceof Error ? e.message : "Erro ao exportar." });
+    } finally {
+      setExportando(false);
+    }
+  };
 
   const sincronizarBtg = async () => {
     if (sincronizando) return;
@@ -360,65 +545,103 @@ export function ClientesTable({ clientes: iniciais }: { clientes: Cliente[] }) {
           {buscandoContatos ? "Buscando..." : "Buscar contatos"}
         </button>
 
-        <button
-          onClick={sincronizarDatacrazy}
-          disabled={syncDatacrazy}
-          className="px-3 py-2 rounded-lg border border-fuchsia-500/30 bg-fuchsia-500/10 text-fuchsia-700 dark:text-fuchsia-400 text-sm flex items-center gap-2 hover:bg-fuchsia-500/20 disabled:opacity-50"
-          title="Sincronizar último contato (Datacrazy WhatsApp) e última reunião (Plaud) PERSISTINDO no banco"
-        >
-          {syncDatacrazy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarClock className="h-4 w-4" />}
-          {syncDatacrazy ? "Sincronizando..." : "Sync Datacrazy"}
-        </button>
+        {isAdmin && (
+          <>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) importarPlanilha(file);
+              }}
+              className="hidden"
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={importandoPlanilha || !xlsxReady}
+              className="px-3 py-2 rounded-lg border border-primary/40 bg-primary/10 text-primary text-sm flex items-center gap-2 hover:bg-primary/20 disabled:opacity-50"
+              title="Importar planilha (.xlsx/.csv): atualiza existentes por conta/CPF/nome e cadastra novos sem duplicar"
+            >
+              {importandoPlanilha ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Upload className="h-4 w-4" />
+              )}
+              {importandoPlanilha ? "Importando..." : "Importar planilha"}
+            </button>
 
-        <button
-          onClick={sincronizarOutlook}
-          disabled={syncOutlook}
-          className="px-3 py-2 rounded-lg border border-indigo-500/30 bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 text-sm flex items-center gap-2 hover:bg-indigo-500/20 disabled:opacity-50"
-          title="Sincronizar próximas reuniões agendadas no Outlook (calendário publicado via ICS)"
-        >
-          {syncOutlook ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarPlus className="h-4 w-4" />}
-          {syncOutlook ? "Lendo Outlook..." : "Sync Outlook"}
-        </button>
+            <button
+              onClick={exportarPlanilha}
+              disabled={exportando || !xlsxReady}
+              className="px-3 py-2 rounded-lg border border-teal-500/30 bg-teal-500/10 text-teal-700 dark:text-teal-400 text-sm flex items-center gap-2 hover:bg-teal-500/20 disabled:opacity-50"
+              title="Exportar todos os clientes em .xlsx (formato compatível com a importação)"
+            >
+              {exportando ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}
+              {exportando ? "Exportando..." : "Exportar planilha"}
+            </button>
 
-        <button
-          onClick={sincronizarBtg}
-          disabled={sincronizando}
-          className="px-3 py-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-sm flex items-center gap-2 hover:bg-emerald-500/20 disabled:opacity-50"
-          title="Buscar saldos atualizados via BTG Partner API"
-        >
-          <RefreshCw className={`h-4 w-4 ${sincronizando ? "animate-spin" : ""}`} />
-          {sincronizando ? "Sincronizando..." : "Sincronizar saldos BTG"}
-        </button>
+            <button
+              onClick={sincronizarDatacrazy}
+              disabled={syncDatacrazy}
+              className="px-3 py-2 rounded-lg border border-fuchsia-500/30 bg-fuchsia-500/10 text-fuchsia-700 dark:text-fuchsia-400 text-sm flex items-center gap-2 hover:bg-fuchsia-500/20 disabled:opacity-50"
+              title="Sincronizar último contato (Datacrazy WhatsApp) e última reunião (Plaud) PERSISTINDO no banco"
+            >
+              {syncDatacrazy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarClock className="h-4 w-4" />}
+              {syncDatacrazy ? "Sincronizando..." : "Sync Datacrazy"}
+            </button>
 
-        <button
-          onClick={importarBtg}
-          disabled={importando}
-          className="px-3 py-2 rounded-lg border border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-400 text-sm flex items-center gap-2 hover:bg-sky-500/20 disabled:opacity-50"
-          title="Importar todos os clientes do BTG (Base de Contas + Cadastrais + Saldo + Posição)"
-        >
-          {importando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-          {importando ? "Importando..." : "Importar do BTG"}
-        </button>
+            <button
+              onClick={sincronizarOutlook}
+              disabled={syncOutlook}
+              className="px-3 py-2 rounded-lg border border-indigo-500/30 bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 text-sm flex items-center gap-2 hover:bg-indigo-500/20 disabled:opacity-50"
+              title="Sincronizar próximas reuniões agendadas no Outlook (calendário publicado via ICS)"
+            >
+              {syncOutlook ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarPlus className="h-4 w-4" />}
+              {syncOutlook ? "Lendo Outlook..." : "Sync Outlook"}
+            </button>
 
-        <button
-          onClick={enriquecerBtg}
-          disabled={enriquecendo}
-          className="px-3 py-2 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400 text-sm flex items-center gap-2 hover:bg-amber-500/20 disabled:opacity-50"
-          title="Enriquecer com Suitability + Assessor + Receita do BTG"
-        >
-          {enriquecendo ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-          {enriquecendo ? "Enriquecendo..." : "Enriquecer dados"}
-        </button>
+            <button
+              onClick={sincronizarBtg}
+              disabled={sincronizando}
+              className="px-3 py-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-sm flex items-center gap-2 hover:bg-emerald-500/20 disabled:opacity-50"
+              title="Buscar saldos atualizados via BTG Partner API"
+            >
+              <RefreshCw className={`h-4 w-4 ${sincronizando ? "animate-spin" : ""}`} />
+              {sincronizando ? "Sincronizando..." : "Sincronizar saldos BTG"}
+            </button>
 
-        <button
-          onClick={sincronizarMovimentacoes}
-          disabled={sincMovs}
-          className="px-3 py-2 rounded-lg border border-zinc-500/30 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300 text-sm flex items-center gap-2 hover:bg-zinc-500/20 disabled:opacity-50"
-          title="Sincronizar movimentações dos últimos 7 dias"
-        >
-          {sincMovs ? <Loader2 className="h-4 w-4 animate-spin" /> : <Activity className="h-4 w-4" />}
-          {sincMovs ? "Sincronizando..." : "Sync Movimentações"}
-        </button>
+            <button
+              onClick={importarBtg}
+              disabled={importando}
+              className="px-3 py-2 rounded-lg border border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-400 text-sm flex items-center gap-2 hover:bg-sky-500/20 disabled:opacity-50"
+              title="Importar todos os clientes do BTG (Base de Contas + Cadastrais + Saldo + Posição)"
+            >
+              {importando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              {importando ? "Importando..." : "Importar do BTG"}
+            </button>
+
+            <button
+              onClick={enriquecerBtg}
+              disabled={enriquecendo}
+              className="px-3 py-2 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400 text-sm flex items-center gap-2 hover:bg-amber-500/20 disabled:opacity-50"
+              title="Enriquecer com Suitability + Assessor + Receita do BTG"
+            >
+              {enriquecendo ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              {enriquecendo ? "Enriquecendo..." : "Enriquecer dados"}
+            </button>
+
+            <button
+              onClick={sincronizarMovimentacoes}
+              disabled={sincMovs}
+              className="px-3 py-2 rounded-lg border border-zinc-500/30 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300 text-sm flex items-center gap-2 hover:bg-zinc-500/20 disabled:opacity-50"
+              title="Sincronizar movimentações dos últimos 7 dias"
+            >
+              {sincMovs ? <Loader2 className="h-4 w-4 animate-spin" /> : <Activity className="h-4 w-4" />}
+              {sincMovs ? "Sincronizando..." : "Sync Movimentações"}
+            </button>
+          </>
+        )}
       </div>
 
       {syncResult && (
