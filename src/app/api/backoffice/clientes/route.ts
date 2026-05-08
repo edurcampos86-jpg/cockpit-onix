@@ -190,9 +190,10 @@ async function findExisting(c: ClienteLimpo) {
     });
     if (byCpf) return byCpf;
   }
-  return prisma.clienteBackoffice.findFirst({
-    where: { nome: { equals: c.nome, mode: "insensitive" } },
-  });
+  // Sem fallback por nome: homônimos (33 "Carlos", 23 "Luiz" etc.) faziam
+  // múltiplos novos clientes parearem com o mesmo existente, sobrescrevendo
+  // numeroConta repetidamente em vez de criar.
+  return null;
 }
 
 export async function GET() {

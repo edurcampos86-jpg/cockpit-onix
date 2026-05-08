@@ -97,8 +97,10 @@ const HEADER_MAP: Record<string, string> = {
   dataproximarevisaocadastral: "dataProximaRevisaoCadastral",
   proximarevisaocadastral: "dataProximaRevisaoCadastral",
   dataaberturadaconta: "dataAberturaConta",
+  datadeaberturadaconta: "dataAberturaConta",
   dataaberturaconta: "dataAberturaConta",
   dataabertura: "dataAberturaConta",
+  abertura: "dataAberturaConta",
 
   // Classificação
   classificacao: "classificacao",
