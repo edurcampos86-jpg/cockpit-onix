@@ -34,6 +34,14 @@ function clean(v: unknown): string | undefined {
   return s.length === 0 ? undefined : s;
 }
 
+function cleanCpfCnpj(v: unknown): string | undefined {
+  const digits = clean(v)?.replace(/\D/g, "");
+  if (!digits) return undefined;
+  // Aceita só CPF (11 dígitos) ou CNPJ (14 dígitos) — descarta RG/CNH/etc.
+  if (digits.length === 11 || digits.length === 14) return digits;
+  return undefined;
+}
+
 function parseNumber(v: unknown): number | undefined {
   if (v === null || v === undefined || v === "") return undefined;
   if (typeof v === "number") return Number.isFinite(v) ? v : undefined;
@@ -149,7 +157,7 @@ export async function POST(request: NextRequest) {
         return {
           nome: nome ?? `Conta ${numeroConta}`,
           numeroConta,
-          cpfCnpj: clean(c.cpfCnpj)?.replace(/\D/g, "") || undefined,
+          cpfCnpj: cleanCpfCnpj(c.cpfCnpj),
           saldo: parseNumber(c.saldo),
           saldoConta: parseNumber(c.saldoConta),
           email: clean(c.email),

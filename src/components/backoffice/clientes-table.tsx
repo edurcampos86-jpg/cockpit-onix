@@ -25,8 +25,11 @@ const HEADER_MAP: Record<string, string> = {
   cpf: "cpfCnpj",
   cnpj: "cpfCnpj",
   cpfcnpj: "cpfCnpj",
-  documento: "cpfCnpj",
+  // "Documento" no export do BTG é o TIPO ("CPF", "RG", "DETRAN", "CNH"),
+  // não o número — o número fica em "Número Documento".
   numerodocumento: "cpfCnpj",
+  ndocumento: "cpfCnpj",
+  numdocumento: "cpfCnpj",
 
   // AUM / saldo
   saldo: "saldo",
@@ -99,12 +102,17 @@ function normHeader(h: string): string {
     .replace(/[^a-z0-9]/g, "");
 }
 
+function isVazio(v: unknown): boolean {
+  return v === undefined || v === null || (typeof v === "string" && v.trim() === "");
+}
+
 function mapRowToCliente(row: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(row)) {
     const target = HEADER_MAP[normHeader(k)];
     if (!target) continue;
-    if (out[target] === undefined || out[target] === "") out[target] = v;
+    if (isVazio(v)) continue;
+    if (isVazio(out[target])) out[target] = v;
   }
   return out;
 }
@@ -231,19 +239,47 @@ export function ClientesTable({
         return;
       }
 
-      setImportStatus({ ok: true, msg: `Enviando ${parsed.length} clientes (de ${totalLinhas} linhas em ${lista.length} arquivo(s))...` });
-      const res = await fetch("/api/backoffice/clientes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clientes: parsed }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setImportStatus({ ok: false, msg: data.error || "Erro ao importar." });
-        return;
+      const CHUNK = 500;
+      const total = parsed.length;
+      let criados = 0;
+      let atualizados = 0;
+      let pareados = 0;
+      const erros: string[] = [];
+
+      for (let i = 0; i < total; i += CHUNK) {
+        const slice = parsed.slice(i, i + CHUNK);
+        const fim = Math.min(i + CHUNK, total);
+        setImportStatus({
+          ok: true,
+          msg: `Enviando ${fim}/${total} clientes (${lista.length} arquivo(s), ${totalLinhas} linhas)...`,
+        });
+        try {
+          const res = await fetch("/api/backoffice/clientes", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ clientes: slice }),
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            erros.push(`Batch ${i + 1}-${fim}: ${data.error || res.status}`);
+            continue;
+          }
+          criados += data.criados || 0;
+          atualizados += data.atualizados || 0;
+          pareados += data.duplicadosResolvidos || 0;
+        } catch (e) {
+          erros.push(`Batch ${i + 1}-${fim}: ${e instanceof Error ? e.message : "erro de rede"}`);
+        }
       }
-      setImportStatus({ ok: true, msg: data.message || "Importação concluída." });
-      setTimeout(() => window.location.reload(), 1500);
+
+      const partes = [`${criados} novos`, `${atualizados} atualizados`];
+      if (pareados > 0) partes.push(`${pareados} pareados por CPF/nome`);
+      if (erros.length > 0) partes.push(`${erros.length} batch(es) com erro`);
+      setImportStatus({
+        ok: erros.length === 0,
+        msg: `${partes.join(" · ")}${erros.length > 0 ? " — " + erros.slice(0, 2).join("; ") : ""}`,
+      });
+      if (erros.length === 0) setTimeout(() => window.location.reload(), 1800);
     } catch (e) {
       setImportStatus({ ok: false, msg: e instanceof Error ? e.message : "Erro ao processar arquivos." });
     } finally {
