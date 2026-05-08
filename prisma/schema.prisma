@@ -458,6 +458,20 @@ model ClienteBackoffice {
   profissao     String?
   nicho         String?  // "medico" | "empresario" | "executivo" | "outro"
 
+  // Endereço
+  endereco      String?
+  complemento   String?
+  cidade        String?
+  estado        String?  // UF, ex: "BAHIA", "SP"
+  cep           String?
+
+  // Dados pessoais (vindos da Base BTG / Informações)
+  estadoCivil   String?
+  genero        String?
+  nacionalidade String?
+  cpfConjuge    String?
+  tipoConta     String?  // "PF" | "PJ"
+
   // Storyselling / perfil emocional
   perfilEmocional String? @db.Text // medos, sonhos, linguagem preferida
   observacoes     String? @db.Text
@@ -476,8 +490,20 @@ model ClienteBackoffice {
   cpfCnpj            String?  // taxIdentification do holder (CPF ou CNPJ)
   perfilInvestidor   String?  // Suitability: "conservador" | "moderado" | "sofisticado"
   suitabilityValidoAte DateTime? // Validade do perfil suitability
+  tipoInvestidor     String?  // "Qualificado" | "Sofisticado" | "Nao Qualificado"
+  faixaCliente       String?  // "Entre 300k e 500k", "Entre 5MM e 10MM", etc.
+  ativacaoConta      String?  // "Ativa" | "Bloqueio Total" | etc.
+  pendenciaCadastral String?
+  dataAberturaConta  DateTime?
+  dataUltimaRevisaoCadastral  DateTime?
+  dataProximaRevisaoCadastral DateTime?
+  idClienteBtg       String?  // ID do cliente no BTG (campo "ID Cliente")
+  tipoParceiro       String?  // "AGENTE AUTONOMO" etc.
+  escritorio         String?  // Nome do escritório do parceiro
+  codigoEscritorio   String?  // Código do escritório do parceiro
   assessorCge        String?  // CGE do assessor responsável (Relacionamento Conta×Parceiro)
   assessorNome       String?  // Nome do assessor (cache pra exibir)
+  assessorEmail      String?  // Email do assessor (cache pra exibir)
   breakdownProdutos  Json?    // Breakdown completo da posição BTG (renda fixa, fundos, equities, etc.)
   positionDate       DateTime? // Data da última posição BTG
   coHolders          Json?    // Co-titulares da conta
