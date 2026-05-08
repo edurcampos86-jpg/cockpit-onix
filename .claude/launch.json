@@ -6,7 +6,7 @@
       "runtimeExecutable": "/opt/homebrew/bin/npm",
       "runtimeArgs": ["run", "dev", "--", "--port", "3333"],
       "port": 3333,
-      "cwd": "/Users/eduardorodrigues/Library/Mobile Documents/com~apple~CloudDocs/Onix Co/PROJETOS CORPORATIVOS/Redes Sociais/cockpit-onix",
+      "cwd": "/Users/eduardorodrigues/painel-test",
       "env": {
         "PATH": "/opt/homebrew/bin:/Users/eduardorodrigues/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
       }
