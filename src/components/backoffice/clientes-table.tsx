@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { Users, Search, Edit2, Check, X, RefreshCw, MessageCircle, Phone, Video, Loader2, Download, Sparkles, Activity, CalendarClock, CalendarPlus, FileSpreadsheet, Upload } from "lucide-react";
+import { Users, Search, Edit2, Check, X, Loader2, Upload } from "lucide-react";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 declare global {
@@ -12,6 +12,7 @@ declare global {
 }
 
 const HEADER_MAP: Record<string, string> = {
+  // Identidade
   nome: "nome",
   name: "nome",
   cliente: "nome",
@@ -25,31 +26,69 @@ const HEADER_MAP: Record<string, string> = {
   cnpj: "cpfCnpj",
   cpfcnpj: "cpfCnpj",
   documento: "cpfCnpj",
+  numerodocumento: "cpfCnpj",
+
+  // AUM / saldo
   saldo: "saldo",
   aum: "saldo",
   patrimonio: "saldo",
   balance: "saldo",
+  pltotal: "saldo",
+  pl: "saldo",
   saldoconta: "saldoConta",
   saldocontacorrente: "saldoConta",
   saldocc: "saldoConta",
   cash: "saldoConta",
+  contacorrente: "saldoConta",
+
+  // Contato
   email: "email",
   emailprincipal: "email",
+  emailcomunicacao: "email",
+  emailacesso: "email",
   telefone: "telefone",
   celular: "telefone",
   fone: "telefone",
   whatsapp: "telefone",
+
+  // Cadastrais
   profissao: "profissao",
   profession: "profissao",
   ocupacao: "profissao",
+  profissaosetor: "profissao",
+  setor: "profissao",
   nicho: "nicho",
   segmento: "nicho",
+  aniversario: "aniversario",
+  dataaniversario: "aniversario",
+  datanascimento: "aniversario",
+  nascimento: "aniversario",
+
+  // Classificação
   classificacao: "classificacao",
   classe: "classificacao",
   abc: "classificacao",
+
+  // Receita
   receita: "receitaAnual",
   receitaanual: "receitaAnual",
   receitaano: "receitaAnual",
+  rendaanual: "receitaAnual",
+
+  // Suitability
+  perfilsuitability: "perfilInvestidor",
+  perfilinvestidor: "perfilInvestidor",
+  suitability: "perfilInvestidor",
+  vencimentosuitability: "suitabilityValidoAte",
+  validadesuitability: "suitabilityValidoAte",
+
+  // Assessor
+  assessor: "assessorNome",
+  assessornome: "assessorNome",
+  codigoassessor: "assessorCge",
+  codigodoassessor: "assessorCge",
+  cgeassessor: "assessorCge",
+  cge: "assessorCge",
 };
 
 function normHeader(h: string): string {
@@ -68,12 +107,6 @@ function mapRowToCliente(row: Record<string, unknown>): Record<string, unknown> 
     if (out[target] === undefined || out[target] === "") out[target] = v;
   }
   return out;
-}
-
-interface ContatoResumo {
-  data: string;
-  canal: "whatsapp" | "reuniao" | "ligacao";
-  resumo: string;
 }
 
 interface Cliente {
@@ -118,24 +151,6 @@ const classLegenda: Record<string, string> = {
   C: "Manutenção",
 };
 
-const canalIcone: Record<string, typeof MessageCircle> = {
-  whatsapp: MessageCircle,
-  reuniao: Video,
-  ligacao: Phone,
-};
-
-const canalCor: Record<string, string> = {
-  whatsapp: "text-green-600",
-  reuniao: "text-blue-600",
-  ligacao: "text-amber-600",
-};
-
-const canalLabel: Record<string, string> = {
-  whatsapp: "WhatsApp",
-  reuniao: "Reunião",
-  ligacao: "Ligação",
-};
-
 export function ClientesTable({
   clientes: iniciais,
   isAdmin = false,
@@ -148,18 +163,8 @@ export function ClientesTable({
   const [filtroClasse, setFiltroClasse] = useState<"todos" | "A" | "B" | "C">("todos");
   const [filtroSaldoConta, setFiltroSaldoConta] = useState<FaixaSaldo>("todos");
   const [editando, setEditando] = useState<string | null>(null);
-  const [sincronizando, setSincronizando] = useState(false);
   const [importando, setImportando] = useState(false);
-  const [enriquecendo, setEnriquecendo] = useState(false);
-  const [sincMovs, setSincMovs] = useState(false);
-  const [syncDatacrazy, setSyncDatacrazy] = useState(false);
-  const [syncOutlook, setSyncOutlook] = useState(false);
-  const [syncResult, setSyncResult] = useState<{ ok: boolean; msg: string } | null>(null);
-  const [buscandoContatos, setBuscandoContatos] = useState(false);
-  const [contatos, setContatos] = useState<Record<string, ContatoResumo[]>>({});
-  const [contatosCarregados, setContatosCarregados] = useState(false);
-  const [importandoPlanilha, setImportandoPlanilha] = useState(false);
-  const [exportando, setExportando] = useState(false);
+  const [importStatus, setImportStatus] = useState<{ ok: boolean; msg: string } | null>(null);
   const [xlsxReady, setXlsxReady] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -176,29 +181,57 @@ export function ClientesTable({
     document.head.appendChild(script);
   }, [isAdmin]);
 
-  const importarPlanilha = async (file: File) => {
-    if (importandoPlanilha) return;
-    const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
-    if (![".xlsx", ".xls", ".csv"].includes(ext)) {
-      setSyncResult({ ok: false, msg: "Formato inválido. Use .xlsx, .xls ou .csv." });
-      return;
-    }
+  const importarArquivos = async (files: FileList | File[]) => {
+    if (importando) return;
+    const lista = Array.from(files);
+    if (lista.length === 0) return;
     if (!xlsxReady || !window.XLSX) {
-      setSyncResult({ ok: false, msg: "Biblioteca de leitura ainda carregando, tente em 1s." });
+      setImportStatus({ ok: false, msg: "Biblioteca de leitura ainda carregando, tente em 1s." });
       return;
     }
-    setImportandoPlanilha(true);
-    setSyncResult(null);
-    try {
-      const buffer = await file.arrayBuffer();
-      const workbook = window.XLSX.read(buffer, { type: "array", cellDates: true });
-      const sheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rows: Record<string, unknown>[] = window.XLSX.utils.sheet_to_json(sheet, { defval: "" });
-      const parsed = rows.map(mapRowToCliente).filter((c) => String(c.nome ?? "").trim().length > 0);
-      if (parsed.length === 0) {
-        setSyncResult({ ok: false, msg: "Nenhuma linha válida. Verifique se há coluna 'nome'." });
+    for (const f of lista) {
+      const ext = f.name.substring(f.name.lastIndexOf(".")).toLowerCase();
+      if (![".xlsx", ".xls", ".csv"].includes(ext)) {
+        setImportStatus({ ok: false, msg: `Formato inválido em "${f.name}". Use .xlsx, .xls ou .csv.` });
         return;
       }
+    }
+    setImportando(true);
+    setImportStatus({ ok: true, msg: `Lendo ${lista.length} arquivo(s)...` });
+    try {
+      const merged: Record<string, Record<string, unknown>> = {};
+      let totalLinhas = 0;
+
+      for (const f of lista) {
+        const buffer = await f.arrayBuffer();
+        const workbook = window.XLSX.read(buffer, { type: "array", cellDates: true });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows: Record<string, unknown>[] = window.XLSX.utils.sheet_to_json(sheet, { defval: "" });
+        for (const row of rows) {
+          const mapped = mapRowToCliente(row);
+          const conta = String(mapped.numeroConta ?? "").trim();
+          const nome = String(mapped.nome ?? "").trim();
+          if (!conta && !nome) continue;
+          const chave = conta || `nome:${nome.toLowerCase()}`;
+          const acc = merged[chave] || {};
+          for (const [k, v] of Object.entries(mapped)) {
+            if (v === undefined || v === null || v === "") continue;
+            if (acc[k] === undefined || acc[k] === null || acc[k] === "") acc[k] = v;
+          }
+          merged[chave] = acc;
+          totalLinhas++;
+        }
+      }
+
+      const parsed = Object.values(merged).filter(
+        (c) => String(c.nome ?? "").trim().length > 0 || String(c.numeroConta ?? "").trim().length > 0,
+      );
+      if (parsed.length === 0) {
+        setImportStatus({ ok: false, msg: "Nenhuma linha válida. A planilha precisa ter coluna 'Conta' ou 'Nome'." });
+        return;
+      }
+
+      setImportStatus({ ok: true, msg: `Enviando ${parsed.length} clientes (de ${totalLinhas} linhas em ${lista.length} arquivo(s))...` });
       const res = await fetch("/api/backoffice/clientes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -206,236 +239,16 @@ export function ClientesTable({
       });
       const data = await res.json();
       if (!res.ok) {
-        setSyncResult({ ok: false, msg: data.error || "Erro ao importar." });
+        setImportStatus({ ok: false, msg: data.error || "Erro ao importar." });
         return;
       }
-      setSyncResult({ ok: true, msg: data.message || "Importação concluída." });
-      setTimeout(() => window.location.reload(), 1200);
+      setImportStatus({ ok: true, msg: data.message || "Importação concluída." });
+      setTimeout(() => window.location.reload(), 1500);
     } catch (e) {
-      setSyncResult({ ok: false, msg: e instanceof Error ? e.message : "Erro ao processar arquivo." });
-    } finally {
-      setImportandoPlanilha(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  };
-
-  const exportarPlanilha = async () => {
-    if (exportando) return;
-    if (!xlsxReady || !window.XLSX) {
-      setSyncResult({ ok: false, msg: "Biblioteca de exportação ainda carregando, tente em 1s." });
-      return;
-    }
-    setExportando(true);
-    setSyncResult(null);
-    try {
-      const res = await fetch("/api/backoffice/clientes");
-      const data = await res.json();
-      if (!res.ok) {
-        setSyncResult({ ok: false, msg: data.error || "Erro ao buscar clientes." });
-        return;
-      }
-      const rows = (data.clientes || []).map((c: Record<string, unknown>) => ({
-        nome: c.nome ?? "",
-        numero_conta: c.numeroConta ?? "",
-        cpf_cnpj: c.cpfCnpj ?? "",
-        saldo: c.saldo ?? 0,
-        saldo_conta: c.saldoConta ?? 0,
-        classificacao: c.classificacao ?? "",
-        email: c.email ?? "",
-        telefone: c.telefone ?? "",
-        profissao: c.profissao ?? "",
-        nicho: c.nicho ?? "",
-        receita_anual: c.receitaAnual ?? 0,
-        ultimo_contato: c.ultimoContatoAt
-          ? new Date(c.ultimoContatoAt as string).toISOString().slice(0, 10)
-          : "",
-        ultima_reuniao: c.ultimaReuniaoAt
-          ? new Date(c.ultimaReuniaoAt as string).toISOString().slice(0, 10)
-          : "",
-        proxima_reuniao: c.proximaReuniaoAt
-          ? new Date(c.proximaReuniaoAt as string).toISOString().slice(0, 10)
-          : "",
-        proximo_contato: c.proximoContatoAt
-          ? new Date(c.proximoContatoAt as string).toISOString().slice(0, 10)
-          : "",
-      }));
-      const ws = window.XLSX.utils.json_to_sheet(rows);
-      const wb = window.XLSX.utils.book_new();
-      window.XLSX.utils.book_append_sheet(wb, ws, "Clientes");
-      const stamp = new Date().toISOString().slice(0, 10);
-      window.XLSX.writeFile(wb, `clientes-onix-${stamp}.xlsx`);
-      setSyncResult({ ok: true, msg: `${rows.length} clientes exportados.` });
-    } catch (e) {
-      setSyncResult({ ok: false, msg: e instanceof Error ? e.message : "Erro ao exportar." });
-    } finally {
-      setExportando(false);
-    }
-  };
-
-  const sincronizarBtg = async () => {
-    if (sincronizando) return;
-    if (!confirm("Sincronizar saldos de todos os clientes via BTG Pactual? Pode levar alguns segundos.")) return;
-    setSincronizando(true);
-    setSyncResult(null);
-    try {
-      const res = await fetch("/api/backoffice/btg-sync", { method: "POST" });
-      const data = await res.json();
-      setSyncResult({ ok: !!data.success, msg: data.message || "Erro" });
-      if (data.detalhes && Array.isArray(data.detalhes)) {
-        setClientes((prev) =>
-          prev.map((c) => {
-            const det = data.detalhes.find((d: { conta: string }) => d.conta === c.numeroConta);
-            return det ? { ...c, saldo: det.saldoNovo, saldoConta: det.saldoConta ?? c.saldoConta } : c;
-          })
-        );
-      }
-    } catch (e) {
-      setSyncResult({ ok: false, msg: e instanceof Error ? e.message : "Erro" });
-    } finally {
-      setSincronizando(false);
-    }
-  };
-
-  const importarBtg = async () => {
-    if (importando) return;
-    if (!confirm("Importar todos os clientes do BTG via Base de Contas + Dados Cadastrais + Saldo + Posição? Pode levar alguns minutos por causa do rate limit do Dados Cadastrais (60 req/min).")) return;
-    setImportando(true);
-    setSyncResult(null);
-    try {
-      const res = await fetch("/api/backoffice/btg-import", { method: "POST" });
-      const data = await res.json();
-      setSyncResult({ ok: !!data.success, msg: data.message || "Erro" });
-      if (data.success) {
-        setTimeout(() => window.location.reload(), 1500);
-      }
-    } catch (e) {
-      setSyncResult({ ok: false, msg: e instanceof Error ? e.message : "Erro" });
+      setImportStatus({ ok: false, msg: e instanceof Error ? e.message : "Erro ao processar arquivos." });
     } finally {
       setImportando(false);
-    }
-  };
-
-  const enriquecerBtg = async () => {
-    if (enriquecendo) return;
-    if (!confirm("Enriquecer todos os clientes com Suitability + Assessor + Receita do BTG? Vai rodar em batches de 20 — pode levar alguns minutos.")) return;
-    setEnriquecendo(true);
-    setSyncResult(null);
-    let offset = 0;
-    let totalEnriquecidos = 0;
-    let totalSuit = 0;
-    let totalAssessor = 0;
-    let totalReceita = 0;
-    let totalErros = 0;
-    try {
-      while (true) {
-        setSyncResult({ ok: true, msg: `Enriquecendo... batch a partir do offset ${offset}` });
-        const res = await fetch(`/api/backoffice/btg-enrich?offset=${offset}&limit=20`, { method: "POST" });
-        const data = await res.json();
-        if (!data.success) {
-          setSyncResult({ ok: false, msg: data.message || "Erro" });
-          break;
-        }
-        totalEnriquecidos += data.enriquecidos || 0;
-        totalSuit += data.comSuitability || 0;
-        totalAssessor += data.comAssessor || 0;
-        totalReceita += data.comReceita || 0;
-        totalErros += (data.erros?.length || 0);
-        offset = data.nextOffset;
-        setSyncResult({
-          ok: true,
-          msg: `Progresso: ${offset}/${data.totalClientes} · ${totalEnriquecidos} enriquecidos · ${totalSuit} c/ suitability · ${totalAssessor} c/ assessor · ${totalReceita} c/ receita${totalErros > 0 ? ` · ${totalErros} erros` : ""}`,
-        });
-        if (!data.hasMore) {
-          setSyncResult({
-            ok: true,
-            msg: `Concluído! ${totalEnriquecidos}/${data.totalClientes} enriquecidos · ${totalSuit} c/ suitability · ${totalAssessor} c/ assessor · ${totalReceita} c/ receita${totalErros > 0 ? ` · ${totalErros} erros` : ""}`,
-          });
-          break;
-        }
-      }
-    } catch (e) {
-      setSyncResult({ ok: false, msg: e instanceof Error ? e.message : "Erro" });
-    } finally {
-      setEnriquecendo(false);
-    }
-  };
-
-  const sincronizarMovimentacoes = async () => {
-    if (sincMovs) return;
-    if (!confirm("Sincronizar movimentações dos últimos 7 dias?")) return;
-    setSincMovs(true);
-    setSyncResult(null);
-    try {
-      const res = await fetch("/api/backoffice/btg-movements-sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scope: "weekly" }),
-      });
-      const data = await res.json();
-      setSyncResult({ ok: !!data.success, msg: data.message || "Erro" });
-    } catch (e) {
-      setSyncResult({ ok: false, msg: e instanceof Error ? e.message : "Erro" });
-    } finally {
-      setSincMovs(false);
-    }
-  };
-
-  const buscarUltimosContatos = async () => {
-    if (buscandoContatos) return;
-    setBuscandoContatos(true);
-    try {
-      const res = await fetch("/api/backoffice/clientes/ultimos-contatos", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      const data = await res.json();
-      if (data.contatos) {
-        setContatos(data.contatos);
-        setContatosCarregados(true);
-      }
-    } catch (e) {
-      console.error("Erro ao buscar contatos:", e);
-    } finally {
-      setBuscandoContatos(false);
-    }
-  };
-
-  const sincronizarDatacrazy = async () => {
-    if (syncDatacrazy) return;
-    if (!confirm("Sincronizar com Datacrazy + Plaud? Atualiza último contato e última reunião pra cada cliente. Pode levar alguns minutos.")) return;
-    setSyncDatacrazy(true);
-    setSyncResult(null);
-    try {
-      const res = await fetch("/api/backoffice/datacrazy-sync", { method: "POST" });
-      const data = await res.json();
-      setSyncResult({ ok: !!data.success, msg: data.message || "Erro" });
-      if (data.success) {
-        setTimeout(() => window.location.reload(), 1500);
-      }
-    } catch (e) {
-      setSyncResult({ ok: false, msg: e instanceof Error ? e.message : "Erro" });
-    } finally {
-      setSyncDatacrazy(false);
-    }
-  };
-
-  const sincronizarOutlook = async () => {
-    if (syncOutlook) return;
-    if (!confirm("Sincronizar próxima reunião agendada via Outlook (ICS)? Lê próximos 60 dias e atribui a cada cliente cujo email aparece no evento.")) return;
-    setSyncOutlook(true);
-    setSyncResult(null);
-    try {
-      const res = await fetch("/api/backoffice/outlook-sync", { method: "POST" });
-      const data = await res.json();
-      setSyncResult({ ok: !!data.success, msg: data.message || "Erro" });
-      if (data.success) {
-        setTimeout(() => window.location.reload(), 1500);
-      }
-    } catch (e) {
-      setSyncResult({ ok: false, msg: e instanceof Error ? e.message : "Erro" });
-    } finally {
-      setSyncOutlook(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
@@ -531,128 +344,45 @@ export function ClientesTable({
           </button>
         )}
 
-        <button
-          onClick={buscarUltimosContatos}
-          disabled={buscandoContatos}
-          className="px-3 py-2 rounded-lg border border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-400 text-sm flex items-center gap-2 hover:bg-violet-500/20 disabled:opacity-50"
-          title="Mostrar últimos contatos na tabela (não persiste — só visualização)"
-        >
-          {buscandoContatos ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <MessageCircle className="h-4 w-4" />
-          )}
-          {buscandoContatos ? "Buscando..." : "Buscar contatos"}
-        </button>
-
         {isAdmin && (
           <>
             <input
               ref={fileInputRef}
               type="file"
               accept=".xlsx,.xls,.csv"
+              multiple
               onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) importarPlanilha(file);
+                const files = e.target.files;
+                if (files && files.length > 0) importarArquivos(files);
               }}
               className="hidden"
             />
             <button
               onClick={() => fileInputRef.current?.click()}
-              disabled={importandoPlanilha || !xlsxReady}
+              disabled={importando || !xlsxReady}
               className="px-3 py-2 rounded-lg border border-primary/40 bg-primary/10 text-primary text-sm flex items-center gap-2 hover:bg-primary/20 disabled:opacity-50"
-              title="Importar planilha (.xlsx/.csv): atualiza existentes por conta/CPF/nome e cadastra novos sem duplicar"
+              title="Importar 1 ou 2 planilhas (.xlsx/.csv) — Cadastrais e/ou Base BTG. Atualiza existentes por Conta/CPF/Nome, cadastra novos."
             >
-              {importandoPlanilha ? (
+              {importando ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <Upload className="h-4 w-4" />
               )}
-              {importandoPlanilha ? "Importando..." : "Importar planilha"}
-            </button>
-
-            <button
-              onClick={exportarPlanilha}
-              disabled={exportando || !xlsxReady}
-              className="px-3 py-2 rounded-lg border border-teal-500/30 bg-teal-500/10 text-teal-700 dark:text-teal-400 text-sm flex items-center gap-2 hover:bg-teal-500/20 disabled:opacity-50"
-              title="Exportar todos os clientes em .xlsx (formato compatível com a importação)"
-            >
-              {exportando ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}
-              {exportando ? "Exportando..." : "Exportar planilha"}
-            </button>
-
-            <button
-              onClick={sincronizarDatacrazy}
-              disabled={syncDatacrazy}
-              className="px-3 py-2 rounded-lg border border-fuchsia-500/30 bg-fuchsia-500/10 text-fuchsia-700 dark:text-fuchsia-400 text-sm flex items-center gap-2 hover:bg-fuchsia-500/20 disabled:opacity-50"
-              title="Sincronizar último contato (Datacrazy WhatsApp) e última reunião (Plaud) PERSISTINDO no banco"
-            >
-              {syncDatacrazy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarClock className="h-4 w-4" />}
-              {syncDatacrazy ? "Sincronizando..." : "Sync Datacrazy"}
-            </button>
-
-            <button
-              onClick={sincronizarOutlook}
-              disabled={syncOutlook}
-              className="px-3 py-2 rounded-lg border border-indigo-500/30 bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 text-sm flex items-center gap-2 hover:bg-indigo-500/20 disabled:opacity-50"
-              title="Sincronizar próximas reuniões agendadas no Outlook (calendário publicado via ICS)"
-            >
-              {syncOutlook ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarPlus className="h-4 w-4" />}
-              {syncOutlook ? "Lendo Outlook..." : "Sync Outlook"}
-            </button>
-
-            <button
-              onClick={sincronizarBtg}
-              disabled={sincronizando}
-              className="px-3 py-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-sm flex items-center gap-2 hover:bg-emerald-500/20 disabled:opacity-50"
-              title="Buscar saldos atualizados via BTG Partner API"
-            >
-              <RefreshCw className={`h-4 w-4 ${sincronizando ? "animate-spin" : ""}`} />
-              {sincronizando ? "Sincronizando..." : "Sincronizar saldos BTG"}
-            </button>
-
-            <button
-              onClick={importarBtg}
-              disabled={importando}
-              className="px-3 py-2 rounded-lg border border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-400 text-sm flex items-center gap-2 hover:bg-sky-500/20 disabled:opacity-50"
-              title="Importar todos os clientes do BTG (Base de Contas + Cadastrais + Saldo + Posição)"
-            >
-              {importando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-              {importando ? "Importando..." : "Importar do BTG"}
-            </button>
-
-            <button
-              onClick={enriquecerBtg}
-              disabled={enriquecendo}
-              className="px-3 py-2 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400 text-sm flex items-center gap-2 hover:bg-amber-500/20 disabled:opacity-50"
-              title="Enriquecer com Suitability + Assessor + Receita do BTG"
-            >
-              {enriquecendo ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-              {enriquecendo ? "Enriquecendo..." : "Enriquecer dados"}
-            </button>
-
-            <button
-              onClick={sincronizarMovimentacoes}
-              disabled={sincMovs}
-              className="px-3 py-2 rounded-lg border border-zinc-500/30 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300 text-sm flex items-center gap-2 hover:bg-zinc-500/20 disabled:opacity-50"
-              title="Sincronizar movimentações dos últimos 7 dias"
-            >
-              {sincMovs ? <Loader2 className="h-4 w-4 animate-spin" /> : <Activity className="h-4 w-4" />}
-              {sincMovs ? "Sincronizando..." : "Sync Movimentações"}
+              {importando ? "Importando..." : "Importar dados"}
             </button>
           </>
         )}
       </div>
 
-      {syncResult && (
+      {importStatus && (
         <div
           className={`px-4 py-3 rounded-lg text-sm border ${
-            syncResult.ok
+            importStatus.ok
               ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-400"
               : "bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-400"
           }`}
         >
-          {syncResult.msg}
+          {importStatus.msg}
         </div>
       )}
 
@@ -678,9 +408,6 @@ export function ClientesTable({
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Último contato</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Última reunião</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Próxima reunião</th>
-                {contatosCarregados && (
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Contatos recentes</th>
-                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -764,18 +491,13 @@ export function ClientesTable({
                       <span className="text-muted-foreground">—</span>
                     )}
                   </td>
-                  {contatosCarregados && (
-                    <td className="px-4 py-3">
-                      <ContatosBadges contatos={contatos[c.id] || []} />
-                    </td>
-                  )}
                 </tr>
               ))}
               {filtrados.length === 0 && (
                 <tr>
-                  <td colSpan={contatosCarregados ? 10 : 9} className="px-4 py-8 text-center text-muted-foreground">
+                  <td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">
                     {clientes.length === 0
-                      ? "Nenhum cliente importado. Use o upload no painel principal."
+                      ? "Nenhum cliente importado. Use o botão Importar dados acima."
                       : "Nenhum cliente encontrado com os filtros atuais."}
                   </td>
                 </tr>
@@ -788,31 +510,3 @@ export function ClientesTable({
   );
 }
 
-function ContatosBadges({ contatos }: { contatos: ContatoResumo[] }) {
-  if (contatos.length === 0) {
-    return <span className="text-xs text-muted-foreground">—</span>;
-  }
-
-  return (
-    <div className="flex flex-col gap-1">
-      {contatos.map((c, i) => {
-        const Icone = canalIcone[c.canal] || Phone;
-        const cor = canalCor[c.canal] || "text-zinc-500";
-        const dataFormatada = c.data
-          ? new Date(c.data).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })
-          : "";
-        return (
-          <div
-            key={i}
-            className="flex items-center gap-1.5 text-xs group relative"
-            title={c.resumo}
-          >
-            <Icone className={`h-3.5 w-3.5 flex-shrink-0 ${cor}`} />
-            <span className="text-muted-foreground">{dataFormatada}</span>
-            <span className="truncate max-w-[120px] text-foreground/70">{c.resumo.substring(0, 40)}</span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}

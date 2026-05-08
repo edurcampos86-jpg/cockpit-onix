@@ -43,6 +43,20 @@ function parseNumber(v: unknown): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
+function parseDate(v: unknown): Date | undefined {
+  if (v === null || v === undefined || v === "") return undefined;
+  if (v instanceof Date) return Number.isNaN(v.getTime()) ? undefined : v;
+  const s = String(v).trim();
+  // dd/mm/yyyy
+  const br = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(s);
+  if (br) {
+    const d = new Date(Date.UTC(+br[3], +br[2] - 1, +br[1]));
+    return Number.isNaN(d.getTime()) ? undefined : d;
+  }
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? undefined : d;
+}
+
 const CLASSES_VALIDAS = new Set(["A", "B", "C"]);
 
 type IncomingCliente = {
@@ -57,6 +71,11 @@ type IncomingCliente = {
   nicho?: unknown;
   classificacao?: unknown;
   receitaAnual?: unknown;
+  aniversario?: unknown;
+  perfilInvestidor?: unknown;
+  suitabilityValidoAte?: unknown;
+  assessorNome?: unknown;
+  assessorCge?: unknown;
 };
 
 type ClienteLimpo = {
@@ -71,6 +90,11 @@ type ClienteLimpo = {
   nicho?: string;
   classificacao?: string;
   receitaAnual?: number;
+  aniversario?: Date;
+  perfilInvestidor?: string;
+  suitabilityValidoAte?: Date;
+  assessorNome?: string;
+  assessorCge?: string;
 };
 
 async function findExisting(c: ClienteLimpo) {
@@ -118,11 +142,13 @@ export async function POST(request: NextRequest) {
     const limpos: ClienteLimpo[] = recebidos
       .map((c): ClienteLimpo | null => {
         const nome = clean(c.nome);
-        if (!nome) return null;
+        const numeroConta = clean(c.numeroConta);
+        if (!nome && !numeroConta) return null;
         const classe = clean(c.classificacao)?.toUpperCase();
+        const perfilSuit = clean(c.perfilInvestidor)?.toLowerCase();
         return {
-          nome,
-          numeroConta: clean(c.numeroConta),
+          nome: nome ?? `Conta ${numeroConta}`,
+          numeroConta,
           cpfCnpj: clean(c.cpfCnpj)?.replace(/\D/g, "") || undefined,
           saldo: parseNumber(c.saldo),
           saldoConta: parseNumber(c.saldoConta),
@@ -132,13 +158,18 @@ export async function POST(request: NextRequest) {
           nicho: clean(c.nicho),
           classificacao: classe && CLASSES_VALIDAS.has(classe) ? classe : undefined,
           receitaAnual: parseNumber(c.receitaAnual),
+          aniversario: parseDate(c.aniversario),
+          perfilInvestidor: perfilSuit,
+          suitabilityValidoAte: parseDate(c.suitabilityValidoAte),
+          assessorNome: clean(c.assessorNome),
+          assessorCge: clean(c.assessorCge),
         };
       })
       .filter((c): c is ClienteLimpo => c !== null);
 
     if (limpos.length === 0) {
       return NextResponse.json(
-        { error: "Nenhum cliente válido encontrado. A planilha precisa ter coluna 'nome'." },
+        { error: "Nenhum cliente válido encontrado. A planilha precisa ter coluna 'Conta' ou 'Nome'." },
         { status: 400 },
       );
     }
@@ -173,6 +204,11 @@ export async function POST(request: NextRequest) {
         if (input.profissao !== undefined) update.profissao = input.profissao;
         if (input.nicho !== undefined) update.nicho = input.nicho;
         if (input.receitaAnual !== undefined) update.receitaAnual = input.receitaAnual;
+        if (input.aniversario !== undefined) update.aniversario = input.aniversario;
+        if (input.perfilInvestidor !== undefined) update.perfilInvestidor = input.perfilInvestidor;
+        if (input.suitabilityValidoAte !== undefined) update.suitabilityValidoAte = input.suitabilityValidoAte;
+        if (input.assessorNome !== undefined) update.assessorNome = input.assessorNome;
+        if (input.assessorCge !== undefined) update.assessorCge = input.assessorCge;
 
         if (input.classificacao) {
           update.classificacao = input.classificacao;
@@ -206,6 +242,11 @@ export async function POST(request: NextRequest) {
             profissao: input.profissao ?? null,
             nicho: input.nicho ?? null,
             receitaAnual: input.receitaAnual ?? 0,
+            aniversario: input.aniversario ?? null,
+            perfilInvestidor: input.perfilInvestidor ?? null,
+            suitabilityValidoAte: input.suitabilityValidoAte ?? null,
+            assessorNome: input.assessorNome ?? null,
+            assessorCge: input.assessorCge ?? null,
             classificacao: input.classificacao ?? classeAuto,
             classificacaoManual: !!input.classificacao,
           },
