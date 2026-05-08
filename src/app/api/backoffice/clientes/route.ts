@@ -67,6 +67,31 @@ function parseDate(v: unknown): Date | undefined {
 
 const CLASSES_VALIDAS = new Set(["A", "B", "C"]);
 
+// Campos que vão pro Json breakdownProdutos (não viram colunas).
+const BREAKDOWN_KEYS = [
+  "fundos",
+  "rendaFixa",
+  "rendaVariavel",
+  "previdencia",
+  "derivativos",
+  "valorEmTransito",
+  "criptoativos",
+  "qtdAtivos",
+  "qtdFundos",
+  "qtdRendaFixa",
+  "qtdRendaVariavel",
+  "qtdPrevidencia",
+  "qtdDerivativos",
+  "qtdValorEmTransito",
+  "qtdCriptoativos",
+  "qtdAportes",
+  "aportes",
+  "retiradas",
+  "plDeclarado",
+] as const;
+const BREAKDOWN_DATE_KEYS = ["primeiroAporte", "ultimoAporte"] as const;
+const BREAKDOWN_TEXT_KEYS = ["carteiraAdministrada", "termoMarcacaoNaCurva"] as const;
+
 type IncomingCliente = {
   nome?: unknown;
   numeroConta?: unknown;
@@ -82,8 +107,32 @@ type IncomingCliente = {
   aniversario?: unknown;
   perfilInvestidor?: unknown;
   suitabilityValidoAte?: unknown;
+  tipoInvestidor?: unknown;
+  faixaCliente?: unknown;
+  ativacaoConta?: unknown;
+  pendenciaCadastral?: unknown;
+  dataAberturaConta?: unknown;
+  dataUltimaRevisaoCadastral?: unknown;
+  dataProximaRevisaoCadastral?: unknown;
+  idClienteBtg?: unknown;
+  tipoConta?: unknown;
+  estadoCivil?: unknown;
+  genero?: unknown;
+  nacionalidade?: unknown;
+  cpfConjuge?: unknown;
+  endereco?: unknown;
+  complemento?: unknown;
+  cidade?: unknown;
+  estado?: unknown;
+  cep?: unknown;
   assessorNome?: unknown;
   assessorCge?: unknown;
+  assessorEmail?: unknown;
+  tipoParceiro?: unknown;
+  escritorio?: unknown;
+  codigoEscritorio?: unknown;
+  // Detalhamento financeiro (consolidado em breakdownProdutos)
+  [k: string]: unknown;
 };
 
 type ClienteLimpo = {
@@ -101,8 +150,31 @@ type ClienteLimpo = {
   aniversario?: Date;
   perfilInvestidor?: string;
   suitabilityValidoAte?: Date;
+  tipoInvestidor?: string;
+  faixaCliente?: string;
+  ativacaoConta?: string;
+  pendenciaCadastral?: string;
+  dataAberturaConta?: Date;
+  dataUltimaRevisaoCadastral?: Date;
+  dataProximaRevisaoCadastral?: Date;
+  idClienteBtg?: string;
+  tipoConta?: string;
+  estadoCivil?: string;
+  genero?: string;
+  nacionalidade?: string;
+  cpfConjuge?: string;
+  endereco?: string;
+  complemento?: string;
+  cidade?: string;
+  estado?: string;
+  cep?: string;
   assessorNome?: string;
   assessorCge?: string;
+  assessorEmail?: string;
+  tipoParceiro?: string;
+  escritorio?: string;
+  codigoEscritorio?: string;
+  breakdownProdutos?: Record<string, string | number | null>;
 };
 
 async function findExisting(c: ClienteLimpo) {
@@ -154,6 +226,22 @@ export async function POST(request: NextRequest) {
         if (!nome && !numeroConta) return null;
         const classe = clean(c.classificacao)?.toUpperCase();
         const perfilSuit = clean(c.perfilInvestidor)?.toLowerCase();
+
+        // Consolida detalhamento financeiro em breakdownProdutos
+        const breakdown: Record<string, string | number | null> = {};
+        for (const k of BREAKDOWN_KEYS) {
+          const n = parseNumber(c[k]);
+          if (n !== undefined) breakdown[k] = n;
+        }
+        for (const k of BREAKDOWN_DATE_KEYS) {
+          const d = parseDate(c[k]);
+          if (d) breakdown[k] = d.toISOString().slice(0, 10);
+        }
+        for (const k of BREAKDOWN_TEXT_KEYS) {
+          const s = clean(c[k]);
+          if (s) breakdown[k] = s;
+        }
+
         return {
           nome: nome ?? `Conta ${numeroConta}`,
           numeroConta,
@@ -169,8 +257,31 @@ export async function POST(request: NextRequest) {
           aniversario: parseDate(c.aniversario),
           perfilInvestidor: perfilSuit,
           suitabilityValidoAte: parseDate(c.suitabilityValidoAte),
+          tipoInvestidor: clean(c.tipoInvestidor),
+          faixaCliente: clean(c.faixaCliente),
+          ativacaoConta: clean(c.ativacaoConta),
+          pendenciaCadastral: clean(c.pendenciaCadastral),
+          dataAberturaConta: parseDate(c.dataAberturaConta),
+          dataUltimaRevisaoCadastral: parseDate(c.dataUltimaRevisaoCadastral),
+          dataProximaRevisaoCadastral: parseDate(c.dataProximaRevisaoCadastral),
+          idClienteBtg: clean(c.idClienteBtg),
+          tipoConta: clean(c.tipoConta)?.toUpperCase(),
+          estadoCivil: clean(c.estadoCivil),
+          genero: clean(c.genero),
+          nacionalidade: clean(c.nacionalidade),
+          cpfConjuge: clean(c.cpfConjuge)?.replace(/\D/g, "") || undefined,
+          endereco: clean(c.endereco),
+          complemento: clean(c.complemento),
+          cidade: clean(c.cidade),
+          estado: clean(c.estado),
+          cep: clean(c.cep)?.replace(/\D/g, "") || undefined,
           assessorNome: clean(c.assessorNome),
           assessorCge: clean(c.assessorCge),
+          assessorEmail: clean(c.assessorEmail),
+          tipoParceiro: clean(c.tipoParceiro),
+          escritorio: clean(c.escritorio),
+          codigoEscritorio: clean(c.codigoEscritorio),
+          breakdownProdutos: Object.keys(breakdown).length > 0 ? breakdown : undefined,
         };
       })
       .filter((c): c is ClienteLimpo => c !== null);
@@ -202,21 +313,47 @@ export async function POST(request: NextRequest) {
 
       if (existente) {
         const update: Record<string, unknown> = {};
-        if (input.nome !== undefined) update.nome = input.nome;
-        if (input.numeroConta !== undefined) update.numeroConta = input.numeroConta;
-        if (input.cpfCnpj !== undefined) update.cpfCnpj = input.cpfCnpj;
-        if (input.saldo !== undefined) update.saldo = input.saldo;
-        if (input.saldoConta !== undefined) update.saldoConta = input.saldoConta;
-        if (input.email !== undefined) update.email = input.email;
-        if (input.telefone !== undefined) update.telefone = input.telefone;
-        if (input.profissao !== undefined) update.profissao = input.profissao;
-        if (input.nicho !== undefined) update.nicho = input.nicho;
-        if (input.receitaAnual !== undefined) update.receitaAnual = input.receitaAnual;
-        if (input.aniversario !== undefined) update.aniversario = input.aniversario;
-        if (input.perfilInvestidor !== undefined) update.perfilInvestidor = input.perfilInvestidor;
-        if (input.suitabilityValidoAte !== undefined) update.suitabilityValidoAte = input.suitabilityValidoAte;
-        if (input.assessorNome !== undefined) update.assessorNome = input.assessorNome;
-        if (input.assessorCge !== undefined) update.assessorCge = input.assessorCge;
+        const setIfDef = (k: keyof ClienteLimpo) => {
+          if (input[k] !== undefined) update[k as string] = input[k];
+        };
+        setIfDef("nome");
+        setIfDef("numeroConta");
+        setIfDef("cpfCnpj");
+        setIfDef("saldo");
+        setIfDef("saldoConta");
+        setIfDef("email");
+        setIfDef("telefone");
+        setIfDef("profissao");
+        setIfDef("nicho");
+        setIfDef("receitaAnual");
+        setIfDef("aniversario");
+        setIfDef("perfilInvestidor");
+        setIfDef("suitabilityValidoAte");
+        setIfDef("tipoInvestidor");
+        setIfDef("faixaCliente");
+        setIfDef("ativacaoConta");
+        setIfDef("pendenciaCadastral");
+        setIfDef("dataAberturaConta");
+        setIfDef("dataUltimaRevisaoCadastral");
+        setIfDef("dataProximaRevisaoCadastral");
+        setIfDef("idClienteBtg");
+        setIfDef("tipoConta");
+        setIfDef("estadoCivil");
+        setIfDef("genero");
+        setIfDef("nacionalidade");
+        setIfDef("cpfConjuge");
+        setIfDef("endereco");
+        setIfDef("complemento");
+        setIfDef("cidade");
+        setIfDef("estado");
+        setIfDef("cep");
+        setIfDef("assessorNome");
+        setIfDef("assessorCge");
+        setIfDef("assessorEmail");
+        setIfDef("tipoParceiro");
+        setIfDef("escritorio");
+        setIfDef("codigoEscritorio");
+        if (input.breakdownProdutos !== undefined) update.breakdownProdutos = input.breakdownProdutos;
 
         if (input.classificacao) {
           update.classificacao = input.classificacao;
@@ -253,8 +390,31 @@ export async function POST(request: NextRequest) {
             aniversario: input.aniversario ?? null,
             perfilInvestidor: input.perfilInvestidor ?? null,
             suitabilityValidoAte: input.suitabilityValidoAte ?? null,
+            tipoInvestidor: input.tipoInvestidor ?? null,
+            faixaCliente: input.faixaCliente ?? null,
+            ativacaoConta: input.ativacaoConta ?? null,
+            pendenciaCadastral: input.pendenciaCadastral ?? null,
+            dataAberturaConta: input.dataAberturaConta ?? null,
+            dataUltimaRevisaoCadastral: input.dataUltimaRevisaoCadastral ?? null,
+            dataProximaRevisaoCadastral: input.dataProximaRevisaoCadastral ?? null,
+            idClienteBtg: input.idClienteBtg ?? null,
+            tipoConta: input.tipoConta ?? null,
+            estadoCivil: input.estadoCivil ?? null,
+            genero: input.genero ?? null,
+            nacionalidade: input.nacionalidade ?? null,
+            cpfConjuge: input.cpfConjuge ?? null,
+            endereco: input.endereco ?? null,
+            complemento: input.complemento ?? null,
+            cidade: input.cidade ?? null,
+            estado: input.estado ?? null,
+            cep: input.cep ?? null,
             assessorNome: input.assessorNome ?? null,
             assessorCge: input.assessorCge ?? null,
+            assessorEmail: input.assessorEmail ?? null,
+            tipoParceiro: input.tipoParceiro ?? null,
+            escritorio: input.escritorio ?? null,
+            codigoEscritorio: input.codigoEscritorio ?? null,
+            breakdownProdutos: input.breakdownProdutos ?? undefined,
             classificacao: input.classificacao ?? classeAuto,
             classificacaoManual: !!input.classificacao,
           },
