@@ -10,7 +10,9 @@
     "postinstall": "prisma generate",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
-    "db:seed:time": "tsx prisma/seed-time.ts"
+    "db:seed:time": "tsx prisma/seed-time.ts",
+    "viagens:alerta": "tsx scripts/viagens-alerta.ts",
+    "viagens:alerta:dryrun": "MOCK_PRICES=1 tsx scripts/viagens-alerta.ts --dry-run"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.40.1",

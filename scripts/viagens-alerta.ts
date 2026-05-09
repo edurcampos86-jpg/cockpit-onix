@@ -7,15 +7,30 @@
  *
  * Disparado por .github/workflows/viagens-alerta-semanal.yml.
  *
- * Secrets esperados em env:
+ * Modo de produção (env):
  *   ANTHROPIC_API_KEY            chave da Anthropic
  *   GOOGLE_SERVICE_ACCOUNT_JSON  JSON inline da service account com escopo Drive
  *   SLACK_BOT_TOKEN              xoxb- token de bot Slack
+ *
+ * Modo dry-run (`--dry-run` ou env DRY_RUN=1):
+ *   Lê fixture local em scripts/viagens-alerta.fixture.json no lugar do Drive,
+ *   imprime a mensagem do Slack no stdout em vez de postar, e não escreve no
+ *   Drive. Útil para testar a lógica antes de configurar SA/Slack.
+ *   Ainda chama Anthropic — defina MOCK_PRICES=1 para usar preços simulados.
  */
 import "dotenv/config";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import Anthropic from "@anthropic-ai/sdk";
 import { google } from "googleapis";
 import { WebClient as SlackWebClient } from "@slack/web-api";
+
+const DRY_RUN = process.argv.includes("--dry-run") || process.env.DRY_RUN === "1";
+const MOCK_PRICES = process.env.MOCK_PRICES === "1";
+const FIXTURE_PATH = resolve(
+  process.cwd(),
+  "scripts/viagens-alerta.fixture.json",
+);
 
 const DRIVE_FILE_ID = "1FMFNFMsI1bWIschGU8ALcyk8BHykQXaE";
 const SLACK_USER_ID = "U0ANXQPQHBL";
@@ -52,7 +67,10 @@ function driveClient() {
   return google.drive({ version: "v3", auth });
 }
 
-async function readDrive(): Promise<ViagensFile> {
+async function readState(): Promise<ViagensFile> {
+  if (DRY_RUN) {
+    return JSON.parse(readFileSync(FIXTURE_PATH, "utf8")) as ViagensFile;
+  }
   const drive = driveClient();
   const res = await drive.files.get(
     { fileId: DRIVE_FILE_ID, alt: "media" },
@@ -61,7 +79,11 @@ async function readDrive(): Promise<ViagensFile> {
   return res.data as ViagensFile;
 }
 
-async function writeDrive(data: ViagensFile): Promise<void> {
+async function writeState(data: ViagensFile): Promise<void> {
+  if (DRY_RUN) {
+    console.log("[dry-run] writeDrive seria chamado; pulando.");
+    return;
+  }
   const drive = driveClient();
   await drive.files.update({
     fileId: DRIVE_FILE_ID,
@@ -104,6 +126,15 @@ async function buscarPrecoAtual(
   anthropic: Anthropic,
   rota: RotaAlvo,
 ): Promise<number | null> {
+  if (MOCK_PRICES) {
+    // Determinístico para a fixture: LIS dispara alerta, KIX e CPT não.
+    const mocked: Record<string, number> = {
+      LIS: 2900, // ~35% abaixo da média histórica de ~4457
+      KIX: 7950, // próximo da média ~7900
+      CPT: 11700, // próximo da média ~11880
+    };
+    return mocked[rota.iata] ?? 5000;
+  }
   const resp = await anthropic.messages.create({
     model: "claude-opus-4-7",
     max_tokens: 512,
@@ -147,7 +178,6 @@ type Alerta = {
 };
 
 async function postarSlack(alertas: Alerta[]): Promise<void> {
-  const slack = new SlackWebClient(process.env.SLACK_BOT_TOKEN);
   const linhas = alertas.map(
     (a) =>
       `• *${a.destino}* (${a.iata}) — R$ ${a.precoAtual.toLocaleString("pt-BR")} · ` +
@@ -159,6 +189,14 @@ async function postarSlack(alertas: Alerta[]): Promise<void> {
     `:airplane: *Promoções da semana — saindo de SSA*\n\n${linhas.join("\n")}\n\n` +
     `_Ver timeline completa: rode \`/viagens listar planejadas\`_`;
 
+  if (DRY_RUN) {
+    console.log("\n[dry-run] mensagem que seria postada no Slack:\n");
+    console.log(text);
+    console.log();
+    return;
+  }
+
+  const slack = new SlackWebClient(process.env.SLACK_BOT_TOKEN);
   try {
     await slack.chat.postMessage({ channel: SLACK_USER_ID, text });
   } catch (err) {
@@ -168,8 +206,13 @@ async function postarSlack(alertas: Alerta[]): Promise<void> {
 }
 
 async function main() {
-  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  const data = await readDrive();
+  if (DRY_RUN) console.log("==> Modo dry-run (sem Drive write, sem Slack post)");
+  if (MOCK_PRICES) console.log("==> MOCK_PRICES=1: pulando Anthropic, usando preços simulados");
+
+  const anthropic = MOCK_PRICES
+    ? (null as unknown as Anthropic)
+    : new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const data = await readState();
   const rotas = montarRotas(data);
   console.log(`Vigiando ${rotas.length} rotas em ${HOJE}`);
 
@@ -211,7 +254,7 @@ async function main() {
     }
   }
 
-  await writeDrive(data);
+  await writeState(data);
 
   if (alertas.length === 0) {
     console.log(`Sem promoções acima do threshold em ${HOJE}`);
@@ -219,7 +262,7 @@ async function main() {
   }
 
   await postarSlack(alertas);
-  console.log(`Postado ${alertas.length} alerta(s) no Slack`);
+  if (!DRY_RUN) console.log(`Postado ${alertas.length} alerta(s) no Slack`);
 }
 
 main().catch((err) => {

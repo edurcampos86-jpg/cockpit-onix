@@ -1,0 +1,63 @@
+{
+  "perfil": { "origem": "SSA", "moeda": "BRL" },
+  "viagens": [
+    {
+      "id": "2026-10-quioto",
+      "destino": "Quioto, Japão",
+      "destino_iata": "KIX",
+      "status": "planejada",
+      "datas": { "ida": "2026-10-12", "volta": "2026-10-24" },
+      "transporte": "aviao",
+      "companhia": ["Marina"],
+      "orcamento": {
+        "moeda": "BRL", "estimado": 18000, "realizado": 0,
+        "categorias": { "passagem": 8000, "hospedagem": 6500, "comida": 2500, "passeios": 1000 }
+      },
+      "highlights": [],
+      "memoria": "Outono nos templos — a viagem que estamos sonhando há três anos.",
+      "avaliacao": null
+    },
+    {
+      "id": "2026-09-lisboa",
+      "destino": "Lisboa, Portugal",
+      "destino_iata": "LIS",
+      "status": "planejada",
+      "datas": { "ida": "2026-09-18", "volta": "2026-09-28" },
+      "transporte": "aviao",
+      "companhia": ["Marina"],
+      "orcamento": {
+        "moeda": "BRL", "estimado": 12000, "realizado": 0,
+        "categorias": { "passagem": 4500, "hospedagem": 5000, "comida": 1700, "passeios": 800 }
+      },
+      "highlights": [],
+      "memoria": "Voltar pra Lisboa, dessa vez com calma.",
+      "avaliacao": null
+    }
+  ],
+  "wishlist": [
+    { "destino": "Cidade do Cabo, África do Sul", "destino_iata": "CPT", "motivo": "Vinhedos no Stellenbosch" }
+  ],
+  "preco_historico": {
+    "SSA-LIS": [
+      { "data": "2026-04-04", "preco_brl": 4380 },
+      { "data": "2026-04-11", "preco_brl": 4520 },
+      { "data": "2026-04-18", "preco_brl": 4250 },
+      { "data": "2026-04-25", "preco_brl": 4600 },
+      { "data": "2026-05-02", "preco_brl": 4410 }
+    ],
+    "SSA-KIX": [
+      { "data": "2026-04-04", "preco_brl": 7800 },
+      { "data": "2026-04-11", "preco_brl": 8100 },
+      { "data": "2026-04-18", "preco_brl": 7650 },
+      { "data": "2026-04-25", "preco_brl": 7900 },
+      { "data": "2026-05-02", "preco_brl": 8050 }
+    ],
+    "SSA-CPT": [
+      { "data": "2026-04-04", "preco_brl": 11500 },
+      { "data": "2026-04-11", "preco_brl": 12200 },
+      { "data": "2026-04-18", "preco_brl": 11800 },
+      { "data": "2026-04-25", "preco_brl": 11900 },
+      { "data": "2026-05-02", "preco_brl": 12000 }
+    ]
+  }
+}
