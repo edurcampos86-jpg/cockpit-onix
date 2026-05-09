@@ -24,14 +24,16 @@ edite este arquivo (`.claude/commands/viagens.md`) e confirme.
 
 | Variável | Valor |
 |---|---|
-| `ARQUIVO_DRIVE` | `viagens.json` (raiz do "Meu Drive") |
+| `ARQUIVO_DRIVE_ID` | `1FMFNFMsI1bWIschGU8ALcyk8BHykQXaE` |
+| `ARQUIVO_DRIVE_NOME` | `viagens.json` (raiz do "Meu Drive") |
 | `ORIGEM_PADRAO` | Salvador — `SSA` |
 | `THRESHOLD_ALERTA` | 30% abaixo da média histórica do trecho |
 | `MIN_AMOSTRAS_MEDIA` | 4 (não alerte se houver menos amostras de preço) |
 | `IDIOMA` | pt-BR |
 | `TOM` | factual + 1 frase de memória/expectativa |
-| `SLACK_DESTINATARIO` | DM com o usuário (preferir) ou `#viagens` |
-| `FREQUENCIA_AGENDADOR` | semanal |
+| `SLACK_USER_ID` | `U0ANXQPQHBL` (DM direta com Eduardo Campos) |
+| `SLACK_FALLBACK_CHANNEL` | `#viagens` (criar antes de usar; senão fica só na DM) |
+| `FREQUENCIA_AGENDADOR` | semanal (segundas, 09:00 BRT) |
 | `MOEDA_PADRAO` | BRL |
 
 ---
