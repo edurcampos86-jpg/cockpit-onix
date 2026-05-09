@@ -14,6 +14,7 @@ import {
   Cake,
   Sparkles,
   ClipboardList,
+  IdCard,
 } from "lucide-react";
 import { ReferenciaLivro } from "./referencia-livro";
 import { ComoFunciona } from "./como-funciona";
@@ -56,8 +57,11 @@ interface Interacao {
 interface Cliente {
   id: string;
   nome: string;
+  numeroConta: string;
   classificacao: string;
   saldo: number;
+  saldoConta: number;
+  receitaAnual: number;
   perfilEmocional: string | null;
   observacoes: string | null;
   perfilDescoberta: Record<string, string | null> | null;
@@ -66,12 +70,48 @@ interface Cliente {
   metas: Meta[];
   eventosVida: EventoVida[];
   interacoes: Interacao[];
+  // Cadastrais
+  cpfCnpj: string | null;
+  email: string | null;
+  telefone: string | null;
+  aniversario: string | Date | null;
+  profissao: string | null;
+  nicho: string | null;
+  endereco: string | null;
+  complemento: string | null;
+  cidade: string | null;
+  estado: string | null;
+  cep: string | null;
+  estadoCivil: string | null;
+  genero: string | null;
+  nacionalidade: string | null;
+  cpfConjuge: string | null;
+  tipoConta: string | null;
+  // BTG / suitability / status
+  perfilInvestidor: string | null;
+  suitabilityValidoAte: string | Date | null;
+  tipoInvestidor: string | null;
+  faixaCliente: string | null;
+  ativacaoConta: string | null;
+  pendenciaCadastral: string | null;
+  dataAberturaConta: string | Date | null;
+  dataUltimaRevisaoCadastral: string | Date | null;
+  dataProximaRevisaoCadastral: string | Date | null;
+  idClienteBtg: string | null;
+  // Assessor / escritório
+  assessorNome: string | null;
+  assessorCge: string | null;
+  assessorEmail: string | null;
+  tipoParceiro: string | null;
+  escritorio: string | null;
+  codigoEscritorio: string | null;
 }
 
-type Tab = "descoberta" | "plano" | "checklist" | "metas" | "eventos" | "perfil" | "rca";
+type Tab = "descoberta" | "cadastro" | "plano" | "checklist" | "metas" | "eventos" | "perfil" | "rca";
 
 const TABS: { id: Tab; label: string; icon: typeof Heart }[] = [
   { id: "descoberta", label: "Descoberta", icon: Heart },
+  { id: "cadastro", label: "Cadastro", icon: IdCard },
   { id: "plano", label: "One-Page Plan", icon: FileText },
   { id: "checklist", label: "Organização", icon: CheckSquare },
   { id: "metas", label: "Metas de vida", icon: Target },
@@ -114,6 +154,7 @@ export function ClienteDetalhe({ cliente: inicial }: { cliente: Cliente }) {
           onSave={(p) => setCliente({ ...cliente, perfilDescoberta: p })}
         />
       )}
+      {tab === "cadastro" && <CadastroTab cliente={cliente} />}
       {tab === "plano" && (
         <PlanoTab
           clienteId={cliente.id}
@@ -158,6 +199,149 @@ export function ClienteDetalhe({ cliente: inicial }: { cliente: Cliente }) {
           interacoes={cliente.interacoes}
           onChange={(i) => setCliente({ ...cliente, interacoes: i })}
         />
+      )}
+    </div>
+  );
+}
+
+// ============ CADASTRO ============
+
+const moedaBR = (v: number) =>
+  new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
+
+const formatarCpfCnpj = (doc: string): string => {
+  const d = doc.replace(/\D/g, "");
+  if (d.length === 11) return d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
+  if (d.length === 14) return d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5");
+  return doc;
+};
+
+const formatarCep = (cep: string): string => {
+  const d = cep.replace(/\D/g, "");
+  if (d.length === 8) return d.replace(/(\d{5})(\d{3})/, "$1-$2");
+  return cep;
+};
+
+const formatarTelefone = (tel: string): string => {
+  const d = tel.replace(/\D/g, "");
+  if (d.length === 13 && d.startsWith("55")) {
+    return `+55 (${d.slice(2, 4)}) ${d.slice(4, 9)}-${d.slice(9)}`;
+  }
+  if (d.length === 11) return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+  if (d.length === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+  return tel;
+};
+
+const formatarData = (d: string | Date | null | undefined): string | null => {
+  if (!d) return null;
+  const date = new Date(d);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleDateString("pt-BR");
+};
+
+function CadastroField({ label, value, mono = false }: { label: string; value: string | null; mono?: boolean }) {
+  if (!value) return null;
+  return (
+    <div>
+      <p className="text-xs text-muted-foreground mb-1">{label}</p>
+      <p className={`text-sm ${mono ? "font-mono" : ""}`}>{value}</p>
+    </div>
+  );
+}
+
+function CadastroSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-xl border bg-card p-6 space-y-4">
+      <h3 className="font-semibold text-sm uppercase tracking-wide text-muted-foreground">
+        {title}
+      </h3>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">{children}</div>
+    </div>
+  );
+}
+
+function CadastroTab({ cliente: c }: { cliente: Cliente }) {
+  const enderecoLinha = [c.endereco, c.complemento].filter(Boolean).join(" — ") || null;
+  const cidadeUf = [c.cidade, c.estado].filter(Boolean).join(" / ") || null;
+
+  const temCadastro =
+    c.cpfCnpj || c.email || c.telefone || c.aniversario || c.endereco || c.cidade;
+
+  return (
+    <div className="space-y-4">
+      <ComoFunciona
+        proposito="Snapshot completo dos dados cadastrais do cliente — vindo do BTG ou da última importação."
+        comoUsar="Use para conferir CPF, contato, endereço e status antes de uma reunião ou para preencher formulários internos."
+        comoAjuda="Centraliza tudo em um lugar — não precisa abrir o BTG nem a planilha pra checar um dado."
+      />
+
+      {!temCadastro && (
+        <div className="rounded-xl border bg-card p-6 text-sm text-muted-foreground">
+          Nenhum dado cadastral importado ainda. Use <strong>Importar dados</strong> na lista de clientes.
+        </div>
+      )}
+
+      {(c.cpfCnpj || c.email || c.telefone || c.aniversario || c.profissao || c.estadoCivil || c.genero || c.nacionalidade || c.tipoConta || c.cpfConjuge) && (
+        <CadastroSection title="Identificação">
+          <CadastroField label="Nome" value={c.nome} />
+          <CadastroField label="Conta" value={c.numeroConta} mono />
+          <CadastroField label="Tipo de conta" value={c.tipoConta} />
+          <CadastroField label="CPF / CNPJ" value={c.cpfCnpj ? formatarCpfCnpj(c.cpfCnpj) : null} mono />
+          <CadastroField label="E-mail" value={c.email} />
+          <CadastroField label="Telefone" value={c.telefone ? formatarTelefone(c.telefone) : null} />
+          <CadastroField label="Aniversário" value={formatarData(c.aniversario)} />
+          <CadastroField label="Profissão / Setor" value={c.profissao} />
+          <CadastroField label="Nicho" value={c.nicho} />
+          <CadastroField label="Estado civil" value={c.estadoCivil} />
+          <CadastroField label="Gênero" value={c.genero} />
+          <CadastroField label="Nacionalidade" value={c.nacionalidade} />
+          <CadastroField label="CPF do cônjuge" value={c.cpfConjuge ? formatarCpfCnpj(c.cpfConjuge) : null} mono />
+        </CadastroSection>
+      )}
+
+      {(enderecoLinha || cidadeUf || c.cep) && (
+        <CadastroSection title="Endereço">
+          {enderecoLinha && (
+            <div className="sm:col-span-2 lg:col-span-3">
+              <CadastroField label="Logradouro" value={enderecoLinha} />
+            </div>
+          )}
+          <CadastroField label="Cidade / UF" value={cidadeUf} />
+          <CadastroField label="CEP" value={c.cep ? formatarCep(c.cep) : null} mono />
+        </CadastroSection>
+      )}
+
+      {(c.perfilInvestidor || c.suitabilityValidoAte || c.tipoInvestidor || c.faixaCliente || c.ativacaoConta || c.pendenciaCadastral || c.dataAberturaConta || c.dataUltimaRevisaoCadastral || c.dataProximaRevisaoCadastral || c.idClienteBtg) && (
+        <CadastroSection title="Conta BTG e Suitability">
+          <CadastroField label="Perfil de investidor" value={c.perfilInvestidor} />
+          <CadastroField label="Suitability válido até" value={formatarData(c.suitabilityValidoAte)} />
+          <CadastroField label="Tipo de investidor" value={c.tipoInvestidor} />
+          <CadastroField label="Faixa de cliente" value={c.faixaCliente} />
+          <CadastroField label="Ativação da conta" value={c.ativacaoConta} />
+          <CadastroField label="Pendência cadastral" value={c.pendenciaCadastral} />
+          <CadastroField label="Data de abertura da conta" value={formatarData(c.dataAberturaConta)} />
+          <CadastroField label="Última revisão cadastral" value={formatarData(c.dataUltimaRevisaoCadastral)} />
+          <CadastroField label="Próxima revisão cadastral" value={formatarData(c.dataProximaRevisaoCadastral)} />
+          <CadastroField label="ID Cliente BTG" value={c.idClienteBtg} mono />
+        </CadastroSection>
+      )}
+
+      <CadastroSection title="Posição financeira">
+        <CadastroField label="AUM total" value={moedaBR(c.saldo)} mono />
+        <CadastroField label="Saldo em conta" value={moedaBR(c.saldoConta)} mono />
+        <CadastroField label="Receita anual" value={moedaBR(c.receitaAnual)} mono />
+        <CadastroField label="Classificação ABC" value={c.classificacao} />
+      </CadastroSection>
+
+      {(c.assessorNome || c.assessorCge || c.assessorEmail || c.tipoParceiro || c.escritorio || c.codigoEscritorio) && (
+        <CadastroSection title="Assessor e escritório">
+          <CadastroField label="Assessor" value={c.assessorNome} />
+          <CadastroField label="CGE do assessor" value={c.assessorCge} mono />
+          <CadastroField label="E-mail do assessor" value={c.assessorEmail} />
+          <CadastroField label="Tipo de parceiro" value={c.tipoParceiro} />
+          <CadastroField label="Escritório" value={c.escritorio} />
+          <CadastroField label="Código do escritório" value={c.codigoEscritorio} mono />
+        </CadastroSection>
       )}
     </div>
   );
