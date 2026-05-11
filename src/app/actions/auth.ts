@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { createSession, deleteSession } from "@/lib/session";
+import { normalizePermissoes, PERMISSOES_TUDO } from "@/lib/permissoes";
 import bcrypt from "bcryptjs";
 import { redirect } from "next/navigation";
 
@@ -31,6 +32,9 @@ export async function login(state: LoginState, formData: FormData): Promise<Logi
   try {
     const user = await prisma.user.findUnique({
       where: { cpf },
+      include: {
+        pessoa: { select: { teamRole: true, permissoes: true } },
+      },
     });
 
     if (!user) {
@@ -43,7 +47,14 @@ export async function login(state: LoginState, formData: FormData): Promise<Logi
       return { error: "CPF ou senha incorretos." };
     }
 
-    await createSession(user.id, user.name, user.role);
+    // Admin (User.role==="admin" OU Pessoa.teamRole==="admin") sempre vê tudo
+    const isAdminLogin =
+      user.role === "admin" || user.pessoa?.teamRole === "admin";
+    const permissoes = isAdminLogin
+      ? PERMISSOES_TUDO
+      : normalizePermissoes(user.pessoa?.permissoes);
+
+    await createSession(user.id, user.name, user.role, permissoes);
   } catch (error) {
     console.error("Login error:", error);
     return { error: "Erro ao fazer login. Tente novamente." };

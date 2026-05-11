@@ -1,12 +1,18 @@
 import "server-only";
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
+import type { PermissoesAcesso } from "./permissoes";
 
 export interface SessionPayload {
   userId: string;
   name: string;
   role: string;
   expiresAt: Date;
+  /** Snapshot das permissões da Pessoa vinculada (se houver), incluído no JWT
+   *  para que o middleware/proxy.ts (edge runtime) consiga aplicar bloqueio
+   *  por módulo sem precisar consultar o banco. `undefined` em sessões antigas
+   *  é tratado como "tudo liberado" (compat). Atualiza apenas no próximo login. */
+  permissoes?: PermissoesAcesso;
 }
 
 const secretKey = process.env.SESSION_SECRET;
@@ -32,9 +38,14 @@ export async function decrypt(session: string | undefined = "") {
   }
 }
 
-export async function createSession(userId: string, name: string, role: string) {
+export async function createSession(
+  userId: string,
+  name: string,
+  role: string,
+  permissoes?: PermissoesAcesso
+) {
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-  const session = await encrypt({ userId, name, role, expiresAt });
+  const session = await encrypt({ userId, name, role, expiresAt, permissoes });
   const cookieStore = await cookies();
 
   cookieStore.set("session", session, {

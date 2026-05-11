@@ -937,6 +937,13 @@ model Pessoa {
   teamRole     String    @default("colaborador") // "admin" | "lideranca" | "colaborador"
   observacoes  String?   @db.Text
 
+  // Permissões granulares de visualização por módulo do ecossistema.
+  // Formato: { mkt, corretora, backoffice, time, timeInsights, metodo, glossario, integracoes, configuracoes }
+  // null = legado, tudo liberado (mantém compat com pessoas criadas antes da feature).
+  // Admin (User.role === "admin" OU teamRole === "admin") ignora estas flags.
+  // Estrutura tipada em src/lib/permissoes.ts
+  permissoes   Json?
+
   // Hierarquia organizacional
   filialId       String
   filial         Filial       @relation(fields: [filialId], references: [id])

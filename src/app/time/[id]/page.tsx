@@ -33,6 +33,8 @@ import { PatSection } from "../_components/pat-section";
 import { ReunioesSection } from "../_components/reunioes-section";
 import { AlertasBanner } from "../_components/alertas-banner";
 import { CompatibilidadeSection } from "../_components/compatibilidade-section";
+import { PermissoesSection } from "../_components/permissoes-section";
+import { normalizePermissoes } from "@/lib/permissoes";
 
 export const metadata = {
   title: "Ficha — Time — Ecossistema Onix",
@@ -256,6 +258,19 @@ export default async function PessoaPage({
           <ConviteSection
             pessoaId={pessoa.id}
             pessoaNome={pessoa.apelido || pessoa.nomeCompleto}
+          />
+        )}
+
+        {/* ── Permissões de visualização (admin only) ── */}
+        {isAdmin(ctx) && (
+          <PermissoesSection
+            pessoaId={pessoa.id}
+            pessoaNome={pessoa.apelido || pessoa.nomeCompleto}
+            permissoesAtuais={normalizePermissoes(pessoa.permissoes)}
+            alvoEhAdmin={
+              pessoa.teamRole === "admin" || pessoa.user?.role === "admin"
+            }
+            semLogin={!pessoa.user}
           />
         )}
 

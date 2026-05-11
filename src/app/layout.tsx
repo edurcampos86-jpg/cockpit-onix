@@ -4,6 +4,8 @@ import "./globals.css";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppShell } from "@/components/layout/app-shell";
 import { ThemeProvider } from "@/components/theme-provider";
+import { getOptionalAuthContext, getEffectivePermissoes } from "@/lib/auth-helpers";
+import { PERMISSOES_TUDO } from "@/lib/permissoes";
 
 const poppins = Poppins({
   weight: ["400", "500", "600", "700"],
@@ -30,11 +32,18 @@ const themeScript = `
   })();
 `;
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const ctx = await getOptionalAuthContext();
+  const permissoes = ctx ? getEffectivePermissoes(ctx) : PERMISSOES_TUDO;
+  const userNome = ctx?.pessoa?.nomeCompleto || ctx?.name || "Visitante";
+  const isAdminUI = ctx
+    ? ctx.role === "admin" || ctx.pessoa?.teamRole === "admin"
+    : false;
+
   return (
     <html lang="pt-BR" className={poppins.variable}>
       <head>
@@ -43,7 +52,13 @@ export default function RootLayout({
       <body className="min-h-screen bg-background text-foreground font-sans antialiased">
         <ThemeProvider>
           <TooltipProvider>
-            <AppShell>{children}</AppShell>
+            <AppShell
+              permissoes={permissoes}
+              userNome={userNome}
+              isAdmin={isAdminUI}
+            >
+              {children}
+            </AppShell>
           </TooltipProvider>
         </ThemeProvider>
       </body>

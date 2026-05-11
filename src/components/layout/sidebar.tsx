@@ -40,11 +40,12 @@ import {
   UsersRound,
   PieChart,
 } from "lucide-react";
-import { useState, useTransition, useEffect } from "react";
+import { useState, useTransition, useEffect, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { logout } from "@/app/actions/auth";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useTheme } from "@/components/theme-provider";
+import type { PermissoesAcesso } from "@/lib/permissoes";
 
 /* ── Seções de cada empresa ─────────────────────────── */
 
@@ -138,13 +139,62 @@ function getActiveModuleId(pathname: string): string {
   return "mkt";
 }
 
+/* ── Helper: descobrir a qual módulo do ecossistema um item da nav pertence ── */
+
+function navItemModule(href: string): keyof PermissoesAcesso {
+  if (href === "/configuracoes" || href.startsWith("/configuracoes/")) return "configuracoes";
+  if (href === "/integracoes" || href.startsWith("/integracoes/")) return "integracoes";
+  if (href === "/glossario") return "glossario";
+  if (href === "/metodo") return "metodo";
+  if (href === "/time/insights") return "timeInsights";
+  if (href === "/time" || href.startsWith("/time/")) return "time";
+  if (href === "/onix-corretora" || href.startsWith("/onix-corretora/")) return "corretora";
+  if (href === "/backoffice" || href.startsWith("/backoffice/")) return "backoffice";
+  return "mkt";
+}
+
+/* ── Helper: iniciais a partir do nome ── */
+
+function iniciais(nome: string): string {
+  const parts = nome.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "??";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
 /* ── Componente Sidebar ─────────────────────────────── */
 
-export function Sidebar() {
+export function Sidebar({
+  permissoes,
+  userNome,
+  isAdmin,
+}: {
+  permissoes: PermissoesAcesso;
+  userNome: string;
+  isAdmin: boolean;
+}) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [isPending, startTransition] = useTransition();
   const { theme, toggleTheme } = useTheme();
+
+  /* ── Filtros aplicando permissões ── */
+  const allow = (href: string) => permissoes[navItemModule(href)] === true;
+
+  const filteredShared = useMemo(
+    () => sharedNavigation.filter((i) => allow(i.href)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [permissoes]
+  );
+
+  const filteredModules = useMemo(
+    () =>
+      modules
+        .map((m) => ({ ...m, items: m.items.filter((i) => allow(i.href)) }))
+        .filter((m) => m.items.length > 0),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [permissoes]
+  );
 
   // Tracks which module sections are open (multiple can be open)
   const activeModuleId = getActiveModuleId(pathname);
@@ -221,7 +271,7 @@ export function Sidebar() {
             </div>
             <div className="flex-1 min-w-0">
               <h1 className="text-sm font-bold text-sidebar-foreground">Ecossistema Onix</h1>
-              <p className="text-[10px] text-muted-foreground truncate">Eduardo Campos</p>
+              <p className="text-[10px] text-muted-foreground truncate">{userNome}</p>
             </div>
           </div>
         ) : (
@@ -242,11 +292,19 @@ export function Sidebar() {
           </div>
         )}
         <div className="px-2 pb-2 space-y-0.5">
-          {sharedNavigation.map(renderNavLink)}
+          {filteredShared.length === 0 ? (
+            !collapsed && (
+              <p className="px-3 py-2 text-[10px] text-muted-foreground">
+                Sem acesso liberado nesta seção.
+              </p>
+            )
+          ) : (
+            filteredShared.map(renderNavLink)
+          )}
         </div>
 
         {/* ── EMPRESAS ── */}
-        {!collapsed && (
+        {filteredModules.length > 0 && !collapsed && (
           <div className="px-3 pt-3 pb-1">
             <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
               Empresas
@@ -255,7 +313,7 @@ export function Sidebar() {
         )}
 
         <div className="px-2 pb-2 space-y-1">
-          {modules.map((mod) => {
+          {filteredModules.map((mod) => {
             const isOpen = openSections[mod.id];
             const hasActiveChild = mod.items.some((item) => isItemActive(item.href));
 
@@ -326,11 +384,11 @@ export function Sidebar() {
         {!collapsed && (
           <div className="flex items-center gap-3 mb-3 px-2">
             <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
-              <span className="text-primary text-xs font-bold">EC</span>
+              <span className="text-primary text-xs font-bold">{iniciais(userNome)}</span>
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-sidebar-foreground truncate">Eduardo Campos</p>
-              <p className="text-[10px] text-muted-foreground">Admin</p>
+              <p className="text-sm font-medium text-sidebar-foreground truncate">{userNome}</p>
+              <p className="text-[10px] text-muted-foreground">{isAdmin ? "Admin" : "Colaborador"}</p>
             </div>
           </div>
         )}

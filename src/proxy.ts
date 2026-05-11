@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { jwtVerify } from "jose";
+import { moduloDaRota, type PermissoesAcesso } from "@/lib/permissoes";
 
 const publicRoutes = [
   "/login",
@@ -11,6 +12,13 @@ const publicRoutes = [
   "/api/onix-corretora/coletivo",      // Geração de relatório coletivo
   "/api/integracoes/zapier/webhook",
   "/api/cron/",                        // Crons do Painel do Dia — autenticam via Bearer CRON_SECRET
+];
+
+// Rotas que sempre podem ser acessadas por usuários autenticados,
+// independentemente de permissões (logout, ações de auth, dashboard "sem acesso").
+const alwaysAllowedAuthed = [
+  "/sem-acesso",
+  "/api/auth/",
 ];
 const secretKey = process.env.SESSION_SECRET;
 const encodedKey = new TextEncoder().encode(secretKey);
@@ -72,6 +80,31 @@ export async function proxy(request: NextRequest) {
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-user-id", session.userId as string);
   requestHeaders.set("x-user-role", session.role as string);
+
+  /* ── Gate de permissões por módulo ───────────────────────────────────────
+     Admin (User.role==="admin") ignora a verificação.
+     Sessões antigas sem permissoes no JWT = "tudo liberado" (compat).
+     Pages "API" recebem 403 JSON, páginas web recebem redirect pra /sem-acesso.
+     ──────────────────────────────────────────────────────────────────────── */
+  const isAdminSession = session.role === "admin";
+  const sessionPermissoes = session.permissoes as PermissoesAcesso | undefined;
+  const skipPermissionCheck =
+    isAdminSession ||
+    !sessionPermissoes || // legado: sem permissoes no JWT → tudo liberado
+    alwaysAllowedAuthed.some((r) => path.startsWith(r));
+
+  if (!skipPermissionCheck) {
+    const modulo = moduloDaRota(path);
+    if (modulo && sessionPermissoes[modulo] === false) {
+      if (path.startsWith("/api/")) {
+        return NextResponse.json(
+          { error: "Sem permissão para esse módulo", modulo },
+          { status: 403 }
+        );
+      }
+      return NextResponse.redirect(new URL("/sem-acesso", request.url));
+    }
+  }
 
   return NextResponse.next({
     request: { headers: requestHeaders },

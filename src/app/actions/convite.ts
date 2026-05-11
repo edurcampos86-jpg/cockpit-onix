@@ -7,6 +7,7 @@ import { randomBytes } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth-helpers";
 import { createSession } from "@/lib/session";
+import { normalizePermissoes, PERMISSOES_TUDO } from "@/lib/permissoes";
 
 const TOKEN_LIFETIME_DAYS = 7;
 const TOKEN_BYTES = 32; // 64 hex chars
@@ -119,7 +120,15 @@ export async function concluirOnboarding(formData: FormData): Promise<void> {
     where: { token },
     include: {
       pessoa: {
-        select: { id: true, nomeCompleto: true, cpf: true, email: true, userId: true },
+        select: {
+          id: true,
+          nomeCompleto: true,
+          cpf: true,
+          email: true,
+          userId: true,
+          teamRole: true,
+          permissoes: true,
+        },
       },
     },
   });
@@ -165,7 +174,12 @@ export async function concluirOnboarding(formData: FormData): Promise<void> {
   });
 
   // Cria sessão e redireciona pra ficha da pessoa
-  await createSession(user.id, user.name, user.role);
+  const isAdminLogin =
+    user.role === "admin" || convite.pessoa.teamRole === "admin";
+  const permissoes = isAdminLogin
+    ? PERMISSOES_TUDO
+    : normalizePermissoes(convite.pessoa.permissoes);
+  await createSession(user.id, user.name, user.role, permissoes);
   redirect(`/time/${convite.pessoa.id}`);
 }
 
