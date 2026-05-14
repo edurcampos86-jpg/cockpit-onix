@@ -222,6 +222,18 @@ export async function POST(request: Request) {
       // Ordena por data mais recente e pega os 2 últimos
       contatos.sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime());
       resultado[cliente.id] = contatos.slice(0, 2);
+
+      // Persiste ultimoContatoAt no banco (data do contato mais recente)
+      if (contatos.length > 0 && contatos[0].data) {
+        try {
+          await prisma.clienteBackoffice.update({
+            where: { id: cliente.id },
+            data: { ultimoContatoAt: new Date(contatos[0].data) },
+          });
+        } catch (e) {
+          console.warn("[ultimos-contatos] falha ao persistir ultimoContatoAt:", cliente.id, e);
+        }
+      }
     }
 
     return NextResponse.json({

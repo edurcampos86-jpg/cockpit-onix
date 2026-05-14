@@ -466,8 +466,18 @@ model ClienteBackoffice {
   ultimoContatoAt DateTime?
   proximoContatoAt DateTime?
 
+  // Reuniões (sincronizadas via Plaud + Google Calendar)
+  ultimaReuniaoAt   DateTime?
+  proximaReuniaoAt  DateTime?
+  ultimaReuniaoFonte  String?  // "plaud" | "calendar" | "manual"
+  proximaReuniaoFonte String?  // "calendar" | "manual"
+
   // Receita
   receitaAnual  Float    @default(0)
+
+  // Assessor responsável (Pessoa com cargoFamilia = "assessor_investimentos")
+  assessorId String?
+  assessor   Pessoa?  @relation("AssessorCliente", fields: [assessorId], references: [id])
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -484,6 +494,8 @@ model ClienteBackoffice {
   @@index([numeroConta])
   @@index([classificacao])
   @@index([proximoContatoAt])
+  @@index([proximaReuniaoAt])
+  @@index([assessorId])
 }
 
 // Registro de cada contato: 12-4-2 (12 ligações, 4 reuniões, 2 revisões por ano para clientes A)
@@ -975,6 +987,9 @@ model Pessoa {
 
   // Fase 4 — Reuniões do time (timeline tipo CRM)
   participacoesReuniao   ReuniaoTimeParticipante[]
+
+  // Clientes do backoffice atribuídos a essa pessoa (quando assessor)
+  clientesBackoffice     ClienteBackoffice[] @relation("AssessorCliente")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

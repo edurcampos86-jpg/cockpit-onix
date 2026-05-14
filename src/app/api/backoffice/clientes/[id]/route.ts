@@ -41,14 +41,23 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       "receitaAnual",
       "ultimoContatoAt",
       "proximoContatoAt",
+      "ultimaReuniaoAt",
+      "proximaReuniaoAt",
+      "assessorId",
     ];
+    const dateFields = new Set([
+      "aniversario",
+      "ultimoContatoAt",
+      "proximoContatoAt",
+      "ultimaReuniaoAt",
+      "proximaReuniaoAt",
+    ]);
     for (const key of allowed) {
       if (key in body) {
-        if (
-          (key === "aniversario" || key === "ultimoContatoAt" || key === "proximoContatoAt") &&
-          body[key]
-        ) {
+        if (dateFields.has(key) && body[key]) {
           data[key] = new Date(body[key]);
+        } else if (key === "assessorId" && body[key] === "") {
+          data[key] = null;
         } else {
           data[key] = body[key];
         }

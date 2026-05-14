@@ -22,8 +22,15 @@ export default async function ClientesPage() {
     nicho: string | null;
     ultimoContatoAt: Date | null;
     proximoContatoAt: Date | null;
+    ultimaReuniaoAt: Date | null;
+    proximaReuniaoAt: Date | null;
+    ultimaReuniaoFonte: string | null;
+    proximaReuniaoFonte: string | null;
     receitaAnual: number;
+    assessorId: string | null;
   }> = [];
+
+  let assessores: Array<{ id: string; nomeCompleto: string; apelido: string | null }> = [];
 
   try {
     const raw = await prisma.clienteBackoffice.findMany({
@@ -43,10 +50,25 @@ export default async function ClientesPage() {
       nicho: c.nicho,
       ultimoContatoAt: c.ultimoContatoAt,
       proximoContatoAt: c.proximoContatoAt,
+      ultimaReuniaoAt: c.ultimaReuniaoAt,
+      proximaReuniaoAt: c.proximaReuniaoAt,
+      ultimaReuniaoFonte: c.ultimaReuniaoFonte,
+      proximaReuniaoFonte: c.proximaReuniaoFonte,
       receitaAnual: c.receitaAnual,
+      assessorId: c.assessorId,
     }));
   } catch {
     // tabela pode não existir ainda
+  }
+
+  try {
+    assessores = await prisma.pessoa.findMany({
+      where: { cargoFamilia: "assessor_investimentos", status: "ativo" },
+      select: { id: true, nomeCompleto: true, apelido: true },
+      orderBy: { nomeCompleto: "asc" },
+    });
+  } catch {
+    // Pessoa pode não existir ainda
   }
 
   return (
@@ -59,7 +81,7 @@ export default async function ClientesPage() {
       <div className="px-8 space-y-6">
         <ComoFunciona
           proposito="Sua base completa de clientes segmentada em A, B e C — com saldo, receita, contatos e próximas ações."
-          comoUsar="Filtre por classe, ajuste manualmente quando necessário e clique no nome para abrir o dossiê completo do cliente."
+          comoUsar="Filtre por classe ou assessor, ordene por qualquer coluna, e use os badges 12-4-2 para identificar clientes fora de cadência."
           comoAjuda="Garante que você invista o tempo certo em cada perfil — sem deixar um A esquecido nem desperdiçar horas em C."
         />
         <ReferenciaLivro
@@ -67,7 +89,7 @@ export default async function ClientesPage() {
           titulo="Por que classificar clientes em A, B e C?"
         />
 
-        <ClientesTable clientes={clientes} />
+        <ClientesTable clientes={clientes} assessores={assessores} />
       </div>
     </div>
   );
