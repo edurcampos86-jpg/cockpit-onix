@@ -1,8 +1,30 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Users, Search, Edit2, Check, X, Loader2, Upload } from "lucide-react";
+import {
+  Users,
+  Search,
+  Edit2,
+  Check,
+  X,
+  Loader2,
+  Upload,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
+  AlertTriangle,
+  HelpCircle,
+  Download,
+  CalendarClock,
+  CalendarCheck,
+  Wallet,
+  TrendingUp,
+  UserCircle,
+  Filter,
+  ChevronDown,
+  MessageCircle,
+} from "lucide-react";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 declare global {
@@ -25,8 +47,6 @@ const HEADER_MAP: Record<string, string> = {
   cpf: "cpfCnpj",
   cnpj: "cpfCnpj",
   cpfcnpj: "cpfCnpj",
-  // "Documento" no export do BTG é o TIPO ("CPF", "RG", "DETRAN", "CNH"),
-  // não o número — o número fica em "Número Documento".
   numerodocumento: "cpfCnpj",
   ndocumento: "cpfCnpj",
   numdocumento: "cpfCnpj",
@@ -209,9 +229,23 @@ interface Cliente {
   proximaReuniaoAt: Date | string | null;
   proximoContatoAt: Date | string | null;
   receitaAnual: number;
+  assessorNome: string | null;
+  assessorCge: string | null;
+  assessorEmail: string | null;
 }
 
 type FaixaSaldo = "todos" | "0-10k" | "10k-50k" | "50k-100k" | "100k-500k" | "500k+";
+type SortKey =
+  | "nome"
+  | "saldo"
+  | "saldoConta"
+  | "receitaAnual"
+  | "ultimoContatoAt"
+  | "ultimaReuniaoAt"
+  | "proximaReuniaoAt"
+  | "classificacao"
+  | "assessorNome";
+type SortDir = "asc" | "desc";
 
 const FAIXAS_SALDO: { valor: FaixaSaldo; label: string; min: number; max: number }[] = [
   { valor: "todos", label: "Todos os saldos", min: 0, max: Infinity },
@@ -234,6 +268,15 @@ const classLegenda: Record<string, string> = {
   C: "Manutenção",
 };
 
+// Cadência 12-4-2 — limites em dias desde último contato
+const CADENCIA_DIAS: Record<string, { atencao: number; alerta: number }> = {
+  A: { atencao: 30, alerta: 45 },
+  B: { atencao: 90, alerta: 120 },
+  C: { atencao: 180, alerta: 270 },
+};
+
+const SALDO_PARADO_LIMITE = 50_000;
+
 export function ClientesTable({
   clientes: iniciais,
   isAdmin = false,
@@ -242,13 +285,30 @@ export function ClientesTable({
   isAdmin?: boolean;
 }) {
   const [clientes, setClientes] = useState(iniciais);
+
+  // Filtros
   const [busca, setBusca] = useState("");
   const [filtroClasse, setFiltroClasse] = useState<"todos" | "A" | "B" | "C">("todos");
   const [filtroSaldoConta, setFiltroSaldoConta] = useState<FaixaSaldo>("todos");
+  const [filtroAssessor, setFiltroAssessor] = useState<string>("todos");
+  const [foraCadencia, setForaCadencia] = useState(false);
+  const [semProximaReuniao, setSemProximaReuniao] = useState(false);
+  const [saldoParado, setSaldoParado] = useState(false);
+  const [filtrosExpandidos, setFiltrosExpandidos] = useState(false);
+
+  // Ordenação
+  const [sortKey, setSortKey] = useState<SortKey>("saldo");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+
+  // Seleção múltipla
+  const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
+
+  // Estados existentes
   const [editando, setEditando] = useState<string | null>(null);
   const [importando, setImportando] = useState(false);
   const [importStatus, setImportStatus] = useState<{ ok: boolean; msg: string } | null>(null);
   const [xlsxReady, setXlsxReady] = useState(false);
+  const [marcandoContato, setMarcandoContato] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -263,6 +323,147 @@ export function ClientesTable({
     script.onload = () => setXlsxReady(true);
     document.head.appendChild(script);
   }, [isAdmin]);
+
+  // ─── Helpers ───────────────────────────────────────────────────────────
+
+  const moeda = (v: number) =>
+    new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
+
+  const diasDesde = (data: Date | string | null): number | null => {
+    if (!data) return null;
+    return Math.floor((Date.now() - new Date(data).getTime()) / (1000 * 60 * 60 * 24));
+  };
+
+  const diasAte = (data: Date | string | null): number | null => {
+    if (!data) return null;
+    return Math.ceil((new Date(data).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+  };
+
+  const formatData = (data: Date | string | null): string => {
+    if (!data) return "—";
+    return new Date(data).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
+  };
+
+  const statusCadencia = (c: Cliente): "ok" | "atencao" | "alerta" => {
+    const limite = CADENCIA_DIAS[c.classificacao] || CADENCIA_DIAS.C;
+    const dias = diasDesde(c.ultimoContatoAt);
+    if (dias === null) return "alerta";
+    if (dias >= limite.alerta) return "alerta";
+    if (dias >= limite.atencao) return "atencao";
+    return "ok";
+  };
+
+  const whatsappLink = (telefone: string | null): string | null => {
+    if (!telefone) return null;
+    const limpo = telefone.replace(/\D/g, "");
+    if (limpo.length < 10) return null;
+    const comDdi = limpo.startsWith("55") ? limpo : `55${limpo}`;
+    return `https://wa.me/${comDdi}`;
+  };
+
+  // Lista única de assessores presentes nos clientes
+  const assessoresDisponiveis = useMemo(() => {
+    const set = new Set<string>();
+    for (const c of clientes) {
+      if (c.assessorNome) set.add(c.assessorNome);
+    }
+    return Array.from(set).sort();
+  }, [clientes]);
+
+  // KPIs do topo
+  const kpis = useMemo(() => {
+    const totalA = clientes.filter((c) => c.classificacao === "A").length;
+    const aForaCadencia = clientes.filter(
+      (c) => c.classificacao === "A" && statusCadencia(c) !== "ok"
+    ).length;
+    const pctAOk = totalA > 0 ? Math.round(((totalA - aForaCadencia) / totalA) * 100) : 100;
+
+    const proximaSemana = new Date();
+    proximaSemana.setDate(proximaSemana.getDate() + 7);
+    const reunioesSemana = clientes.filter((c) => {
+      if (!c.proximaReuniaoAt) return false;
+      const d = new Date(c.proximaReuniaoAt);
+      return d.getTime() >= Date.now() && d <= proximaSemana;
+    }).length;
+
+    const saldoParadoTotal = clientes
+      .filter((c) => c.saldoConta >= SALDO_PARADO_LIMITE)
+      .reduce((sum, c) => sum + c.saldoConta, 0);
+
+    const receitaTotal = clientes.reduce((sum, c) => sum + c.receitaAnual, 0);
+
+    return { pctAOk, totalA, aForaCadencia, reunioesSemana, saldoParadoTotal, receitaTotal };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientes]);
+
+  // Filtragem
+  const filtrados = useMemo(() => {
+    return clientes.filter((c) => {
+      if (filtroClasse !== "todos" && c.classificacao !== filtroClasse) return false;
+      if (busca) {
+        const b = busca.toLowerCase();
+        const hit =
+          c.nome.toLowerCase().includes(b) ||
+          c.numeroConta.includes(busca) ||
+          (c.assessorNome || "").toLowerCase().includes(b);
+        if (!hit) return false;
+      }
+      if (filtroSaldoConta !== "todos") {
+        const faixa = FAIXAS_SALDO.find((f) => f.valor === filtroSaldoConta);
+        if (faixa && (c.saldoConta < faixa.min || c.saldoConta >= faixa.max)) return false;
+      }
+      if (filtroAssessor === "sem_assessor" && c.assessorNome) return false;
+      if (filtroAssessor !== "todos" && filtroAssessor !== "sem_assessor" && c.assessorNome !== filtroAssessor)
+        return false;
+      if (foraCadencia && statusCadencia(c) === "ok") return false;
+      if (semProximaReuniao && c.proximaReuniaoAt) return false;
+      if (saldoParado && c.saldoConta < SALDO_PARADO_LIMITE) return false;
+      return true;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientes, busca, filtroClasse, filtroSaldoConta, filtroAssessor, foraCadencia, semProximaReuniao, saldoParado]);
+
+  // Ordenação
+  const ordenados = useMemo(() => {
+    const arr = [...filtrados];
+    const dir = sortDir === "asc" ? 1 : -1;
+    arr.sort((a, b) => {
+      const va = a[sortKey];
+      const vb = b[sortKey];
+      if (va === null || va === undefined) return 1;
+      if (vb === null || vb === undefined) return -1;
+      if (typeof va === "string" && typeof vb === "string") {
+        return va.localeCompare(vb) * dir;
+      }
+      if (va instanceof Date || (typeof va === "string" && !isNaN(Date.parse(va as string)))) {
+        return (new Date(va as string).getTime() - new Date(vb as string).getTime()) * dir;
+      }
+      return ((va as number) - (vb as number)) * dir;
+    });
+    return arr;
+  }, [filtrados, sortKey, sortDir]);
+
+  const contadores = {
+    A: clientes.filter((c) => c.classificacao === "A").length,
+    B: clientes.filter((c) => c.classificacao === "B").length,
+    C: clientes.filter((c) => c.classificacao === "C").length,
+  };
+
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir(sortDir === "asc" ? "desc" : "asc");
+    } else {
+      setSortKey(key);
+      setSortDir(key === "nome" || key === "assessorNome" ? "asc" : "desc");
+    }
+  };
+
+  const SortIcon = ({ k }: { k: SortKey }) => {
+    if (sortKey !== k) return <ArrowUpDown className="h-3 w-3 opacity-40" />;
+    return sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />;
+  };
+
+  // ─── Operações ──────────────────────────────────────────────────────────
 
   const importarArquivos = async (files: FileList | File[]) => {
     if (importando) return;
@@ -363,25 +564,6 @@ export function ClientesTable({
     }
   };
 
-  const filtrados = clientes.filter((c) => {
-    if (filtroClasse !== "todos" && c.classificacao !== filtroClasse) return false;
-    if (busca && !c.nome.toLowerCase().includes(busca.toLowerCase())) return false;
-    if (filtroSaldoConta !== "todos") {
-      const faixa = FAIXAS_SALDO.find((f) => f.valor === filtroSaldoConta);
-      if (faixa && (c.saldoConta < faixa.min || c.saldoConta >= faixa.max)) return false;
-    }
-    return true;
-  });
-
-  const contadores = {
-    A: clientes.filter((c) => c.classificacao === "A").length,
-    B: clientes.filter((c) => c.classificacao === "B").length,
-    C: clientes.filter((c) => c.classificacao === "C").length,
-  };
-
-  const moeda = (v: number) =>
-    new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
-
   const atualizarClasse = async (id: string, novaClasse: string) => {
     const res = await fetch(`/api/backoffice/clientes/${id}`, {
       method: "PATCH",
@@ -390,17 +572,154 @@ export function ClientesTable({
     });
     if (res.ok) {
       setClientes((prev) =>
-        prev.map((c) =>
-          c.id === id ? { ...c, classificacao: novaClasse, classificacaoManual: true } : c
-        )
+        prev.map((c) => (c.id === id ? { ...c, classificacao: novaClasse, classificacaoManual: true } : c))
       );
       setEditando(null);
     }
   };
 
+  const toggleSelecionado = (id: string) => {
+    setSelecionados((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selecionarTodos = () => {
+    if (selecionados.size === ordenados.length) {
+      setSelecionados(new Set());
+    } else {
+      setSelecionados(new Set(ordenados.map((c) => c.id)));
+    }
+  };
+
+  const limparFiltros = () => {
+    setFiltroClasse("todos");
+    setFiltroSaldoConta("todos");
+    setFiltroAssessor("todos");
+    setForaCadencia(false);
+    setSemProximaReuniao(false);
+    setSaldoParado(false);
+    setBusca("");
+  };
+
+  const filtrosAtivos =
+    filtroClasse !== "todos" ||
+    filtroSaldoConta !== "todos" ||
+    filtroAssessor !== "todos" ||
+    foraCadencia ||
+    semProximaReuniao ||
+    saldoParado ||
+    !!busca;
+
+  const exportarCSV = () => {
+    const alvo = selecionados.size > 0 ? ordenados.filter((c) => selecionados.has(c.id)) : ordenados;
+    const cabecalhos = [
+      "Classe",
+      "Nome",
+      "Conta",
+      "AUM",
+      "Saldo Conta",
+      "Receita/ano",
+      "Assessor",
+      "Telefone",
+      "Email",
+      "Último contato",
+      "Última reunião",
+      "Próxima reunião",
+    ];
+    const linhas = alvo.map((c) => [
+      c.classificacao,
+      c.nome,
+      c.numeroConta,
+      c.saldo.toFixed(2).replace(".", ","),
+      c.saldoConta.toFixed(2).replace(".", ","),
+      c.receitaAnual.toFixed(2).replace(".", ","),
+      c.assessorNome || "",
+      c.telefone || "",
+      c.email || "",
+      c.ultimoContatoAt ? new Date(c.ultimoContatoAt).toLocaleDateString("pt-BR") : "",
+      c.ultimaReuniaoAt ? new Date(c.ultimaReuniaoAt).toLocaleDateString("pt-BR") : "",
+      c.proximaReuniaoAt ? new Date(c.proximaReuniaoAt).toLocaleDateString("pt-BR") : "",
+    ]);
+    const csv = [cabecalhos, ...linhas]
+      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(";"))
+      .join("\n");
+    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `clientes_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const marcarContatadosHoje = async () => {
+    if (selecionados.size === 0) return;
+    if (!confirm(`Marcar ${selecionados.size} cliente(s) como contatado(s) hoje?`)) return;
+    setMarcandoContato(true);
+    const hoje = new Date().toISOString();
+    try {
+      const ids = Array.from(selecionados);
+      await Promise.all(
+        ids.map((id) =>
+          fetch(`/api/backoffice/clientes/${id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ultimoContatoAt: hoje }),
+          })
+        )
+      );
+      setClientes((prev) =>
+        prev.map((c) => (selecionados.has(c.id) ? { ...c, ultimoContatoAt: hoje } : c))
+      );
+      setSelecionados(new Set());
+    } catch (e) {
+      console.error("Erro ao marcar contatos:", e);
+    } finally {
+      setMarcandoContato(false);
+    }
+  };
+
+  // ─── Render ──────────────────────────────────────────────────────────────
+
   return (
     <div className="space-y-4">
-      {/* Contadores por classe */}
+      {/* Painel de saúde — KPIs */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <KpiCard
+          icon={TrendingUp}
+          label="Clientes A na cadência"
+          value={`${kpis.pctAOk}%`}
+          sub={`${kpis.totalA - kpis.aForaCadencia}/${kpis.totalA} dentro do 12-4-2`}
+          tone={kpis.pctAOk >= 80 ? "ok" : kpis.pctAOk >= 60 ? "atencao" : "alerta"}
+        />
+        <KpiCard
+          icon={CalendarCheck}
+          label="Reuniões próx. 7 dias"
+          value={String(kpis.reunioesSemana)}
+          sub="agendadas no calendar"
+          tone="neutro"
+        />
+        <KpiCard
+          icon={Wallet}
+          label="Saldo parado em conta"
+          value={moeda(kpis.saldoParadoTotal)}
+          sub={`clientes com > ${moeda(SALDO_PARADO_LIMITE)}`}
+          tone={kpis.saldoParadoTotal > 0 ? "atencao" : "neutro"}
+        />
+        <KpiCard
+          icon={TrendingUp}
+          label="Receita/ano da base"
+          value={moeda(kpis.receitaTotal)}
+          sub={`${clientes.length} clientes`}
+          tone="neutro"
+        />
+      </div>
+
+      {/* Contadores por classe — clicáveis para filtrar */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {(["A", "B", "C"] as const).map((classe) => (
           <button
@@ -414,46 +733,53 @@ export function ClientesTable({
               <span className="text-3xl font-bold">{classe}</span>
               <span className="text-2xl font-semibold">{contadores[classe]}</span>
             </div>
-            <p className="text-xs font-medium">{classLegenda[classe]}</p>
+            <p className="text-xs font-medium flex items-center gap-1">
+              {classLegenda[classe]}
+              {classe === "A" && (
+                <span
+                  title="Cadência mínima para clientes A: 12 contatos, 4 reuniões e 2 revisões por ano (modelo Supernova). ~ 1 contato a cada 30 dias."
+                  className="cursor-help"
+                >
+                  <HelpCircle className="h-3 w-3 opacity-60" />
+                </span>
+              )}
+            </p>
           </button>
         ))}
       </div>
 
-      {/* Busca + filtros */}
+      {/* Linha de busca + ações */}
       <div className="flex flex-wrap items-center gap-3">
-        <div className="relative flex-1 min-w-[200px]">
+        <div className="relative flex-1 min-w-[240px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <input
             type="text"
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
-            placeholder="Buscar cliente por nome..."
+            placeholder="Buscar por nome, conta ou assessor..."
             className="w-full pl-10 pr-4 py-2 rounded-lg border bg-background text-sm"
           />
         </div>
 
-        {/* Filtro por faixa de saldo em conta */}
-        <select
-          value={filtroSaldoConta}
-          onChange={(e) => setFiltroSaldoConta(e.target.value as FaixaSaldo)}
-          className="px-3 py-2 rounded-lg border bg-background text-sm"
-          title="Filtrar por saldo em conta corrente"
+        <button
+          onClick={() => setFiltrosExpandidos(!filtrosExpandidos)}
+          className={`px-3 py-2 rounded-lg border text-sm flex items-center gap-2 ${
+            filtrosAtivos ? "bg-primary/10 border-primary/40" : ""
+          }`}
         >
-          {FAIXAS_SALDO.map((f) => (
-            <option key={f.valor} value={f.valor}>
-              {f.label}
-            </option>
-          ))}
-        </select>
+          <Filter className="h-4 w-4" />
+          Filtros {filtrosAtivos && <span className="text-xs">●</span>}
+          <ChevronDown className={`h-3 w-3 transition-transform ${filtrosExpandidos ? "rotate-180" : ""}`} />
+        </button>
 
-        {(filtroClasse !== "todos" || filtroSaldoConta !== "todos") && (
-          <button
-            onClick={() => { setFiltroClasse("todos"); setFiltroSaldoConta("todos"); }}
-            className="px-3 py-2 rounded-lg border text-sm flex items-center gap-2"
-          >
-            Limpar filtros <X className="h-3 w-3" />
-          </button>
-        )}
+        <button
+          onClick={exportarCSV}
+          className="px-3 py-2 rounded-lg border text-sm flex items-center gap-2"
+          title="Exportar para CSV (abre no Excel)"
+        >
+          <Download className="h-4 w-4" />
+          Exportar CSV {selecionados.size > 0 && `(${selecionados.size})`}
+        </button>
 
         {isAdmin && (
           <>
@@ -474,16 +800,95 @@ export function ClientesTable({
               className="px-3 py-2 rounded-lg border border-primary/40 bg-primary/10 text-primary text-sm flex items-center gap-2 hover:bg-primary/20 disabled:opacity-50"
               title="Importar 1 ou 2 planilhas (.xlsx/.csv) — Cadastrais e/ou Base BTG. Atualiza existentes por Conta/CPF/Nome, cadastra novos."
             >
-              {importando ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Upload className="h-4 w-4" />
-              )}
+              {importando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
               {importando ? "Importando..." : "Importar dados"}
             </button>
           </>
         )}
       </div>
+
+      {/* Filtros avançados expansíveis */}
+      {filtrosExpandidos && (
+        <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-muted-foreground mb-1">Faixa de saldo em conta</label>
+              <select
+                value={filtroSaldoConta}
+                onChange={(e) => setFiltroSaldoConta(e.target.value as FaixaSaldo)}
+                className="w-full px-3 py-2 rounded-lg border bg-background text-sm"
+              >
+                {FAIXAS_SALDO.map((f) => (
+                  <option key={f.valor} value={f.valor}>
+                    {f.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-muted-foreground mb-1">
+                Assessor ({assessoresDisponiveis.length})
+              </label>
+              <select
+                value={filtroAssessor}
+                onChange={(e) => setFiltroAssessor(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg border bg-background text-sm"
+              >
+                <option value="todos">Todos os assessores</option>
+                <option value="sem_assessor">Sem assessor atribuído</option>
+                {assessoresDisponiveis.map((nome) => (
+                  <option key={nome} value={nome}>
+                    {nome}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-4">
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={foraCadencia}
+                onChange={(e) => setForaCadencia(e.target.checked)}
+                className="rounded"
+              />
+              <AlertTriangle className="h-4 w-4 text-amber-600" />
+              Fora da cadência 12-4-2
+            </label>
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={semProximaReuniao}
+                onChange={(e) => setSemProximaReuniao(e.target.checked)}
+                className="rounded"
+              />
+              <CalendarClock className="h-4 w-4 text-blue-600" />
+              Sem próxima reunião agendada
+            </label>
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={saldoParado}
+                onChange={(e) => setSaldoParado(e.target.checked)}
+                className="rounded"
+              />
+              <Wallet className="h-4 w-4 text-amber-600" />
+              Saldo parado &gt; {moeda(SALDO_PARADO_LIMITE)}
+            </label>
+
+            {filtrosAtivos && (
+              <button
+                onClick={limparFiltros}
+                className="ml-auto px-3 py-1 text-xs rounded border flex items-center gap-1"
+              >
+                Limpar tudo <X className="h-3 w-3" />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {importStatus && (
         <div
@@ -497,116 +902,280 @@ export function ClientesTable({
         </div>
       )}
 
+      {/* Barra de ações em massa */}
+      {selecionados.size > 0 && (
+        <div className="rounded-lg border bg-primary/5 border-primary/30 px-4 py-3 flex items-center gap-3 text-sm">
+          <span className="font-medium">{selecionados.size} selecionado(s)</span>
+          <button
+            onClick={marcarContatadosHoje}
+            disabled={marcandoContato}
+            className="px-3 py-1.5 rounded-md bg-emerald-600 text-white text-xs flex items-center gap-1 hover:bg-emerald-700 disabled:opacity-50"
+          >
+            {marcandoContato ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+            Marcar contatados hoje
+          </button>
+          <button
+            onClick={exportarCSV}
+            className="px-3 py-1.5 rounded-md border text-xs flex items-center gap-1"
+          >
+            <Download className="h-3 w-3" />
+            Exportar selecionados
+          </button>
+          <button onClick={() => setSelecionados(new Set())} className="ml-auto text-xs underline">
+            Limpar seleção
+          </button>
+        </div>
+      )}
+
       {/* Tabela */}
       <div className="rounded-xl border bg-card overflow-hidden">
         <div className="px-6 py-4 border-b border-border flex items-center gap-3">
           <Users className="h-5 w-5 text-muted-foreground" />
           <h3 className="font-semibold">
-            Clientes ({filtrados.length}
-            {filtrados.length !== clientes.length && ` de ${clientes.length}`})
+            Clientes — exibindo {ordenados.length}
+            {ordenados.length !== clientes.length && ` de ${clientes.length}`}
           </h3>
+          <span className="ml-auto text-xs text-muted-foreground">
+            Ordenado por <strong>{sortKey}</strong> ({sortDir === "asc" ? "crescente" : "decrescente"})
+          </span>
         </div>
-        <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
+        <div className="overflow-x-auto max-h-[640px] overflow-y-auto">
           <table className="w-full text-sm">
             <thead className="bg-muted/50 sticky top-0 z-10">
               <tr>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Classe</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Nome</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Conta</th>
-                <th className="text-right px-4 py-3 font-medium text-muted-foreground">AUM</th>
-                <th className="text-right px-4 py-3 font-medium text-muted-foreground">Saldo Conta</th>
-                <th className="text-right px-4 py-3 font-medium text-muted-foreground">Receita/ano</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Último contato</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Última reunião</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Próxima reunião</th>
+                <th className="text-left px-3 py-3 w-8">
+                  <input
+                    type="checkbox"
+                    checked={selecionados.size === ordenados.length && ordenados.length > 0}
+                    onChange={selecionarTodos}
+                    className="rounded"
+                  />
+                </th>
+                <Th onClick={() => toggleSort("classificacao")}>
+                  Classe <SortIcon k="classificacao" />
+                </Th>
+                <Th onClick={() => toggleSort("nome")}>
+                  Nome <SortIcon k="nome" />
+                </Th>
+                <th className="text-left px-3 py-3 font-medium text-muted-foreground">Conta</th>
+                <Th onClick={() => toggleSort("assessorNome")}>
+                  Assessor <SortIcon k="assessorNome" />
+                </Th>
+                <Th align="right" onClick={() => toggleSort("saldo")}>
+                  AUM <SortIcon k="saldo" />
+                </Th>
+                <Th align="right" onClick={() => toggleSort("saldoConta")}>
+                  Saldo Conta <SortIcon k="saldoConta" />
+                </Th>
+                <Th align="right" onClick={() => toggleSort("receitaAnual")}>
+                  Receita/ano <SortIcon k="receitaAnual" />
+                </Th>
+                <Th onClick={() => toggleSort("ultimoContatoAt")}>
+                  Último contato <SortIcon k="ultimoContatoAt" />
+                </Th>
+                <Th onClick={() => toggleSort("ultimaReuniaoAt")}>
+                  Última reunião <SortIcon k="ultimaReuniaoAt" />
+                </Th>
+                <Th onClick={() => toggleSort("proximaReuniaoAt")}>
+                  Próxima reunião <SortIcon k="proximaReuniaoAt" />
+                </Th>
+                <th className="text-left px-3 py-3 font-medium text-muted-foreground w-24">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {filtrados.map((c) => (
-                <tr key={c.id} className="hover:bg-muted/30 transition-colors">
-                  <td className="px-4 py-3">
-                    {editando === c.id ? (
+              {ordenados.map((c) => {
+                const cadencia = statusCadencia(c);
+                const waLink = whatsappLink(c.telefone);
+                const diasContato = diasDesde(c.ultimoContatoAt);
+                const diasProxReuniao = diasAte(c.proximaReuniaoAt);
+
+                return (
+                  <tr key={c.id} className="hover:bg-muted/30 transition-colors">
+                    <td className="px-3 py-3">
+                      <input
+                        type="checkbox"
+                        checked={selecionados.has(c.id)}
+                        onChange={() => toggleSelecionado(c.id)}
+                        className="rounded"
+                      />
+                    </td>
+
+                    <td className="px-3 py-3">
                       <div className="flex items-center gap-1">
-                        {(["A", "B", "C"] as const).map((cl) => (
+                        {editando === c.id ? (
+                          <div className="flex items-center gap-1">
+                            {(["A", "B", "C"] as const).map((cl) => (
+                              <button
+                                key={cl}
+                                onClick={() => atualizarClasse(c.id, cl)}
+                                className={`w-7 h-7 rounded text-xs font-bold ${classCores[cl]}`}
+                              >
+                                {cl}
+                              </button>
+                            ))}
+                            <button onClick={() => setEditando(null)} className="ml-1 text-muted-foreground">
+                              <X className="h-3 w-3" />
+                            </button>
+                          </div>
+                        ) : (
                           <button
-                            key={cl}
-                            onClick={() => atualizarClasse(c.id, cl)}
-                            className={`w-7 h-7 rounded text-xs font-bold ${classCores[cl]}`}
+                            onClick={() => setEditando(c.id)}
+                            className={`inline-flex items-center gap-1 px-2 py-1 rounded border text-xs font-bold ${
+                              classCores[c.classificacao]
+                            }`}
+                            title={
+                              c.classificacaoManual
+                                ? "Classificação travada (manual)"
+                                : "Classificação automática — clique para alterar"
+                            }
                           >
-                            {cl}
+                            {c.classificacao}
+                            {c.classificacaoManual ? (
+                              <Check className="h-3 w-3" />
+                            ) : (
+                              <Edit2 className="h-3 w-3 opacity-50" />
+                            )}
                           </button>
-                        ))}
-                        <button
-                          onClick={() => setEditando(null)}
-                          className="ml-1 text-muted-foreground"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
+                        )}
+                        {cadencia !== "ok" && c.classificacao === "A" && (
+                          <span
+                            title={`Cliente A fora da cadência 12-4-2 (último contato há ${
+                              diasContato === null ? "—" : `${diasContato} dias`
+                            }). Limite atenção: 30d, alerta: 45d.`}
+                          >
+                            <AlertTriangle
+                              className={`h-3.5 w-3.5 ${
+                                cadencia === "alerta" ? "text-red-500" : "text-amber-500"
+                              }`}
+                            />
+                          </span>
+                        )}
                       </div>
-                    ) : (
-                      <button
-                        onClick={() => setEditando(c.id)}
-                        className={`inline-flex items-center gap-1 px-2 py-1 rounded border text-xs font-bold ${
-                          classCores[c.classificacao]
-                        }`}
-                        title={
-                          c.classificacaoManual
-                            ? "Classificação travada (manual)"
-                            : "Classificação automática — clique para alterar"
-                        }
+                    </td>
+
+                    <td className="px-3 py-3 font-medium">
+                      <Link
+                        href={`/backoffice/clientes/${c.id}`}
+                        className="hover:underline hover:text-primary"
+                        title={[
+                          c.nome,
+                          c.email ? `E-mail: ${c.email}` : null,
+                          c.telefone ? `Tel: ${c.telefone}` : null,
+                          c.profissao ? `Profissão: ${c.profissao}` : null,
+                          c.nicho ? `Nicho: ${c.nicho}` : null,
+                          c.assessorNome ? `Assessor: ${c.assessorNome}` : null,
+                        ]
+                          .filter(Boolean)
+                          .join("\n")}
                       >
-                        {c.classificacao}
-                        {c.classificacaoManual && <Check className="h-3 w-3" />}
-                        {!c.classificacaoManual && <Edit2 className="h-3 w-3 opacity-50" />}
-                      </button>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 font-medium">
-                    <Link
-                      href={`/backoffice/clientes/${c.id}`}
-                      className="hover:underline hover:text-primary"
-                    >
-                      {c.nome}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-3 text-muted-foreground font-mono text-xs">
-                    {c.numeroConta}
-                  </td>
-                  <td className="px-4 py-3 text-right font-mono">{moeda(c.saldo)}</td>
-                  <td className="px-4 py-3 text-right font-mono">
-                    {c.saldoConta > 0 ? (
-                      <span className="text-emerald-700 dark:text-emerald-400">{moeda(c.saldoConta)}</span>
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-right font-mono text-muted-foreground">
-                    {moeda(c.receitaAnual)}
-                  </td>
-                  <td className="px-4 py-3 text-muted-foreground text-xs">
-                    {c.ultimoContatoAt
-                      ? new Date(c.ultimoContatoAt).toLocaleDateString("pt-BR")
-                      : "—"}
-                  </td>
-                  <td className="px-4 py-3 text-muted-foreground text-xs">
-                    {c.ultimaReuniaoAt
-                      ? new Date(c.ultimaReuniaoAt).toLocaleDateString("pt-BR")
-                      : "—"}
-                  </td>
-                  <td className="px-4 py-3 text-xs">
-                    {c.proximaReuniaoAt ? (
-                      <span className="text-emerald-700 dark:text-emerald-400 font-medium">
-                        {new Date(c.proximaReuniaoAt).toLocaleDateString("pt-BR")}
-                      </span>
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-              {filtrados.length === 0 && (
+                        {c.nome}
+                      </Link>
+                    </td>
+
+                    <td className="px-3 py-3 text-muted-foreground font-mono text-xs">{c.numeroConta}</td>
+
+                    <td className="px-3 py-3 text-xs">
+                      {c.assessorNome ? (
+                        <span
+                          className="inline-flex items-center gap-1"
+                          title={[c.assessorNome, c.assessorCge ? `CGE: ${c.assessorCge}` : null, c.assessorEmail].filter(Boolean).join("\n")}
+                        >
+                          <UserCircle className="h-3 w-3 opacity-60 flex-shrink-0" />
+                          <span className="truncate max-w-[160px]">{c.assessorNome.split(" ")[0]}</span>
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground italic text-xs">sem assessor</span>
+                      )}
+                    </td>
+
+                    <td className="px-3 py-3 text-right font-mono">{moeda(c.saldo)}</td>
+                    <td className="px-3 py-3 text-right font-mono">
+                      {c.saldoConta > 0 ? (
+                        <span
+                          className={
+                            c.saldoConta >= SALDO_PARADO_LIMITE
+                              ? "text-amber-700 dark:text-amber-400 font-semibold"
+                              : "text-emerald-700 dark:text-emerald-400"
+                          }
+                          title={
+                            c.saldoConta >= SALDO_PARADO_LIMITE
+                              ? "Saldo elevado em conta — oportunidade de alocação"
+                              : undefined
+                          }
+                        >
+                          {moeda(c.saldoConta)}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-3 text-right font-mono text-muted-foreground">{moeda(c.receitaAnual)}</td>
+
+                    <td className="px-3 py-3 text-xs">
+                      {c.ultimoContatoAt ? (
+                        <span
+                          className={
+                            cadencia === "alerta"
+                              ? "text-red-600 dark:text-red-400"
+                              : cadencia === "atencao"
+                              ? "text-amber-600 dark:text-amber-400"
+                              : "text-muted-foreground"
+                          }
+                          title={diasContato !== null ? `Há ${diasContato} dia(s)` : undefined}
+                        >
+                          {formatData(c.ultimoContatoAt)}
+                          {diasContato !== null && diasContato > 0 && (
+                            <span className="ml-1 opacity-60">({diasContato}d)</span>
+                          )}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </td>
+
+                    <td className="px-3 py-3 text-xs text-muted-foreground">
+                      {c.ultimaReuniaoAt ? formatData(c.ultimaReuniaoAt) : "—"}
+                    </td>
+
+                    <td className="px-3 py-3 text-xs">
+                      {c.proximaReuniaoAt ? (
+                        <span
+                          className={
+                            diasProxReuniao !== null && diasProxReuniao <= 7
+                              ? "text-blue-700 dark:text-blue-400 font-semibold"
+                              : "text-emerald-700 dark:text-emerald-400"
+                          }
+                          title={diasProxReuniao !== null ? `Em ${diasProxReuniao} dia(s)` : undefined}
+                        >
+                          {formatData(c.proximaReuniaoAt)}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </td>
+
+                    <td className="px-3 py-3">
+                      {waLink ? (
+                        <a
+                          href={waLink}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded bg-green-500/10 text-green-700 dark:text-green-400 hover:bg-green-500/20 text-xs"
+                          title={`Abrir WhatsApp com ${c.telefone}`}
+                        >
+                          <MessageCircle className="h-3 w-3" />
+                          WhatsApp
+                        </a>
+                      ) : (
+                        <span className="text-xs text-muted-foreground italic">sem tel</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+              {ordenados.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">
+                  <td colSpan={12} className="px-4 py-8 text-center text-muted-foreground">
                     {clientes.length === 0
                       ? "Nenhum cliente importado. Use o botão Importar dados acima."
                       : "Nenhum cliente encontrado com os filtros atuais."}
@@ -621,3 +1190,64 @@ export function ClientesTable({
   );
 }
 
+// ─── Subcomponentes ───────────────────────────────────────────────────────
+
+function Th({
+  children,
+  onClick,
+  align = "left",
+}: {
+  children: React.ReactNode;
+  onClick?: () => void;
+  align?: "left" | "right";
+}) {
+  return (
+    <th
+      className={`${align === "right" ? "text-right" : "text-left"} px-3 py-3 font-medium text-muted-foreground ${
+        onClick ? "cursor-pointer select-none hover:text-foreground" : ""
+      }`}
+      onClick={onClick}
+    >
+      <span className={`inline-flex items-center gap-1 ${align === "right" ? "flex-row-reverse" : ""}`}>
+        {children}
+      </span>
+    </th>
+  );
+}
+
+function KpiCard({
+  icon: Icon,
+  label,
+  value,
+  sub,
+  tone,
+}: {
+  icon: typeof TrendingUp;
+  label: string;
+  value: string;
+  sub: string;
+  tone: "ok" | "atencao" | "alerta" | "neutro";
+}) {
+  const tones: Record<string, string> = {
+    ok: "border-emerald-500/30 bg-emerald-500/5",
+    atencao: "border-amber-500/30 bg-amber-500/5",
+    alerta: "border-red-500/30 bg-red-500/5",
+    neutro: "border-border bg-muted/30",
+  };
+  const iconTones: Record<string, string> = {
+    ok: "text-emerald-600",
+    atencao: "text-amber-600",
+    alerta: "text-red-600",
+    neutro: "text-muted-foreground",
+  };
+  return (
+    <div className={`rounded-lg border p-3 ${tones[tone]}`}>
+      <div className="flex items-center gap-2 mb-1">
+        <Icon className={`h-4 w-4 ${iconTones[tone]}`} />
+        <span className="text-xs font-medium text-muted-foreground">{label}</span>
+      </div>
+      <div className="text-xl font-bold">{value}</div>
+      <div className="text-xs text-muted-foreground">{sub}</div>
+    </div>
+  );
+}
