@@ -179,8 +179,14 @@ type ClienteLimpo = {
 
 async function findExisting(c: ClienteLimpo) {
   if (c.numeroConta) {
+    // Tenta variações: como veio, sem zeros à esquerda, e padronizado p/ 9 dígitos.
+    // BTG exporta com 9 dígitos zerados ("002870286"); imports antigos persistiram sem zeros ("2870286").
+    const variacoes = new Set<string>();
+    variacoes.add(c.numeroConta);
+    variacoes.add(c.numeroConta.replace(/^0+/, "") || "0");
+    variacoes.add(c.numeroConta.padStart(9, "0"));
     const byConta = await prisma.clienteBackoffice.findFirst({
-      where: { numeroConta: c.numeroConta },
+      where: { numeroConta: { in: Array.from(variacoes) } },
     });
     if (byConta) return byConta;
   }
@@ -223,7 +229,12 @@ export async function POST(request: NextRequest) {
     const limpos: ClienteLimpo[] = recebidos
       .map((c): ClienteLimpo | null => {
         const nome = clean(c.nome);
-        const numeroConta = clean(c.numeroConta);
+        const numeroContaRaw = clean(c.numeroConta);
+        // Normaliza: BTG usa 9 dígitos com zeros à esquerda. Persistir sempre
+        // nesse formato pra evitar duplicação por "2870286" vs "002870286".
+        const numeroConta = numeroContaRaw && /^\d+$/.test(numeroContaRaw)
+          ? numeroContaRaw.padStart(9, "0")
+          : numeroContaRaw;
         if (!nome && !numeroConta) return null;
         const classe = clean(c.classificacao)?.toUpperCase();
         const perfilSuit = clean(c.perfilInvestidor)?.toLowerCase();
