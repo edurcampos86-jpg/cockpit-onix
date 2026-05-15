@@ -41,3 +41,12 @@ command = "curl -fsS -H \"Authorization: Bearer $CRON_SECRET\" $RAILWAY_PUBLIC_D
 name = "retrospectiva-semanal"
 schedule = "0 23 * * 0"
 command = "curl -fsS -H \"Authorization: Bearer $CRON_SECRET\" $RAILWAY_PUBLIC_DOMAIN/api/cron/retrospectiva-semanal"
+
+# ────────────────────────────────────────────────────────────────────────
+# DataCrazy polling — fallback se webhook falhar.
+# Roda a cada 5 minutos. Idempotente via externalId.
+# ────────────────────────────────────────────────────────────────────────
+[[crons]]
+name = "datacrazy-poll"
+schedule = "*/5 * * * *"
+command = "curl -fsS -H \"Authorization: Bearer $CRON_SECRET\" $RAILWAY_PUBLIC_DOMAIN/api/cron/datacrazy-poll"

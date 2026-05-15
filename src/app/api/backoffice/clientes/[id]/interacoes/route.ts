@@ -49,13 +49,27 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       },
     });
 
-    // Atualiza último e próximo contato
+    // Atualiza último contato + próximo contato e, se for reunião, também a
+    // última reunião (não regride se a data nova for anterior à atual).
+    const updateData: {
+      ultimoContatoAt: Date;
+      proximoContatoAt: Date;
+      ultimaReuniaoAt?: Date;
+    } = {
+      ultimoContatoAt: interacao.data,
+      proximoContatoAt: proximoContatoPor(cliente.classificacao),
+    };
+
+    if (
+      interacao.tipo === "reuniao" &&
+      (!cliente.ultimaReuniaoAt || interacao.data > cliente.ultimaReuniaoAt)
+    ) {
+      updateData.ultimaReuniaoAt = interacao.data;
+    }
+
     await prisma.clienteBackoffice.update({
       where: { id },
-      data: {
-        ultimoContatoAt: interacao.data,
-        proximoContatoAt: proximoContatoPor(cliente.classificacao),
-      },
+      data: updateData,
     });
 
     return NextResponse.json(interacao);

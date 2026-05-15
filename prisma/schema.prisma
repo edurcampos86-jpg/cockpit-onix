@@ -527,7 +527,10 @@ model ClienteBackoffice {
   @@index([classificacao])
   @@index([proximoContatoAt])
   @@index([assessorCge])
+  conversas Conversa[]
+
   @@index([cpfCnpj])
+  @@index([telefone])
 }
 
 // ============================================
@@ -1297,3 +1300,48 @@ model ReuniaoTimeParticipante {
   @@index([pessoaId])
 }
 
+
+
+// ============================================
+// DATACRAZY — CONVERSAS WHATSAPP EM TEMPO REAL
+// ============================================
+model Conversa {
+  id            String   @id @default(cuid())
+  externalId    String   @unique
+  clienteId     String?
+  cliente       ClienteBackoffice? @relation(fields: [clienteId], references: [id], onDelete: SetNull)
+
+  instanceId    String
+  contactPhone  String?
+  contactName   String?
+
+  lastMessageAt DateTime?
+  unmatched     Boolean  @default(false)
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  mensagens     Mensagem[]
+
+  @@index([clienteId, lastMessageAt])
+  @@index([contactPhone])
+  @@index([unmatched, lastMessageAt])
+}
+
+model Mensagem {
+  id           String   @id @default(cuid())
+  externalId   String   @unique
+  conversaId   String
+  conversa     Conversa @relation(fields: [conversaId], references: [id], onDelete: Cascade)
+
+  fromMe       Boolean
+  tipo         String
+  body         String?  @db.Text
+  mediaUrl     String?
+
+  sentAt       DateTime
+  rawPayload   Json?
+  recebidoEm   DateTime @default(now())
+
+  @@index([conversaId, sentAt])
+}
