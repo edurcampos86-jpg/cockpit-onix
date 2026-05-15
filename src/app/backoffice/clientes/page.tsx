@@ -29,6 +29,9 @@ export default async function ClientesPage() {
     proximaReuniaoAt: Date | null;
     proximoContatoAt: Date | null;
     receitaAnual: number;
+    assessorNome: string | null;
+    assessorCge: string | null;
+    assessorEmail: string | null;
   }> = [];
 
   try {
@@ -52,6 +55,9 @@ export default async function ClientesPage() {
       proximaReuniaoAt: c.proximaReuniaoAt,
       proximoContatoAt: c.proximoContatoAt,
       receitaAnual: c.receitaAnual,
+      assessorNome: c.assessorNome,
+      assessorCge: c.assessorCge,
+      assessorEmail: c.assessorEmail,
     }));
   } catch {
     // tabela pode não existir ainda
@@ -67,7 +73,7 @@ export default async function ClientesPage() {
       <div className="px-8 space-y-6">
         <ComoFunciona
           proposito="Sua base completa de clientes segmentada em A, B e C — com saldo, receita, contatos e próximas ações."
-          comoUsar="Filtre por classe, ajuste manualmente quando necessário e clique no nome para abrir o dossiê completo do cliente."
+          comoUsar="Filtre por classe, assessor ou cadência; ordene por qualquer coluna; use os badges 12-4-2 para identificar A fora de prazo."
           comoAjuda="Garante que você invista o tempo certo em cada perfil — sem deixar um A esquecido nem desperdiçar horas em C."
         />
         <ReferenciaLivro
