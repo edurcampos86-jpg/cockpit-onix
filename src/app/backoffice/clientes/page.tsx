@@ -32,6 +32,8 @@ export default async function ClientesPage() {
     assessorNome: string | null;
     assessorCge: string | null;
     assessorEmail: string | null;
+    pendenciaCadastral: string | null;
+    aniversario: Date | null;
   }> = [];
 
   try {
@@ -58,6 +60,8 @@ export default async function ClientesPage() {
       assessorNome: c.assessorNome,
       assessorCge: c.assessorCge,
       assessorEmail: c.assessorEmail,
+      pendenciaCadastral: c.pendenciaCadastral,
+      aniversario: c.aniversario,
     }));
   } catch {
     // tabela pode não existir ainda

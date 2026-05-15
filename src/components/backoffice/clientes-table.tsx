@@ -232,6 +232,8 @@ interface Cliente {
   assessorNome: string | null;
   assessorCge: string | null;
   assessorEmail: string | null;
+  pendenciaCadastral: string | null;
+  aniversario: Date | string | null;
 }
 
 type FaixaSaldo = "todos" | "0-10k" | "10k-50k" | "50k-100k" | "100k-500k" | "500k+";
@@ -370,32 +372,6 @@ export function ClientesTable({
     return Array.from(set).sort();
   }, [clientes]);
 
-  // KPIs do topo
-  const kpis = useMemo(() => {
-    const totalA = clientes.filter((c) => c.classificacao === "A").length;
-    const aForaCadencia = clientes.filter(
-      (c) => c.classificacao === "A" && statusCadencia(c) !== "ok"
-    ).length;
-    const pctAOk = totalA > 0 ? Math.round(((totalA - aForaCadencia) / totalA) * 100) : 100;
-
-    const proximaSemana = new Date();
-    proximaSemana.setDate(proximaSemana.getDate() + 7);
-    const reunioesSemana = clientes.filter((c) => {
-      if (!c.proximaReuniaoAt) return false;
-      const d = new Date(c.proximaReuniaoAt);
-      return d.getTime() >= Date.now() && d <= proximaSemana;
-    }).length;
-
-    const saldoParadoTotal = clientes
-      .filter((c) => c.saldoConta >= SALDO_PARADO_LIMITE)
-      .reduce((sum, c) => sum + c.saldoConta, 0);
-
-    const receitaTotal = clientes.reduce((sum, c) => sum + c.receitaAnual, 0);
-
-    return { pctAOk, totalA, aForaCadencia, reunioesSemana, saldoParadoTotal, receitaTotal };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clientes]);
-
   // Filtragem
   const filtrados = useMemo(() => {
     return clientes.filter((c) => {
@@ -442,6 +418,69 @@ export function ClientesTable({
     });
     return arr;
   }, [filtrados, sortKey, sortDir]);
+
+  // KPIs do topo — usam `filtrados` para respeitarem o filtro de assessor/cadência/etc.
+  const kpis = useMemo(() => {
+    const totalA = filtrados.filter((c) => c.classificacao === "A").length;
+    const aForaCadencia = filtrados.filter(
+      (c) => c.classificacao === "A" && statusCadencia(c) !== "ok"
+    ).length;
+    const pctAOk = totalA > 0 ? Math.round(((totalA - aForaCadencia) / totalA) * 100) : 100;
+
+    const proximaSemana = new Date();
+    proximaSemana.setDate(proximaSemana.getDate() + 7);
+    const reunioesSemana = filtrados.filter((c) => {
+      if (!c.proximaReuniaoAt) return false;
+      const d = new Date(c.proximaReuniaoAt);
+      return d.getTime() >= Date.now() && d <= proximaSemana;
+    }).length;
+
+    const plTotal = filtrados.reduce((sum, c) => sum + c.saldo, 0);
+
+    const saldoParadoTotal = filtrados
+      .filter((c) => c.saldoConta >= SALDO_PARADO_LIMITE)
+      .reduce((sum, c) => sum + c.saldoConta, 0);
+
+    const saldoNegativoTotal = filtrados
+      .filter((c) => c.saldoConta < 0)
+      .reduce((sum, c) => sum + c.saldoConta, 0);
+    const clientesNegativos = filtrados.filter((c) => c.saldoConta < 0).length;
+
+    const rendaTotal = filtrados.reduce((sum, c) => sum + c.receitaAnual, 0);
+
+    const pendencias = filtrados.filter(
+      (c) => c.pendenciaCadastral && c.pendenciaCadastral.trim() !== ""
+    ).length;
+
+    const hoje = new Date();
+    const seteDias = new Date(hoje.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const aniversariantes = filtrados.filter((c) => {
+      if (!c.aniversario) return false;
+      const aniv = new Date(c.aniversario);
+      // compara MM-DD ignorando o ano
+      const hojeMD = hoje.getMonth() * 100 + hoje.getDate();
+      const fimMD = seteDias.getMonth() * 100 + seteDias.getDate();
+      const anivMD = aniv.getMonth() * 100 + aniv.getDate();
+      if (fimMD >= hojeMD) return anivMD >= hojeMD && anivMD <= fimMD;
+      // janela cruza virada de ano (dez→jan)
+      return anivMD >= hojeMD || anivMD <= fimMD;
+    }).length;
+
+    return {
+      pctAOk,
+      totalA,
+      aForaCadencia,
+      reunioesSemana,
+      plTotal,
+      saldoParadoTotal,
+      saldoNegativoTotal,
+      clientesNegativos,
+      rendaTotal,
+      pendencias,
+      aniversariantes,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtrados]);
 
   const contadores = {
     A: clientes.filter((c) => c.classificacao === "A").length,
@@ -687,8 +726,38 @@ export function ClientesTable({
 
   return (
     <div className="space-y-4">
-      {/* Painel de saúde — KPIs */}
+      {/* Painel de saúde — 8 KPIs (todos respeitam filtros ativos) */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {/* Linha 1 — financeiros */}
+        <KpiCard
+          icon={TrendingUp}
+          label="Patrimônio líquido total"
+          value={moeda(kpis.plTotal)}
+          sub={`${filtrados.length} clientes ${filtrados.length !== clientes.length ? "(filtrados)" : ""}`}
+          tone="neutro"
+        />
+        <KpiCard
+          icon={Wallet}
+          label="Saldo parado em conta"
+          value={moeda(kpis.saldoParadoTotal)}
+          sub={`clientes com > ${moeda(SALDO_PARADO_LIMITE)}`}
+          tone={kpis.saldoParadoTotal > 0 ? "atencao" : "neutro"}
+        />
+        <KpiCard
+          icon={AlertTriangle}
+          label="Saldo negativo"
+          value={moeda(kpis.saldoNegativoTotal)}
+          sub={kpis.clientesNegativos === 0 ? "nenhum cliente em margem" : `${kpis.clientesNegativos} cliente(s) em margem`}
+          tone={kpis.saldoNegativoTotal < 0 ? "alerta" : "neutro"}
+        />
+        <KpiCard
+          icon={TrendingUp}
+          label="Renda anual dos clientes"
+          value={moeda(kpis.rendaTotal)}
+          sub="somatório de Renda Anual (BTG)"
+          tone="neutro"
+        />
+        {/* Linha 2 — operacionais */}
         <KpiCard
           icon={TrendingUp}
           label="Clientes A na cadência"
@@ -704,18 +773,18 @@ export function ClientesTable({
           tone="neutro"
         />
         <KpiCard
-          icon={Wallet}
-          label="Saldo parado em conta"
-          value={moeda(kpis.saldoParadoTotal)}
-          sub={`clientes com > ${moeda(SALDO_PARADO_LIMITE)}`}
-          tone={kpis.saldoParadoTotal > 0 ? "atencao" : "neutro"}
+          icon={AlertTriangle}
+          label="Pendências cadastrais"
+          value={String(kpis.pendencias)}
+          sub={kpis.pendencias === 0 ? "sem pendências" : "abrir BTG p/ resolver"}
+          tone={kpis.pendencias > 0 ? "atencao" : "ok"}
         />
         <KpiCard
-          icon={TrendingUp}
-          label="Receita/ano da base"
-          value={moeda(kpis.receitaTotal)}
-          sub={`${clientes.length} clientes`}
-          tone="neutro"
+          icon={CalendarCheck}
+          label="Aniversariantes (7 dias)"
+          value={String(kpis.aniversariantes)}
+          sub="oportunidade de contato"
+          tone={kpis.aniversariantes > 0 ? "ok" : "neutro"}
         />
       </div>
 
