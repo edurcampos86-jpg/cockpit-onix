@@ -1,0 +1,83 @@
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { getSession } from "@/lib/session";
+import { syncGoogleCalendarComClientes } from "@/lib/google-calendar-clientes-sync";
+
+/**
+ * POST /api/backoffice/google-calendar-sync
+ *
+ * Sincroniza reuniões do Google Calendar com ClienteBackoffice:
+ * - Eventos futuros (lookahead 60 dias) → proximaReuniaoAt
+ * - Eventos passados (lookback 30 dias) → ultimaReuniaoAt (sem regredir)
+ *
+ * Matching robusto: e-mail do attendee/organizer primeiro, depois
+ * substring do nome no título (com proteção contra sobrenomes comuns).
+ *
+ * Pré-requisitos:
+ * - GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REFRESH_TOKEN
+ *   configurados via /integracoes (OAuth já existente)
+ *
+ * Query params:
+ *   - lookaheadDias (default 60, max 365)
+ *   - lookbackDias (default 30, max 90)
+ */
+export async function POST(req: NextRequest) {
+  const session = await getSession();
+  if (!session) {
+    return NextResponse.json(
+      { success: false, message: "Não autenticado" },
+      { status: 401 },
+    );
+  }
+
+  const lookaheadDias = Math.min(
+    Number(req.nextUrl.searchParams.get("lookaheadDias") ?? 60),
+    365,
+  );
+  const lookbackDias = Math.min(
+    Number(req.nextUrl.searchParams.get("lookbackDias") ?? 30),
+    90,
+  );
+
+  const log = await prisma.btgSyncLog.create({
+    data: {
+      tipo: "google-calendar",
+      trigger: "manual",
+      userId: session.userId,
+      resumo: `lookahead=${lookaheadDias}d lookback=${lookbackDias}d`,
+    },
+  });
+
+  try {
+    const result = await syncGoogleCalendarComClientes({
+      lookaheadDias,
+      lookbackDias,
+    });
+    await prisma.btgSyncLog.update({
+      where: { id: log.id },
+      data: {
+        finalizado: new Date(),
+        sucesso: result.erros.length === 0,
+        contasProcessadas: result.proximasAtualizadas + result.ultimasAtualizadas,
+        contasComErro: result.erros.length,
+        resumo: `${result.proximasAtualizadas} próximas · ${result.ultimasAtualizadas} últimas · match: ${result.matchEmail} email / ${result.matchNome} nome · ${result.eventosFuturos} ev futuros / ${result.eventosPassados} ev passados`,
+        erros: result.erros.length > 0 ? result.erros : undefined,
+      },
+    });
+    return NextResponse.json({ success: result.erros.length === 0, ...result });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "?";
+    await prisma.btgSyncLog.update({
+      where: { id: log.id },
+      data: {
+        finalizado: new Date(),
+        sucesso: false,
+        resumo: `Erro: ${msg}`,
+      },
+    });
+    return NextResponse.json(
+      { success: false, message: msg },
+      { status: 500 },
+    );
+  }
+}
