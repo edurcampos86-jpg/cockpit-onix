@@ -24,6 +24,7 @@ import {
   Filter,
   ChevronDown,
   MessageCircle,
+  CalendarPlus,
 } from "lucide-react";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -311,6 +312,7 @@ export function ClientesTable({
   const [importStatus, setImportStatus] = useState<{ ok: boolean; msg: string } | null>(null);
   const [xlsxReady, setXlsxReady] = useState(false);
   const [marcandoContato, setMarcandoContato] = useState(false);
+  const [registrandoReuniao, setRegistrandoReuniao] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -693,6 +695,35 @@ export function ClientesTable({
     a.download = `clientes_${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const registrarReuniaoAgora = async (id: string, nome: string) => {
+    if (!confirm(`Registrar reunião realizada agora com ${nome}?`)) return;
+    setRegistrandoReuniao(id);
+    try {
+      const res = await fetch(`/api/backoffice/clientes/${id}/interacoes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tipo: "reuniao",
+          canal: "presencial",
+          assunto: "Reunião realizada",
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const interacao = await res.json();
+      const agora = interacao.data ?? new Date().toISOString();
+      setClientes((prev) =>
+        prev.map((c) =>
+          c.id === id ? { ...c, ultimaReuniaoAt: agora, ultimoContatoAt: agora } : c,
+        ),
+      );
+    } catch (e) {
+      console.error("Erro ao registrar reunião:", e);
+      alert("Não foi possível registrar a reunião. Tente novamente.");
+    } finally {
+      setRegistrandoReuniao(null);
+    }
   };
 
   const marcarContatadosHoje = async () => {
@@ -1224,20 +1255,35 @@ export function ClientesTable({
                     </td>
 
                     <td className="px-3 py-3">
-                      {waLink ? (
-                        <a
-                          href={waLink}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1 px-2 py-1 rounded bg-green-500/10 text-green-700 dark:text-green-400 hover:bg-green-500/20 text-xs"
-                          title={`Abrir WhatsApp com ${c.telefone}`}
+                      <div className="flex items-center gap-1">
+                        {waLink ? (
+                          <a
+                            href={waLink}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded bg-green-500/10 text-green-700 dark:text-green-400 hover:bg-green-500/20 text-xs"
+                            title={`Abrir WhatsApp com ${c.telefone}`}
+                          >
+                            <MessageCircle className="h-3 w-3" />
+                            WhatsApp
+                          </a>
+                        ) : (
+                          <span className="text-xs text-muted-foreground italic">sem tel</span>
+                        )}
+                        <button
+                          onClick={() => registrarReuniaoAgora(c.id, c.nome)}
+                          disabled={registrandoReuniao === c.id}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20 text-xs disabled:opacity-50"
+                          title="Registrar reunião realizada agora (preenche Última reunião e Último contato)"
                         >
-                          <MessageCircle className="h-3 w-3" />
-                          WhatsApp
-                        </a>
-                      ) : (
-                        <span className="text-xs text-muted-foreground italic">sem tel</span>
-                      )}
+                          {registrandoReuniao === c.id ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <CalendarPlus className="h-3 w-3" />
+                          )}
+                          Reunião
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
