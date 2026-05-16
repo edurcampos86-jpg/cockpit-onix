@@ -79,6 +79,92 @@ export async function exchangeCodeForTokens(code: string, redirectUri: string) {
 }
 
 // ============================================
+// LISTAGEM DE EVENTOS (pra sync de reuniões com clientes)
+// ============================================
+
+/**
+ * Versão simplificada do evento para fins de matching cliente x reunião.
+ * Os campos `attendees` e `organizer` são as fontes de identidade
+ * preferidas (e-mail exato); `summary` é fallback frágil — usar com
+ * proteção de sobrenomes comuns.
+ */
+export interface CalendarEventForMatching {
+  id: string;
+  summary: string;
+  description: string;
+  start: Date;
+  end: Date | null;
+  attendees: string[]; // e-mails normalizados em lowercase
+  organizer: string | null; // e-mail normalizado em lowercase
+}
+
+async function listEvents(
+  timeMin: Date,
+  timeMax: Date,
+): Promise<CalendarEventForMatching[]> {
+  const auth = await getOAuth2Client();
+  const calendar = getCalendarClient(auth);
+
+  const events: CalendarEventForMatching[] = [];
+  let pageToken: string | undefined;
+
+  do {
+    const res = await calendar.events.list({
+      calendarId: CALENDAR_ID,
+      timeMin: timeMin.toISOString(),
+      timeMax: timeMax.toISOString(),
+      singleEvents: true,
+      orderBy: "startTime",
+      maxResults: 250,
+      pageToken,
+    });
+
+    for (const ev of res.data.items ?? []) {
+      const startStr = ev.start?.dateTime ?? ev.start?.date;
+      if (!startStr) continue;
+      const start = new Date(startStr);
+      if (isNaN(start.getTime())) continue;
+      const endStr = ev.end?.dateTime ?? ev.end?.date;
+      const end = endStr ? new Date(endStr) : null;
+
+      events.push({
+        id: ev.id || "",
+        summary: (ev.summary || "").trim(),
+        description: (ev.description || "").trim(),
+        start,
+        end: end && !isNaN(end.getTime()) ? end : null,
+        attendees: (ev.attendees ?? [])
+          .map((a) => (a.email || "").toLowerCase().trim())
+          .filter((e) => e.length > 0),
+        organizer: (ev.organizer?.email || "").toLowerCase().trim() || null,
+      });
+    }
+
+    pageToken = res.data.nextPageToken ?? undefined;
+  } while (pageToken);
+
+  return events;
+}
+
+/** Eventos futuros na janela (default 60 dias) — pra `proximaReuniaoAt`. */
+export async function listFutureCalendarEvents(
+  daysAhead: number = 60,
+): Promise<CalendarEventForMatching[]> {
+  const now = new Date();
+  const max = new Date(now.getTime() + daysAhead * 24 * 60 * 60 * 1000);
+  return listEvents(now, max);
+}
+
+/** Eventos passados recentes na janela (default 30 dias) — pra `ultimaReuniaoAt`. */
+export async function listRecentCalendarEvents(
+  daysBack: number = 30,
+): Promise<CalendarEventForMatching[]> {
+  const now = new Date();
+  const min = new Date(now.getTime() - daysBack * 24 * 60 * 60 * 1000);
+  return listEvents(min, now);
+}
+
+// ============================================
 // CALENDAR CRUD
 // ============================================
 

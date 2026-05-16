@@ -50,3 +50,13 @@ command = "curl -fsS -H \"Authorization: Bearer $CRON_SECRET\" $RAILWAY_PUBLIC_D
 name = "datacrazy-poll"
 schedule = "*/5 * * * *"
 command = "curl -fsS -H \"Authorization: Bearer $CRON_SECRET\" $RAILWAY_PUBLIC_DOMAIN/api/cron/datacrazy-poll"
+
+# ────────────────────────────────────────────────────────────────────────
+# Google Calendar polling — sincroniza próxima e última reunião dos clientes
+# a partir dos eventos do Google Calendar (match por e-mail do attendee).
+# A cada 15min. Lookahead 60 dias / lookback 7 dias.
+# ────────────────────────────────────────────────────────────────────────
+[[crons]]
+name = "google-calendar-poll"
+schedule = "*/15 * * * *"
+command = "curl -fsS -H \"Authorization: Bearer $CRON_SECRET\" $RAILWAY_PUBLIC_DOMAIN/api/cron/google-calendar-poll"
