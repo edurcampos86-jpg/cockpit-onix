@@ -7,7 +7,7 @@
 # cron-guard.ts libera (modo dev).
 
 [deploy]
-startCommand = "prisma db push --accept-data-loss && next start"
+startCommand = "prisma db push && next start"
 
 # ────────────────────────────────────────────────────────────────────────
 # Sug 1 — Boot do Dia: gera sugestões de 3 prioridades
