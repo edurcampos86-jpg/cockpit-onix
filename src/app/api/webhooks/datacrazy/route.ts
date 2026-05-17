@@ -97,6 +97,11 @@ export async function POST(req: NextRequest) {
   const contact = (raw.contact as Record<string, unknown> | undefined) ?? {};
   const messageObj = (raw.message as Record<string, unknown> | undefined) ?? {};
 
+  // Datacrazy expõe o telefone como `contact.contactId` (sem "+", às vezes
+  // sem o "9" inicial de celulares BR). Pular IDs especiais (@lid).
+  const rawContactId = contact.contactId as string | undefined;
+  const contactIdValido = rawContactId && !rawContactId.includes("@") ? rawContactId : undefined;
+
   const conv: ConversaCanonical = {
     externalId: conversationId,
     instanceId:
@@ -107,6 +112,7 @@ export async function POST(req: NextRequest) {
     contactPhone:
       (contact.phone as string | undefined) ??
       (contact.number as string | undefined) ??
+      contactIdValido ??
       (raw.phone as string | undefined) ??
       null,
     contactName:
@@ -118,6 +124,12 @@ export async function POST(req: NextRequest) {
       (raw.timestamp as string | undefined) ??
       new Date().toISOString(),
   };
+
+  // Descartar conversas de grupo — não fazem sentido pra rastrear cadência
+  // de cliente individual.
+  if ((raw.isGroup === true) || ((raw.conversation as Record<string, unknown> | undefined)?.isGroup === true)) {
+    return NextResponse.json({ ok: true, ignored: "group" }, { status: 200 });
+  }
 
   // Determina se há mensagem nova (em events tipo conversation.updated
   // pode vir só metadata). Se houver, ingeremos. Se não, só atualizamos

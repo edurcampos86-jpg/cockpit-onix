@@ -1,6 +1,6 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
-import { toE164, phoneDigits } from "@/lib/phone";
+import { toE164, phoneDigits, brazilianPhoneVariants } from "@/lib/phone";
 import { broadcastConversaUpdate } from "@/lib/sse-bus";
 
 /**
@@ -38,27 +38,40 @@ export interface MensagemCanonical {
 
 /**
  * Tenta resolver clienteId pelo telefone normalizado.
- * Estratégia em 2 passos:
- *   1. Match exato em E.164 (rápido, usa index @@index([telefone]))
- *   2. Fallback: últimos 11 dígitos (cobre caso BTG sem DDI)
+ * Estratégia em 3 passos, do mais firme pro mais tolerante:
+ *   1. Match exato em E.164 (usa @@index([telefone]))
+ *   2. Match exato com variante BR com/sem "9" inicial — WhatsApp/IDs antigos
+ *      vêm sem o 9 obrigatório de pós-2014; cadastros novos vêm com.
+ *   3. Fallback: últimos 11 dígitos (cobre caso BTG sem DDI)
  */
 async function resolverClienteIdPorTelefone(rawPhone: string | null | undefined): Promise<string | null> {
   const e164 = toE164(rawPhone);
   if (e164) {
+    // (1) Match exato
     const exato = await prisma.clienteBackoffice.findFirst({
       where: { telefone: e164 },
       select: { id: true },
     });
     if (exato) return exato.id;
+
+    // (2) Variantes BR com/sem o "9" inicial
+    const variantes = brazilianPhoneVariants(e164).filter((v) => v !== e164);
+    if (variantes.length > 0) {
+      const comVariante = await prisma.clienteBackoffice.findFirst({
+        where: { telefone: { in: variantes } },
+        select: { id: true },
+      });
+      if (comVariante) return comVariante.id;
+    }
   }
 
-  // Fallback: matching por dígitos finais
+  // (3) Fallback: matching por dígitos finais (8 dígitos do número local,
+  // ignorando DDI e DDD pra cobrir cadastros com formato muito divergente)
   const digits = phoneDigits(rawPhone);
   if (digits.length >= 10) {
-    const ultimos11 = digits.slice(-11);
-    // Postgres: LIKE %ultimos11 — não usa index mas a base é pequena
+    const ultimos8 = digits.slice(-8);
     const candidato = await prisma.clienteBackoffice.findFirst({
-      where: { telefone: { endsWith: ultimos11 } },
+      where: { telefone: { endsWith: ultimos8 } },
       select: { id: true },
     });
     if (candidato) return candidato.id;

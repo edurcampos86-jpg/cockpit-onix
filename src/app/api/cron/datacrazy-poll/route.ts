@@ -68,10 +68,12 @@ export async function GET(req: NextRequest) {
         const conversas = await fetchConversas(instanceId, token, 2);
         conversasVistas += conversas.length;
 
-        // Filtra só conversas com atividade nos últimos 30min
-        // (margem de segurança 6x acima da frequência do cron)
+        // Filtra: (a) atividade nos últimos 30min e (b) NÃO ser grupo.
+        // Grupos não fazem sentido pra rastrear cadência de cliente
+        // individual; descartar evita armazenar ruído.
         const cutoff = Date.now() - 30 * 60 * 1000;
         const ativas = conversas.filter((c) => {
+          if ((c as { isGroup?: boolean }).isGroup === true) return false;
           const t = c.lastMessageDate ?? c.updatedAt ?? c.lastMessage?.createdAt;
           if (!t) return false;
           return new Date(t).getTime() >= cutoff;
@@ -110,15 +112,26 @@ export async function GET(req: NextRequest) {
             continue;
           }
 
+          // Extrai telefone: priorizar `contact.contactId` (formato real
+          // que a Datacrazy retorna — ex: "557199752022" sem o "+" e às
+          // vezes sem o "9" inicial). Cair pra `contact.phone`/`number`/
+          // `conv.phone` se um dia eles começarem a expor. Pular IDs
+          // especiais do WhatsApp tipo `@lid` (linked devices) — não são
+          // número de telefone matchável.
+          const contactObj = conv.contact as Record<string, unknown> | undefined;
+          const rawContactId = contactObj?.contactId as string | undefined;
+          const contactIdValido = rawContactId && !rawContactId.includes("@") ? rawContactId : undefined;
+
           const conversaCanonica: ConversaCanonical = {
             externalId,
             instanceId,
             contactPhone:
-              ((conv.contact as Record<string, unknown> | undefined)?.phone as string | undefined) ??
-              ((conv.contact as Record<string, unknown> | undefined)?.number as string | undefined) ??
+              (contactObj?.phone as string | undefined) ??
+              (contactObj?.number as string | undefined) ??
+              contactIdValido ??
               (conv.phone as string | undefined),
             contactName:
-              ((conv.contact as Record<string, unknown> | undefined)?.name as string | undefined) ??
+              (contactObj?.name as string | undefined) ??
               (conv.contactName as string | undefined) ??
               (conv.name as string | undefined),
             lastMessageAt: lastMsgRemote,
