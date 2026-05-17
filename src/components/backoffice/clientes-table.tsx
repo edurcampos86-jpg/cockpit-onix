@@ -560,7 +560,9 @@ export function ClientesTable({
       const total = parsed.length;
       let criados = 0;
       let atualizados = 0;
+      let orfaos = 0;
       let pareados = 0;
+      let rotuloModo = "";
       const erros: string[] = [];
 
       for (let i = 0; i < total; i += CHUNK) {
@@ -583,13 +585,18 @@ export function ClientesTable({
           }
           criados += data.criados || 0;
           atualizados += data.atualizados || 0;
+          orfaos += data.orfaos || 0;
           pareados += data.duplicadosResolvidos || 0;
+          if (data.rotuloModo) rotuloModo = data.rotuloModo;
         } catch (e) {
           erros.push(`Batch ${i + 1}-${fim}: ${e instanceof Error ? e.message : "erro de rede"}`);
         }
       }
 
-      const partes = [`${criados} novos`, `${atualizados} atualizados`];
+      const partes: string[] = [];
+      if (rotuloModo) partes.push(`Relatório: ${rotuloModo}`);
+      partes.push(`${criados} novos`, `${atualizados} atualizados`);
+      if (orfaos > 0) partes.push(`${orfaos} órfãos (sem match)`);
       if (pareados > 0) partes.push(`${pareados} pareados por CPF/nome`);
       if (erros.length > 0) partes.push(`${erros.length} batch(es) com erro`);
       setImportStatus({
