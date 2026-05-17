@@ -177,6 +177,72 @@ type ClienteLimpo = {
   breakdownProdutos?: Record<string, string | number | null>;
 };
 
+/**
+ * Detecta o tipo de relatório que veio no payload baseado no perfil das
+ * linhas. Cobre 3 relatórios BTG que o Eduardo usa rotineiramente:
+ *
+ * - `primario`: Base BTG completa (47 colunas — patrimônio, assessor,
+ *   suitability, breakdown financeiro). Cria + atualiza.
+ * - `update_saldo`: "Saldo em CC (D 0)" — 3 colunas: Conta, Nome, Saldo.
+ *   Aqui o campo `saldo` recebido NA VERDADE é `saldoConta` (saldo em
+ *   conta corrente, não PL). NUNCA cria — sem match vira órfão.
+ * - `update_cadastral`: "Informações" — 28 colunas com telefone, CPF,
+ *   endereço, perfil suitability, status conta. NUNCA cria.
+ *
+ * Critério: olhar quais campos a maioria das linhas traz, sem mexer no
+ * frontend (mantém HEADER_MAP atual). A heurística é deliberadamente
+ * conservadora — se em dúvida, cai no `primario` (comportamento antigo).
+ */
+type Modo = "primario" | "update_saldo" | "update_cadastral";
+
+function detectarModo(clientes: ClienteLimpo[]): Modo {
+  const validas = clientes.filter((c) => c.numeroConta);
+  if (validas.length === 0) return "primario";
+  const total = validas.length;
+
+  let apenas3 = 0; // só { nome, numeroConta, saldo }
+  let cadastraisSemFinanceiro = 0;
+  let temFinanceiroForte = 0;
+
+  for (const c of validas) {
+    const definidos = (Object.keys(c) as (keyof ClienteLimpo)[]).filter(
+      (k) => c[k] !== undefined,
+    );
+    const extras = definidos.filter((k) => k !== "nome" && k !== "numeroConta");
+    if (extras.length === 1 && extras[0] === "saldo") apenas3++;
+
+    const temFinanceiro =
+      c.assessorNome !== undefined ||
+      c.receitaAnual !== undefined ||
+      c.breakdownProdutos !== undefined ||
+      c.saldoConta !== undefined;
+    const temCadastral =
+      c.telefone !== undefined ||
+      c.endereco !== undefined ||
+      c.pendenciaCadastral !== undefined ||
+      c.ativacaoConta !== undefined ||
+      c.perfilInvestidor !== undefined;
+    if (
+      temCadastral &&
+      !temFinanceiro &&
+      c.saldo === undefined &&
+      c.classificacao === undefined
+    ) {
+      cadastraisSemFinanceiro++;
+    }
+    if (temFinanceiro) temFinanceiroForte++;
+  }
+
+  if (apenas3 / total > 0.8) return "update_saldo";
+  if (
+    cadastraisSemFinanceiro / total > 0.5 &&
+    temFinanceiroForte / total < 0.1
+  ) {
+    return "update_cadastral";
+  }
+  return "primario";
+}
+
 async function findExisting(c: ClienteLimpo) {
   if (c.numeroConta) {
     // Tenta variações: como veio, sem zeros à esquerda, e padronizado p/ 9 dígitos.
@@ -305,20 +371,67 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const modo = detectarModo(limpos);
+
     const pareados = await Promise.all(
       limpos.map(async (input) => ({ input, existente: await findExisting(input) })),
     );
 
-    const saldosEfetivos = pareados.map(
-      (p) => p.input.saldo ?? p.existente?.saldo ?? 0,
-    );
+    // Recálculo ABC só faz sentido no modo `primario` — `update_saldo`
+    // não traz PL Total (campo `saldo` lá é na verdade `saldoConta`) e
+    // `update_cadastral` não traz nada financeiro.
+    const saldosEfetivos =
+      modo === "primario"
+        ? pareados.map((p) => p.input.saldo ?? p.existente?.saldo ?? 0)
+        : [];
     const { corteA, corteB } = calcularCortesABC(saldosEfetivos);
 
     let criados = 0;
     let atualizados = 0;
+    let orfaos = 0;
     let duplicadosResolvidos = 0;
 
+    // Campos cadastrais — atualizados em `update_cadastral`. NÃO inclui
+    // `nome` pra evitar regredir nome completo do BTG ("Cesar Henrique
+    // Lisboa De Santana") por nome truncado do relatório Informações
+    // ("Cesar").
+    const CAMPOS_CADASTRAIS: (keyof ClienteLimpo)[] = [
+      "cpfCnpj",
+      "email",
+      "telefone",
+      "profissao",
+      "nicho",
+      "aniversario",
+      "perfilInvestidor",
+      "suitabilityValidoAte",
+      "tipoInvestidor",
+      "faixaCliente",
+      "ativacaoConta",
+      "pendenciaCadastral",
+      "dataAberturaConta",
+      "dataUltimaRevisaoCadastral",
+      "dataProximaRevisaoCadastral",
+      "tipoConta",
+      "estadoCivil",
+      "genero",
+      "nacionalidade",
+      "cpfConjuge",
+      "endereco",
+      "complemento",
+      "cidade",
+      "estado",
+      "cep",
+    ];
+
     for (const { input, existente } of pareados) {
+      // Modos de update-only NUNCA criam — sem match = órfão.
+      if (!existente) {
+        if (modo === "update_saldo" || modo === "update_cadastral") {
+          orfaos++;
+          continue;
+        }
+        // primario: cai pro create no else lá embaixo
+      }
       const saldoFinal = input.saldo ?? existente?.saldo ?? 0;
       const classeAuto: string =
         saldoFinal >= corteA ? "A" : saldoFinal >= corteB ? "B" : "C";
@@ -328,51 +441,64 @@ export async function POST(request: NextRequest) {
         const setIfDef = (k: keyof ClienteLimpo) => {
           if (input[k] !== undefined) update[k as string] = input[k];
         };
-        setIfDef("nome");
-        setIfDef("numeroConta");
-        setIfDef("cpfCnpj");
-        setIfDef("saldo");
-        setIfDef("saldoConta");
-        setIfDef("email");
-        setIfDef("telefone");
-        setIfDef("profissao");
-        setIfDef("nicho");
-        setIfDef("receitaAnual");
-        setIfDef("aniversario");
-        setIfDef("perfilInvestidor");
-        setIfDef("suitabilityValidoAte");
-        setIfDef("tipoInvestidor");
-        setIfDef("faixaCliente");
-        setIfDef("ativacaoConta");
-        setIfDef("pendenciaCadastral");
-        setIfDef("dataAberturaConta");
-        setIfDef("dataUltimaRevisaoCadastral");
-        setIfDef("dataProximaRevisaoCadastral");
-        setIfDef("idClienteBtg");
-        setIfDef("tipoConta");
-        setIfDef("estadoCivil");
-        setIfDef("genero");
-        setIfDef("nacionalidade");
-        setIfDef("cpfConjuge");
-        setIfDef("endereco");
-        setIfDef("complemento");
-        setIfDef("cidade");
-        setIfDef("estado");
-        setIfDef("cep");
-        setIfDef("assessorNome");
-        setIfDef("assessorCge");
-        setIfDef("assessorEmail");
-        setIfDef("tipoParceiro");
-        setIfDef("escritorio");
-        setIfDef("codigoEscritorio");
-        if (input.breakdownProdutos !== undefined) update.breakdownProdutos = input.breakdownProdutos;
 
-        if (input.classificacao) {
-          update.classificacao = input.classificacao;
-          update.classificacaoManual = true;
-        } else if (!existente.classificacaoManual) {
-          update.classificacao = classeAuto;
+        if (modo === "update_saldo") {
+          // Bug histórico: o header "Saldo" do XLSX "Saldo em CC" cai no
+          // campo `saldo` (PL total). Aqui interpretamos como saldoConta.
+          if (input.saldo !== undefined) update.saldoConta = input.saldo;
+        } else if (modo === "update_cadastral") {
+          for (const k of CAMPOS_CADASTRAIS) setIfDef(k);
+        } else {
+          // primario — comportamento atual completo
+          setIfDef("nome");
+          setIfDef("numeroConta");
+          setIfDef("cpfCnpj");
+          setIfDef("saldo");
+          setIfDef("saldoConta");
+          setIfDef("email");
+          setIfDef("telefone");
+          setIfDef("profissao");
+          setIfDef("nicho");
+          setIfDef("receitaAnual");
+          setIfDef("aniversario");
+          setIfDef("perfilInvestidor");
+          setIfDef("suitabilityValidoAte");
+          setIfDef("tipoInvestidor");
+          setIfDef("faixaCliente");
+          setIfDef("ativacaoConta");
+          setIfDef("pendenciaCadastral");
+          setIfDef("dataAberturaConta");
+          setIfDef("dataUltimaRevisaoCadastral");
+          setIfDef("dataProximaRevisaoCadastral");
+          setIfDef("idClienteBtg");
+          setIfDef("tipoConta");
+          setIfDef("estadoCivil");
+          setIfDef("genero");
+          setIfDef("nacionalidade");
+          setIfDef("cpfConjuge");
+          setIfDef("endereco");
+          setIfDef("complemento");
+          setIfDef("cidade");
+          setIfDef("estado");
+          setIfDef("cep");
+          setIfDef("assessorNome");
+          setIfDef("assessorCge");
+          setIfDef("assessorEmail");
+          setIfDef("tipoParceiro");
+          setIfDef("escritorio");
+          setIfDef("codigoEscritorio");
+          if (input.breakdownProdutos !== undefined) update.breakdownProdutos = input.breakdownProdutos;
+
+          if (input.classificacao) {
+            update.classificacao = input.classificacao;
+            update.classificacaoManual = true;
+          } else if (!existente.classificacaoManual) {
+            update.classificacao = classeAuto;
+          }
         }
+
+        // Skip update vazio (modo update_saldo sem saldo na linha, etc.)
+        if (Object.keys(update).length === 0) continue;
 
         await prisma.clienteBackoffice.update({
           where: { id: existente.id },
@@ -435,17 +561,36 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const partes = [`${criados} novos`, `${atualizados} atualizados`];
+    const rotuloModo =
+      modo === "update_saldo"
+        ? "Saldo em CC"
+        : modo === "update_cadastral"
+          ? "Informações cadastrais"
+          : "Base BTG (completa)";
+
+    const partes = [
+      `Relatório: ${rotuloModo}`,
+      `${criados} novos`,
+      `${atualizados} atualizados`,
+    ];
+    if (orfaos > 0) {
+      partes.push(`${orfaos} órfãos (sem match — verificar)`);
+    }
     if (duplicadosResolvidos > 0) {
       partes.push(`${duplicadosResolvidos} pareados por CPF/nome`);
     }
-    partes.push("ABC recalculado");
+    if (modo === "primario") {
+      partes.push("ABC recalculado");
+    }
 
     return NextResponse.json({
       message: partes.join(" · "),
       total: limpos.length,
+      modo,
+      rotuloModo,
       criados,
       atualizados,
+      orfaos,
       duplicadosResolvidos,
     });
   } catch (error) {
