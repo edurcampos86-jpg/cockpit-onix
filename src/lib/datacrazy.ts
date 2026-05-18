@@ -232,6 +232,177 @@ export function filtrarConversasPorPeriodo(
   });
 }
 
+// ============================================
+// ATIVIDADES (Reuniões marcadas / realizadas)
+// ============================================
+//
+// Endpoints (Datacrazy OpenAPI):
+//   GET /api/v1/activities?filter[attendantId]=...&filter[startDate]=...
+//   GET /api/v1/leads/{leadId}  → telefone+email pra resolver clienteId
+//
+// Mesmo host base do polling de conversas. Se a Datacrazy mover atividades
+// pra outro cluster, dá pra sobrescrever via DATACRAZY_ATIVIDADES_BASE_URL.
+
+export interface DatacrazyAtividade {
+  id: string;
+  title: string | null;
+  description: string | null;
+  startDate: Date;
+  endDate: Date | null;
+  isCompleted: boolean;
+  leadId: string;
+  leadName: string | null;
+  attendantId: string | null;
+  activityTypeId: string | null;
+  rawPayload: unknown;
+}
+
+export interface DatacrazyLead {
+  id: string;
+  name: string | null;
+  phone: string | null;
+  email: string | null;
+}
+
+/**
+ * Lista atividades de um attendant numa janela [startDateGte, startDateLte].
+ * Pagina até esgotar (cap em maxPages pra segurança).
+ */
+export async function fetchAtividades(
+  args: {
+    token: string;
+    attendantId: string;
+    startDateGte?: Date;
+    startDateLte?: Date;
+    isCompleted?: boolean;
+    maxPages?: number;
+    baseUrl?: string;
+  },
+): Promise<DatacrazyAtividade[]> {
+  const baseUrl = args.baseUrl ?? DATACRAZY_BASE_URL;
+  const maxPages = args.maxPages ?? 10;
+  const take = 100;
+  let skip = 0;
+  let page = 0;
+  const out: DatacrazyAtividade[] = [];
+
+  while (page < maxPages) {
+    const params = new URLSearchParams();
+    params.set("take", String(take));
+    params.set("skip", String(skip));
+    params.set("filter[attendantId]", args.attendantId);
+    if (args.startDateGte) {
+      params.set("filter[startDate]", args.startDateGte.toISOString());
+    }
+    if (args.startDateLte) {
+      params.set("filter[startDateLessThan]", args.startDateLte.toISOString());
+    }
+    if (typeof args.isCompleted === "boolean") {
+      params.set("filter[isCompleted]", String(args.isCompleted));
+    }
+
+    const url = `${baseUrl}/activities?${params.toString()}`;
+    let res: Response | null = null;
+    let attempt = 0;
+    const maxRetries = 2;
+    while (attempt < maxRetries) {
+      res = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${args.token}`,
+          "Content-Type": "application/json",
+        },
+      });
+      if (res.status === 429) {
+        attempt++;
+        await delay(5000 * attempt);
+        continue;
+      }
+      break;
+    }
+
+    if (!res || !res.ok) {
+      throw new Error(
+        `fetchAtividades failed: ${res?.status} ${res?.statusText} (attendantId=${args.attendantId})`,
+      );
+    }
+
+    const data = await res.json();
+    const items: any[] = Array.isArray(data) ? data : data.data ?? data.items ?? [];
+    if (items.length === 0) break;
+
+    for (const a of items) {
+      const startStr = a.startDate ?? a.scheduledDate;
+      if (!startStr) continue;
+      const start = new Date(startStr);
+      if (isNaN(start.getTime())) continue;
+      const endStr = a.endDate;
+      const end = endStr ? new Date(endStr) : null;
+
+      out.push({
+        id: String(a.id),
+        title: a.title ?? null,
+        description: a.description ?? null,
+        startDate: start,
+        endDate: end && !isNaN(end.getTime()) ? end : null,
+        isCompleted: Boolean(a.isCompleted),
+        leadId: String(a.lead?.id ?? a.leadId ?? ""),
+        leadName: a.lead?.name ?? null,
+        attendantId: a.attendant?.id ?? a.attendantId ?? null,
+        activityTypeId: a.activityType?.id ?? a.activityTypeId ?? null,
+        rawPayload: a,
+      });
+    }
+
+    if (items.length < take) break;
+    skip += take;
+    page++;
+    await delay(1000);
+  }
+
+  return out;
+}
+
+/**
+ * Busca dados completos de um lead pra resolver clienteId.
+ * Datacrazy expõe `phone` e `email` no lead.
+ */
+export async function fetchLead(
+  leadId: string,
+  token: string,
+  baseUrl: string = DATACRAZY_BASE_URL,
+): Promise<DatacrazyLead | null> {
+  let res: Response | null = null;
+  let attempt = 0;
+  const maxRetries = 2;
+  while (attempt < maxRetries) {
+    res = await fetch(`${baseUrl}/leads/${leadId}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+    });
+    if (res.status === 429) {
+      attempt++;
+      await delay(5000 * attempt);
+      continue;
+    }
+    break;
+  }
+  if (!res) return null;
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(`fetchLead failed: ${res.status} ${res.statusText} (leadId=${leadId})`);
+  }
+  const a = await res.json();
+  const data = a?.data ?? a;
+  return {
+    id: String(data.id ?? leadId),
+    name: data.name ?? null,
+    phone: data.phone ?? data.contactPhone ?? data.contact?.phone ?? null,
+    email: data.email ?? data.contactEmail ?? data.contact?.email ?? null,
+  };
+}
+
 export function buildTranscricao(
   mensagens: any[],
   nomeContato: string
