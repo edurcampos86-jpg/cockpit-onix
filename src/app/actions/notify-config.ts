@@ -33,7 +33,7 @@ export async function getNotifyConfigStatus(): Promise<NotifyConfigStatus | { er
 }
 
 export type SaveNotifyConfigState =
-  | { success?: never; error?: never; status?: never }
+  | undefined
   | { success: true; status: NotifyConfigStatus; error?: never }
   | { error: string; success?: never; status?: never };
 
