@@ -58,9 +58,12 @@ export async function POST(req: NextRequest) {
       data: {
         finalizado: new Date(),
         sucesso: result.erros.length === 0,
-        contasProcessadas: result.proximasAtualizadas + result.ultimasAtualizadas,
+        contasProcessadas:
+          result.reunioesUpsert +
+          result.reunioesRemovidas +
+          result.contatosAtualizados,
         contasComErro: result.erros.length,
-        resumo: `${result.proximasAtualizadas} próximas · ${result.ultimasAtualizadas} últimas · match: ${result.matchEmail} email / ${result.matchNome} nome · ${result.eventosFuturos} ev futuros / ${result.eventosPassados} ev passados`,
+        resumo: `${result.reunioesUpsert} upsert · ${result.reunioesRemovidas} removidas · ${result.agregadosRecomputados} recomputados · ${result.contatosAtualizados} contatos · match: ${result.matchEmail}e/${result.matchNomeUnico}u/${result.matchNomeSubstring}s · ${result.eventosFuturos}↑/${result.eventosPassados}↓ ev`,
         erros: result.erros.length > 0 ? result.erros : undefined,
       },
     });

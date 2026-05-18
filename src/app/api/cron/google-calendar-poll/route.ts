@@ -39,9 +39,11 @@ export async function GET(req: NextRequest) {
         finalizado: new Date(),
         sucesso: result.erros.length === 0,
         contasProcessadas:
-          result.proximasAtualizadas + result.ultimasAtualizadas,
+          result.reunioesUpsert +
+          result.reunioesRemovidas +
+          result.contatosAtualizados,
         contasComErro: result.erros.length,
-        resumo: `${result.proximasAtualizadas} próximas · ${result.ultimasAtualizadas} últimas · match: ${result.matchEmail} email / ${result.matchNome} nome`,
+        resumo: `${result.reunioesUpsert} upsert · ${result.reunioesRemovidas} removidas · ${result.agregadosRecomputados} recomputados · ${result.contatosAtualizados} contatos · match: ${result.matchEmail}e/${result.matchNomeUnico}u/${result.matchNomeSubstring}s`,
         erros: result.erros.length > 0 ? result.erros : undefined,
       },
     });
