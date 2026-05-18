@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { ComoFunciona } from "@/components/layout/como-funciona";
 import { Lock, Eye, EyeOff, CheckCircle2, ShieldCheck, KeyRound } from "lucide-react";
 import { useState } from "react";
+import { NotifyConfigSection } from "./notify-config-section";
 
 function PasswordInput({
   id,
@@ -139,6 +140,8 @@ export default function ConfiguracoesPage() {
             </div>
           </form>
         </div>
+
+        <NotifyConfigSection />
 
         {/* Security Tips */}
         <div className="bg-card border border-border rounded-xl overflow-hidden">
