@@ -40,7 +40,8 @@ Pra cada um, ler último `BtgSyncLog` do mesmo `tipo` e conferir `sucesso=true` 
 
 1. Determinar base URL: usar `RAILWAY_PUBLIC_DOMAIN` ou `https://cockpit-onix-production.up.railway.app`.
 2. GET `/api/integracoes/status` → mapa de configured/status.
-3. Para cada integração com `configured=true`, hit no endpoint `/test` correspondente (5s timeout).
+   - **Atenção:** essa rota agora exige sessão. Rodando como cron sem cookie, hit direto via `getConfig()` (skip o HTTP) ou crie um endpoint dedicado `/api/cron/healthcheck` com auth via shared secret.
+3. Para cada integração com `configured=true`, hit no endpoint `/test` correspondente (5s timeout, com cookie/secret).
 4. Para cada cron, query `BtgSyncLog`/`Conversa`/`MovimentacaoBtg` pra inferir última execução real (não só "configured").
 5. Compor relatório com 3 buckets:
    - ✅ **Saudáveis**
@@ -49,18 +50,31 @@ Pra cada um, ler último `BtgSyncLog` do mesmo `tipo` e conferir `sucesso=true` 
 
 ## Notificação
 
-Se houver itens em 🚨 ou ⚠️:
+Se houver itens em 🚨 ou ⚠️, despache via wrapper:
 
-1. Ler `SLACK_ALERTS_CHANNEL` e `DATACRAZY_ALERTS_PHONE`/`DATACRAZY_ALERTS_INSTANCE` via `getConfig()`.
-2. Enviar mensagem **única** (não 1 por integração):
-   ```
-   [Cockpit Onix] Healthcheck — 18/05 14:30
-   🚨 BTG: HTTP 401 no /test (provável secret rotacionado)
-   ⚠️ Datacrazy: última mensagem há 4h12min (limite 6h, mas próximo)
-   ✅ Demais: ok
-   ```
-3. Slack: usar `mcp__slack_send_message` (MCP) se disponível, senão webhook configurado.
-4. WhatsApp: POST para endpoint Datacrazy de envio (criar wrapper em `src/lib/datacrazy.ts` se não existir; **não** hardcodar token).
+```ts
+import { notify } from "@/lib/notify";
+await notify({
+  title: "Cockpit Onix — Healthcheck",
+  body: "🚨 BTG: HTTP 401 no /test (provável secret rotacionado)\n⚠️ Datacrazy: última mensagem há 4h12min",
+  severity: "crit",
+});
+```
+
+O `notify()` (em `src/lib/notify.ts`) dispara Slack + WhatsApp em paralelo, lendo:
+
+- `SLACK_ALERTS_WEBHOOK_URL` — Incoming Webhook do canal `#ecossistema-onix`.
+- `DATACRAZY_TOKEN` + `DATACRAZY_ALERTS_INSTANCE` + `DATACRAZY_ALERTS_PHONE` — Z-API.
+- `DATACRAZY_CLIENT_TOKEN` (opcional) — header `Client-Token` da Z-API.
+
+Mensagem **única** por ciclo (não 1 por integração). Formato sugerido:
+
+```
+🚨 *Cockpit Onix — Healthcheck (18/05 14:30)*
+🚨 BTG: HTTP 401 no /test (provável secret rotacionado)
+⚠️ Datacrazy: última mensagem há 4h12min (limite 6h, mas próximo)
+✅ Demais: ok
+```
 
 ## Auto-pacing
 
