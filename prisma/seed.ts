@@ -8,6 +8,15 @@ const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
 const prisma = new PrismaClient({ adapter });
 
 async function main() {
+  const adminPassword = process.env.SEED_ADMIN_PASSWORD;
+  const supportPassword = process.env.SEED_SUPPORT_PASSWORD;
+  if (!adminPassword || !supportPassword) {
+    throw new Error(
+      "SEED_ADMIN_PASSWORD e SEED_SUPPORT_PASSWORD são obrigatórias. " +
+        "Defina no .env.local antes de rodar o seed (nunca commite essas variáveis).",
+    );
+  }
+
   // Limpar dados existentes
   await prisma.task.deleteMany();
   await prisma.scriptVersion.deleteMany();
@@ -25,7 +34,7 @@ async function main() {
       name: "Eduardo Campos",
       cpf: "01536247529",
       email: "eduardo@onixcapital.com.br",
-      password: bcrypt.hashSync("Edu@203028", 10),
+      password: bcrypt.hashSync(adminPassword, 10),
       role: "admin",
     },
   });
@@ -35,7 +44,7 @@ async function main() {
       name: "Suporte",
       cpf: "00000000000",
       email: "suporte@onixcapital.com.br",
-      password: bcrypt.hashSync("suporte123", 10),
+      password: bcrypt.hashSync(supportPassword, 10),
       role: "support",
     },
   });
@@ -115,8 +124,8 @@ async function main() {
   await seedTime(prisma);
 
   console.log("Seed completed!");
-  console.log("Login: 015.362.475-29 / Edu@203028");
-  console.log("Suporte: 000.000.000-00 / suporte123");
+  console.log("Admin CPF: 015.362.475-29 (senha via SEED_ADMIN_PASSWORD)");
+  console.log("Suporte CPF: 000.000.000-00 (senha via SEED_SUPPORT_PASSWORD)");
 }
 
 main()
