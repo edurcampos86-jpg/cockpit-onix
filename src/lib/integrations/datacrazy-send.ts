@@ -5,13 +5,17 @@ import { getConfig } from "@/lib/config-db";
  * Envia mensagem de texto via Z-API (Datacrazy WhatsApp).
  *
  * Pré-requisitos em `Config`:
- *   - DATACRAZY_TOKEN           (token da instância)
+ *   - DATACRAZY_INSTANCE_TOKEN  (Token da instância Z-API — visível em
+ *     Datacrazy → Conexões → Atualizar conexão → "Token da instância")
  *   - DATACRAZY_ALERTS_INSTANCE (ID da instância)
  *   - DATACRAZY_ALERTS_PHONE    (destinatário no formato 5571999999999)
  *
  * Opcional:
- *   - DATACRAZY_CLIENT_TOKEN    (token de segurança Z-API; se setado, vai no
+ *   - DATACRAZY_CLIENT_TOKEN    (Token de segurança Z-API; se setado, vai no
  *     header `Client-Token`)
+ *
+ * ⚠️ Atenção: NÃO confundir com `DATACRAZY_TOKEN` — esse é o JWT da API
+ * Datacrazy proprietária (usado pra polling de mensagens), não serve pra Z-API.
  *
  * `phone` aceita override; se omitido, usa `DATACRAZY_ALERTS_PHONE`.
  *
@@ -23,7 +27,7 @@ export async function sendWhatsappMessage(
   phoneOverride?: string,
 ): Promise<boolean> {
   const [token, instance, defaultPhone, clientToken] = await Promise.all([
-    getConfig("DATACRAZY_TOKEN"),
+    getConfig("DATACRAZY_INSTANCE_TOKEN"),
     getConfig("DATACRAZY_ALERTS_INSTANCE"),
     getConfig("DATACRAZY_ALERTS_PHONE"),
     getConfig("DATACRAZY_CLIENT_TOKEN"),
