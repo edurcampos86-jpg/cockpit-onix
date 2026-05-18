@@ -8,6 +8,7 @@ const KEYS = [
   "SLACK_ALERTS_WEBHOOK_URL",
   "DATACRAZY_ALERTS_PHONE",
   "DATACRAZY_ALERTS_INSTANCE",
+  "DATACRAZY_INSTANCE_TOKEN",
   "DATACRAZY_CLIENT_TOKEN",
 ] as const;
 
@@ -79,6 +80,9 @@ export async function saveNotifyConfig(
   }
   if (provided.DATACRAZY_ALERTS_INSTANCE && !/^[A-Z0-9]{20,40}$/.test(provided.DATACRAZY_ALERTS_INSTANCE)) {
     return { error: "DATACRAZY_ALERTS_INSTANCE parece inválido (esperado ID alfanumérico maiúsculo)." };
+  }
+  if (provided.DATACRAZY_INSTANCE_TOKEN && !/^[A-Z0-9]{15,40}$/.test(provided.DATACRAZY_INSTANCE_TOKEN)) {
+    return { error: "DATACRAZY_INSTANCE_TOKEN parece inválido (esperado token alfanumérico maiúsculo)." };
   }
 
   for (const [k, v] of Object.entries(provided)) {

@@ -32,13 +32,19 @@ const FIELDS: Array<{
   },
   {
     name: "DATACRAZY_ALERTS_INSTANCE",
-    label: "Datacrazy — ID da instância",
+    label: "Z-API — ID da instância",
     placeholder: "3E8B5A39403F51C16509FA5FB5498E95",
-    helper: "ID da instância Z-API que envia o WhatsApp (Datacrazy → Conexões).",
+    helper: "ID da instância Z-API que envia o WhatsApp (Datacrazy → Conexões → Atualizar).",
+  },
+  {
+    name: "DATACRAZY_INSTANCE_TOKEN",
+    label: "Z-API — Token da instância",
+    placeholder: "FEB20B02305A2D9403E4F844",
+    helper: "Token de envio da instância Z-API. Não confundir com o JWT da API Datacrazy.",
   },
   {
     name: "DATACRAZY_CLIENT_TOKEN",
-    label: "Datacrazy — Token de segurança (opcional)",
+    label: "Z-API — Token de segurança (opcional)",
     placeholder: "Deixe em branco se a Z-API não exige",
     helper: "Vai no header Client-Token. Necessário só se a instância Z-API tem isso ativado.",
   },
