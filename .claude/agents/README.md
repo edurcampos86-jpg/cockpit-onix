@@ -26,6 +26,7 @@ Ou explicitamente com `Agent(subagent_type="nome-do-agente", ...)`.
 | [copiloto-painel-do-dia](copiloto-painel-do-dia.md) | On-demand (diário) | Dispara boot-do-dia, triagem de e-mails, focus blocks e retrospectiva sem você lembrar dos endpoints. |
 | [release-gate](release-gate.md) | Pré-push / pré-PR | Roda `npm run build`, eslint e revisa diff focando em zonas críticas (backoffice/clientes, imports). |
 | [security-sweep](security-sweep.md) | Pré-release / mensal | Varredura focada em segredos commitados, rotas admin sem gate, exposição de CPF em logs. |
+| [reunioes-sync-monitor](reunioes-sync-monitor.md) | On-demand + semanal | Dono do pipeline de reuniões (4 fontes → ReuniaoCliente → agregados). Diagnostica "por que X não aparece com próx reunião?", audita dedupe e gera gap report. |
 
 ## Configuração de notificações (Slack + WhatsApp)
 

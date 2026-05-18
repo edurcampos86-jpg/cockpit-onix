@@ -57,13 +57,18 @@ export async function logClienteChange(args: {
 Pontos de instrumentação (todos os endpoints de mutação):
 - `src/app/api/backoffice/clientes/[id]/route.ts` (PATCH/DELETE)
 - `src/app/api/backoffice/clientes/route.ts` (imports + POST)
+- `src/app/api/backoffice/clientes/recompute-agregados/route.ts`
 - `src/app/api/backoffice/btg-import/route.ts`
 - `src/app/api/backoffice/btg-enrich/route.ts`
 - `src/app/api/backoffice/btg-sync/route.ts`
 - `src/app/api/backoffice/btg-movements-sync/route.ts`
 - `src/app/api/backoffice/google-calendar-sync/route.ts`
 - `src/app/api/backoffice/outlook-sync/route.ts`
+- `src/app/api/backoffice/datacrazy-atividades-sync/route.ts`
 - `src/lib/datacrazy-ingest.ts` (na atualização de `ultimoContatoAt`)
+- `src/lib/reunioes.ts` (`recomputeAgregadosReuniao` atualiza `proxima/ultimaReuniaoAt` em ClienteBackoffice — opcionalmente instrumentar, ou tratar como derivado/silencioso já que a fonte da verdade é `ReuniaoCliente`)
+
+**Nota sobre ReuniaoCliente:** as mutações em `ReuniaoCliente` (criadas pelos 3 syncs externos) também são auditáveis, mas em escala diferente (~milhares/semana). Recomenda-se schema separado `ReuniaoAudit` ou flag pra não inflar `ClienteAudit`. Por ora, a audit trail aqui foca em mutações em `ClienteBackoffice` — `ReuniaoCliente` tem `createdAt`/`updatedAt` e `source` próprios pra investigação.
 
 ## Procedimento
 

@@ -28,9 +28,13 @@ Lidas de `src/app/api/integracoes/status/route.ts`:
 
 | Cron | Path | Indicador |
 |---|---|---|
-| Datacrazy poll | `/api/cron/datacrazy-poll` | última execução < 1h |
+| Datacrazy poll (WhatsApp) | `/api/cron/datacrazy-poll` | última execução < 1h |
+| Datacrazy Atividades poll | `/api/cron/datacrazy-atividades-poll` | última execução < 2h |
 | Google Calendar poll | `/api/cron/google-calendar-poll` | última execução < 6h |
+| Outlook ICS poll | `/api/cron/outlook-poll` | última execução < 2h (se `OUTLOOK_ICS_URL` configurada) |
 | Analytics | `/api/analytics/cron` | última execução < 24h |
+
+Pra cada um, ler último `BtgSyncLog` do mesmo `tipo` e conferir `sucesso=true` + `finalizado` recente.
 
 ## Procedimento
 
