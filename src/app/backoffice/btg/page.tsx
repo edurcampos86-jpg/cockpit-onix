@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/layout/page-header";
+import { ComoFunciona } from "@/components/backoffice/como-funciona";
 import { BtgDashboard } from "@/components/backoffice/btg-dashboard";
 
 export default async function BtgDashboardPage() {
@@ -65,6 +66,13 @@ export default async function BtgDashboardPage() {
   return (
     <div className="space-y-6">
       <PageHeader title="BTG Dashboard" description="KPIs de AUM, perfis, assessores e sincronização" />
+      <div className="px-8">
+        <ComoFunciona
+          proposito="Visão consolidada da carteira BTG: AUM total, distribuição por classificação ABC e perfil de investidor, ranking de assessores e atividade de movimentações recentes."
+          comoUsar="Use como termômetro semanal. Confira quando foi o último import e o último sync de movimentações — se passou mais de 7 dias, dispare a sincronização em Integrações."
+          comoAjuda="Mostra de uma só tela se a base BTG está atualizada e onde o AUM está concentrado, antes de você abrir cliente por cliente."
+        />
+      </div>
       <div className="px-8">
         <BtgDashboard
           totais={{

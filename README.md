@@ -1,36 +1,109 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Cockpit Onix
 
-## Getting Started
+Painel de comando do **Grupo Onix** — Next.js 16 + Postgres. Hospedado em [cockpit-onix-production.up.railway.app](https://cockpit-onix-production.up.railway.app).
 
-First, run the development server:
+## O que é
+
+O Cockpit reúne em um único sistema cinco frentes que antes viviam espalhadas:
+
+- **Editorial / Mídias Sociais** (`/calendario`, `/roteiros`, `/tarefas`, `/leads`, `/relatorio`, `/reunioes`, `/analytics`) — pipeline de conteúdo Instagram, regra 80/20, sync de transcrições do Plaud.
+- **Onix Corretora** (`/metodo`, `/onix-corretora/*`) — gestão comercial: relatórios individuais e coletivos, perfis, trilha de desenvolvimento, rituais, alertas de pipeline, painel semanal, projeto T&D.
+- **Backoffice BTG** (`/backoffice/*`) — base de clientes BTG, sync de posições e movimentações, cadência 12-4-2, painel do dia, grupos WhatsApp, indicações, receita, performance.
+- **Time** (`/time/*`) — Pessoas, hierarquia, numerologia, PAT, acordos comerciais, reuniões 1:1.
+- **Plataforma** (`/kpis`, `/integracoes`, `/configuracoes`, `/glossario`, `/onboarding/[token]`) — KPIs transversais, integrações, glossário.
+
+## Autoexplicativo
+
+Cada tela operacional traz no topo um cartão **"Como funciona"** com três blocos:
+**Propósito · Como usar · Como te ajuda.** Em caso de dúvida sobre um termo, consulte o **[/glossario](https://cockpit-onix-production.up.railway.app/glossario)** dentro do app.
+
+## Stack
+
+- **Framework:** Next.js 16 (App Router) + React 19 + TypeScript
+- **Banco:** PostgreSQL via Prisma 7.6 (cliente em `src/generated/prisma`)
+- **Auth:** JWT (`jose`) + bcryptjs, cookie httpOnly
+- **UI:** Tailwind 4 + shadcn/ui (dark mode com acentos dourados)
+- **Hospedagem:** Railway (`railway.toml`)
+
+## Integrações
+
+| Integração | Função |
+|---|---|
+| **BTG Pactual** | Sync de posições, movimentações (webhook), cadastrais (`/api/integracoes/btg/*`, `/api/backoffice/btg-*`) |
+| **Datacrazy WhatsApp** | Conversas em tempo real (webhook + cron poll) — grupos vinculáveis a cliente |
+| **Google Calendar** | Sync de reuniões com clientes (próxima + última) |
+| **Outlook (ICS publicado)** | Sync de agenda via ICS público |
+| **ManyChat** | Leads do funil → pipeline |
+| **Plaud.ai (via Zapier)** | Transcrições + geração de roteiro |
+| **Claude AI** | Runtime interno de agentes: copiloto, analista de KPIs, briefing semanal |
+| **Instagram Graph** | Métricas de posts (analytics) |
+
+## Como rodar localmente
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+# pré-requisitos: Node 20+, Postgres rodando, .env.local preenchido
+npm install
+npx prisma generate
+npx prisma db push        # cria/atualiza tabelas
+npx tsx prisma/seed.ts    # dados iniciais (opcional)
+npm run dev               # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Variáveis mínimas em `.env.local`:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```
+DATABASE_URL=postgres://...
+SESSION_SECRET=...
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Tokens das integrações ficam em `Config` (tabela do DB) ou `.env.local` — configuráveis em `/integracoes`.
 
-## Learn More
+## Estrutura do código
 
-To learn more about Next.js, take a look at the following resources:
+```
+src/
+├── app/
+│   ├── (rotas)/page.tsx          ← server components renderizando UIs
+│   ├── api/                      ← REST endpoints (Next route handlers)
+│   │   ├── backoffice/           ← clientes, BTG, receita, eventos
+│   │   ├── integracoes/          ← ManyChat, BTG, Google, Zapier
+│   │   ├── agents/               ← runtime de agentes IA
+│   │   └── cron/                 ← jobs (datacrazy-poll, google-cal-poll)
+│   └── actions/                  ← server actions (auth, time, settings)
+├── components/
+│   ├── backoffice/               ← dashboards, painel, cadência
+│   ├── onix-corretora/           ← trilha, perfis, relatórios
+│   ├── layout/                   ← shell, sidebar, page-header, como-funciona
+│   └── ui/                       ← shadcn/ui
+└── lib/
+    ├── integrations/             ← clientes das APIs externas
+    ├── agents/                   ← cockpit, corretora, kpis (runtime IA)
+    ├── painel-do-dia/            ← boot, focus-blocks, triagem, retrospectiva
+    └── prisma.ts / session.ts    ← infra
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Operação
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Subagentes Claude Code em [`.claude/agents/`](.claude/agents/) automatizam:
 
-## Deploy on Vercel
+- `migration-doctor` — drift entre schema, migrations e DB de prod
+- `import-guardian` — imports BTG seguros (dry-run + match por CPF + rollback)
+- `integration-healthcheck` — saúde das integrações com alerta Slack/WhatsApp
+- `release-gate` — build + lint + revisão dirigida antes de push
+- `audit-trail-clientes` — rastreabilidade de mutações em ficha de cliente
+- `tutorial-keeper` — mantém documentação alinhada ao código
+- `copiloto-painel-do-dia` — operação diária via chat
+- `security-sweep` — varredura focada no domínio Onix
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Detalhes e gatilhos em [`.claude/agents/README.md`](.claude/agents/README.md).
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Convenções
+
+- **Matching de cliente nunca só por nome.** Chave forte: CPF/CNPJ, número de conta, ID BTG, CGE, telefone. Nome é apenas confirmação.
+- **Imports definem antes**: chave de match, campos a atualizar, política de "sem match" (rejeitar/quarentena/criar).
+- **Mutações em prod** sempre via PR — `start` faz `prisma db push` (cuidado com drift).
+- **Branches**: `feat/`, `fix/`, `chore/`, `docs/`. Commits padrão: `tipo(escopo): descrição`. PR fecha com `(#N)`.
+
+## Licença
+
+Privado — Grupo Onix.
