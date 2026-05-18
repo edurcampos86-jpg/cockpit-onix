@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
 import { PageHeader } from "@/components/layout/page-header";
+import { ComoFunciona } from "@/components/backoffice/como-funciona";
 import { PainelDiaHeader } from "@/components/backoffice/painel/painel-dia-header";
 import { PrioridadesCard } from "@/components/backoffice/painel/prioridades-card";
 import { AgendaUnificada } from "@/components/backoffice/painel/agenda-unificada";
@@ -35,6 +36,14 @@ export default async function PainelDoDiaPage() {
           acoesPendentes={payload.acoes.filter((a) => a.pendingSync)}
         />
       </PageHeader>
+
+      <div className="px-8">
+        <ComoFunciona
+          proposito="Tudo que importa hoje em uma única tela: 3 prioridades, agenda, e-mails que viram ação, lista de ações pendentes e saúde das integrações."
+          comoUsar="Abra de manhã, confirme as 3 prioridades sugeridas pelo Boot do Dia, processe e-mails marcados como 'ação' e siga as ações do dia. Feche o dia marcando o que entregou."
+          comoAjuda="Substitui dezenas de abas (e-mail, calendar, lista de tarefas, CRM) por uma só visão diária — sem você precisar lembrar onde cada coisa mora."
+        />
+      </div>
 
       {payload.retrospectiva && (
         <div className="px-8">
