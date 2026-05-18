@@ -60,3 +60,14 @@ command = "curl -fsS -H \"Authorization: Bearer $CRON_SECRET\" $RAILWAY_PUBLIC_D
 name = "google-calendar-poll"
 schedule = "*/15 * * * *"
 command = "curl -fsS -H \"Authorization: Bearer $CRON_SECRET\" $RAILWAY_PUBLIC_DOMAIN/api/cron/google-calendar-poll"
+
+# ────────────────────────────────────────────────────────────────────────
+# Datacrazy Atividades polling — reuniões marcadas/realizadas registradas
+# direto no CRM Datacrazy (separadas das mensagens de WhatsApp). A cada
+# 30min porque atividades mudam menos frequentemente que mensagens.
+# Lookahead 60 dias / lookback 30 dias.
+# ────────────────────────────────────────────────────────────────────────
+[[crons]]
+name = "datacrazy-atividades-poll"
+schedule = "*/30 * * * *"
+command = "curl -fsS -H \"Authorization: Bearer $CRON_SECRET\" $RAILWAY_PUBLIC_DOMAIN/api/cron/datacrazy-atividades-poll"
