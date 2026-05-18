@@ -59,7 +59,7 @@ await notify({
 
 O `notify()` (em `src/lib/notify.ts`) dispara Slack + WhatsApp em paralelo, lendo:
 
-- `SLACK_ALERTS_WEBHOOK_URL` — Incoming Webhook do canal `#cockpit-onix`.
+- `SLACK_ALERTS_WEBHOOK_URL` — Incoming Webhook do canal `#ecossistema-onix`.
 - `DATACRAZY_TOKEN` + `DATACRAZY_ALERTS_INSTANCE` + `DATACRAZY_ALERTS_PHONE` — Z-API.
 - `DATACRAZY_CLIENT_TOKEN` (opcional) — header `Client-Token` da Z-API.
 
