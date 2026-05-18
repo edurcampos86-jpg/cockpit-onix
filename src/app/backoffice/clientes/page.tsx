@@ -1,7 +1,15 @@
+// Sem cache em nenhuma camada — a tabela de clientes precisa refletir
+// o estado atual do banco (ultimoContatoAt, telefones, etc.) imediatamente
+// após imports/syncs. `dynamic = "force-dynamic"` sozinho não foi
+// suficiente — havia sinal de cache no edge servindo dados antigos.
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
+export const fetchCache = "force-no-store";
 
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
+import { unstable_noStore as noStore } from "next/cache";
+import { headers } from "next/headers";
 import { PageHeader } from "@/components/layout/page-header";
 import { ClientesTable } from "@/components/backoffice/clientes-table";
 import { ReferenciaLivro } from "@/components/backoffice/referencia-livro";
@@ -9,6 +17,9 @@ import { ComoFunciona } from "@/components/backoffice/como-funciona";
 import { REF_CLASSIFICACAO_ABC } from "@/lib/backoffice/referencias";
 
 export default async function ClientesPage() {
+  noStore();
+  // Toca os headers da request pra evitar qualquer cache estático
+  await headers();
   const session = await getSession();
   const isAdmin = session?.role === "admin";
 
