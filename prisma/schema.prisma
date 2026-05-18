@@ -31,7 +31,7 @@ model User {
   cachesPainel      PainelCacheExterno[]
   syncRequests      SyncRequest[]
   painelSugestoes   PainelSugestao[]
-  painelRetros     PainelRetrospectiva[]
+  painelRetros      PainelRetrospectiva[]
   painelEmailsAI    PainelEmailAI[]
   pessoa            Pessoa?
 }
@@ -41,22 +41,22 @@ model User {
 // ============================================
 
 model Post {
-  id            String   @id @default(cuid())
-  title         String
-  format        String   // "reel" | "story" | "carrossel"
-  category      String   // "pergunta_semana" | "onix_pratica" | "patrimonio_mimimi" | "alerta_patrimonial" | "sabado_bastidores"
-  status        String   @default("rascunho") // "rascunho" | "roteiro_pronto" | "gravado" | "editado" | "agendado" | "publicado"
-  scheduledDate DateTime
-  scheduledTime String?  // HH:mm
-  publishedAt   DateTime?
-  publishedUrl  String?
-  ctaType       String?  // "explicito" | "implicito" | "identificacao"
-  hashtags      String?  // comma-separated
-  notes         String?
-  order         Int      @default(0)
+  id                    String    @id @default(cuid())
+  title                 String
+  format                String // "reel" | "story" | "carrossel"
+  category              String // "pergunta_semana" | "onix_pratica" | "patrimonio_mimimi" | "alerta_patrimonial" | "sabado_bastidores"
+  status                String    @default("rascunho") // "rascunho" | "roteiro_pronto" | "gravado" | "editado" | "agendado" | "publicado"
+  scheduledDate         DateTime
+  scheduledTime         String? // HH:mm
+  publishedAt           DateTime?
+  publishedUrl          String?
+  ctaType               String? // "explicito" | "implicito" | "identificacao"
+  hashtags              String? // comma-separated
+  notes                 String?
+  order                 Int       @default(0)
   googleCalendarEventId String? // ID do evento no Google Calendar
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
   authorId String
   author   User   @relation(fields: [authorId], references: [id])
@@ -68,18 +68,18 @@ model Post {
 }
 
 model Script {
-  id              String   @id @default(cuid())
-  title           String
-  category        String
-  hook            String?
-  body            String
-  cta             String?
-  ctaType         String?
-  estimatedTime   String?
-  hashtags        String?
-  isTemplate      Boolean  @default(false)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id            String   @id @default(cuid())
+  title         String
+  category      String
+  hook          String?
+  body          String
+  cta           String?
+  ctaType       String?
+  estimatedTime String?
+  hashtags      String?
+  isTemplate    Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   authorId String
   author   User   @relation(fields: [authorId], references: [id])
@@ -109,16 +109,16 @@ model ScriptVersion {
 // ============================================
 
 model Task {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   title       String
   description String?
-  status      String   @default("pendente") // "pendente" | "em_progresso" | "concluida"
-  priority    String   @default("media")
+  status      String    @default("pendente") // "pendente" | "em_progresso" | "concluida"
+  priority    String    @default("media")
   dueDate     DateTime?
   completedAt DateTime?
-  type        String   @default("geral")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  type        String    @default("geral")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   assigneeId String
   assignee   User   @relation(fields: [assigneeId], references: [id])
@@ -132,18 +132,18 @@ model Task {
 // ============================================
 
 model Lead {
-  id              String   @id @default(cuid())
+  id              String    @id @default(cuid())
   name            String
   email           String?
   phone           String?
-  origin          String   @default("manychat")
-  stage           String   @default("novo")
-  temperature     String   @default("morno")
+  origin          String    @default("manychat")
+  stage           String    @default("novo")
+  temperature     String    @default("morno")
   productInterest String?
   notes           String?
   lastContactAt   DateTime?
-  enteredAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  enteredAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   assignedToId String
   assignedTo   User   @relation(fields: [assignedToId], references: [id])
@@ -156,7 +156,7 @@ model Lead {
 // ============================================
 
 model Relatorio {
-  id                  String    @id @default(cuid())
+  id                  String   @id @default(cuid())
   vendedor            String
   periodo             String
   periodoInicio       DateTime
@@ -164,18 +164,18 @@ model Relatorio {
   dataExecucao        DateTime
   conversasAnalisadas Int
   pdfPath             String?
-  secao1              String    @db.Text
-  secao2              String    @db.Text
-  secao3              String    @db.Text
-  secao4              String    @db.Text
-  secao5              String    @db.Text
-  secao0              String?   @db.Text
-  scriptSemana        String?   @db.Text
-  termometro          String?   @db.Text
-  retomada            String?   @db.Text
+  secao1              String   @db.Text
+  secao2              String   @db.Text
+  secao3              String   @db.Text
+  secao4              String   @db.Text
+  secao5              String   @db.Text
+  secao0              String?  @db.Text
+  scriptSemana        String?  @db.Text
+  termometro          String?  @db.Text
+  retomada            String?  @db.Text
   acoes               Acao[]
   metricas            Metrica?
-  createdAt           DateTime  @default(now())
+  createdAt           DateTime @default(now())
 
   @@index([vendedor])
   @@index([periodoInicio])
@@ -214,21 +214,21 @@ model Metrica {
 }
 
 model RelatorioColetivo {
-  id                  String   @id @default(cuid())
-  periodo             String
-  periodoInicio       DateTime
-  periodoFim          DateTime
-  dataExecucao        DateTime
-  vendedoresAnalisados String  // "Thiago Vergal,Rose Oliveira"
-  metricasConsolidadas String? @db.Text // JSON: totais + variações
-  scoreIndividual      String? @db.Text // JSON: scores por vendedor
-  termometroTime       String? @db.Text
-  objecoesRecorrentes  String? @db.Text
-  padroesPositivos     String? @db.Text
-  padroesRisco         String? @db.Text
-  scriptColetivo       String? @db.Text
-  planoColetivo        String? @db.Text
-  cumprimentoAnterior  String? @db.Text
+  id                   String   @id @default(cuid())
+  periodo              String
+  periodoInicio        DateTime
+  periodoFim           DateTime
+  dataExecucao         DateTime
+  vendedoresAnalisados String // "Thiago Vergal,Rose Oliveira"
+  metricasConsolidadas String?  @db.Text // JSON: totais + variações
+  scoreIndividual      String?  @db.Text // JSON: scores por vendedor
+  termometroTime       String?  @db.Text
+  objecoesRecorrentes  String?  @db.Text
+  padroesPositivos     String?  @db.Text
+  padroesRisco         String?  @db.Text
+  scriptColetivo       String?  @db.Text
+  planoColetivo        String?  @db.Text
+  cumprimentoAnterior  String?  @db.Text
   createdAt            DateTime @default(now())
 
   @@index([periodoInicio])
@@ -237,7 +237,7 @@ model RelatorioColetivo {
 model Meta {
   id        String   @id @default(cuid())
   vendedor  String
-  metrica   String   // "conversas" | "reunioes" | "semResposta" | "perdidos" | "score"
+  metrica   String // "conversas" | "reunioes" | "semResposta" | "perdidos" | "score"
   valor     Int
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -253,16 +253,16 @@ model Meeting {
   id            String   @id @default(cuid())
   title         String
   date          DateTime
-  duration      Int?     // minutos
-  participants  String?  // nomes separados por vírgula
-  vendedor      String?  // vendedor da equipe Onix (Eduardo Campos | Thiago Vergal | Rose Oliveira)
+  duration      Int? // minutos
+  participants  String? // nomes separados por vírgula
+  vendedor      String? // vendedor da equipe Onix (Eduardo Campos | Thiago Vergal | Rose Oliveira)
   transcription String?  @db.Text // transcrição completa
-  summary       String?  // resumo gerado pela IA
-  actionItems   String?  // itens de ação extraídos (JSON)
-  insights      String?  // insights para roteiros (gerado pela Claude AI)
+  summary       String? // resumo gerado pela IA
+  actionItems   String? // itens de ação extraídos (JSON)
+  insights      String? // insights para roteiros (gerado pela Claude AI)
   source        String   @default("plaud") // "plaud" | "manual" | "zoom" | "teams"
-  externalId    String?  // ID do Plaud/Zapier
-  audioUrl      String?  // URL do áudio original
+  externalId    String? // ID do Plaud/Zapier
+  audioUrl      String? // URL do áudio original
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -287,52 +287,52 @@ model Config {
 // ============================================
 
 model InstagramPost {
-  id                  String   @id @default(cuid())
-  instagramId         String   @unique
-  type                String   // "VIDEO" | "CAROUSEL_ALBUM" | "IMAGE"
+  id                  String    @id @default(cuid())
+  instagramId         String    @unique
+  type                String // "VIDEO" | "CAROUSEL_ALBUM" | "IMAGE"
   caption             String?
   permalink           String?
-  pilar               String?  // "P1" | "P2" | "P3" | "P4"
-  formato             String?  // "reel" | "carrossel" | "imagem" | "stories"
-  ctaType             String?  // "explicito" | "implicito" | "identificacao" | "algoritmo"
-  tema                String?  // tema central da semana
-  likes               Int      @default(0)
-  comments            Int      @default(0)
-  shares              Int      @default(0)
-  saved               Int      @default(0)
-  reach               Int      @default(0)
-  views               Int      @default(0)
-  totalInteractions   Int      @default(0)
-  engagementRate      Float    @default(0) // (totalInteractions / reach) * 100
-  saveRate            Float    @default(0) // (saved / reach) * 100
+  pilar               String? // "P1" | "P2" | "P3" | "P4"
+  formato             String? // "reel" | "carrossel" | "imagem" | "stories"
+  ctaType             String? // "explicito" | "implicito" | "identificacao" | "algoritmo"
+  tema                String? // tema central da semana
+  likes               Int       @default(0)
+  comments            Int       @default(0)
+  shares              Int       @default(0)
+  saved               Int       @default(0)
+  reach               Int       @default(0)
+  views               Int       @default(0)
+  totalInteractions   Int       @default(0)
+  engagementRate      Float     @default(0) // (totalInteractions / reach) * 100
+  saveRate            Float     @default(0) // (saved / reach) * 100
   publishedAt         DateTime
   insightsCollectedAt DateTime?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 }
 
 model WeeklyAnalysis {
-  id              String   @id @default(cuid())
-  weekStart       DateTime
-  weekEnd         DateTime
-  totalPosts      Int      @default(0)
-  newFollowers    Int      @default(0)
-  lostFollowers   Int      @default(0)
-  totalFollowers  Int      @default(0)
-  metricas        String   // JSON: métricas por pilar/formato/CTA
-  descobertas     String   // JSON: array de descobertas
-  recomendacoes   String   // JSON: array de recomendações
-  proximosTemas   String?  // JSON: temas sugeridos para próximas semanas
-  geradoPor       String   @default("manual") // "automatico" | "manual"
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id             String   @id @default(cuid())
+  weekStart      DateTime
+  weekEnd        DateTime
+  totalPosts     Int      @default(0)
+  newFollowers   Int      @default(0)
+  lostFollowers  Int      @default(0)
+  totalFollowers Int      @default(0)
+  metricas       String // JSON: métricas por pilar/formato/CTA
+  descobertas    String // JSON: array de descobertas
+  recomendacoes  String // JSON: array de recomendações
+  proximosTemas  String? // JSON: temas sugeridos para próximas semanas
+  geradoPor      String   @default("manual") // "automatico" | "manual"
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   recommendations Recommendation[]
 }
 
 model Recommendation {
   id              String   @id @default(cuid())
-  tipo            String   // "pilar" | "formato" | "cta" | "horario" | "frequencia" | "tema"
+  tipo            String // "pilar" | "formato" | "cta" | "horario" | "frequencia" | "tema"
   titulo          String
   descricao       String
   acao            String
@@ -349,15 +349,15 @@ model Recommendation {
 }
 
 model ScriptAdjustment {
-  id               String   @id @default(cuid())
-  scriptId         String?
-  ajuste           String   // Descrição do ajuste feito
-  motivacao        String   // Por que foi feito
-  statusAntes      String?  // Conteúdo antes do ajuste
-  statusDepois     String?  // Conteúdo depois do ajuste
-  aplicado         Boolean  @default(false)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  id           String   @id @default(cuid())
+  scriptId     String?
+  ajuste       String // Descrição do ajuste feito
+  motivacao    String // Por que foi feito
+  statusAntes  String? // Conteúdo antes do ajuste
+  statusDepois String? // Conteúdo depois do ajuste
+  aplicado     Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   recommendationId String
   recommendation   Recommendation @relation(fields: [recommendationId], references: [id])
@@ -369,9 +369,9 @@ model ScriptAdjustment {
 
 model MetaMensal {
   id               String   @id @default(cuid())
-  mes              Int      // 1-12
+  mes              Int // 1-12
   ano              Int
-  metaFaturamento  Float    // valor da meta mensal em R$
+  metaFaturamento  Float // valor da meta mensal em R$
   faturamentoAtual Float    @default(0) // faturamento acumulado no mês
   criadoEm         DateTime @default(now())
   atualizadoEm     DateTime @updatedAt
@@ -380,19 +380,19 @@ model MetaMensal {
 }
 
 model NegocioPipeline {
-  id              String    @id @default(cuid())
+  id              String            @id @default(cuid())
   nomeCliente     String
-  valor           Float     // valor do negócio em R$
-  responsavel     String    // nome do vendedor
-  etapa           String    // etapa no pipeline
-  ultimaAtividade DateTime  // data da última atividade registrada
-  externalId      String?   @unique // ID no CRM Datacrazy (futura integração)
-  ativo           Boolean   @default(true)
-  motivoPerda     String?   // "preco" | "timing" | "concorrencia" | "atendimento" | "outro"
+  valor           Float // valor do negócio em R$
+  responsavel     String // nome do vendedor
+  etapa           String // etapa no pipeline
+  ultimaAtividade DateTime // data da última atividade registrada
+  externalId      String?           @unique // ID no CRM Datacrazy (futura integração)
+  ativo           Boolean           @default(true)
+  motivoPerda     String? // "preco" | "timing" | "concorrencia" | "atendimento" | "outro"
   dataPerda       DateTime? // quando foi marcado como adormecido
   dataRecontato   DateTime? // agenda de recontato (dataPerda + 60 dias)
-  criadoEm        DateTime  @default(now())
-  atualizadoEm    DateTime  @updatedAt
+  criadoEm        DateTime          @default(now())
+  atualizadoEm    DateTime          @updatedAt
   resolucoes      AlertaResolucao[]
 
   @@index([ativo, ultimaAtividade])
@@ -404,12 +404,12 @@ model NegocioPipeline {
 // ============================================
 
 model AlertaResolucao {
-  id          String   @id @default(cuid())
+  id          String          @id @default(cuid())
   negocioId   String
   negocio     NegocioPipeline @relation(fields: [negocioId], references: [id], onDelete: Cascade)
-  tipo        String   // "parado_48h" | "alto_ticket" | "reativacao_60d"
-  acaoTomada  String   @db.Text
-  resolvidoEm DateTime @default(now())
+  tipo        String // "parado_48h" | "alto_ticket" | "reativacao_60d"
+  acaoTomada  String          @db.Text
+  resolvidoEm DateTime        @default(now())
 
   @@index([negocioId])
 }
@@ -420,7 +420,7 @@ model AlertaResolucao {
 
 model RitualExecucao {
   id        String   @id @default(cuid())
-  ritualId  String   // ID do ritual (micro-coaching, reuniao-segunda, etc.)
+  ritualId  String // ID do ritual (micro-coaching, reuniao-segunda, etc.)
   data      DateTime // data da ocorrência
   realizado Boolean  @default(false)
   notas     String?  @db.Text
@@ -440,98 +440,135 @@ model RitualExecucao {
 // ============================================
 
 model ClienteBackoffice {
-  id            String   @id @default(cuid())
-  nome          String
-  numeroConta   String
-  saldo         Float    @default(0)
-  saldoConta    Float    @default(0) // Saldo em conta corrente (cash disponível) — via BTG
+  id          String @id @default(cuid())
+  nome        String
+  numeroConta String
+  saldo       Float  @default(0)
+  saldoConta  Float  @default(0) // Saldo em conta corrente (cash disponível) — via BTG
 
   // Classificação ABC (Supernova)
   // A = top clientes (12 contatos/ano), B = relacionamento ativo, C = manutenção
-  classificacao String   @default("C") // "A" | "B" | "C"
+  classificacao       String  @default("C") // "A" | "B" | "C"
   classificacaoManual Boolean @default(false) // true = travada, não recalcular
 
   // Contato e relacionamento
-  email         String?
-  telefone      String?
-  aniversario   DateTime?
-  profissao     String?
-  nicho         String?  // "medico" | "empresario" | "executivo" | "outro"
+  email       String?
+  telefone    String?
+  aniversario DateTime?
+  profissao   String?
+  nicho       String? // "medico" | "empresario" | "executivo" | "outro"
 
   // Endereço
-  endereco      String?
-  complemento   String?
-  cidade        String?
-  estado        String?  // UF, ex: "BAHIA", "SP"
-  cep           String?
+  endereco    String?
+  complemento String?
+  cidade      String?
+  estado      String? // UF, ex: "BAHIA", "SP"
+  cep         String?
 
   // Dados pessoais (vindos da Base BTG / Informações)
   estadoCivil   String?
   genero        String?
   nacionalidade String?
   cpfConjuge    String?
-  tipoConta     String?  // "PF" | "PJ"
+  tipoConta     String? // "PF" | "PJ"
 
   // Storyselling / perfil emocional
   perfilEmocional String? @db.Text // medos, sonhos, linguagem preferida
   observacoes     String? @db.Text
 
   // Cadência e promessa de serviço
-  ultimoContatoAt DateTime? // qualquer canal (WhatsApp, ligação, reunião, manual)
-  ultimaReuniaoAt DateTime? // só reuniões (Plaud + manual tipo=reuniao)
-  proximaReuniaoAt DateTime? // próxima reunião agendada (Calendar / Datacrazy multiservice)
-  proximoContatoAt DateTime? // próximo contato planejado (qualquer canal)
+  ultimoContatoAt     DateTime? // qualquer canal (WhatsApp, ligação, reunião, manual)
+  ultimaReuniaoAt     DateTime? // só reuniões (Plaud + manual tipo=reuniao)
+  proximaReuniaoAt    DateTime? // próxima reunião agendada (Calendar / Datacrazy multiservice)
+  proximoContatoAt    DateTime? // próximo contato planejado (qualquer canal)
   ultimaSyncDatacrazy DateTime? // quando rodou último sync de contatos (Datacrazy + Plaud)
 
   // Receita
-  receitaAnual  Float    @default(0)
+  receitaAnual Float @default(0)
 
   // Dados BTG sincronizados via API
-  cpfCnpj            String?  // taxIdentification do holder (CPF ou CNPJ)
-  perfilInvestidor   String?  // Suitability: "conservador" | "moderado" | "sofisticado"
-  suitabilityValidoAte DateTime? // Validade do perfil suitability
-  tipoInvestidor     String?  // "Qualificado" | "Sofisticado" | "Nao Qualificado"
-  faixaCliente       String?  // "Entre 300k e 500k", "Entre 5MM e 10MM", etc.
-  ativacaoConta      String?  // "Ativa" | "Bloqueio Total" | etc.
-  pendenciaCadastral String?
-  dataAberturaConta  DateTime?
+  cpfCnpj                     String? // taxIdentification do holder (CPF ou CNPJ)
+  perfilInvestidor            String? // Suitability: "conservador" | "moderado" | "sofisticado"
+  suitabilityValidoAte        DateTime? // Validade do perfil suitability
+  tipoInvestidor              String? // "Qualificado" | "Sofisticado" | "Nao Qualificado"
+  faixaCliente                String? // "Entre 300k e 500k", "Entre 5MM e 10MM", etc.
+  ativacaoConta               String? // "Ativa" | "Bloqueio Total" | etc.
+  pendenciaCadastral          String?
+  dataAberturaConta           DateTime?
   dataUltimaRevisaoCadastral  DateTime?
   dataProximaRevisaoCadastral DateTime?
-  idClienteBtg       String?  // ID do cliente no BTG (campo "ID Cliente")
-  tipoParceiro       String?  // "AGENTE AUTONOMO" etc.
-  escritorio         String?  // Nome do escritório do parceiro
-  codigoEscritorio   String?  // Código do escritório do parceiro
-  assessorCge        String?  // CGE do assessor responsável (Relacionamento Conta×Parceiro)
-  assessorNome       String?  // Nome do assessor (cache pra exibir)
-  assessorEmail      String?  // Email do assessor (cache pra exibir)
-  breakdownProdutos  Json?    // Breakdown completo da posição BTG (renda fixa, fundos, equities, etc.)
-  positionDate       DateTime? // Data da última posição BTG
-  coHolders          Json?    // Co-titulares da conta
-  usuariosBtg        Json?    // Lista de usuários da conta no BTG (nome, email, telefone, isOwner)
-  ultimaSyncBtg      DateTime? // Quando foi a última sincronização BTG (qualquer endpoint)
+  idClienteBtg                String? // ID do cliente no BTG (campo "ID Cliente")
+  tipoParceiro                String? // "AGENTE AUTONOMO" etc.
+  escritorio                  String? // Nome do escritório do parceiro
+  codigoEscritorio            String? // Código do escritório do parceiro
+  assessorCge                 String? // CGE do assessor responsável (Relacionamento Conta×Parceiro)
+  assessorNome                String? // Nome do assessor (cache pra exibir)
+  assessorEmail               String? // Email do assessor (cache pra exibir)
+  breakdownProdutos           Json? // Breakdown completo da posição BTG (renda fixa, fundos, equities, etc.)
+  positionDate                DateTime? // Data da última posição BTG
+  coHolders                   Json? // Co-titulares da conta
+  usuariosBtg                 Json? // Lista de usuários da conta no BTG (nome, email, telefone, isOwner)
+  ultimaSyncBtg               DateTime? // Quando foi a última sincronização BTG (qualquer endpoint)
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  interacoes  InteracaoCliente[]
-  metas       MetaCliente[]
-  eventosVida EventoVida[]
-  indicacoes  Indicacao[] @relation("ClienteIndicador")
+  interacoes       InteracaoCliente[]
+  metas            MetaCliente[]
+  eventosVida      EventoVida[]
+  indicacoes       Indicacao[]           @relation("ClienteIndicador")
   perfilDescoberta PerfilDescoberta?
   planoUmaPagina   PlanoUmaPagina?
   checklist        ChecklistOrganizacao?
-  acoesVinculadas  AcaoPainel[] @relation("AcaoCliente")
+  acoesVinculadas  AcaoPainel[]          @relation("AcaoCliente")
   movimentacoesBtg MovimentacaoBtg[]
+  conversas        Conversa[]
+  gruposWhatsApp   GrupoCliente[]
+  reunioes         ReuniaoCliente[]
 
   @@index([numeroConta])
   @@index([classificacao])
   @@index([proximoContatoAt])
   @@index([assessorCge])
-  conversas Conversa[]
-  gruposWhatsApp GrupoCliente[]
-
   @@index([cpfCnpj])
   @@index([telefone])
+}
+
+// ============================================
+// REUNIÕES — fonte unificada para próx/última reunião
+// ============================================
+// Cada linha = uma reunião agregada de UMA fonte externa.
+// Mesma reunião replicada em 2 fontes (ex: criada no Outlook,
+// sincronizada no Google Cal) gera 2 linhas com `source` diferente
+// mas `startAt` igual — o cálculo dos agregados deduplica.
+//
+// `proximaReuniaoAt` e `ultimaReuniaoAt` em ClienteBackoffice viram
+// CACHE derivado: recalculados via lib/reunioes.ts após cada upsert.
+model ReuniaoCliente {
+  id        String            @id @default(cuid())
+  clienteId String
+  cliente   ClienteBackoffice @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  source     String // "google-cal" | "outlook-ics" | "datacrazy-atividade" | "manual"
+  externalId String // event.id do Google, UID do ICS, activity.id do Datacrazy, cuid() pra manual
+
+  startAt DateTime
+  endAt   DateTime?
+  titulo  String?
+
+  realizada Boolean @default(false) // true = passada/confirmada · false = futura/marcada
+
+  matchedVia String // "email" | "telefone" | "nome-unico" | "nome-substring" | "manual"
+  matchScore Int? // 100=email · 80=telefone · 50=nome-unico · 30=nome-substring · 0=manual
+
+  rawPayload Json? // snapshot do evento pra debug
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([source, externalId]) // chave do dedupe entre fontes
+  @@index([clienteId, startAt])
+  @@index([source, startAt])
 }
 
 // ============================================
@@ -539,22 +576,22 @@ model ClienteBackoffice {
 // ============================================
 
 model MovimentacaoBtg {
-  id          String   @id @default(cuid())
-  clienteId   String
-  cliente     ClienteBackoffice @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  id        String            @id @default(cuid())
+  clienteId String
+  cliente   ClienteBackoffice @relation(fields: [clienteId], references: [id], onDelete: Cascade)
 
-  numeroConta String   // redundante com cliente.numeroConta mas facilita debug
-  data        DateTime // data da movimentação
-  tipo        String   // ex: "DEPÓSITO DE CUSTÓDIA", "RESGATE", "APLICAÇÃO", etc.
-  descricao   String?  @db.Text // descrição livre vinda do BTG
-  mercado     String?  // ex: "RENDA_FIXA", "FUNDOS", "BOLSA", "PREVIDENCIA"
-  ativo       String?  // ex: "CDB BTG 120% CDI"
-  valor       Float    // valor bruto (grossValue)
-  valorLiquido Float?  // se BTG fornecer netValue separado
-  hashUnico   String   @unique // hash data+conta+tipo+valor+ativo pra dedup
+  numeroConta  String // redundante com cliente.numeroConta mas facilita debug
+  data         DateTime // data da movimentação
+  tipo         String // ex: "DEPÓSITO DE CUSTÓDIA", "RESGATE", "APLICAÇÃO", etc.
+  descricao    String?  @db.Text // descrição livre vinda do BTG
+  mercado      String? // ex: "RENDA_FIXA", "FUNDOS", "BOLSA", "PREVIDENCIA"
+  ativo        String? // ex: "CDB BTG 120% CDI"
+  valor        Float // valor bruto (grossValue)
+  valorLiquido Float? // se BTG fornecer netValue separado
+  hashUnico    String   @unique // hash data+conta+tipo+valor+ativo pra dedup
 
-  payloadBruto Json?   // snapshot completo da movimentação como veio do BTG (debug)
-  createdAt   DateTime @default(now())
+  payloadBruto Json? // snapshot completo da movimentação como veio do BTG (debug)
+  createdAt    DateTime @default(now())
 
   @@index([clienteId, data])
   @@index([numeroConta])
@@ -567,17 +604,17 @@ model MovimentacaoBtg {
 // ============================================
 
 model BtgSyncLog {
-  id          String   @id @default(cuid())
-  tipo        String   // "import" | "enrich" | "movements" | "webhook" | "balances"
-  iniciado    DateTime @default(now())
-  finalizado  DateTime?
-  sucesso     Boolean  @default(false)
-  contasProcessadas Int @default(0)
-  contasComErro    Int @default(0)
-  resumo      String?  @db.Text
-  erros       Json?    // lista de erros { conta, motivo }
-  trigger     String?  // "manual" | "cron" | "webhook"
-  userId      String?  // quem disparou se foi manual
+  id                String    @id @default(cuid())
+  tipo              String // "import" | "enrich" | "movements" | "webhook" | "balances"
+  iniciado          DateTime  @default(now())
+  finalizado        DateTime?
+  sucesso           Boolean   @default(false)
+  contasProcessadas Int       @default(0)
+  contasComErro     Int       @default(0)
+  resumo            String?   @db.Text
+  erros             Json? // lista de erros { conta, motivo }
+  trigger           String? // "manual" | "cron" | "webhook"
+  userId            String? // quem disparou se foi manual
 
   @@index([tipo, iniciado])
   @@index([iniciado])
@@ -585,21 +622,21 @@ model BtgSyncLog {
 
 // Registro de cada contato: 12-4-2 (12 ligações, 4 reuniões, 2 revisões por ano para clientes A)
 model InteracaoCliente {
-  id          String   @id @default(cuid())
-  clienteId   String
-  cliente     ClienteBackoffice @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  id        String            @id @default(cuid())
+  clienteId String
+  cliente   ClienteBackoffice @relation(fields: [clienteId], references: [id], onDelete: Cascade)
 
-  tipo        String   // "ligacao" | "reuniao" | "revisao" | "email" | "whatsapp" | "evento"
-  canal       String?  // "telefone" | "presencial" | "videoconferencia" | "email" | "whatsapp"
-  assunto     String
-  resumo      String?  @db.Text
-  data        DateTime @default(now())
-  duracaoMin  Int?
+  tipo       String // "ligacao" | "reuniao" | "revisao" | "email" | "whatsapp" | "evento"
+  canal      String? // "telefone" | "presencial" | "videoconferencia" | "email" | "whatsapp"
+  assunto    String
+  resumo     String?  @db.Text
+  data       DateTime @default(now())
+  duracaoMin Int?
 
   // Roteiro RCA (Rapid Client Assessment)
-  rcaNotas    String?  @db.Text
+  rcaNotas String? @db.Text
 
-  criadoEm    DateTime @default(now())
+  criadoEm DateTime @default(now())
 
   @@index([clienteId, data])
   @@index([tipo])
@@ -607,18 +644,18 @@ model InteracaoCliente {
 
 // Mapa de metas de vida do cliente
 model MetaCliente {
-  id         String   @id @default(cuid())
-  clienteId  String
-  cliente    ClienteBackoffice @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  id        String            @id @default(cuid())
+  clienteId String
+  cliente   ClienteBackoffice @relation(fields: [clienteId], references: [id], onDelete: Cascade)
 
-  titulo     String
-  descricao  String?  @db.Text
-  prazoData  DateTime?
-  valorAlvo  Float?
-  status     String   @default("ativa") // "ativa" | "atingida" | "pausada" | "cancelada"
-  categoria  String?  // "aposentadoria" | "educacao" | "imovel" | "viagem" | "outro"
+  titulo    String
+  descricao String?   @db.Text
+  prazoData DateTime?
+  valorAlvo Float?
+  status    String    @default("ativa") // "ativa" | "atingida" | "pausada" | "cancelada"
+  categoria String? // "aposentadoria" | "educacao" | "imovel" | "viagem" | "outro"
 
-  criadoEm   DateTime @default(now())
+  criadoEm     DateTime @default(now())
   atualizadoEm DateTime @updatedAt
 
   @@index([clienteId])
@@ -626,18 +663,18 @@ model MetaCliente {
 
 // Eventos de vida (aniversários, casamentos, nascimentos)
 model EventoVida {
-  id         String   @id @default(cuid())
-  clienteId  String
-  cliente    ClienteBackoffice @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  id        String            @id @default(cuid())
+  clienteId String
+  cliente   ClienteBackoffice @relation(fields: [clienteId], references: [id], onDelete: Cascade)
 
-  tipo       String   // "aniversario" | "casamento" | "nascimento" | "formatura" | "outro"
+  tipo       String // "aniversario" | "casamento" | "nascimento" | "formatura" | "outro"
   titulo     String
   data       DateTime
   recorrente Boolean  @default(false)
   lembrar    Boolean  @default(true)
   notas      String?  @db.Text
 
-  criadoEm   DateTime @default(now())
+  criadoEm DateTime @default(now())
 
   @@index([data])
   @@index([clienteId])
@@ -645,43 +682,43 @@ model EventoVida {
 
 // CRM de indicações (referrals)
 model Indicacao {
-  id              String   @id @default(cuid())
+  id String @id @default(cuid())
 
   // Quem indicou (cliente existente)
-  indicadorId     String?
-  indicador       ClienteBackoffice? @relation("ClienteIndicador", fields: [indicadorId], references: [id])
+  indicadorId String?
+  indicador   ClienteBackoffice? @relation("ClienteIndicador", fields: [indicadorId], references: [id])
 
   // Indicado (prospect)
-  nomeIndicado    String
-  emailIndicado   String?
+  nomeIndicado     String
+  emailIndicado    String?
   telefoneIndicado String?
 
-  status          String   @default("recebida") // "recebida" | "contatada" | "reuniao" | "convertida" | "perdida"
-  valorEstimado   Float?
+  status               String  @default("recebida") // "recebida" | "contatada" | "reuniao" | "convertida" | "perdida"
+  valorEstimado        Float?
   agradecimentoEnviado Boolean @default(false)
-  notas           String?  @db.Text
+  notas                String? @db.Text
 
-  criadoEm        DateTime @default(now())
-  atualizadoEm    DateTime @updatedAt
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
 
   @@index([status])
 }
 
 // Questionário de descoberta profunda (Storyselling — hemisfério direito)
 model PerfilDescoberta {
-  id          String   @id @default(cuid())
-  clienteId   String   @unique
-  cliente     ClienteBackoffice @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  id        String            @id @default(cuid())
+  clienteId String            @unique
+  cliente   ClienteBackoffice @relation(fields: [clienteId], references: [id], onDelete: Cascade)
 
-  valoresVida       String? @db.Text // o que mais importa
-  medos             String? @db.Text // medos financeiros / pesadelos
-  sonhos            String? @db.Text // o que faria se dinheiro não fosse problema
-  legado            String? @db.Text // o que quer deixar para a próxima geração
-  experienciaPrev   String? @db.Text // experiências passadas com investimentos
-  linguagemPref     String? // "tecnica" | "simples" | "visual" | "narrativa"
-  mentorReferencia  String? @db.Text // quem o cliente admira financeiramente
-  familiaSituacao   String? @db.Text // composição familiar e dependentes
-  perguntaMagica    String? @db.Text // resposta à "se tudo desse certo, como seria daqui a 5 anos?"
+  valoresVida      String? @db.Text // o que mais importa
+  medos            String? @db.Text // medos financeiros / pesadelos
+  sonhos           String? @db.Text // o que faria se dinheiro não fosse problema
+  legado           String? @db.Text // o que quer deixar para a próxima geração
+  experienciaPrev  String? @db.Text // experiências passadas com investimentos
+  linguagemPref    String? // "tecnica" | "simples" | "visual" | "narrativa"
+  mentorReferencia String? @db.Text // quem o cliente admira financeiramente
+  familiaSituacao  String? @db.Text // composição familiar e dependentes
+  perguntaMagica   String? @db.Text // resposta à "se tudo desse certo, como seria daqui a 5 anos?"
 
   atualizadoEm DateTime @updatedAt
   criadoEm     DateTime @default(now())
@@ -689,9 +726,9 @@ model PerfilDescoberta {
 
 // One-Page Financial Plan (Supernova)
 model PlanoUmaPagina {
-  id          String   @id @default(cuid())
-  clienteId   String   @unique
-  cliente     ClienteBackoffice @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  id        String            @id @default(cuid())
+  clienteId String            @unique
+  cliente   ClienteBackoffice @relation(fields: [clienteId], references: [id], onDelete: Cascade)
 
   visaoFamiliar     String? @db.Text
   objetivoPrincipal String? @db.Text
@@ -708,21 +745,21 @@ model PlanoUmaPagina {
 
 // Checklist de organização financeira
 model ChecklistOrganizacao {
-  id          String   @id @default(cuid())
-  clienteId   String   @unique
-  cliente     ClienteBackoffice @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  id        String            @id @default(cuid())
+  clienteId String            @unique
+  cliente   ClienteBackoffice @relation(fields: [clienteId], references: [id], onDelete: Cascade)
 
-  testamento           Boolean @default(false)
-  seguroVida           Boolean @default(false)
-  planoSucessao        Boolean @default(false)
-  reservaEmergencia    Boolean @default(false)
-  planoSaude           Boolean @default(false)
-  procuracao           Boolean @default(false)
-  inventarioBens       Boolean @default(false)
-  beneficiariosAtual   Boolean @default(false)
-  declaracaoIR         Boolean @default(false)
+  testamento             Boolean @default(false)
+  seguroVida             Boolean @default(false)
+  planoSucessao          Boolean @default(false)
+  reservaEmergencia      Boolean @default(false)
+  planoSaude             Boolean @default(false)
+  procuracao             Boolean @default(false)
+  inventarioBens         Boolean @default(false)
+  beneficiariosAtual     Boolean @default(false)
+  declaracaoIR           Boolean @default(false)
   planejamentoTributario Boolean @default(false)
-  notas                String? @db.Text
+  notas                  String? @db.Text
 
   atualizadoEm DateTime @updatedAt
   criadoEm     DateTime @default(now())
@@ -730,14 +767,14 @@ model ChecklistOrganizacao {
 
 // Biblioteca de histórias/analogias para storyselling
 model StoryAnalogia {
-  id         String   @id @default(cuid())
+  id         String  @id @default(cuid())
   titulo     String
-  categoria  String   // "aposentadoria" | "sucessao" | "risco" | "diversificacao" | "inflacao" | "disciplina"
-  analogia   String   @db.Text
-  quandoUsar String?  @db.Text
-  tags       String?  // comma-separated
+  categoria  String // "aposentadoria" | "sucessao" | "risco" | "diversificacao" | "inflacao" | "disciplina"
+  analogia   String  @db.Text
+  quandoUsar String? @db.Text
+  tags       String? // comma-separated
 
-  criadoEm   DateTime @default(now())
+  criadoEm     DateTime @default(now())
   atualizadoEm DateTime @updatedAt
 
   @@index([categoria])
@@ -745,21 +782,21 @@ model StoryAnalogia {
 
 // Lançamentos de receita por parceiro/produto/cliente (importados via planilha BTG)
 model ReceitaItem {
-  id            String   @id @default(cuid())
-  data          DateTime
-  faturamento   Float    @default(0)
-  imposto       Float    @default(0)
-  faturamentoLiquido Float @default(0)
-  assessor      String?
-  parceiro      String?
-  departamento  String?
-  classificacao String?
-  categoria     String?
-  produto       String?
-  nomeCliente   String?
-  loteId        String   // identifica a importação (para limpar/refazer)
-  hash          String?  @unique // dedupe: data+valores+parceiro+produto+cliente+assessor
-  criadoEm      DateTime @default(now())
+  id                 String   @id @default(cuid())
+  data               DateTime
+  faturamento        Float    @default(0)
+  imposto            Float    @default(0)
+  faturamentoLiquido Float    @default(0)
+  assessor           String?
+  parceiro           String?
+  departamento       String?
+  classificacao      String?
+  categoria          String?
+  produto            String?
+  nomeCliente        String?
+  loteId             String // identifica a importação (para limpar/refazer)
+  hash               String?  @unique // dedupe: data+valores+parceiro+produto+cliente+assessor
+  criadoEm           DateTime @default(now())
 
   @@index([data])
   @@index([parceiro])
@@ -774,12 +811,12 @@ model ReceitaItem {
 
 // 3 prioridades manuais por dia (posicao 1|2|3)
 model PainelPrioridade {
-  id         String   @id @default(cuid())
-  userId     String
-  data       String   // "YYYY-MM-DD" em America/Sao_Paulo
-  posicao    Int      // 1, 2 ou 3
-  texto      String
-  concluida  Boolean  @default(false)
+  id        String  @id @default(cuid())
+  userId    String
+  data      String // "YYYY-MM-DD" em America/Sao_Paulo
+  posicao   Int // 1, 2 ou 3
+  texto     String
+  concluida Boolean @default(false)
 
   // Sug 1 (Boot do Dia): prioridade sugerida automaticamente pela heurística
   // noturna. Eduardo confirma/edita no painel.
@@ -788,14 +825,14 @@ model PainelPrioridade {
 
   // Sug 2 (Deep Work blocks): tempo estimado para a prioridade + id do bloco
   // de foco criado no calendario (Outlook/Google)
-  tempoEstimadoMin    Int?
-  focusBlockEventId   String?   // id do evento no calendario externo
-  focusBlockProvider  String?   // "google" | "ms-calendar" | "pending-cowork"
-  focusBlockStart     DateTime?
-  focusBlockEnd       DateTime?
+  tempoEstimadoMin   Int?
+  focusBlockEventId  String? // id do evento no calendario externo
+  focusBlockProvider String? // "google" | "ms-calendar" | "pending-cowork"
+  focusBlockStart    DateTime?
+  focusBlockEnd      DateTime?
 
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -814,31 +851,31 @@ model AcaoPainel {
   vence       DateTime?
   importante  Boolean   @default(false)
   noMeuDia    Boolean   @default(false)
-  quadrante   String?   // "Q1" | "Q2" | "Q3" | "Q4" (só Priority Matrix)
-  origem      String    // "local" | "ms-todo" | "priority-matrix"
-  externoId   String?   // id na fonte externa (preenchido após sync)
-  projetoPm   String?   // nome do projeto no Priority Matrix
+  quadrante   String? // "Q1" | "Q2" | "Q3" | "Q4" (só Priority Matrix)
+  origem      String // "local" | "ms-todo" | "priority-matrix"
+  externoId   String? // id na fonte externa (preenchido após sync)
+  projetoPm   String? // nome do projeto no Priority Matrix
   pendingSync Boolean   @default(false)
-  syncOp      String?   // "create" | "update" | "delete"
+  syncOp      String? // "create" | "update" | "delete"
   syncError   String?
 
   // Fecho de atividade (Sugestao 4: modal de encerramento)
-  resultado        String?  @db.Text // o que foi entregue / nota livre
-  tempoGastoMin    Int?              // tempo gasto em minutos
-  clienteVinculadoId String?         // FK opcional para ClienteBackoffice
-  concluidaEm      DateTime?         // timestamp do fecho (distinto de updatedAt)
-  registradaCrm    Boolean  @default(false) // true se virou InteracaoCliente
+  resultado          String?   @db.Text // o que foi entregue / nota livre
+  tempoGastoMin      Int? // tempo gasto em minutos
+  clienteVinculadoId String? // FK opcional para ClienteBackoffice
+  concluidaEm        DateTime? // timestamp do fecho (distinto de updatedAt)
+  registradaCrm      Boolean   @default(false) // true se virou InteracaoCliente
 
   // Sug 2 (Deep Work): tempo estimado para execução — alimenta auto-blocking
   tempoEstimadoMin Int?
 
   // Sug 4 (Triagem AI de e-mails): origem foi um e-mail classificado pela IA
-  criadaDeEmailId  String? // id do PainelEmailAI que gerou a acao
+  criadaDeEmailId String? // id do PainelEmailAI que gerou a acao
 
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   clienteVinculado ClienteBackoffice? @relation("AcaoCliente", fields: [clienteVinculadoId], references: [id], onDelete: SetNull)
 
   @@index([userId, concluida])
@@ -852,7 +889,7 @@ model AcaoPainel {
 model PainelCacheExterno {
   id       String   @id @default(cuid())
   userId   String
-  source   String   // "ms-calendar" | "ms-mail"
+  source   String // "ms-calendar" | "ms-mail"
   payload  Json
   syncedAt DateTime @default(now())
 
@@ -869,7 +906,7 @@ model PainelCacheExterno {
 model SyncRequest {
   id          String    @id @default(cuid())
   userId      String
-  sources     String    // "all" | "microsoft" | "priority-matrix"
+  sources     String // "all" | "microsoft" | "priority-matrix"
   status      String    @default("pending") // "pending" | "in-progress" | "done" | "error"
   requestedAt DateTime  @default(now())
   completedAt DateTime?
@@ -885,25 +922,25 @@ model SyncRequest {
 // como cards de ação rápida no painel. Ex.: "Encerrar reunião com Onix Corretora
 // que terminou há 30min". Eduardo aceita, adia ou ignora.
 model PainelSugestao {
-  id         String   @id @default(cuid())
-  userId     String
-  tipo       String   // "encerrar-reuniao" | "cliente-fora-cadencia" | "acao-zumbi"
-  titulo     String
-  descricao  String?  @db.Text
-  payload    Json     // dados estruturados específicos do tipo
+  id        String  @id @default(cuid())
+  userId    String
+  tipo      String // "encerrar-reuniao" | "cliente-fora-cadencia" | "acao-zumbi"
+  titulo    String
+  descricao String? @db.Text
+  payload   Json // dados estruturados específicos do tipo
 
   // Estado
-  status       String   @default("pending") // "pending" | "accepted" | "snoozed" | "dismissed"
+  status       String    @default("pending") // "pending" | "accepted" | "snoozed" | "dismissed"
   snoozedUntil DateTime?
   resolvedAt   DateTime?
 
   // Referencias opcionais
-  acaoId       String? // se a sugestao aponta pra uma AcaoPainel existente
-  clienteId    String? // se aponta para um ClienteBackoffice
-  eventoCalId  String? // id do evento na agenda (cowork cache)
+  acaoId      String? // se a sugestao aponta pra uma AcaoPainel existente
+  clienteId   String? // se aponta para um ClienteBackoffice
+  eventoCalId String? // id do evento na agenda (cowork cache)
 
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -915,18 +952,18 @@ model PainelSugestao {
 // métricas da semana + insight textual pelo Claude. Card fixo no painel de 2ª
 // até Eduardo dispensar.
 model PainelRetrospectiva {
-  id         String   @id @default(cuid())
-  userId     String
-  semanaInicio DateTime  // segunda-feira 00:00 Bahia
-  semanaFim    DateTime  // domingo 23:59 Bahia
+  id           String   @id @default(cuid())
+  userId       String
+  semanaInicio DateTime // segunda-feira 00:00 Bahia
+  semanaFim    DateTime // domingo 23:59 Bahia
 
   // Metricas quantitativas (JSON com estrutura definida em types.ts)
-  metricas   Json
+  metricas Json
   // Insight gerado pelo Claude (texto livre)
-  insight    String   @db.Text
+  insight  String @db.Text
 
-  dispensada  Boolean  @default(false)
-  createdAt   DateTime @default(now())
+  dispensada Boolean  @default(false)
+  createdAt  DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -937,25 +974,25 @@ model PainelRetrospectiva {
 // Sug 4 (Triagem AI de e-mails): classificação de cada e-mail puxado do
 // cache MS Mail. Alimenta o botao "Criar acao" com quadrante sugerido.
 model PainelEmailAI {
-  id         String   @id @default(cuid())
-  userId     String
-  externoId  String   // id do email no ms-mail
-  remetente  String
-  assunto    String
-  snippet    String   @db.Text
+  id        String @id @default(cuid())
+  userId    String
+  externoId String // id do email no ms-mail
+  remetente String
+  assunto   String
+  snippet   String @db.Text
 
   // Classificacao do Claude
-  tipo              String   // "acao" | "fyi" | "spam" | "agendamento" | "cliente_novo"
-  urgencia          String   // "alta" | "media" | "baixa"
-  quadranteSugerido String?  // "Q1" | "Q2" | "Q3" | "Q4"
-  tituloAcao        String?
-  venceSugerido     DateTime?
+  tipo               String // "acao" | "fyi" | "spam" | "agendamento" | "cliente_novo"
+  urgencia           String // "alta" | "media" | "baixa"
+  quadranteSugerido  String? // "Q1" | "Q2" | "Q3" | "Q4"
+  tituloAcao         String?
+  venceSugerido      DateTime?
   clienteVinculadoId String?
 
   // Estado
-  processado      Boolean  @default(false) // virou AcaoPainel
-  arquivado       Boolean  @default(false) // usuario ignorou
-  acaoGeradaId    String?  // id da AcaoPainel criada
+  processado   Boolean @default(false) // virou AcaoPainel
+  arquivado    Boolean @default(false) // usuario ignorou
+  acaoGeradaId String? // id da AcaoPainel criada
 
   classificadoEm DateTime @default(now())
   createdAt      DateTime @default(now())
@@ -1027,9 +1064,9 @@ model Pessoa {
   // Vínculo Onix
   dataEntrada  DateTime  @default(now())
   dataSaida    DateTime?
-  motivoSaida  String?   // "demissao" | "saida_voluntaria" | "fim_contrato" | "outro"
+  motivoSaida  String? // "demissao" | "saida_voluntaria" | "fim_contrato" | "outro"
   status       String    @default("ativo") // "ativo" | "arquivado"
-  cargoFamilia String    // "assessor_investimentos" | "socio" | "imobiliaria" | "corretora" | "qualidade" | "administrativo"
+  cargoFamilia String // "assessor_investimentos" | "socio" | "imobiliaria" | "corretora" | "qualidade" | "administrativo"
   cargoTitulo  String?
   teamRole     String    @default("colaborador") // "admin" | "lideranca" | "colaborador"
   observacoes  String?   @db.Text
@@ -1055,16 +1092,16 @@ model Pessoa {
   user   User?   @relation(fields: [userId], references: [id])
 
   // Fase 2 — Numerologia & Contratos
-  numerologia            Numerologia?
-  contratoSocialUploads  ContratoSocialUpload[]
-  acordosComerciais      AcordoComercial[]
-  conviteOnboarding      ConviteOnboarding?
+  numerologia           Numerologia?
+  contratoSocialUploads ContratoSocialUpload[]
+  acordosComerciais     AcordoComercial[]
+  conviteOnboarding     ConviteOnboarding?
 
   // Fase 3 — PAT (perfil comportamental Criativa Humana)
-  pats                   Pat[]
+  pats Pat[]
 
   // Fase 4 — Reuniões do time (timeline tipo CRM)
-  participacoesReuniao   ReuniaoTimeParticipante[]
+  participacoesReuniao ReuniaoTimeParticipante[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1112,16 +1149,16 @@ model ContratoSocialUpload {
   pessoa   Pessoa @relation(fields: [pessoaId], references: [id], onDelete: Cascade)
 
   filename  String
-  mimeType  String  @default("application/pdf")
-  pdfBase64 String  @db.Text
+  mimeType  String @default("application/pdf")
+  pdfBase64 String @db.Text
   bytes     Int?
 
   nomeExtraido     String?
   cpfExtraido      String?
   dataNascExtraida DateTime?
 
-  status        String @default("pendente") // "pendente" | "extraido" | "erro"
-  erroMensagem  String?
+  status       String  @default("pendente") // "pendente" | "extraido" | "erro"
+  erroMensagem String?
 
   uploadedAt DateTime @default(now())
 
@@ -1140,7 +1177,7 @@ model AcordoComercial {
   pessoaId String
   pessoa   Pessoa @relation(fields: [pessoaId], references: [id], onDelete: Cascade)
 
-  tipo            String  // "pro_labore" | "split" | "comissao" | "misto"
+  tipo            String // "pro_labore" | "split" | "comissao" | "misto"
   regrasEspeciais String? @db.Text // texto livre — escala de split, gatilhos, bônus de meta
 
   // PDF do contrato assinado (opcional — pode ser registrado sem PDF inicialmente)
@@ -1174,7 +1211,7 @@ model ConviteOnboarding {
   pessoaId String @unique // 1:1 — só 1 convite ativo por pessoa
   pessoa   Pessoa @relation(fields: [pessoaId], references: [id], onDelete: Cascade)
 
-  token     String   @unique
+  token     String    @unique
   expiresAt DateTime
   usedAt    DateTime? // null = ainda não consumido
 
@@ -1270,7 +1307,7 @@ model ReuniaoTime {
   // Conteudo
   transcricao    String? @db.Text // texto bruto (se admin colar manualmente)
   resumo         String? @db.Text // gerado pela IA OU digitado
-  proximosPassos Json?            // [{ texto, concluido: bool, concluidoEm: ISO|null }]
+  proximosPassos Json? // [{ texto, concluido: bool, concluidoEm: ISO|null }]
 
   // Quem criou (admin)
   criadoPorUserId String?
@@ -1301,28 +1338,26 @@ model ReuniaoTimeParticipante {
   @@index([pessoaId])
 }
 
-
-
 // ============================================
 // DATACRAZY — CONVERSAS WHATSAPP EM TEMPO REAL
 // ============================================
 model Conversa {
-  id            String   @id @default(cuid())
-  externalId    String   @unique
-  clienteId     String?
-  cliente       ClienteBackoffice? @relation(fields: [clienteId], references: [id], onDelete: SetNull)
+  id         String             @id @default(cuid())
+  externalId String             @unique
+  clienteId  String?
+  cliente    ClienteBackoffice? @relation(fields: [clienteId], references: [id], onDelete: SetNull)
 
-  instanceId    String
-  contactPhone  String?
-  contactName   String?
+  instanceId   String
+  contactPhone String?
+  contactName  String?
 
   lastMessageAt DateTime?
-  unmatched     Boolean  @default(false)
+  unmatched     Boolean   @default(false)
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  mensagens     Mensagem[]
+  mensagens Mensagem[]
 
   @@index([clienteId, lastMessageAt])
   @@index([contactPhone])
@@ -1330,19 +1365,19 @@ model Conversa {
 }
 
 model Mensagem {
-  id           String   @id @default(cuid())
-  externalId   String   @unique
-  conversaId   String
-  conversa     Conversa @relation(fields: [conversaId], references: [id], onDelete: Cascade)
+  id         String   @id @default(cuid())
+  externalId String   @unique
+  conversaId String
+  conversa   Conversa @relation(fields: [conversaId], references: [id], onDelete: Cascade)
 
-  fromMe       Boolean
-  tipo         String
-  body         String?  @db.Text
-  mediaUrl     String?
+  fromMe   Boolean
+  tipo     String
+  body     String? @db.Text
+  mediaUrl String?
 
-  sentAt       DateTime
-  rawPayload   Json?
-  recebidoEm   DateTime @default(now())
+  sentAt     DateTime
+  rawPayload Json?
+  recebidoEm DateTime @default(now())
 
   @@index([conversaId, sentAt])
 }
@@ -1359,13 +1394,13 @@ model Mensagem {
 // nova. Mantém o invariante "matching nunca só por nome": o usuário
 // confirma explicitamente.
 model GrupoCliente {
-  id              String   @id @default(cuid())
-  groupExternalId String   @unique // id interno da conversa Datacrazy do grupo
+  id              String            @id @default(cuid())
+  groupExternalId String            @unique // id interno da conversa Datacrazy do grupo
   clienteId       String
   cliente         ClienteBackoffice @relation(fields: [clienteId], references: [id], onDelete: Cascade)
   instanceId      String
-  nomeGrupo       String?  // cache pra exibir sem ir buscar na Datacrazy
-  criadoEm        DateTime @default(now())
+  nomeGrupo       String? // cache pra exibir sem ir buscar na Datacrazy
+  criadoEm        DateTime          @default(now())
 
   @@index([clienteId])
   @@index([instanceId])
