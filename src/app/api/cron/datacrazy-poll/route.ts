@@ -68,18 +68,59 @@ export async function GET(req: NextRequest) {
         const conversas = await fetchConversas(instanceId, token, 2);
         conversasVistas += conversas.length;
 
-        // Filtra: (a) atividade nos últimos 30min e (b) NÃO ser grupo.
-        // Grupos não fazem sentido pra rastrear cadência de cliente
-        // individual; descartar evita armazenar ruído.
+        // Filtra: atividade nos últimos 30min. Grupos seguem por outro
+        // caminho — só processamos grupos com mapeamento explícito em
+        // `GrupoCliente` (Eduardo vincula manualmente; matching por nome
+        // de grupo seria frágil e a API não expõe remetente em grupo).
         const cutoff = Date.now() - 30 * 60 * 1000;
         const ativas = conversas.filter((c) => {
-          if ((c as { isGroup?: boolean }).isGroup === true) return false;
           const t = c.lastMessageDate ?? c.updatedAt ?? c.lastMessage?.createdAt;
           if (!t) return false;
           return new Date(t).getTime() >= cutoff;
         });
 
-        for (const conv of ativas) {
+        // Tratamento de grupos: olha mapeamento manual em GrupoCliente.
+        const ativasGrupo = ativas.filter(
+          (c) => (c as { isGroup?: boolean }).isGroup === true,
+        );
+        if (ativasGrupo.length > 0) {
+          const idsGrupo = ativasGrupo
+            .map((g) => String(g.id ?? g._id ?? ""))
+            .filter(Boolean);
+          const mapeamentos = await prisma.grupoCliente.findMany({
+            where: { groupExternalId: { in: idsGrupo } },
+            select: { groupExternalId: true, clienteId: true },
+          });
+          const porGroupId = new Map(
+            mapeamentos.map((m) => [m.groupExternalId, m.clienteId]),
+          );
+          for (const g of ativasGrupo) {
+            const gid = String(g.id ?? g._id ?? "");
+            const clienteId = porGroupId.get(gid);
+            if (!clienteId) continue;
+            const t = g.lastMessageDate ?? g.updatedAt ?? g.lastMessage?.createdAt;
+            if (!t) continue;
+            const lastMsgAt = new Date(t);
+            await prisma.clienteBackoffice.updateMany({
+              where: {
+                id: clienteId,
+                OR: [
+                  { ultimoContatoAt: null },
+                  { ultimoContatoAt: { lt: lastMsgAt } },
+                ],
+              },
+              data: { ultimoContatoAt: lastMsgAt },
+            });
+            conversasComMudanca++;
+          }
+        }
+
+        // Daqui em diante: apenas chats individuais.
+        const ativasIndividuais = ativas.filter(
+          (c) => (c as { isGroup?: boolean }).isGroup !== true,
+        );
+
+        for (const conv of ativasIndividuais) {
           const externalId = String(conv.id ?? conv._id ?? "");
           if (!externalId) continue;
 

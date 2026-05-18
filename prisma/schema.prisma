@@ -528,6 +528,7 @@ model ClienteBackoffice {
   @@index([proximoContatoAt])
   @@index([assessorCge])
   conversas Conversa[]
+  gruposWhatsApp GrupoCliente[]
 
   @@index([cpfCnpj])
   @@index([telefone])
@@ -1344,4 +1345,28 @@ model Mensagem {
   recebidoEm   DateTime @default(now())
 
   @@index([conversaId, sentAt])
+}
+
+// Mapeamento manual de grupos WhatsApp Datacrazy → ClienteBackoffice.
+//
+// A API Datacrazy não expõe quem enviou cada mensagem em grupo (campos
+// `contact`/`fromMe`/`author` vêm null/undefined). Como o assessor
+// conversa com vários clientes via grupo dedicado (ex: "Rodrigo Magarão
+// — Onix Capital"), precisamos saber a quem o grupo se refere.
+//
+// Eduardo cria o vínculo uma vez via UI/endpoint admin e o cron passa a
+// atualizar `cliente.ultimoContatoAt` toda vez que o grupo tem mensagem
+// nova. Mantém o invariante "matching nunca só por nome": o usuário
+// confirma explicitamente.
+model GrupoCliente {
+  id              String   @id @default(cuid())
+  groupExternalId String   @unique // id interno da conversa Datacrazy do grupo
+  clienteId       String
+  cliente         ClienteBackoffice @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  instanceId      String
+  nomeGrupo       String?  // cache pra exibir sem ir buscar na Datacrazy
+  criadoEm        DateTime @default(now())
+
+  @@index([clienteId])
+  @@index([instanceId])
 }
