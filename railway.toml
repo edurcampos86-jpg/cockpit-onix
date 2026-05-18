@@ -71,3 +71,13 @@ command = "curl -fsS -H \"Authorization: Bearer $CRON_SECRET\" $RAILWAY_PUBLIC_D
 name = "datacrazy-atividades-poll"
 schedule = "*/30 * * * *"
 command = "curl -fsS -H \"Authorization: Bearer $CRON_SECRET\" $RAILWAY_PUBLIC_DOMAIN/api/cron/datacrazy-atividades-poll"
+
+# ────────────────────────────────────────────────────────────────────────
+# Outlook ICS polling — reuniões marcadas no Outlook (calendário publicado).
+# A cada 30min. Lookahead 60 dias / lookback 7 dias. Pré-requisito:
+# OUTLOOK_ICS_URL configurada em Config (URL pública do .ics).
+# ────────────────────────────────────────────────────────────────────────
+[[crons]]
+name = "outlook-poll"
+schedule = "*/30 * * * *"
+command = "curl -fsS -H \"Authorization: Bearer $CRON_SECRET\" $RAILWAY_PUBLIC_DOMAIN/api/cron/outlook-poll"
