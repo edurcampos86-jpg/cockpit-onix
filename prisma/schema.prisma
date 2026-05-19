@@ -35,6 +35,10 @@ model User {
   painelEmailsAI    PainelEmailAI[]
   pessoa            Pessoa?
   googleAuth        UserGoogleAuth?
+
+  // Jurídico — fase 1A
+  contratosArquivosEnviados   ContratoArquivo[]  @relation("ContratoUploadedBy")
+  contratosExtracoesRevisadas ContratoExtracao[] @relation("ContratoExtracaoRevisor")
 }
 
 // ============================================
@@ -1128,6 +1132,9 @@ model Pessoa {
   // Fase 4 — Reuniões do time (timeline tipo CRM)
   participacoesReuniao ReuniaoTimeParticipante[]
 
+  // Jurídico — fase 1A (contratos no B2)
+  contratosArquivos ContratoArquivo[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1219,6 +1226,12 @@ model AcordoComercial {
 
   criadoEm     DateTime @default(now())
   atualizadoEm DateTime @updatedAt
+
+  // Jurídico — fase 1A. Quando o PDF migra pro B2 via ContratoArquivo,
+  // os campos contratoBase64/contratoBytes acima ficam vazios e a referência
+  // passa por aqui. Mantemos os 4 campos legacy enquanto a migração não roda
+  // em todo o passivo.
+  contratoArquivo ContratoArquivo? @relation("AcordoComercialContrato")
 
   @@index([pessoaId, dataInicio])
   @@index([pessoaId, dataFim])
@@ -1429,4 +1442,88 @@ model GrupoCliente {
 
   @@index([clienteId])
   @@index([instanceId])
+}
+
+// ============================================
+// JURÍDICO — FASE 1A
+// Cofre de contratos PDFs no Backblaze B2 + extração estruturada via Claude.
+// Fase 1B adiciona RBAC, 2FA, watermark e audit log.
+// Fase 1C adiciona backup + import em lote do passivo OneDrive.
+// ============================================
+
+model ContratoArquivo {
+  id String @id @default(cuid())
+
+  // Vínculo opcional com Pessoa do time (pode entrar sem vínculo e ser
+  // pareado depois durante a revisão da extração).
+  pessoaId String?
+  pessoa   Pessoa? @relation(fields: [pessoaId], references: [id], onDelete: SetNull)
+
+  // Identidade do arquivo
+  nomeOriginal String
+  mimeType     String @default("application/pdf")
+  tamanhoBytes BigInt
+
+  // Backblaze B2 (S3-compatible). Key segue o padrão:
+  //   - pendentes-revisao/<cuid>.pdf  enquanto status = PENDENTE_REVISAO
+  //   - pessoas/<pessoaId>/<cuid>.pdf após APROVADO
+  b2Bucket String  @default("onix-cockpit-contratos")
+  b2Key    String  @unique
+  b2ETag   String? // ETag retornado pelo B2 (opcional, pra integridade)
+
+  // Hash SHA-256 do conteúdo bruto, antes de qualquer transformação.
+  // Único: mesma chave nunca é armazenada 2x — endpoint upload retorna 409
+  // com o ID existente em vez de criar duplicata.
+  hashSha256 String @unique
+
+  // Auditoria de upload (audit log completo vem na fase 1B)
+  uploadedById String
+  uploadedBy   User     @relation("ContratoUploadedBy", fields: [uploadedById], references: [id])
+  uploadedAt   DateTime @default(now())
+
+  // Estado e proveniência
+  status           String  @default("pendente_revisao") // "pendente_revisao" | "aprovado" | "arquivado" | "rejeitado"
+  origemImportacao String  @default("manual") // "manual" | "bulk_juridico" | "onedrive_legado" | "migracao_acordo"
+  observacoes      String? @db.Text
+
+  // Vínculo opcional com AcordoComercial após aprovação (1 contrato pode
+  // gerar 1 acordo; acordo existente pode ser anexado de volta a um contrato).
+  acordoComercialId String?          @unique
+  acordoComercial   AcordoComercial? @relation("AcordoComercialContrato", fields: [acordoComercialId], references: [id], onDelete: SetNull)
+
+  extracoes ContratoExtracao[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([pessoaId])
+  @@index([status])
+  @@index([uploadedAt(sort: Desc)])
+}
+
+model ContratoExtracao {
+  id String @id @default(cuid())
+
+  contratoArquivoId String
+  contratoArquivo   ContratoArquivo @relation(fields: [contratoArquivoId], references: [id], onDelete: Cascade)
+
+  // Resultado bruto do Claude (JSON estruturado segundo PARSER_CONTRATO_PROMPT_V1)
+  modeloIa       String   @default("claude-opus-4-7")
+  promptVersion  String   @default("v1")
+  confianca      Float // 0.00 a 1.00 — reportada pelo modelo
+  dadosExtraidos Json // o JSON inteiro retornado
+  erroExtracao   String?  @db.Text // se a chamada falhou ou JSON inválido
+  extraidoEm     DateTime @default(now())
+
+  // Revisão humana
+  statusRevisao      String    @default("nao_revisado") // "nao_revisado" | "aprovado" | "corrigido" | "rejeitado"
+  revisadoPorId      String?
+  revisadoPor        User?     @relation("ContratoExtracaoRevisor", fields: [revisadoPorId], references: [id])
+  revisadoEm         DateTime?
+  dadosCorrigidos    Json? // overrides aplicados pelo revisor (mantém dadosExtraidos intacto)
+  observacoesRevisao String?   @db.Text
+
+  @@index([contratoArquivoId])
+  @@index([statusRevisao])
+  @@index([extraidoEm(sort: Desc)])
 }
