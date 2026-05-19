@@ -1,0 +1,107 @@
+name: Cockpit Crons
+
+# Substitui os [[crons]] do railway.toml, que o Railway parou de processar
+# (a doc atual só fala em `cronSchedule` singular per-service, e o canvas
+# do projeto não tem services dedicados a cron).
+#
+# Cada schedule abaixo dispara o workflow inteiro. O job `dispatch` lê
+# `github.event.schedule` e decide quais endpoints chamar — assim mantemos
+# UM workflow só (mais fácil de manter que 5+ arquivos).
+#
+# Setup necessário (1 vez):
+# - Repo Settings → Secrets and variables → Actions:
+#   - Secret  CRON_SECRET   (mesmo valor que vai no Railway Variables)
+#   - Variable APP_BASE_URL (ex: https://cockpit-onix-production.up.railway.app)
+#
+# workflow_dispatch permite disparar manualmente da aba Actions.
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'   # datacrazy-poll (mensagens WhatsApp)
+    - cron: '*/15 * * * *'  # google-calendar-poll + auto-encerrar + triar-emails
+    - cron: '*/30 * * * *'  # outlook-poll + datacrazy-atividades-poll
+    - cron: '30 10 * * 1-5' # boot-do-dia (seg-sex 07:30 Bahia / 10:30 UTC)
+    - cron: '0 23 * * 0'    # retrospectiva-semanal (dom 20:00 Bahia / 23:00 UTC)
+  workflow_dispatch:
+    inputs:
+      paths:
+        description: 'Paths separados por espaço (ex: "/api/cron/datacrazy-poll /api/cron/outlook-poll"). Vazio = roda todos.'
+        required: false
+        default: ''
+
+concurrency:
+  # Evita runs paralelos do MESMO schedule (se o anterior demorar mais que
+  # o intervalo). Schedules diferentes continuam podendo rodar em paralelo.
+  group: cron-${{ github.event.schedule || github.event.inputs.paths }}
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Resolve paths
+        id: resolve
+        run: |
+          SCHEDULE='${{ github.event.schedule }}'
+          MANUAL='${{ github.event.inputs.paths }}'
+          if [ -n "$MANUAL" ]; then
+            PATHS="$MANUAL"
+          else
+            case "$SCHEDULE" in
+              "*/5 * * * *")
+                PATHS="/api/cron/datacrazy-poll"
+                ;;
+              "*/15 * * * *")
+                PATHS="/api/cron/google-calendar-poll /api/cron/auto-encerrar /api/cron/triar-emails"
+                ;;
+              "*/30 * * * *")
+                PATHS="/api/cron/outlook-poll /api/cron/datacrazy-atividades-poll"
+                ;;
+              "30 10 * * 1-5")
+                PATHS="/api/cron/boot-do-dia"
+                ;;
+              "0 23 * * 0")
+                PATHS="/api/cron/retrospectiva-semanal"
+                ;;
+              *)
+                echo "Schedule '$SCHEDULE' não mapeado — nenhum endpoint executado."
+                PATHS=""
+                ;;
+            esac
+          fi
+          echo "paths=$PATHS" >> "$GITHUB_OUTPUT"
+          echo "Vai disparar: $PATHS"
+
+      - name: Hit endpoints
+        if: steps.resolve.outputs.paths != ''
+        env:
+          BASE_URL: ${{ vars.APP_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$BASE_URL" ]; then
+            echo "::error::APP_BASE_URL não configurado (Repo Settings → Variables)"
+            exit 1
+          fi
+          FAIL=0
+          for path in ${{ steps.resolve.outputs.paths }}; do
+            URL="${BASE_URL}${path}"
+            echo "[$(date '+%H:%M:%S')] GET $URL"
+            HTTP_CODE=$(curl -fsS -o /tmp/resp.txt -w "%{http_code}" \
+              -H "Authorization: Bearer ${CRON_SECRET}" \
+              --max-time 120 \
+              "$URL") || HTTP_CODE="000"
+            BODY=$(cat /tmp/resp.txt 2>/dev/null | head -c 2000)
+            echo "  → HTTP $HTTP_CODE"
+            echo "  → body: $BODY"
+            if [ "$HTTP_CODE" != "200" ]; then
+              echo "::warning::$path retornou HTTP $HTTP_CODE"
+              FAIL=$((FAIL+1))
+            fi
+          done
+          if [ "$FAIL" -gt 0 ]; then
+            echo "::warning::$FAIL endpoint(s) falharam neste tick"
+          fi
+          # Não usamos exit 1 mesmo com falhas — não queremos que GitHub
+          # mande email a cada blip de rede. Acompanhar via logs do workflow
+          # e /api/backoffice/sync-logs no Cockpit.
