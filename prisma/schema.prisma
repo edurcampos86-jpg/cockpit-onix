@@ -39,6 +39,10 @@ model User {
   // Jurídico — fase 1A
   contratosArquivosEnviados   ContratoArquivo[]  @relation("ContratoUploadedBy")
   contratosExtracoesRevisadas ContratoExtracao[] @relation("ContratoExtracaoRevisor")
+
+  // Jurídico — fase 1B
+  usuarioPermissao UsuarioPermissao?
+  acessosContratos ContratoAcessoLog[]
 }
 
 // ============================================
@@ -1492,6 +1496,7 @@ model ContratoArquivo {
   acordoComercial   AcordoComercial? @relation("AcordoComercialContrato", fields: [acordoComercialId], references: [id], onDelete: SetNull)
 
   extracoes ContratoExtracao[]
+  acessos   ContratoAcessoLog[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1526,4 +1531,65 @@ model ContratoExtracao {
   @@index([contratoArquivoId])
   @@index([statusRevisao])
   @@index([extraidoEm(sort: Desc)])
+}
+
+// ============================================
+// JURÍDICO — FASE 1B (RBAC + 2FA + AUDIT LOG)
+// ============================================
+
+// Permissionamento granular por User. Vive em 1:1 com User. Se não existe
+// registro, defaults conservadores aplicam-se via lib/auth/permissions.ts
+// (negar tudo até admin liberar).
+model UsuarioPermissao {
+  id String @id @default(cuid())
+
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Permissões granulares pro módulo Jurídico.
+  // Outros módulos podem reusar essa tabela no futuro com novos booleans.
+  podeVerContratos     Boolean @default(false)
+  podeBaixarContratos  Boolean @default(false)
+  podeEditarContratos  Boolean @default(false)
+  podeAprovarContratos Boolean @default(false)
+
+  // Restrição por "carteira" (pessoaId). Valores:
+  //  - "*"           → todas as pessoas (sócio/admin)
+  //  - string[]      → apenas pessoaIds da lista (atendente vê só sua carteira)
+  carteirasPermitidas Json @default("[]")
+
+  // 2FA (TOTP). twoFactorSecret cifrado via lib/crypto.ts (AES-256-GCM).
+  // backupCodes: array de strings já hashadas (bcrypt) para uso único.
+  twoFactorEnabled     Boolean   @default(false)
+  twoFactorSecretEnc   String?
+  twoFactorBackupCodes Json? // string[] de hashes bcrypt
+  twoFactorVerifiedAt  DateTime? // última vez que o usuário passou pelo verify
+
+  atualizadoEm DateTime @updatedAt
+
+  @@index([twoFactorEnabled])
+}
+
+// Audit log de TODA ação relevante sobre contratos. Imutável após criar.
+// Visualizações, downloads, tentativas de impressão, aprovações, rejeições,
+// edições de extração. Sem exceção — nem o admin escapa do log.
+model ContratoAcessoLog {
+  id String @id @default(cuid())
+
+  contratoArquivoId String
+  contratoArquivo   ContratoArquivo @relation(fields: [contratoArquivoId], references: [id], onDelete: Cascade)
+
+  usuarioId String
+  usuario   User   @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
+
+  acao      String // "visualizou" | "tentou_baixar" | "tentou_imprimir" | "extraiu_dados" | "editou_extracao" | "aprovou" | "rejeitou" | "reextraiu"
+  ipAddress String?
+  userAgent String? @db.Text
+  metadata  Json? // payload extra (página acessada, motivo, etc)
+
+  timestamp DateTime @default(now())
+
+  @@index([contratoArquivoId, timestamp(sort: Desc)])
+  @@index([usuarioId, timestamp(sort: Desc)])
+  @@index([acao, timestamp(sort: Desc)])
 }

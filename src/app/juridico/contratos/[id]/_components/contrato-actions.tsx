@@ -7,9 +7,11 @@ import { CheckCircle2, XCircle, RotateCw, Loader2 } from "lucide-react";
 export function ContratoActions({
   contratoId,
   statusAtual,
+  podeAprovar,
 }: {
   contratoId: string;
   statusAtual: string;
+  podeAprovar: boolean;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -45,7 +47,7 @@ export function ContratoActions({
     });
   }
 
-  const podeAprovarOuRejeitar = statusAtual === "pendente_revisao";
+  const podeAprovarOuRejeitar = statusAtual === "pendente_revisao" && podeAprovar;
 
   return (
     <div className="rounded-xl border border-border bg-card p-4 space-y-3">

@@ -8,22 +8,31 @@
  * Auth: admin.
  */
 import { NextResponse } from "next/server";
-import { getAuthContext, isAdmin } from "@/lib/auth-helpers";
+import { getAuthContext } from "@/lib/auth-helpers";
+import { canEditContratos, canViewContrato } from "@/lib/auth/permissions";
 import { prisma } from "@/lib/prisma";
 import { downloadContrato } from "@/lib/b2/upload";
 import { rodarExtracao } from "@/lib/juridico";
+import { logAcessoContrato, extrairRequestMeta } from "@/lib/juridico/audit";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
-export async function POST(_req: Request, ctxParams: { params: Promise<{ id: string }> }) {
+export async function POST(req: Request, ctxParams: { params: Promise<{ id: string }> }) {
   const ctx = await getAuthContext().catch(() => null);
-  if (!ctx || !isAdmin(ctx)) {
+  if (!ctx) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
   const { id } = await ctxParams.params;
+
+  // Re-extração precisa de podeEditar OU acesso ao contrato
+  const podeEditar = await canEditContratos(ctx);
+  const podeVer = await canViewContrato(ctx, id);
+  if (!podeEditar && !podeVer) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
 
   const contrato = await prisma.contratoArquivo.findUnique({
     where: { id },
@@ -44,6 +53,13 @@ export async function POST(_req: Request, ctxParams: { params: Promise<{ id: str
   }
 
   await rodarExtracao(id, buffer);
+
+  void logAcessoContrato({
+    contratoArquivoId: id,
+    usuarioId: ctx.userId,
+    acao: "reextraiu",
+    meta: extrairRequestMeta(req),
+  });
 
   const ultima = await prisma.contratoExtracao.findFirst({
     where: { contratoArquivoId: id },

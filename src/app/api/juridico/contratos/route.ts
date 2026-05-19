@@ -11,7 +11,8 @@
  */
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getAuthContext, isAdmin } from "@/lib/auth-helpers";
+import { getAuthContext } from "@/lib/auth-helpers";
+import { canViewContratosModule, getPermissoes } from "@/lib/auth/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -19,9 +20,17 @@ const STATUS_VALIDOS = ["pendente_revisao", "aprovado", "arquivado", "rejeitado"
 
 export async function GET(req: Request) {
   const ctx = await getAuthContext().catch(() => null);
-  if (!ctx || !isAdmin(ctx)) {
+  if (!ctx || !(await canViewContratosModule(ctx))) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
+
+  // Aplicar filtro de carteira: usuário com lista específica só vê contratos
+  // das pessoas que estão na lista (admin bypassa via "*").
+  const perm = await getPermissoes(ctx.userId);
+  const filtroCarteira =
+    ctx.role === "admin" || perm.carteirasPermitidas === "*"
+      ? undefined
+      : { pessoaId: { in: perm.carteirasPermitidas as string[] } };
 
   const url = new URL(req.url);
   const statusParam = url.searchParams.get("status");
@@ -39,6 +48,7 @@ export async function GET(req: Request) {
   const where = {
     ...(status ? { status } : {}),
     ...(pessoaId ? { pessoaId } : {}),
+    ...(filtroCarteira ?? {}),
   };
 
   const [total, contratos] = await Promise.all([

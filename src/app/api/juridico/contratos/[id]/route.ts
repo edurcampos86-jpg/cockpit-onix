@@ -6,17 +6,22 @@
  */
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getAuthContext, isAdmin } from "@/lib/auth-helpers";
+import { getAuthContext } from "@/lib/auth-helpers";
+import { canViewContrato } from "@/lib/auth/permissions";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(_req: Request, ctxParams: { params: Promise<{ id: string }> }) {
   const ctx = await getAuthContext().catch(() => null);
-  if (!ctx || !isAdmin(ctx)) {
+  if (!ctx) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
   const { id } = await ctxParams.params;
+
+  if (!(await canViewContrato(ctx, id))) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
 
   const contrato = await prisma.contratoArquivo.findUnique({
     where: { id },

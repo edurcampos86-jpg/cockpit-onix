@@ -7,12 +7,14 @@
  * Auth: admin. RBAC granular vem na Fase 1B.
  */
 import { NextResponse } from "next/server";
-import { getAuthContext, isAdmin } from "@/lib/auth-helpers";
+import { getAuthContext } from "@/lib/auth-helpers";
+import { canEditContratos } from "@/lib/auth/permissions";
 import {
   registrarUploadContrato,
   TAMANHO_MAXIMO_PDF_BYTES,
 } from "@/lib/juridico";
 import { b2Configurado } from "@/lib/b2/client";
+import { logAcessoContrato, extrairRequestMeta } from "@/lib/juridico/audit";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -20,7 +22,7 @@ export const maxDuration = 60;
 
 export async function POST(req: Request) {
   const ctx = await getAuthContext().catch(() => null);
-  if (!ctx || !isAdmin(ctx)) {
+  if (!ctx || !(await canEditContratos(ctx))) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
@@ -96,6 +98,14 @@ export async function POST(req: Request) {
       { status: 409 }
     );
   }
+
+  void logAcessoContrato({
+    contratoArquivoId: result.contratoArquivoId,
+    usuarioId: ctx.userId,
+    acao: "subiu",
+    meta: extrairRequestMeta(req),
+    extra: { nomeOriginal: file.name, tamanho: file.size },
+  });
 
   return NextResponse.json(
     {

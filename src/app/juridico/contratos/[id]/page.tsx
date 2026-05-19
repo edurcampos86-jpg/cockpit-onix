@@ -1,10 +1,12 @@
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { getAuthContext, isAdmin } from "@/lib/auth-helpers";
+import { getAuthContext } from "@/lib/auth-helpers";
+import { canViewContrato, canApproveContratos } from "@/lib/auth/permissions";
 import { PageHeader } from "@/components/layout/page-header";
-import { ArrowLeft, ExternalLink } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { ContratoActions } from "./_components/contrato-actions";
+import { PdfViewer } from "./_components/pdf-viewer";
 
 export const metadata = { title: "Contrato — Cockpit Onix" };
 export const dynamic = "force-dynamic";
@@ -16,9 +18,11 @@ export default async function ContratoDetalhePage({
 }) {
   const ctx = await getAuthContext().catch(() => null);
   if (!ctx) redirect("/login");
-  if (!isAdmin(ctx)) redirect("/");
 
   const { id } = await params;
+
+  if (!(await canViewContrato(ctx, id))) redirect("/juridico/contratos");
+  const podeAprovar = await canApproveContratos(ctx);
 
   const contrato = await prisma.contratoArquivo.findUnique({
     where: { id },
@@ -60,24 +64,15 @@ export default async function ContratoDetalhePage({
           <div className="rounded-xl border border-border bg-card overflow-hidden">
             <div className="border-b border-border bg-muted/30 px-4 py-2 flex items-center justify-between">
               <span className="text-sm font-medium">Visualizar PDF</span>
-              <a
-                href={`/api/juridico/contratos/${contrato.id}/pdf`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-              >
-                Abrir em nova aba
-                <ExternalLink className="h-3 w-3" />
-              </a>
+              <span className="text-xs text-muted-foreground">
+                Watermark aplicado · acesso registrado
+              </span>
             </div>
-            <iframe
-              src={`/api/juridico/contratos/${contrato.id}/pdf`}
-              title={contrato.nomeOriginal}
-              className="w-full h-[800px] bg-muted"
-            />
-            <div className="border-t border-border bg-amber-50 dark:bg-amber-950/20 px-4 py-2 text-xs text-amber-800 dark:text-amber-300">
-              ⚠ Sem watermark nem audit log nessa fase. Fase 1B adiciona
-              proteção visual + log de acesso + 2FA gate.
+            <PdfViewer contratoId={contrato.id} />
+            <div className="border-t border-border bg-blue-50 dark:bg-blue-950/20 px-4 py-2 text-xs text-blue-800 dark:text-blue-300">
+              🔒 Toda visualização carrega seu nome, e-mail, IP e timestamp
+              estampados em cada página. Tentativas de download/impressão são
+              logadas no audit trail (/admin/auditoria/contratos).
             </div>
           </div>
 
@@ -121,6 +116,7 @@ export default async function ContratoDetalhePage({
           <ContratoActions
             contratoId={contrato.id}
             statusAtual={contrato.status}
+            podeAprovar={podeAprovar}
           />
 
           <div className="rounded-xl border border-border bg-card p-4">

@@ -15,6 +15,7 @@ import { prisma } from "./prisma";
 export type AuthContext = {
   userId: string;
   name: string;
+  email: string;
   role: string; // "admin" | "support"
   pessoa: {
     id: string;
@@ -33,19 +34,26 @@ export async function requireSession(): Promise<SessionPayload> {
 
 export async function getAuthContext(): Promise<AuthContext> {
   const session = await requireSession();
-  const pessoa = await prisma.pessoa.findUnique({
-    where: { userId: session.userId },
-    select: {
-      id: true,
-      teamRole: true,
-      nomeCompleto: true,
-      departamentoId: true,
-      filialId: true,
-    },
-  });
+  const [pessoa, user] = await Promise.all([
+    prisma.pessoa.findUnique({
+      where: { userId: session.userId },
+      select: {
+        id: true,
+        teamRole: true,
+        nomeCompleto: true,
+        departamentoId: true,
+        filialId: true,
+      },
+    }),
+    prisma.user.findUnique({
+      where: { id: session.userId },
+      select: { email: true },
+    }),
+  ]);
   return {
     userId: session.userId,
     name: session.name,
+    email: user?.email ?? "",
     role: session.role,
     pessoa,
   };
