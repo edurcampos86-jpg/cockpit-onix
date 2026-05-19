@@ -1,4 +1,5 @@
 import "server-only";
+import { prisma } from "@/lib/prisma";
 import {
   getMicrosoftAccessTokenForUser,
   MicrosoftNotConnectedError,
@@ -19,16 +20,37 @@ import type { EmailAcao, EventoAgenda } from "./types";
 
 const MS_GRAPH = "https://graph.microsoft.com/v1.0";
 const TIMEZONE = "America/Bahia";
+// Bahia = UTC-3 sem DST (Brasil aboliu horario de verao em 2019).
+// Se voltar, este offset silenciosamente derrapa — anotar pra ajustar.
+const BAHIA_UTC_OFFSET = "-03:00";
 
 function janelaDoDiaBahia(dataYmd: string): {
   startISO: string;
   endISO: string;
 } {
   const [y, m, d] = dataYmd.split("-").map(Number);
-  // Bahia = UTC-3 (sem DST). 00:00 Bahia == 03:00 UTC.
+  // 00:00 Bahia == 03:00 UTC.
   const startISO = new Date(Date.UTC(y, m - 1, d, 3, 0, 0)).toISOString();
   const endISO = new Date(Date.UTC(y, m - 1, d + 1, 3, 0, 0)).toISOString();
   return { startISO, endISO };
+}
+
+/**
+ * Graph devolve dateTime como string NAIVE (sem offset) quando usamos
+ * Prefer: outlook.timezone. `new Date("2026-05-19T14:30:00")` seria
+ * interpretado como horario do container (em prod = UTC), gerando 3h
+ * de drift. Anexamos o offset Bahia explicito antes de parsear.
+ */
+function parseGraphDateTimeBahia(naive: string | undefined): string | null {
+  if (!naive) return null;
+  // Se ja veio com Z ou offset, parseia normalmente
+  if (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(naive)) {
+    const d = new Date(naive);
+    return isNaN(d.getTime()) ? null : d.toISOString();
+  }
+  // Naive: anexa offset Bahia
+  const d = new Date(`${naive}${BAHIA_UTC_OFFSET}`);
+  return isNaN(d.getTime()) ? null : d.toISOString();
 }
 
 function extractMeetingLink(
@@ -113,16 +135,14 @@ export async function fetchAgendaDoDiaMs(
 
   const items = data.value ?? [];
   return items.map((ev): EventoAgenda => {
-    const startStr = ev.start?.dateTime;
-    const endStr = ev.end?.dateTime;
-    const inicio = startStr
-      ? new Date(startStr).toISOString()
-      : new Date().toISOString();
+    const inicio =
+      parseGraphDateTimeBahia(ev.start?.dateTime) ?? new Date().toISOString();
+    const fim = parseGraphDateTimeBahia(ev.end?.dateTime) ?? inicio;
     return {
       id: ev.id,
       titulo: ev.subject ?? "(sem título)",
       inicio,
-      fim: endStr ? new Date(endStr).toISOString() : inicio,
+      fim,
       organizador: ev.organizer?.emailAddress?.name ?? undefined,
       origem: "ms-calendar",
       linkReuniao: extractMeetingLink(
@@ -185,7 +205,6 @@ export async function fetchEmailsAcaoMs(
 
   // Para a heurística de "destinatário direto = você", buscar o e-mail do
   // usuário (do cache do oauth, evita uma roundtrip no Graph /me a cada call).
-  const { prisma } = await import("@/lib/prisma");
   const row = await prisma.userMicrosoftAuth.findUnique({
     where: { userId },
     select: { microsoftEmail: true },
