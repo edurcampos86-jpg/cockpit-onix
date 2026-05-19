@@ -8,6 +8,7 @@ import {
   ExternalLink,
   Info,
   Mail,
+  MessageSquareReply,
   RefreshCw,
   Sparkles,
   Zap,
@@ -22,6 +23,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { QuickReplyModal } from "@/components/painel-do-dia/QuickReplyModal";
 import type { EmailClassificado } from "@/lib/painel-do-dia/types";
 
 function formatarHaQuantoTempo(iso: string | undefined, agora: number): string | undefined {
@@ -70,6 +72,7 @@ export function EmailsAcao({
   const [fetchedAtCliente, setFetchedAtCliente] = useState<string | undefined>(undefined);
   const [refreshing, setRefreshing] = useState(false);
   const [erroRefresh, setErroRefresh] = useState<string | null>(null);
+  const [quickReplyEmail, setQuickReplyEmail] = useState<EmailClassificado | null>(null);
 
   const fonte = emailsCliente ?? emails;
   // Ordena: ação+alta > ação+media > agendamento > cliente_novo > fyi > spam
@@ -258,7 +261,7 @@ export function EmailsAcao({
                       </div>
                     )}
                     {classificado && !processado && e.tipo !== "spam" && (
-                      <div className="mt-2 flex justify-end gap-2">
+                      <div className="mt-2 flex flex-wrap justify-end gap-2">
                         <Button
                           size="sm"
                           variant="ghost"
@@ -268,6 +271,16 @@ export function EmailsAcao({
                         >
                           <Archive className="h-3 w-3" /> Arquivar
                         </Button>
+                        {e.aiId && e.origem === "gmail" && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-xs"
+                            onClick={() => setQuickReplyEmail(e)}
+                          >
+                            <MessageSquareReply className="h-3 w-3" /> Responder com Claude
+                          </Button>
+                        )}
                         {(e.tipo === "acao" ||
                           e.tipo === "agendamento" ||
                           e.tipo === "cliente_novo") && (
@@ -306,6 +319,15 @@ export function EmailsAcao({
           )}
         </CardContent>
       </Card>
+      <QuickReplyModal
+        aiId={quickReplyEmail?.aiId ?? null}
+        open={quickReplyEmail !== null}
+        onOpenChange={(o) => {
+          if (!o) setQuickReplyEmail(null);
+        }}
+        assunto={quickReplyEmail?.assunto}
+        remetente={quickReplyEmail?.remetente}
+      />
     </TooltipProvider>
   );
 }
