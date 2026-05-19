@@ -6,12 +6,20 @@ import type { OAuth2Client } from "google-auth-library";
 import { prisma } from "@/lib/prisma";
 import { decryptSecret, encryptSecret } from "@/lib/crypto";
 
+// IMPORTANTE: ao adicionar/remover escopos, usuários já conectados precisam
+// reconectar a conta Google (Integrações → Desconectar e Conectar). O Google
+// só concede os escopos pedidos no consentimento — o refresh_token existente
+// não ganha novas permissões automaticamente.
+//
+// `gmail.compose` é necessário para o fluxo "Responder com Claude" do Painel
+// do Dia (criação de drafts via gmail.users.drafts.create).
 export const GOOGLE_SCOPES = [
   "openid",
   "email",
   "profile",
   "https://www.googleapis.com/auth/calendar.readonly",
   "https://www.googleapis.com/auth/gmail.readonly",
+  "https://www.googleapis.com/auth/gmail.compose",
 ];
 
 const STATE_TTL_SECONDS = 60 * 10; // 10min para concluir o consentimento
