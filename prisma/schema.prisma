@@ -34,6 +34,31 @@ model User {
   painelRetros      PainelRetrospectiva[]
   painelEmailsAI    PainelEmailAI[]
   pessoa            Pessoa?
+  googleAuth        UserGoogleAuth?
+}
+
+// ============================================
+// OAUTH POR USUÁRIO — Google (Calendar + Gmail)
+// ============================================
+// Tokens cifrados em AES-256-GCM (src/lib/crypto.ts).
+// Convive com o token global em .integrations.json usado pelo sync de posts
+// e sync de reuniões-clientes (legado single-user). Migração desses fluxos
+// para esta tabela fica para fase futura.
+model UserGoogleAuth {
+  id                   String    @id @default(cuid())
+  userId               String    @unique
+  googleEmail          String
+  refreshTokenEnc      String    @db.Text
+  accessTokenEnc       String?   @db.Text
+  accessTokenExpiresAt DateTime?
+  scopes               String    @db.Text // CSV dos escopos concedidos
+  connectedAt          DateTime  @default(now())
+  lastUsedAt           DateTime?
+  lastErrorAt          DateTime?
+  lastError            String?   @db.Text
+  updatedAt            DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 // ============================================
