@@ -1593,3 +1593,56 @@ model ContratoAcessoLog {
   @@index([usuarioId, timestamp(sort: Desc)])
   @@index([acao, timestamp(sort: Desc)])
 }
+
+// ============================================
+// JURÍDICO — FASE 1C (BACKUP + BULK IMPORT)
+// ============================================
+
+// Histórico de execuções de backup (Postgres dumps + restore tests).
+// Cada run cria 1 linha — successo ou falha.
+model BackupExecucao {
+  id String @id @default(cuid())
+
+  tipo            String // "banco" | "arquivos" | "completo" | "restore_test"
+  destino         String // ex: b2://onix-cockpit-backups/postgres/2026/05/postgres-...sql.gz
+  tamanhoBytes    BigInt?
+  sucesso         Boolean
+  erro            String? @db.Text
+  duracaoSegundos Int?
+
+  // Metadados (versão do schema, contagem de tabelas, etc)
+  metadata Json?
+
+  executadoEm DateTime @default(now())
+
+  @@index([tipo, executadoEm(sort: Desc)])
+  @@index([executadoEm(sort: Desc)])
+}
+
+// Job de importação em lote (ZIP do OneDrive 5.Jurídico).
+// Cada arquivo importado vira um ContratoArquivo (status pendente_revisao);
+// a ImportJob serve só pra progress tracking e auditoria.
+model ImportJob {
+  id String @id @default(cuid())
+
+  tipo          String @default("juridico_zip") // "juridico_zip" | (outros tipos no futuro)
+  totalArquivos Int    @default(0)
+  processados   Int    @default(0)
+  sucessos      Int    @default(0)
+  erros         Int    @default(0)
+  pulados       Int    @default(0) // duplicatas por hash
+  status        String @default("running") // "running" | "completed" | "failed"
+
+  iniciadoPorId   String
+  zipFilename     String?
+  zipBytes        BigInt?
+  duracaoSegundos Int?
+
+  detalhes Json? // array com status por arquivo processado
+
+  iniciadoEm   DateTime  @default(now())
+  finalizadoEm DateTime?
+
+  @@index([iniciadoPorId, iniciadoEm(sort: Desc)])
+  @@index([status])
+}

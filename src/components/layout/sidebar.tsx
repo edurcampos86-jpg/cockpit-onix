@@ -41,6 +41,8 @@ import {
   PieChart,
   Scale,
   Shield,
+  Database,
+  PackagePlus,
 } from "lucide-react";
 import { useState, useTransition, useEffect } from "react";
 import { cn } from "@/lib/utils";
@@ -103,6 +105,8 @@ const sharedNavigation = [
   { name: "Insights do Time", href: "/time/insights", icon: PieChart },
   { name: "Jurídico", href: "/juridico/contratos", icon: Scale },
   { name: "Auditoria", href: "/admin/auditoria/contratos", icon: Shield },
+  { name: "Importar Jurídico", href: "/admin/importacao/juridico", icon: PackagePlus },
+  { name: "Backups", href: "/admin/backups", icon: Database },
   { name: "Glossário", href: "/glossario", icon: BookMarked },
   { name: "Integrações", href: "/integracoes", icon: Plug },
 ];
@@ -139,7 +143,12 @@ function getActiveModuleId(pathname: string): string {
   if (pathname.startsWith("/onix-corretora")) return "corretora";
   if (pathname.startsWith("/backoffice")) return "backoffice";
   // Shared pages don't belong to a module
-  if (["/metodo", "/time", "/glossario", "/integracoes", "/juridico", "/admin/auditoria"].some((p) => pathname.startsWith(p))) return "";
+  if (
+    ["/metodo", "/time", "/glossario", "/integracoes", "/juridico", "/admin/auditoria", "/admin/importacao", "/admin/backups"].some(
+      (p) => pathname.startsWith(p),
+    )
+  )
+    return "";
   return "mkt";
 }
 
