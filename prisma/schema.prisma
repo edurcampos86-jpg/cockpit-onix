@@ -1066,6 +1066,12 @@ model PainelEmailAI {
   arquivado    Boolean @default(false) // usuario ignorou
   acaoGeradaId String? // id da AcaoPainel criada
 
+  // Sugestao de evento detectada pelo Claude no triagem (separado de
+  // "processado" porque um mesmo e-mail pode virar Acao E gerar evento).
+  // Shape do JSON: { titulo, inicioISO, fimISO, participantes: string[], local? }
+  eventoSugeridoJson Json?
+  eventoProcessado   Boolean @default(false) // usuario clicou Marcar ou Ignorar
+
   classificadoEm DateTime @default(now())
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt

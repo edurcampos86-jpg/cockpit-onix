@@ -138,6 +138,19 @@ export type SugestaoPainelPayload = {
   criadaEm: string;
 };
 
+/**
+ * Sugestão de evento de calendário extraída por IA durante a triagem.
+ * Salva em PainelEmailAI.eventoSugeridoJson quando o e-mail propõe
+ * reunião/conversa em horário específico.
+ */
+export type EventoSugerido = {
+  titulo: string;
+  inicioISO: string; // ISO 8601 com timezone (America/Bahia)
+  fimISO: string;
+  participantes: string[];
+  local?: string;
+};
+
 export type EmailClassificado = EmailAcao & {
   aiId?: string;
   tipo?: "acao" | "fyi" | "spam" | "agendamento" | "cliente_novo";
@@ -147,6 +160,7 @@ export type EmailClassificado = EmailAcao & {
   venceSugerido?: string;
   clienteVinculadoId?: string;
   processado?: boolean;
+  eventoSugerido?: EventoSugerido;
 };
 
 export type PainelDoDiaPayload = {
