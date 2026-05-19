@@ -8,7 +8,7 @@ import {
   NoSuchKey,
 } from "@aws-sdk/client-s3";
 import type { Readable } from "node:stream";
-import { getB2Client, bucketContratos } from "./client";
+import { getB2ClientContratos, bucketContratos } from "./client";
 
 export type UploadResult = {
   bucket: string;
@@ -28,7 +28,7 @@ export async function uploadContrato(params: {
   contentType?: string;
   metadata?: Record<string, string>;
 }): Promise<UploadResult> {
-  const client = getB2Client();
+  const client = getB2ClientContratos();
   const bucket = bucketContratos();
 
   const cmd = new PutObjectCommand({
@@ -51,7 +51,7 @@ export async function uploadContrato(params: {
 
 /** Baixa um objeto e devolve Buffer (PDFs ficam em alguns MB, OK pra memória). */
 export async function downloadContrato(key: string): Promise<Buffer> {
-  const client = getB2Client();
+  const client = getB2ClientContratos();
   const bucket = bucketContratos();
 
   const cmd = new GetObjectCommand({ Bucket: bucket, Key: key });
@@ -74,7 +74,7 @@ export async function moveContrato(params: {
   fromKey: string;
   toKey: string;
 }): Promise<void> {
-  const client = getB2Client();
+  const client = getB2ClientContratos();
   const bucket = bucketContratos();
 
   await client.send(
@@ -88,14 +88,14 @@ export async function moveContrato(params: {
 }
 
 export async function deleteContrato(key: string): Promise<void> {
-  const client = getB2Client();
+  const client = getB2ClientContratos();
   const bucket = bucketContratos();
   await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
 }
 
 /** Verifica se uma key existe — usado pra recuperação de upload incompleto. */
 export async function contratoExiste(key: string): Promise<boolean> {
-  const client = getB2Client();
+  const client = getB2ClientContratos();
   const bucket = bucketContratos();
   try {
     await client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
