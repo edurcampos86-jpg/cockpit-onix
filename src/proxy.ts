@@ -70,6 +70,31 @@ export async function proxy(request: NextRequest) {
     return response;
   }
 
+  // Gate de 2FA pro módulo Jurídico — checagem leve (só cookie). Validação
+  // detalhada (userId match, expiração) acontece nos handlers via
+  // verificarSessao2FA(). Esta camada apenas redireciona o usuário pra o
+  // fluxo de verify se não há cookie. Rotas /2fa/* e /api/auth/2fa/* passam
+  // direto pra não criar loop.
+  const ehJuridico = path.startsWith("/juridico") || path.startsWith("/api/juridico");
+  const eh2FA = path.startsWith("/2fa") || path.startsWith("/api/auth/2fa");
+  if (ehJuridico && !eh2FA) {
+    const tem2FA = request.cookies.has("2fa-verified");
+    if (!tem2FA) {
+      if (path.startsWith("/api/")) {
+        return NextResponse.json(
+          {
+            error: "2FA required",
+            redirect: `/2fa/verify?next=${encodeURIComponent(path)}`,
+          },
+          { status: 401, headers: { "X-2FA-Required": "1" } }
+        );
+      }
+      const next = path + request.nextUrl.search;
+      const url = new URL(`/2fa/verify?next=${encodeURIComponent(next)}`, request.url);
+      return NextResponse.redirect(url);
+    }
+  }
+
   // Injetar userId e role no header para uso nas API routes
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-user-id", session.userId as string);

@@ -1,0 +1,18 @@
+# Nixpacks config — Cockpit Onix
+#
+# Default do Railway funciona pra Next.js, mas o módulo Jurídico precisa do
+# binário `pg_dump` no runtime (Fase 1C — backup diário Postgres). Sem essa
+# config o container roda Node Alpine puro, sem PostgreSQL client.
+#
+# providers = [] força o auto-detect normal (Node).
+# nixPkgs adiciona ferramentas extras no PATH:
+#   - postgresql_16: fornece pg_dump, pg_restore, psql na versão 16
+#     (mesma versão do Postgres do Railway hoje)
+#
+# A versão precisa bater com (ou ser maior que) a versão do server, senão
+# pg_dump falha com "server version mismatch".
+
+providers = ["node"]
+
+[phases.setup]
+nixPkgs = ["postgresql_16"]

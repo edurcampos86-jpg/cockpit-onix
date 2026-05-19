@@ -22,6 +22,8 @@ on:
     - cron: '*/30 * * * *'  # outlook-poll + datacrazy-atividades-poll
     - cron: '30 10 * * 1-5' # boot-do-dia (seg-sex 07:30 Bahia / 10:30 UTC)
     - cron: '0 23 * * 0'    # retrospectiva-semanal (dom 20:00 Bahia / 23:00 UTC)
+    - cron: '0 7 * * *'     # backup-daily (04h Bahia / 07h UTC)
+    - cron: '0 8 1 * *'     # backup-restore-test (1º do mês, 05h Bahia / 08h UTC)
   workflow_dispatch:
     inputs:
       paths:
@@ -63,6 +65,12 @@ jobs:
                 ;;
               "0 23 * * 0")
                 PATHS="/api/cron/retrospectiva-semanal"
+                ;;
+              "0 7 * * *")
+                PATHS="/api/cron/backup-daily"
+                ;;
+              "0 8 1 * *")
+                PATHS="/api/cron/backup-restore-test"
                 ;;
               *)
                 echo "Schedule '$SCHEDULE' não mapeado — nenhum endpoint executado."
