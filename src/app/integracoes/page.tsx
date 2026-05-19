@@ -5,6 +5,7 @@ import Link from "next/link";
 import { PageHeader } from "@/components/layout/page-header";
 import { ComoFunciona } from "@/components/layout/como-funciona";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { GoogleAliasesEditor } from "./_components/google-aliases-editor";
 import {
   MessageSquare,
   Bot,
@@ -561,6 +562,7 @@ export default function IntegracoesPage() {
                                   Desconectar
                                 </button>
                               </div>
+                              <GoogleAliasesEditor />
                             </>
                           ) : (
                             <>

@@ -52,3 +52,6 @@ dev.db-journal
 
 # editor/hook tmp backups
 *.tmp.[0-9]*
+
+# Claude Code agent worktrees (created by isolation: "worktree")
+.claude/worktrees/
