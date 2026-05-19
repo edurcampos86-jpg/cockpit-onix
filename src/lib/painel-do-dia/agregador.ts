@@ -2,6 +2,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { fetchAgendaDoDia, fetchEmailsAcao } from "./google-fetch";
 import { GoogleNotConnectedError } from "@/lib/integrations/google-user-oauth";
+import { processarTriagemEmails } from "./triar-emails";
 import type {
   AcaoUnificada,
   EmailAcao,
@@ -89,7 +90,6 @@ export async function carregarPainelDoDia(
     resGoogleEmails,
     resRetros,
     resSugestoes,
-    resEmailsAI,
   ] = await Promise.allSettled([
     carregarAcoes(userId),
     carregarPrioridades(userId, data),
@@ -99,7 +99,6 @@ export async function carregarPainelDoDia(
     carregarEmailsGoogle(userId),
     carregarRetrospectivaAtiva(userId),
     carregarSugestoes(userId),
-    carregarEmailsClassificados(userId),
   ]);
 
   const errosPorSecao: PainelDoDiaPayload["errosPorSecao"] = {};
@@ -146,6 +145,25 @@ export async function carregarPainelDoDia(
       : String(resGoogleEmails.reason);
   }
 
+  // Triagem AI dos e-mails Gmail recém-buscados (dedupe interno por
+  // PainelEmailAI.externoId — só novos vão pro Claude). Best-effort:
+  // se Claude estiver fora, segue com e-mails sem classificacao.
+  if (googleEmails.length > 0) {
+    try {
+      await processarTriagemEmails(userId, googleEmails);
+    } catch (err) {
+      console.error("[agregador] triagem gmail falhou", err);
+    }
+  }
+
+  // Carrega classificacoes apos triagem para pegar os novos PainelEmailAI.
+  let emailsAI: Awaited<ReturnType<typeof carregarEmailsClassificados>>;
+  try {
+    emailsAI = await carregarEmailsClassificados(userId);
+  } catch {
+    emailsAI = new Map();
+  }
+
   // Une agenda do cache Microsoft + Google (a dedupe visual fica em AgendaUnificada)
   const agendaUnida: EventoAgenda[] = [...caches.agenda, ...googleAgenda];
   const dedupe = deduplicarAcoesVsAgenda(acoes, agendaUnida);
@@ -169,10 +187,9 @@ export async function carregarPainelDoDia(
     resRetros.status === "fulfilled" ? resRetros.value : undefined;
   const sugestoes: SugestaoPainelPayload[] =
     resSugestoes.status === "fulfilled" ? resSugestoes.value : [];
-  const emailsAI = resEmailsAI.status === "fulfilled" ? resEmailsAI.value : new Map();
 
-  // Mescla classificação AI nos emails do cache Microsoft, e junta com Gmail puro.
-  const emailsMs: EmailClassificado[] = caches.emails.map((e) => {
+  // Mescla classificação AI nos emails de ambas as origens (ms-mail e gmail).
+  function enriquecer(e: EmailAcao): EmailClassificado {
     const ai = emailsAI.get(e.id);
     if (!ai) return e;
     return {
@@ -186,8 +203,23 @@ export async function carregarPainelDoDia(
       clienteVinculadoId: ai.clienteVinculadoId,
       processado: ai.processado,
     };
-  });
-  const emails: EmailClassificado[] = [...emailsMs, ...googleEmails];
+  }
+  // Arquivados saem da lista (carregarEmailsClassificados ja filtra arquivado=false;
+  // emails sem entrada na AI mantem-se visiveis).
+  const arquivados = await prisma.painelEmailAI
+    .findMany({
+      where: { userId, arquivado: true },
+      select: { externoId: true },
+    })
+    .then((rows) => new Set(rows.map((r) => r.externoId)))
+    .catch(() => new Set<string>());
+  const emailsMs: EmailClassificado[] = caches.emails
+    .filter((e) => !arquivados.has(e.id))
+    .map(enriquecer);
+  const emailsGmail: EmailClassificado[] = googleEmails
+    .filter((e) => !arquivados.has(e.id))
+    .map(enriquecer);
+  const emails: EmailClassificado[] = [...emailsMs, ...emailsGmail];
 
   return {
     data,

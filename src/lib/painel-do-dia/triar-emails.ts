@@ -99,20 +99,19 @@ function vincularCliente(
   return undefined;
 }
 
-export async function processarTriagem(userId: string): Promise<{
-  classificados: number;
-  pulados: number;
-  erros: number;
-}> {
-  const cache = await prisma.painelCacheExterno.findFirst({
-    where: { userId, source: "ms-mail" },
-  });
-  if (!cache) return { classificados: 0, pulados: 0, erros: 0 };
-
-  const emails = (cache.payload as EmailAcao[] | undefined) ?? [];
+/**
+ * Triagem genérica de uma lista de e-mails em memória. Usada para o Gmail
+ * (que não passa por PainelCacheExterno) e como núcleo da triagem ms-mail.
+ *
+ * Faz dedupe por (userId, externoId): só passa pelo Claude o que ainda não
+ * está em PainelEmailAI.
+ */
+export async function processarTriagemEmails(
+  userId: string,
+  emails: EmailAcao[]
+): Promise<{ classificados: number; pulados: number; erros: number }> {
   if (emails.length === 0) return { classificados: 0, pulados: 0, erros: 0 };
 
-  // IDs já classificados
   const existentes = await prisma.painelEmailAI.findMany({
     where: { userId, externoId: { in: emails.map((e) => e.id) } },
     select: { externoId: true },
@@ -169,6 +168,35 @@ export async function processarTriagem(userId: string): Promise<{
   }
 
   return { classificados, pulados, erros };
+}
+
+export async function processarTriagem(userId: string): Promise<{
+  classificados: number;
+  pulados: number;
+  erros: number;
+}> {
+  const cache = await prisma.painelCacheExterno.findFirst({
+    where: { userId, source: "ms-mail" },
+  });
+  if (!cache) return { classificados: 0, pulados: 0, erros: 0 };
+
+  const emails = (cache.payload as EmailAcao[] | undefined) ?? [];
+  return processarTriagemEmails(userId, emails);
+}
+
+export async function arquivarEmailAI(
+  userId: string,
+  aiId: string
+): Promise<void> {
+  const email = await prisma.painelEmailAI.findFirst({
+    where: { id: aiId, userId },
+    select: { id: true },
+  });
+  if (!email) throw new Error("email AI nao encontrado");
+  await prisma.painelEmailAI.update({
+    where: { id: aiId },
+    data: { arquivado: true },
+  });
 }
 
 /**
