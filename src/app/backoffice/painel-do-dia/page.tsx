@@ -2,6 +2,8 @@ export const dynamic = "force-dynamic";
 
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
+import { prisma } from "@/lib/prisma";
+import { Prisma } from "@/generated/prisma/client";
 import { PageHeader } from "@/components/layout/page-header";
 import { ComoFunciona } from "@/components/backoffice/como-funciona";
 import { PainelDiaHeader } from "@/components/backoffice/painel/painel-dia-header";
@@ -13,9 +15,14 @@ import { IntegracoesStatus } from "@/components/backoffice/painel/integracoes-st
 import { RetrospectivaCard } from "@/components/backoffice/painel/retrospectiva-card";
 import { SugestoesCard } from "@/components/backoffice/painel/sugestoes-card";
 import {
+  EventosSugeridosBlock,
+  type SugestaoEventoCard,
+} from "@/components/painel-do-dia/EventosSugeridosBlock";
+import {
   carregarPainelDoDia,
   hojeBahia,
 } from "@/lib/painel-do-dia/agregador";
+import type { EventoSugerido } from "@/lib/painel-do-dia/types";
 
 export default async function PainelDoDiaPage() {
   const session = await getSession();
@@ -23,6 +30,37 @@ export default async function PainelDoDiaPage() {
 
   const data = hojeBahia();
   const payload = await carregarPainelDoDia(session.userId, data);
+
+  // Sugestões de evento extraídas pela triagem AI — exibidas no bloco
+  // "Eventos sugeridos por e-mail" acima do bloco de e-mails.
+  // (Prisma trata Json? como JsonNullableFilter; usamos `not: JsonNull` para
+  // pegar linhas com qualquer payload preenchido.)
+  const rowsEventos = await prisma.painelEmailAI.findMany({
+    where: {
+      userId: session.userId,
+      eventoProcessado: false,
+      eventoSugeridoJson: { not: Prisma.AnyNull },
+    },
+    orderBy: { classificadoEm: "desc" },
+    select: {
+      id: true,
+      remetente: true,
+      assunto: true,
+      eventoSugeridoJson: true,
+    },
+  });
+  const eventosSugeridos: SugestaoEventoCard[] = rowsEventos
+    .map((r) => {
+      const evento = r.eventoSugeridoJson as unknown as EventoSugerido | null;
+      if (!evento || !evento.inicioISO || !evento.fimISO) return null;
+      return {
+        emailAiId: r.id,
+        remetente: r.remetente,
+        assunto: r.assunto,
+        evento,
+      };
+    })
+    .filter((s): s is SugestaoEventoCard => s !== null);
 
   return (
     <div className="space-y-6">
@@ -54,6 +92,12 @@ export default async function PainelDoDiaPage() {
       {payload.sugestoes.length > 0 && (
         <div className="px-8">
           <SugestoesCard sugestoes={payload.sugestoes} />
+        </div>
+      )}
+
+      {eventosSugeridos.length > 0 && (
+        <div className="px-8">
+          <EventosSugeridosBlock sugestoes={eventosSugeridos} />
         </div>
       )}
 

@@ -1,8 +1,9 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@/generated/prisma/client";
 import { claudeJson } from "./claude-helpers";
-import { normalizarTitulo } from "./agregador";
-import type { EmailAcao, QuadrantePM } from "./types";
+import { hojeBahia, normalizarTitulo } from "./agregador";
+import type { EmailAcao, EventoSugerido, QuadrantePM } from "./types";
 
 /**
  * Sug 4 — Triagem AI de e-mails.
@@ -27,6 +28,7 @@ type ClassificacaoLLM = {
   tituloAcao: string | null;
   venceSugerido: string | null; // ISO date or null
   clienteNomeSugerido: string | null;
+  eventoSugerido: EventoSugerido | null;
 };
 
 const LIMITE_POR_RODADA = 20; // evita estourar a quota do Claude
@@ -43,12 +45,29 @@ texto extra. Regras:
 - venceSugerido: ISO date (YYYY-MM-DD) só se detectar prazo claro. Senão null.
 - clienteNomeSugerido: nome do cliente se for claramente de um cliente
   (remetente conhecido ou menção explícita). Senão null.
+- eventoSugerido: se este e-mail combina ou propõe uma reunião/conversa em
+  HORÁRIO ESPECÍFICO (ex.: "quinta 15h", "amanhã às 10", "podemos falar
+  segunda 14h?"), devolva { titulo, inicioISO, fimISO, participantes, local? }.
+  Senão devolva null.
+  · timezone America/Bahia (UTC-3, sem horário de verão). inicioISO/fimISO
+    devem incluir o offset "-03:00".
+  · se a data é ambígua ("amanhã", "segunda", "quinta"), interprete relativo
+    a HOJE (informado no input).
+  · se o horário está AUSENTE ou impreciso ("conversar essa semana", "quando
+    puder"), NÃO sugira evento — devolva null.
+  · participantes: lista de e-mails (use o remetente; só inclua outros se
+    explicitamente mencionados).
+  · fimISO: se duração não for clara, assuma 30 minutos.
+  · local: só se mencionado (endereço físico, sala, ou "Google Meet").
 Retorne apenas JSON válido, sem comentários.`;
 
 async function classificar(
   email: EmailAcao
 ): Promise<ClassificacaoLLM | null> {
-  const user = `E-mail para classificar:
+  const dataAtual = hojeBahia(); // YYYY-MM-DD em America/Bahia
+  const user = `HOJE = ${dataAtual} (America/Bahia, UTC-3)
+
+E-mail para classificar:
 Remetente: ${email.remetente}
 Assunto: ${email.assunto}
 Trecho: ${email.snippet}
@@ -60,14 +79,48 @@ Responda em JSON:
   "quadranteSugerido": "Q1"|"Q2"|"Q3"|"Q4"|null,
   "tituloAcao": "..."|null,
   "venceSugerido": "YYYY-MM-DD"|null,
-  "clienteNomeSugerido": "..."|null
+  "clienteNomeSugerido": "..."|null,
+  "eventoSugerido": {
+    "titulo": "...",
+    "inicioISO": "YYYY-MM-DDTHH:mm:ss-03:00",
+    "fimISO": "YYYY-MM-DDTHH:mm:ss-03:00",
+    "participantes": ["email@dominio.com"],
+    "local": "..."|null
+  }|null
 }`;
 
   return await claudeJson<ClassificacaoLLM>({
     system: SYSTEM_PROMPT,
     user,
-    maxTokens: 400,
+    maxTokens: 600,
   });
+}
+
+/**
+ * Valida a sugestão de evento devolvida pelo Claude. Se algum campo
+ * essencial estiver faltando ou as datas não fizerem sentido, devolve
+ * null — assim a coluna fica NULL e a UI não mostra um card quebrado.
+ */
+function sanitizarEventoSugerido(
+  raw: EventoSugerido | null | undefined
+): EventoSugerido | null {
+  if (!raw || typeof raw !== "object") return null;
+  const titulo = typeof raw.titulo === "string" ? raw.titulo.trim() : "";
+  const inicioISO = typeof raw.inicioISO === "string" ? raw.inicioISO : "";
+  const fimISO = typeof raw.fimISO === "string" ? raw.fimISO : "";
+  if (!titulo || !inicioISO || !fimISO) return null;
+  const inicio = new Date(inicioISO);
+  const fim = new Date(fimISO);
+  if (isNaN(inicio.getTime()) || isNaN(fim.getTime())) return null;
+  if (fim.getTime() <= inicio.getTime()) return null;
+  const participantes = Array.isArray(raw.participantes)
+    ? raw.participantes.filter((p): p is string => typeof p === "string" && p.length > 0)
+    : [];
+  const local =
+    typeof raw.local === "string" && raw.local.trim().length > 0
+      ? raw.local.trim()
+      : undefined;
+  return { titulo, inicioISO, fimISO, participantes, local };
 }
 
 async function indiceClientes(): Promise<Map<string, string>> {
@@ -144,6 +197,8 @@ export async function processarTriagem(userId: string): Promise<{
         clientes
       );
 
+      const eventoSugerido = sanitizarEventoSugerido(cls.eventoSugerido);
+
       await prisma.painelEmailAI.create({
         data: {
           userId,
@@ -159,6 +214,9 @@ export async function processarTriagem(userId: string): Promise<{
             ? new Date(cls.venceSugerido)
             : null,
           clienteVinculadoId,
+          eventoSugeridoJson: eventoSugerido
+            ? (eventoSugerido as unknown as Prisma.InputJsonValue)
+            : undefined,
         },
       });
       classificados++;
