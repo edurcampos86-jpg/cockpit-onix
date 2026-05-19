@@ -1082,6 +1082,11 @@ model PainelEmailAI {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
+  // Coluna tsvector STORED gerada via migracao 20260519240000_painel_email_ai_fts.
+  // Mantida no schema como Unsupported() para o Prisma respeitar a coluna em
+  // db pull/push; usada apenas por queries raw (busca full-text).
+  tsv Unsupported("tsvector")?
+
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, externoId])

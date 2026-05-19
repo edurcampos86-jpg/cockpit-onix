@@ -14,6 +14,7 @@ import { AcoesDoDia } from "@/components/backoffice/painel/acoes-do-dia";
 import { IntegracoesStatus } from "@/components/backoffice/painel/integracoes-status";
 import { RetrospectivaCard } from "@/components/backoffice/painel/retrospectiva-card";
 import { SugestoesCard } from "@/components/backoffice/painel/sugestoes-card";
+import { BuscaSemanticaBlock } from "@/components/painel-do-dia/BuscaSemanticaBlock";
 import {
   EventosSugeridosBlock,
   type SugestaoEventoCard,
@@ -74,6 +75,10 @@ export default async function PainelDoDiaPage() {
           acoesPendentes={payload.acoes.filter((a) => a.pendingSync)}
         />
       </PageHeader>
+
+      <div className="px-8">
+        <BuscaSemanticaBlock />
+      </div>
 
       <div className="px-8">
         <ComoFunciona
