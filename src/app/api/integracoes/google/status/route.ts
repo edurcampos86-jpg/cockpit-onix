@@ -6,10 +6,13 @@ import { prisma } from "@/lib/prisma";
  * Devolve um código fixo (não a mensagem crua) para o client não receber
  * trechos de stacktrace ou URL de upstream.
  */
-type ErrorCode = "expired" | "network" | "rate_limit" | "unknown";
+type ErrorCode = "expired" | "insufficient_scope" | "network" | "rate_limit" | "unknown";
 function classifyLastError(msg: string | null): ErrorCode | null {
   if (!msg) return null;
   if (/invalid_grant/i.test(msg)) return "expired";
+  if (/escopo insuficiente|insufficient[\s_]*(permission|scope)/i.test(msg)) {
+    return "insufficient_scope";
+  }
   if (/ENOTFOUND|ECONN|fetch failed|network/i.test(msg)) return "network";
   if (/quota|rate/i.test(msg)) return "rate_limit";
   return "unknown";

@@ -166,12 +166,13 @@ type GoogleUserStatus = {
   scopes?: string[];
   connectedAt?: string;
   lastUsedAt?: string | null;
-  lastError?: "expired" | "network" | "rate_limit" | "unknown" | null;
+  lastError?: "expired" | "insufficient_scope" | "network" | "rate_limit" | "unknown" | null;
   lastErrorAt?: string | null;
 };
 
 const GOOGLE_ERROR_LABEL: Record<NonNullable<GoogleUserStatus["lastError"]>, string> = {
   expired: "Sessão expirada — reconecte sua conta.",
+  insufficient_scope: "Escopo insuficiente — reconecte sua conta para autorizar Calendar (events).",
   network: "Falha de rede ao falar com o Google. Tente atualizar em alguns minutos.",
   rate_limit: "Cota Google excedida temporariamente.",
   unknown: "Erro inesperado na última chamada.",

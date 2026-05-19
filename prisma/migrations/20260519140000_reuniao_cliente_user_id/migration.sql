@@ -8,9 +8,14 @@
 -- index, então o comportamento atual delas se mantém.
 --
 -- google-cal rows existentes vêm do fluxo admin global (GOOGLE_REFRESH_TOKEN)
--- e ficam ÓRFÃS (userId = NULL). Como o cron roda a cada 15min, na próxima
--- execução com o cron novo (per-user) elas serão re-inseridas com o
--- userId do dono e as órfãs antigas serão limpas pelo cleanup window.
+-- e ficam ÓRFÃS sem userId. Como o cleanup do cron novo escopa por userId,
+-- essas órfãs persistiriam DUPLICANDO o agregado `proximaReuniaoAt` /
+-- `ultimaReuniaoAt` em ClienteBackoffice (mesmo event seria contado 2x:
+-- com NULL e com o userId novo). Apagamos elas aqui — o cron re-popula
+-- na primeira execução pos-deploy (~15min).
+
+-- DataCleanup: zerar órfãs google-cal pré-Fase 2.
+DELETE FROM "ReuniaoCliente" WHERE "source" = 'google-cal';
 
 -- AlterTable: adiciona userId nullable + FK
 ALTER TABLE "ReuniaoCliente" ADD COLUMN "userId" TEXT;

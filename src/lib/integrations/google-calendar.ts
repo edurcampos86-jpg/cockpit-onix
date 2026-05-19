@@ -14,6 +14,7 @@ import { google, calendar_v3 } from "googleapis";
 import {
   getGoogleClientForUser,
   GoogleNotConnectedError,
+  recordGoogleAuthError,
 } from "./google-user-oauth";
 
 const CALENDAR_ID = "primary";
@@ -21,6 +22,37 @@ const TIMEZONE = "America/Bahia";
 
 function getCalendarClient(auth: Awaited<ReturnType<typeof getGoogleClientForUser>>) {
   return google.calendar({ version: "v3", auth });
+}
+
+/**
+ * Detecta 403 com `insufficient_permission` / "Insufficient Permission" —
+ * tipico quando o usuario conectou ANTES da Fase 2 e nao tem o escopo
+ * `calendar.events`. Persiste o erro em UserGoogleAuth.lastError pra que
+ * a UI mostre "Reconecte sua conta Google".
+ */
+function isInsufficientPermissionError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as {
+    code?: number;
+    message?: string;
+    response?: { data?: { error?: { errors?: Array<{ reason?: string }> } } };
+  };
+  if (e.code === 403) return true;
+  const msg = e.message ?? "";
+  if (/insufficient[\s_]*permission|insufficient[\s_]*scopes?/i.test(msg)) return true;
+  const reasons = e.response?.data?.error?.errors ?? [];
+  return reasons.some((r) => /insufficient/i.test(r.reason ?? ""));
+}
+
+async function noteScopeError(userId: string): Promise<void> {
+  try {
+    await recordGoogleAuthError(
+      userId,
+      "Escopo insuficiente — reconecte sua conta Google em /integracoes para autorizar Calendar.",
+    );
+  } catch {
+    /* nao bloqueia */
+  }
 }
 
 // ============================================
@@ -263,6 +295,12 @@ export async function syncPostToCalendar(
     return await createCalendarEvent(post.authorId, event);
   } catch (error) {
     if (error instanceof GoogleNotConnectedError) return null;
+    if (isInsufficientPermissionError(error)) {
+      // Usuario conectou antes da Fase 2 (sem escopo calendar.events).
+      // Persiste o erro pra que a UI mostre "Reconecte" em vez de falhar silente.
+      await noteScopeError(post.authorId);
+      return null;
+    }
     console.error("[Google Calendar] Erro ao sincronizar post:", error);
     return post.googleCalendarEventId;
   }
@@ -280,6 +318,10 @@ export async function removePostFromCalendar(
     await deleteCalendarEvent(authorId, googleCalendarEventId);
   } catch (error) {
     if (error instanceof GoogleNotConnectedError) return;
+    if (isInsufficientPermissionError(error)) {
+      await noteScopeError(authorId);
+      return;
+    }
     console.error("[Google Calendar] Erro ao remover evento:", error);
   }
 }
