@@ -9,8 +9,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const isLoginPage = pathname === "/login";
   const isPrintPage = pathname.endsWith("/print");
   const isResetPage = pathname === "/recriar-senha";
+  // Páginas públicas (LGPD + Google verification): acessíveis sem login
+  // e renderizadas sem o shell para ficarem limpas pro reviewer.
+  const isPublicLegalPage = pathname === "/privacy" || pathname === "/terms";
 
-  if (isLoginPage || isPrintPage || isResetPage) {
+  if (isLoginPage || isPrintPage || isResetPage || isPublicLegalPage) {
     return <>{children}</>;
   }
 

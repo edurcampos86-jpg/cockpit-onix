@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { PageHeader } from "@/components/layout/page-header";
 import { ComoFunciona } from "@/components/layout/como-funciona";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -446,6 +447,17 @@ export default function IntegracoesPage() {
                               </button>
                             </>
                           )}
+                          <p className="pt-2 text-[11px] text-muted-foreground">
+                            Ao conectar, você concorda com nossos{" "}
+                            <Link href="/terms" className="underline hover:text-primary">
+                              Termos de Uso
+                            </Link>{" "}
+                            e{" "}
+                            <Link href="/privacy" className="underline hover:text-primary">
+                              Política de Privacidade
+                            </Link>
+                            . Os escopos solicitados ao Google são listados acima — você pode revogar a qualquer momento.
+                          </p>
                         </div>
                       )}
 
