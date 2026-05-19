@@ -39,7 +39,11 @@ export async function POST(
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Erro ao criar ação";
-    const status = msg.includes("nao encontrado") ? 404 : 500;
+    const status = msg.includes("nao encontrado")
+      ? 404
+      : msg.includes("nao gera acao")
+        ? 400
+        : 500;
     return NextResponse.json(
       { ok: false, error: msg },
       { status, headers: rateLimitHeaders(limit) },

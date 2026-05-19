@@ -156,12 +156,17 @@ export async function carregarPainelDoDia(
     }
   }
 
-  // Carrega classificacoes apos triagem para pegar os novos PainelEmailAI.
-  let emailsAI: Awaited<ReturnType<typeof carregarEmailsClassificados>>;
+  // Carrega TODAS as classificacoes do usuario (uma query so) e particiona
+  // entre ativas e arquivadas em memoria. Evita duas roundtrips ao banco.
+  let emailsAI: Map<string, EmailAIRecord>;
+  let arquivados: Set<string>;
   try {
-    emailsAI = await carregarEmailsClassificados(userId);
+    const { ativos, arquivados: arq } = await carregarTodosEmailsAI(userId);
+    emailsAI = ativos;
+    arquivados = arq;
   } catch {
     emailsAI = new Map();
+    arquivados = new Set();
   }
 
   // Une agenda do cache Microsoft + Google (a dedupe visual fica em AgendaUnificada)
@@ -204,15 +209,7 @@ export async function carregarPainelDoDia(
       processado: ai.processado,
     };
   }
-  // Arquivados saem da lista (carregarEmailsClassificados ja filtra arquivado=false;
-  // emails sem entrada na AI mantem-se visiveis).
-  const arquivados = await prisma.painelEmailAI
-    .findMany({
-      where: { userId, arquivado: true },
-      select: { externoId: true },
-    })
-    .then((rows) => new Set(rows.map((r) => r.externoId)))
-    .catch(() => new Set<string>());
+  // Arquivados sao filtrados aqui (emails sem entrada na AI seguem visiveis).
   const emailsMs: EmailClassificado[] = caches.emails
     .filter((e) => !arquivados.has(e.id))
     .map(enriquecer);
@@ -324,30 +321,39 @@ async function carregarSugestoes(userId: string): Promise<SugestaoPainelPayload[
   }));
 }
 
-async function carregarEmailsClassificados(userId: string): Promise<
-  Map<
-    string,
-    {
-      id: string;
-      tipo: "acao" | "fyi" | "spam" | "agendamento" | "cliente_novo";
-      urgencia: "alta" | "media" | "baixa";
-      quadranteSugerido?: QuadrantePM;
-      tituloAcao?: string;
-      venceSugerido?: string;
-      clienteVinculadoId?: string;
-      processado: boolean;
-    }
-  >
-> {
+type EmailAIRecord = {
+  id: string;
+  tipo: "acao" | "fyi" | "spam" | "agendamento" | "cliente_novo";
+  urgencia: "alta" | "media" | "baixa";
+  quadranteSugerido?: QuadrantePM;
+  tituloAcao?: string;
+  venceSugerido?: string;
+  clienteVinculadoId?: string;
+  processado: boolean;
+};
+
+/**
+ * Carrega TODOS os PainelEmailAI do usuario numa query so e particiona em
+ * (ativos -> Map por externoId) + (arquivados -> Set de externoId).
+ */
+async function carregarTodosEmailsAI(userId: string): Promise<{
+  ativos: Map<string, EmailAIRecord>;
+  arquivados: Set<string>;
+}> {
   const rows = await prisma.painelEmailAI.findMany({
-    where: { userId, arquivado: false },
+    where: { userId },
   });
-  const m = new Map();
+  const ativos = new Map<string, EmailAIRecord>();
+  const arquivados = new Set<string>();
   for (const r of rows) {
-    m.set(r.externoId, {
+    if (r.arquivado) {
+      arquivados.add(r.externoId);
+      continue;
+    }
+    ativos.set(r.externoId, {
       id: r.id,
-      tipo: r.tipo as "acao" | "fyi" | "spam" | "agendamento" | "cliente_novo",
-      urgencia: r.urgencia as "alta" | "media" | "baixa",
+      tipo: r.tipo as EmailAIRecord["tipo"],
+      urgencia: r.urgencia as EmailAIRecord["urgencia"],
       quadranteSugerido: (r.quadranteSugerido ?? undefined) as QuadrantePM | undefined,
       tituloAcao: r.tituloAcao ?? undefined,
       venceSugerido: r.venceSugerido?.toISOString(),
@@ -355,7 +361,7 @@ async function carregarEmailsClassificados(userId: string): Promise<
       processado: r.processado,
     });
   }
-  return m;
+  return { ativos, arquivados };
 }
 
 async function carregarAcoes(userId: string): Promise<AcaoUnificada[]> {

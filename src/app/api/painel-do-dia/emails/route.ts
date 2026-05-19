@@ -44,26 +44,19 @@ export async function GET() {
       }
     }
 
-    const [aiRows, arquivadosRows] = await Promise.all([
-      prisma.painelEmailAI.findMany({
-        where: {
-          userId: session.userId,
-          externoId: { in: emails.map((e) => e.id) },
-          arquivado: false,
-        },
-      }),
-      prisma.painelEmailAI.findMany({
-        where: {
-          userId: session.userId,
-          externoId: { in: emails.map((e) => e.id) },
-          arquivado: true,
-        },
-        select: { externoId: true },
-      }),
-    ]);
+    const aiRows = await prisma.painelEmailAI.findMany({
+      where: {
+        userId: session.userId,
+        externoId: { in: emails.map((e) => e.id) },
+      },
+    });
 
-    const aiPorExterno = new Map(aiRows.map((r) => [r.externoId, r]));
-    const arquivados = new Set(arquivadosRows.map((r) => r.externoId));
+    const aiPorExterno = new Map(
+      aiRows.filter((r) => !r.arquivado).map((r) => [r.externoId, r]),
+    );
+    const arquivados = new Set(
+      aiRows.filter((r) => r.arquivado).map((r) => r.externoId),
+    );
 
     const enriquecidos: EmailClassificado[] = emails
       .filter((e) => !arquivados.has(e.id))

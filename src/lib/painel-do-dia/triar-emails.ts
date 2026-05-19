@@ -202,38 +202,50 @@ export async function arquivarEmailAI(
 /**
  * Converte um PainelEmailAI classificado numa AcaoPainel em Q2/Q1 conforme
  * sugestão. Marca o e-mail como processado + vincula ID da ação gerada.
+ * Idempotente: clique duplo retorna o mesmo acaoId. Transacional: se a
+ * criação da ação falhar OU a atualização do email falhar, nada é gravado
+ * (evita ação órfã que reaparece em refresh).
  */
 export async function criarAcaoDeEmail(
   userId: string,
   aiId: string
 ): Promise<{ acaoId: string }> {
-  const email = await prisma.painelEmailAI.findFirst({
-    where: { id: aiId, userId },
-  });
-  if (!email) throw new Error("email AI nao encontrado");
-  if (email.processado && email.acaoGeradaId) {
-    return { acaoId: email.acaoGeradaId };
-  }
+  return prisma.$transaction(async (tx) => {
+    const email = await tx.painelEmailAI.findFirst({
+      where: { id: aiId, userId },
+    });
+    if (!email) throw new Error("email AI nao encontrado");
+    if (email.processado && email.acaoGeradaId) {
+      return { acaoId: email.acaoGeradaId };
+    }
+    // Defesa em profundidade: a UI ja gateia, mas via API direta tipo=fyi/spam
+    // criaria uma acao sem quadrante (orfa no painel).
+    if (email.tipo === "fyi" || email.tipo === "spam") {
+      throw new Error(
+        `email tipo=${email.tipo} nao gera acao (apenas acao/agendamento/cliente_novo)`
+      );
+    }
 
-  const acao = await prisma.acaoPainel.create({
-    data: {
-      userId,
-      titulo: email.tituloAcao ?? email.assunto,
-      origem: "local",
-      quadrante: email.quadranteSugerido ?? undefined,
-      importante:
-        email.quadranteSugerido === "Q1" || email.quadranteSugerido === "Q2",
-      noMeuDia: email.urgencia === "alta",
-      vence: email.venceSugerido ?? undefined,
-      clienteVinculadoId: email.clienteVinculadoId ?? undefined,
-      criadaDeEmailId: email.id,
-    },
-  });
+    const acao = await tx.acaoPainel.create({
+      data: {
+        userId,
+        titulo: email.tituloAcao ?? email.assunto,
+        origem: "local",
+        quadrante: email.quadranteSugerido ?? undefined,
+        importante:
+          email.quadranteSugerido === "Q1" || email.quadranteSugerido === "Q2",
+        noMeuDia: email.urgencia === "alta",
+        vence: email.venceSugerido ?? undefined,
+        clienteVinculadoId: email.clienteVinculadoId ?? undefined,
+        criadaDeEmailId: email.id,
+      },
+    });
 
-  await prisma.painelEmailAI.update({
-    where: { id: aiId },
-    data: { processado: true, acaoGeradaId: acao.id },
-  });
+    await tx.painelEmailAI.update({
+      where: { id: aiId },
+      data: { processado: true, acaoGeradaId: acao.id },
+    });
 
-  return { acaoId: acao.id };
+    return { acaoId: acao.id };
+  });
 }
