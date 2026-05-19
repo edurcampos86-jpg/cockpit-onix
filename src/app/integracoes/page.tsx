@@ -166,8 +166,15 @@ type GoogleUserStatus = {
   scopes?: string[];
   connectedAt?: string;
   lastUsedAt?: string | null;
-  lastError?: string | null;
+  lastError?: "expired" | "network" | "rate_limit" | "unknown" | null;
   lastErrorAt?: string | null;
+};
+
+const GOOGLE_ERROR_LABEL: Record<NonNullable<GoogleUserStatus["lastError"]>, string> = {
+  expired: "Sessão expirada — reconecte sua conta.",
+  network: "Falha de rede ao falar com o Google. Tente atualizar em alguns minutos.",
+  rate_limit: "Cota Google excedida temporariamente.",
+  unknown: "Erro inesperado na última chamada.",
 };
 
 export default function IntegracoesPage() {
@@ -219,13 +226,13 @@ export default function IntegracoesPage() {
     const params = new URLSearchParams(window.location.search);
     const googleErr = params.get("google_error");
     const googleOk = params.get("google");
-    const googleEmail = params.get("google_email");
     if (googleErr) {
       setActionResult({ id: "google_calendar", msg: `Falha na conexão Google: ${googleErr}`, ok: false });
     } else if (googleOk === "connected") {
+      // o status (com email) chega via refresh — não passar email pela URL
       setActionResult({
         id: "google_calendar",
-        msg: googleEmail ? `Conectado como ${googleEmail}` : "Conta Google conectada",
+        msg: "Conta Google conectada",
         ok: true,
       });
       void refreshGoogleUserStatus();
@@ -410,7 +417,7 @@ export default function IntegracoesPage() {
                               )}
                               {googleUser.lastError && (
                                 <p className="text-xs text-amber-500">
-                                  Erro recente: {googleUser.lastError}. Reconecte se persistir.
+                                  {GOOGLE_ERROR_LABEL[googleUser.lastError]}
                                 </p>
                               )}
                               <div className="flex flex-wrap items-center gap-2 pt-1">

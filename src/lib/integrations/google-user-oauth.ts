@@ -37,18 +37,42 @@ function loadClientCreds(): { clientId: string; clientSecret: string } {
   return { clientId, clientSecret };
 }
 
-export async function createOAuthState(userId: string): Promise<string> {
-  return new SignJWT({ userId, nonce: crypto.randomBytes(8).toString("hex") })
+export const GOOGLE_OAUTH_NONCE_COOKIE = "g_oauth_nonce";
+export const GOOGLE_OAUTH_NONCE_TTL_SECONDS = STATE_TTL_SECONDS;
+
+/**
+ * Cria o `state` que carrega `userId` + `nonce`. O nonce também vai em cookie
+ * `httpOnly` (double-submit) — o callback exige que o nonce dentro do state
+ * bata com o cookie, evitando replay com state capturado.
+ */
+export async function createOAuthState(
+  userId: string,
+): Promise<{ state: string; nonce: string }> {
+  const nonce = crypto.randomBytes(16).toString("hex");
+  const state = await new SignJWT({ userId, nonce })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime(`${STATE_TTL_SECONDS}s`)
     .sign(loadStateKey());
+  return { state, nonce };
 }
 
-export async function verifyOAuthState(state: string): Promise<{ userId: string } | null> {
+export async function verifyOAuthState(
+  state: string,
+  expectedNonce: string | null,
+): Promise<{ userId: string } | null> {
   try {
     const { payload } = await jwtVerify(state, loadStateKey(), { algorithms: ["HS256"] });
     if (typeof payload.userId !== "string") return null;
+    if (typeof payload.nonce !== "string") return null;
+    if (!expectedNonce) return null;
+    // Comparação constante para evitar timing
+    if (payload.nonce.length !== expectedNonce.length) return null;
+    let diff = 0;
+    for (let i = 0; i < payload.nonce.length; i++) {
+      diff |= payload.nonce.charCodeAt(i) ^ expectedNonce.charCodeAt(i);
+    }
+    if (diff !== 0) return null;
     return { userId: payload.userId };
   } catch {
     return null;
@@ -157,7 +181,8 @@ export async function getGoogleClientForUser(userId: string): Promise<OAuth2Clie
   });
 
   oauth2.on("tokens", (newTokens) => {
-    // Persistência best-effort; erro aqui não bloqueia a request principal
+    // Persistência best-effort; erro aqui não bloqueia a request principal.
+    // Loga só o nome do erro — NUNCA o conteúdo (tokens).
     void (async () => {
       try {
         const data: {
@@ -177,8 +202,10 @@ export async function getGoogleClientForUser(userId: string): Promise<OAuth2Clie
         if (Object.keys(data).length > 0) {
           await prisma.userGoogleAuth.update({ where: { userId }, data });
         }
-      } catch {
-        // ignora — falha de persistência não invalida a chamada atual
+      } catch (err) {
+        const name = err instanceof Error ? err.name : "UnknownError";
+        // user é referenciado por id; sem PII no log
+        console.warn(`[google-oauth] falha ao persistir rotação de token (${name})`);
       }
     })();
   });
