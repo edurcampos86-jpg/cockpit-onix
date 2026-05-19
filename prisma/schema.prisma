@@ -62,6 +62,12 @@ model UserGoogleAuth {
   accessTokenEnc       String?   @db.Text
   accessTokenExpiresAt DateTime?
   scopes               String    @db.Text // CSV dos escopos concedidos
+  // CSV de e-mails que tambem sao "voce" — usado pra reconhecer forwards.
+  // Ex.: edurcampos86@gmail.com (googleEmail) + eduardo@onix.com.br (alias).
+  // Quando um e-mail forwardado chega no Gmail, o To/Cc original aponta
+  // pro corporativo. Sem aliases, a heuristica "destinatario direto = acao"
+  // falha e o e-mail so e pego pelas palavras-chave.
+  aliases              String?   @db.Text
   connectedAt          DateTime  @default(now())
   lastUsedAt           DateTime?
   lastErrorAt          DateTime?

@@ -137,18 +137,29 @@ function headersToMap(
   return out;
 }
 
+function parseAliases(csv: string | null | undefined): string[] {
+  if (!csv) return [];
+  return csv
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+}
+
 function pedeAcao(opts: {
   assunto: string;
   snippet: string;
   to: string;
-  meuEmail: string;
+  cc: string;
+  meusEmails: string[]; // googleEmail + aliases (todos minusculos)
 }): boolean {
-  const { assunto, snippet, to, meuEmail } = opts;
+  const { assunto, snippet, to, cc, meusEmails } = opts;
   if (assunto.includes("?")) return true;
-  if (meuEmail) {
-    const meu = meuEmail.toLowerCase();
-    const tos = to.split(",").map((t) => parseEmailFromHeader(t));
-    if (tos.includes(meu)) return true;
+  if (meusEmails.length > 0) {
+    const destinatarios = `${to},${cc}`
+      .split(",")
+      .map(parseEmailFromHeader)
+      .filter(Boolean);
+    if (destinatarios.some((d) => meusEmails.includes(d))) return true;
   }
   const corpus = normalizar(`${assunto} ${snippet}`);
   return ACAO_REGEX.test(corpus);
@@ -163,9 +174,10 @@ export async function fetchEmailsAcao(
 
   const auth = await prisma.userGoogleAuth.findUnique({
     where: { userId },
-    select: { googleEmail: true },
+    select: { googleEmail: true, aliases: true },
   });
   const meuEmail = auth?.googleEmail.toLowerCase() ?? "";
+  const meusEmails = [meuEmail, ...parseAliases(auth?.aliases)].filter(Boolean);
 
   try {
     const list = await gmail.users.messages.list({
@@ -187,7 +199,7 @@ export async function fetchEmailsAcao(
           userId: "me",
           id,
           format: "metadata",
-          metadataHeaders: ["Subject", "From", "To", "Date"],
+          metadataHeaders: ["Subject", "From", "To", "Cc", "Date"],
         }),
       ),
     );
@@ -202,12 +214,13 @@ export async function fetchEmailsAcao(
       const assunto = headers["subject"] ?? "(sem assunto)";
       const remetenteRaw = headers["from"] ?? "(desconhecido)";
       const to = headers["to"] ?? "";
+      const cc = headers["cc"] ?? "";
       const dateHeader = headers["date"];
       const internalDate = msg.internalDate ? Number(msg.internalDate) : null;
       const ts = internalDate ?? (dateHeader ? Date.parse(dateHeader) : Date.now());
       const snippet = (msg.snippet ?? "").trim();
 
-      if (!pedeAcao({ assunto, snippet, to, meuEmail })) continue;
+      if (!pedeAcao({ assunto, snippet, to, cc, meusEmails })) continue;
 
       candidatos.push({
         id,
