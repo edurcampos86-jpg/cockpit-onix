@@ -168,18 +168,26 @@ psql $DATABASE_URL -c 'SELECT id,"googleEmail",scopes,"connectedAt",LENGTH("refr
 curl -s -X POST http://localhost:3000/api/integracoes/google/disconnect -H "Cookie: $S" | jq
 ```
 
-## Convivência com o fluxo legado
+## Histórico — Migração do fluxo legado (Fase 2 / 2026-05)
 
-O Cockpit ainda usa o token global single-user (`.integrations.json` →
-`GOOGLE_REFRESH_TOKEN`) em:
+Antes existia um token Google "admin global" salvo em `.integrations.json`
+como `GOOGLE_REFRESH_TOKEN`. **Foi removido.** Hoje TODO acesso ao Google
+(Calendar + Gmail, leitura e escrita) passa por `UserGoogleAuth`:
 
-- `src/app/api/posts/route.ts` e `src/app/api/posts/[id]/route.ts` — sync de posts editoriais.
-- `src/app/api/integracoes/google/auth|callback|sync|test/route.ts` — fluxo legado de admin.
-- `src/lib/google-calendar-clientes-sync.ts` — sync de reuniões com clientes.
-- `src/app/api/cron/google-calendar-poll/route.ts` — cron diário.
+- `src/app/api/posts/route.ts` / `[id]/route.ts` — sync usa `post.authorId`.
+- `src/app/api/integracoes/google/sync/route.ts` — itera posts e usa `post.authorId`.
+- `src/app/api/integracoes/google/test/route.ts` — usa `session.userId`.
+- `src/lib/google-calendar-clientes-sync.ts` — recebe `userId` no contrato.
+- `src/app/api/cron/google-calendar-poll/route.ts` — itera `UserGoogleAuth.findMany()`.
 
-Esses fluxos **não foram alterados** nesta fase. Migrá-los para `UserGoogleAuth`
-é trabalho de fase seguinte (ver lista de débito técnico abaixo).
+Rotas legadas removidas: `/api/integracoes/google/auth` e `/api/integracoes/google/callback`.
+
+Escopos atuais: `calendar.readonly` + `calendar.events` + `gmail.readonly`.
+Usuários conectados ANTES da Fase 2 precisam clicar "Conectar" novamente
+para autorizar o escopo `calendar.events`.
+
+Schema mudou: `ReuniaoCliente` agora carrega `userId` opcional (`@@unique([userId, source, externalId])`)
+para que dois usuários com o mesmo `event.id` não colidam.
 
 ## Cenários de erro e o que o usuário vê
 
@@ -194,13 +202,13 @@ Esses fluxos **não foram alterados** nesta fase. Migrá-los para `UserGoogleAut
 
 ## Débito técnico anotado
 
-- Migrar sync de posts e sync de reuniões-clientes para `UserGoogleAuth`
-  (hoje usam o token global). Decisão pendente: qual usuário-dono do sync?
 - Rate limit hoje é in-memory por container. Trocar por Redis/Postgres se
   Railway escalar para múltiplos workers.
 - Persistir também erros 403/insufficient-scope em `lastError` (hoje só
   `invalid_grant` aciona).
-- Heurística "pede ação" do Gmail é puramente lexical. Em fase próxima,
-  reaproveitar a triagem Claude AI já existente em
-  `src/lib/painel-do-dia/triar-emails.ts` para gerar `tipo` e `quadranteSugerido`
-  para e-mails do Gmail (hoje só roda em cache MS Mail).
+- Triagem AI dos e-mails (Fase 1) roda inline no GET; sob carga, partir
+  para fila + paralelismo (`p-limit`) ou cron dedicado em vez de inline.
+- Outlook ICS e Datacrazy ainda escrevem `ReuniaoCliente` com `userId=NULL`
+  (escopo global). Quando o fluxo Microsoft Graph for per-user (Fase 4),
+  ele também passa a escopar por `userId` e o NULL vira sentinela só de
+  fontes verdadeiramente compartilhadas.

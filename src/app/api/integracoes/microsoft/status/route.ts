@@ -2,25 +2,32 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 
-/**
- * Devolve um código fixo (não a mensagem crua) para o client não receber
- * trechos de stacktrace ou URL de upstream.
- */
-type ErrorCode = "expired" | "insufficient_scope" | "network" | "rate_limit" | "unknown";
+type ErrorCode =
+  | "expired"
+  | "insufficient_scope"
+  | "network"
+  | "rate_limit"
+  | "unknown";
 function classifyLastError(msg: string | null): ErrorCode | null {
   if (!msg) return null;
-  if (/invalid_grant/i.test(msg)) return "expired";
-  if (/escopo insuficiente|insufficient[\s_]*(permission|scope)/i.test(msg)) {
+  if (/invalid_grant|AADSTS70008|AADSTS50173|sess[aã]o expirada/i.test(msg)) {
+    return "expired";
+  }
+  if (
+    /escopo insuficiente|insufficient[\s_]*(permission|scope)|ErrorAccessDenied/i.test(
+      msg,
+    )
+  ) {
     return "insufficient_scope";
   }
   if (/ENOTFOUND|ECONN|fetch failed|network/i.test(msg)) return "network";
-  if (/quota|rate/i.test(msg)) return "rate_limit";
+  if (/throttl|quota|rate|AADSTS900864/i.test(msg)) return "rate_limit";
   return "unknown";
 }
 
 /**
- * GET /api/integracoes/google/status
- * Estado da conexão Google (Calendar + Gmail) do usuário logado.
+ * GET /api/integracoes/microsoft/status
+ * Estado da conexão Microsoft (Graph: Calendar + Mail) do usuário logado.
  */
 export async function GET() {
   const session = await getSession();
@@ -28,10 +35,11 @@ export async function GET() {
     return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
   }
 
-  const row = await prisma.userGoogleAuth.findUnique({
+  const row = await prisma.userMicrosoftAuth.findUnique({
     where: { userId: session.userId },
     select: {
-      googleEmail: true,
+      microsoftEmail: true,
+      microsoftTenantId: true,
       scopes: true,
       connectedAt: true,
       lastUsedAt: true,
@@ -40,13 +48,12 @@ export async function GET() {
     },
   });
 
-  if (!row) {
-    return NextResponse.json({ connected: false });
-  }
+  if (!row) return NextResponse.json({ connected: false });
 
   return NextResponse.json({
     connected: true,
-    email: row.googleEmail,
+    email: row.microsoftEmail,
+    tenantId: row.microsoftTenantId,
     scopes: row.scopes.split(",").filter(Boolean),
     connectedAt: row.connectedAt.toISOString(),
     lastUsedAt: row.lastUsedAt?.toISOString() ?? null,

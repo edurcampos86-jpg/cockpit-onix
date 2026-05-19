@@ -35,6 +35,8 @@ model User {
   painelEmailsAI    PainelEmailAI[]
   pessoa            Pessoa?
   googleAuth        UserGoogleAuth?
+  microsoftAuth     UserMicrosoftAuth?
+  reunioesCliente   ReuniaoCliente[]
 
   // Jurídico — fase 1A
   contratosArquivosEnviados   ContratoArquivo[]  @relation("ContratoUploadedBy")
@@ -49,13 +51,39 @@ model User {
 // OAUTH POR USUÁRIO — Google (Calendar + Gmail)
 // ============================================
 // Tokens cifrados em AES-256-GCM (src/lib/crypto.ts).
-// Convive com o token global em .integrations.json usado pelo sync de posts
-// e sync de reuniões-clientes (legado single-user). Migração desses fluxos
-// para esta tabela fica para fase futura.
+// Padrão canônico per-user pós Fase 2: TODO acesso ao Google
+// (Calendar + Gmail, leitura e escrita) passa por esta tabela.
+// GOOGLE_REFRESH_TOKEN global foi removido.
 model UserGoogleAuth {
   id                   String    @id @default(cuid())
   userId               String    @unique
   googleEmail          String
+  refreshTokenEnc      String    @db.Text
+  accessTokenEnc       String?   @db.Text
+  accessTokenExpiresAt DateTime?
+  scopes               String    @db.Text // CSV dos escopos concedidos
+  connectedAt          DateTime  @default(now())
+  lastUsedAt           DateTime?
+  lastErrorAt          DateTime?
+  lastError            String?   @db.Text
+  updatedAt            DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ============================================
+// OAUTH POR USUÁRIO — Microsoft (Calendar + Mail via Graph)
+// ============================================
+// Espelha UserGoogleAuth. Convive com o fluxo cowork-sync legado
+// (Chrome MCP scrape do Outlook Web → PainelCacheExterno) — o
+// agregador prefere Graph quando UserMicrosoftAuth existe; senao cai
+// no cache cowork. Refresh token MS tem validade de 90 dias (vs Google
+// ~indefinido), entao re-consent eh mais frequente.
+model UserMicrosoftAuth {
+  id                   String    @id @default(cuid())
+  userId               String    @unique
+  microsoftEmail       String
+  microsoftTenantId    String? // tenant da org (NULL para conta consumer)
   refreshTokenEnc      String    @db.Text
   accessTokenEnc       String?   @db.Text
   accessTokenExpiresAt DateTime?
@@ -585,6 +613,14 @@ model ReuniaoCliente {
   source     String // "google-cal" | "outlook-ics" | "datacrazy-atividade" | "manual"
   externalId String // event.id do Google, UID do ICS, activity.id do Datacrazy, cuid() pra manual
 
+  // userId é o "dono" da reunião quando a fonte é per-user (google-cal pos
+  // Fase 2; outlook futuramente). NULL para fontes globais legadas
+  // (outlook-ics admin único, datacrazy-atividade) ate elas migrarem.
+  // Permite que User A e User B tenham o MESMO event.id em seus calendários
+  // sem colisão de unique constraint.
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   startAt DateTime
   endAt   DateTime?
   titulo  String?
@@ -599,9 +635,12 @@ model ReuniaoCliente {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([source, externalId]) // chave do dedupe entre fontes
+  // Dedupe escopado por usuario. NULL no userId vale para fontes globais
+  // (Postgres permite múltiplos NULL no unique).
+  @@unique([userId, source, externalId])
   @@index([clienteId, startAt])
   @@index([source, startAt])
+  @@index([userId, source])
 }
 
 // ============================================

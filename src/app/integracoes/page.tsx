@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { PageHeader } from "@/components/layout/page-header";
 import { ComoFunciona } from "@/components/layout/como-funciona";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -115,9 +116,25 @@ const INTEGRATIONS: IntegrationConfig[] = [
     features: [
       "Agenda do dia no Painel (Calendar primário, eventos de hoje)",
       "E-mails que pedem ação das últimas 24h (Gmail, não lidos)",
+      "Sync de posts agendados → eventos no Calendar do autor",
       "Cada usuário conecta a própria conta (multi-tenant)",
-      "Escopos somente leitura (calendar.readonly, gmail.readonly)",
-      "Sync de posts ao calendário (modo admin global — legado)",
+      "Escopos: calendar.readonly + calendar.events + gmail.readonly",
+    ],
+  },
+  {
+    id: "microsoft_graph",
+    name: "Microsoft (Outlook Calendar + Mail)",
+    description: "Conecte sua conta Microsoft (Graph API per-user) para Agenda e E-mails do Outlook no Painel do Dia. Coexiste com o cowork-sync legado — Graph é preferido quando conectado.",
+    icon: <Calendar className="h-6 w-6" />,
+    status: "disconnected",
+    envKey: "MICROSOFT_CLIENT_ID",
+    docsUrl: "https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade",
+    features: [
+      "Agenda do dia no Painel (Outlook primário, eventos de hoje)",
+      "E-mails que pedem ação das últimas 24h (Outlook inbox, não lidos)",
+      "Cada usuário conecta a própria conta (multi-tenant Azure AD)",
+      "Escopos: openid + offline_access + User.Read + Calendars.Read + Mail.Read",
+      "Fallback automático para cowork-sync se Microsoft Graph não conectado",
     ],
   },
   {
@@ -166,15 +183,45 @@ type GoogleUserStatus = {
   scopes?: string[];
   connectedAt?: string;
   lastUsedAt?: string | null;
-  lastError?: "expired" | "network" | "rate_limit" | "unknown" | null;
+  lastError?: "expired" | "insufficient_scope" | "network" | "rate_limit" | "unknown" | null;
   lastErrorAt?: string | null;
 };
 
 const GOOGLE_ERROR_LABEL: Record<NonNullable<GoogleUserStatus["lastError"]>, string> = {
   expired: "Sessão expirada — reconecte sua conta.",
+  insufficient_scope: "Escopo insuficiente — reconecte sua conta para autorizar Calendar (events).",
   network: "Falha de rede ao falar com o Google. Tente atualizar em alguns minutos.",
   rate_limit: "Cota Google excedida temporariamente.",
   unknown: "Erro inesperado na última chamada.",
+};
+
+type MicrosoftUserStatus = {
+  connected: boolean;
+  email?: string;
+  tenantId?: string | null;
+  scopes?: string[];
+  connectedAt?: string;
+  lastUsedAt?: string | null;
+  lastError?:
+    | "expired"
+    | "insufficient_scope"
+    | "network"
+    | "rate_limit"
+    | "unknown"
+    | null;
+  lastErrorAt?: string | null;
+};
+
+const MICROSOFT_ERROR_LABEL: Record<
+  NonNullable<MicrosoftUserStatus["lastError"]>,
+  string
+> = {
+  expired: "Sessão Microsoft expirada — reconecte sua conta.",
+  insufficient_scope:
+    "Escopo insuficiente — reconecte sua conta Microsoft para autorizar Calendar/Mail.",
+  network: "Falha de rede ao falar com Microsoft Graph. Tente em alguns minutos.",
+  rate_limit: "Cota Microsoft Graph excedida temporariamente.",
+  unknown: "Erro inesperado na última chamada Microsoft.",
 };
 
 export default function IntegracoesPage() {
@@ -186,6 +233,8 @@ export default function IntegracoesPage() {
   const [actionResult, setActionResult] = useState<{ id: string; msg: string; ok: boolean } | null>(null);
   const [googleUser, setGoogleUser] = useState<GoogleUserStatus | null>(null);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [microsoftUser, setMicrosoftUser] = useState<MicrosoftUserStatus | null>(null);
+  const [microsoftLoading, setMicrosoftLoading] = useState(false);
 
   const refreshStatus = async () => {
     try {
@@ -213,10 +262,25 @@ export default function IntegracoesPage() {
     }
   };
 
+  const refreshMicrosoftUserStatus = async () => {
+    try {
+      const res = await fetch("/api/integracoes/microsoft/status");
+      if (!res.ok) {
+        setMicrosoftUser({ connected: false });
+        return;
+      }
+      const data = (await res.json()) as MicrosoftUserStatus;
+      setMicrosoftUser(data);
+    } catch {
+      setMicrosoftUser({ connected: false });
+    }
+  };
+
   // Carregar status das integrações e chaves mascaradas
   useEffect(() => {
     refreshStatus();
     refreshGoogleUserStatus();
+    refreshMicrosoftUserStatus();
     // Carregar chaves mascaradas para mostrar quais já estão configuradas
     fetch("/api/integracoes/config")
       .then((r) => r.json())
@@ -229,13 +293,28 @@ export default function IntegracoesPage() {
     if (googleErr) {
       setActionResult({ id: "google_calendar", msg: `Falha na conexão Google: ${googleErr}`, ok: false });
     } else if (googleOk === "connected") {
-      // o status (com email) chega via refresh — não passar email pela URL
       setActionResult({
         id: "google_calendar",
         msg: "Conta Google conectada",
         ok: true,
       });
       void refreshGoogleUserStatus();
+    }
+    const msErr = params.get("microsoft_error");
+    const msOk = params.get("microsoft");
+    if (msErr) {
+      setActionResult({
+        id: "microsoft_graph",
+        msg: `Falha na conexão Microsoft: ${msErr}`,
+        ok: false,
+      });
+    } else if (msOk === "connected") {
+      setActionResult({
+        id: "microsoft_graph",
+        msg: "Conta Microsoft conectada",
+        ok: true,
+      });
+      void refreshMicrosoftUserStatus();
     }
   }, []);
 
@@ -272,6 +351,64 @@ export default function IntegracoesPage() {
       setActionResult({ id: "google_calendar", msg: "Erro de rede ao desconectar", ok: false });
     } finally {
       setGoogleLoading(false);
+    }
+  };
+
+  const handleMicrosoftConnect = async () => {
+    setMicrosoftLoading(true);
+    setActionResult(null);
+    try {
+      const res = await fetch("/api/integracoes/microsoft/connect");
+      const data = await res.json();
+      if (!res.ok || !data.authUrl) {
+        setActionResult({
+          id: "microsoft_graph",
+          msg: data.error ?? "Erro ao iniciar OAuth Microsoft",
+          ok: false,
+        });
+        return;
+      }
+      window.location.href = data.authUrl;
+    } catch {
+      setActionResult({
+        id: "microsoft_graph",
+        msg: "Erro de rede ao iniciar OAuth Microsoft",
+        ok: false,
+      });
+    } finally {
+      setMicrosoftLoading(false);
+    }
+  };
+
+  const handleMicrosoftDisconnect = async () => {
+    setMicrosoftLoading(true);
+    setActionResult(null);
+    try {
+      const res = await fetch("/api/integracoes/microsoft/disconnect", {
+        method: "POST",
+      });
+      if (!res.ok) {
+        setActionResult({
+          id: "microsoft_graph",
+          msg: "Erro ao desconectar",
+          ok: false,
+        });
+        return;
+      }
+      setMicrosoftUser({ connected: false });
+      setActionResult({
+        id: "microsoft_graph",
+        msg: "Conta Microsoft desconectada",
+        ok: true,
+      });
+    } catch {
+      setActionResult({
+        id: "microsoft_graph",
+        msg: "Erro de rede ao desconectar",
+        ok: false,
+      });
+    } finally {
+      setMicrosoftLoading(false);
     }
   };
 
@@ -318,18 +455,6 @@ export default function IntegracoesPage() {
       setActionResult({ id: integrationId, msg: data.message, ok: data.success });
     } catch {
       setActionResult({ id: integrationId, msg: "Erro ao sincronizar", ok: false });
-    }
-  };
-
-  const handleGoogleAuth = async () => {
-    try {
-      const res = await fetch("/api/integracoes/google/auth");
-      const data = await res.json();
-      if (data.authUrl) {
-        window.open(data.authUrl, "_blank");
-      }
-    } catch {
-      setActionResult({ id: "google_calendar", msg: "Erro ao iniciar autenticação", ok: false });
     }
   };
 
@@ -457,6 +582,99 @@ export default function IntegracoesPage() {
                               </button>
                             </>
                           )}
+                          <p className="pt-2 text-[11px] text-muted-foreground">
+                            Ao conectar, você concorda com nossos{" "}
+                            <Link href="/terms" className="underline hover:text-primary">
+                              Termos de Uso
+                            </Link>{" "}
+                            e{" "}
+                            <Link href="/privacy" className="underline hover:text-primary">
+                              Política de Privacidade
+                            </Link>
+                            . Os escopos solicitados ao Google são listados acima — você pode revogar a qualquer momento.
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Painel per-user OAuth Microsoft (Graph: Calendar + Mail) */}
+                      {integration.id === "microsoft_graph" && (
+                        <div className="mb-4 space-y-2 rounded-lg border border-border bg-card p-4">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            Sua conta Microsoft (Painel do Dia via Graph)
+                          </p>
+                          {microsoftUser?.connected ? (
+                            <>
+                              <div className="flex items-center gap-2">
+                                <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                                <span className="text-sm text-foreground font-medium truncate">
+                                  {microsoftUser.email}
+                                </span>
+                              </div>
+                              {microsoftUser.scopes && microsoftUser.scopes.length > 0 && (
+                                <p className="text-[11px] text-muted-foreground">
+                                  Escopos: {microsoftUser.scopes.join(", ")}
+                                </p>
+                              )}
+                              {microsoftUser.tenantId && (
+                                <p className="text-[11px] text-muted-foreground">
+                                  Tenant: {microsoftUser.tenantId}
+                                </p>
+                              )}
+                              {microsoftUser.lastError && (
+                                <p className="text-xs text-amber-500">
+                                  {MICROSOFT_ERROR_LABEL[microsoftUser.lastError]}
+                                </p>
+                              )}
+                              <div className="flex flex-wrap items-center gap-2 pt-1">
+                                <button
+                                  onClick={handleMicrosoftConnect}
+                                  disabled={microsoftLoading}
+                                  className="px-3 py-1.5 text-xs font-medium rounded-lg border border-border text-foreground hover:bg-accent disabled:opacity-50"
+                                >
+                                  Reconectar
+                                </button>
+                                <button
+                                  onClick={handleMicrosoftDisconnect}
+                                  disabled={microsoftLoading}
+                                  className="px-3 py-1.5 text-xs font-medium rounded-lg border border-red-500/30 text-red-400 hover:bg-red-500/10 disabled:opacity-50"
+                                >
+                                  Desconectar
+                                </button>
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <div className="flex items-center gap-2">
+                                <AlertCircle className="h-4 w-4 text-muted-foreground shrink-0" />
+                                <span className="text-sm text-muted-foreground">
+                                  Nenhuma conta conectada
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-muted-foreground">
+                                Sem conexão Graph, o Painel usa o cache do cowork-sync (Chrome MCP). Conectar via Graph é mais rápido e não depende da MCP rodar.
+                              </p>
+                              <button
+                                onClick={handleMicrosoftConnect}
+                                disabled={microsoftLoading}
+                                className="mt-1 px-3 py-1.5 text-xs font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                              >
+                                {microsoftLoading
+                                  ? "Abrindo Microsoft..."
+                                  : "Conectar Microsoft"}
+                              </button>
+                            </>
+                          )}
+                          <p className="pt-2 text-[11px] text-muted-foreground">
+                            Ao conectar, você concorda com nossos{" "}
+                            <Link href="/terms" className="underline hover:text-primary">
+                              Termos de Uso
+                            </Link>{" "}
+                            e{" "}
+                            <Link href="/privacy" className="underline hover:text-primary">
+                              Política de Privacidade
+                            </Link>
+                            . Escopos somente leitura. Você pode revogar em myaccount.microsoft.com/Permissions.
+                          </p>
                         </div>
                       )}
 
@@ -583,15 +801,7 @@ export default function IntegracoesPage() {
                                 Webhook ativo — aguardando dados do Zapier
                               </span>
                             )}
-                            {/* Google Calendar: Autorizar / Testar / Sincronizar */}
-                            {integration.id === "google_calendar" && statusMap.google_calendar !== "connected" && (statusMap.google_calendar === "pending_auth" || apiKeys.google_calendar) && (
-                              <button
-                                onClick={handleGoogleAuth}
-                                className="px-3 py-2 text-sm font-medium rounded-lg border border-blue-500/30 text-blue-400 hover:bg-blue-500/10 transition-colors"
-                              >
-                                Autorizar Google
-                              </button>
-                            )}
+                            {/* Google Calendar: Testar / Sincronizar (conexao OAuth feita no card per-user acima) */}
                             {integration.id === "google_calendar" && statusMap.google_calendar === "connected" && (
                               <>
                                 <button

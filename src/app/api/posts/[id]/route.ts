@@ -80,6 +80,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       const { syncPostToCalendar } = await import("@/lib/integrations/google-calendar");
       const eventId = await syncPostToCalendar({
         id: post.id,
+        authorId: post.authorId,
         title: post.title,
         format: post.format,
         category: post.category,
@@ -106,12 +107,15 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  // Remover evento do Google Calendar antes de deletar o post
-  const postToDelete = await prisma.post.findUnique({ where: { id }, select: { googleCalendarEventId: true } });
+  // Remover evento do Google Calendar do autor antes de deletar o post
+  const postToDelete = await prisma.post.findUnique({
+    where: { id },
+    select: { googleCalendarEventId: true, authorId: true },
+  });
   if (postToDelete?.googleCalendarEventId) {
     try {
       const { removePostFromCalendar } = await import("@/lib/integrations/google-calendar");
-      await removePostFromCalendar(postToDelete.googleCalendarEventId);
+      await removePostFromCalendar(postToDelete.authorId, postToDelete.googleCalendarEventId);
     } catch (err) {
       console.error("[Google Calendar] Erro ao remover evento:", err);
     }

@@ -55,6 +55,13 @@ export interface UpsertReuniaoInput {
   titulo?: string | null;
   matchedVia: ReuniaoMatchedVia;
   rawPayload?: unknown;
+  /**
+   * Dono da reunião para fontes per-user (google-cal pós Fase 2).
+   * `null` (default) para fontes globais legadas (outlook-ics admin único,
+   * datacrazy-atividade). NUNCA misture: o unique `(userId, source, externalId)`
+   * trata NULL como sentinela do escopo global.
+   */
+  userId?: string | null;
 }
 
 /**
@@ -67,17 +74,20 @@ export async function upsertReuniao(
 ): Promise<"created" | "updated" | "noop"> {
   const realizada = input.startAt < new Date();
   const matchScore = MATCH_SCORE[input.matchedVia];
+  const userId = input.userId ?? null;
 
-  const existente = await prisma.reuniaoCliente.findUnique({
-    where: {
-      source_externalId: { source: input.source, externalId: input.externalId },
-    },
+  // findUnique nao serve aqui: o Prisma rejeita `userId: null` no compound
+  // unique (NULL nao satisfaz @unique no contrato JS). findFirst escopa
+  // corretamente o "tipo global" via where literal.
+  const existente = await prisma.reuniaoCliente.findFirst({
+    where: { userId, source: input.source, externalId: input.externalId },
   });
 
   if (!existente) {
     await prisma.reuniaoCliente.create({
       data: {
         clienteId: input.clienteId,
+        userId,
         source: input.source,
         externalId: input.externalId,
         startAt: input.startAt,
@@ -119,14 +129,16 @@ export async function upsertReuniao(
 
 /**
  * Remove uma reunião (quando o evento sumiu da fonte externa).
+ * `userId` escopa para fontes per-user (default: global / NULL).
  * Retorna true se algo foi deletado. Caller decide se recalcula agregados.
  */
 export async function deleteReuniaoByExternal(
   source: ReuniaoSource,
   externalId: string,
+  userId: string | null = null,
 ): Promise<boolean> {
   const r = await prisma.reuniaoCliente.deleteMany({
-    where: { source, externalId },
+    where: { source, externalId, userId },
   });
   return r.count > 0;
 }

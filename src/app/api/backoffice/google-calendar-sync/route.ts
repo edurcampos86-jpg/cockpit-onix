@@ -14,8 +14,8 @@ import { syncGoogleCalendarComClientes } from "@/lib/google-calendar-clientes-sy
  * substring do nome no título (com proteção contra sobrenomes comuns).
  *
  * Pré-requisitos:
- * - GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REFRESH_TOKEN
- *   configurados via /integracoes (OAuth já existente)
+ * - Usuario logado conectou Google em /integracoes (UserGoogleAuth)
+ *   com escopo calendar.readonly (Fase 2 / Refactor 2026-05).
  *
  * Query params:
  *   - lookaheadDias (default 60, max 365)
@@ -50,6 +50,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const result = await syncGoogleCalendarComClientes({
+      userId: session.userId,
       lookaheadDias,
       lookbackDias,
     });

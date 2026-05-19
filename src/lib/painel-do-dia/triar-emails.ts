@@ -99,20 +99,19 @@ function vincularCliente(
   return undefined;
 }
 
-export async function processarTriagem(userId: string): Promise<{
-  classificados: number;
-  pulados: number;
-  erros: number;
-}> {
-  const cache = await prisma.painelCacheExterno.findFirst({
-    where: { userId, source: "ms-mail" },
-  });
-  if (!cache) return { classificados: 0, pulados: 0, erros: 0 };
-
-  const emails = (cache.payload as EmailAcao[] | undefined) ?? [];
+/**
+ * Triagem genérica de uma lista de e-mails em memória. Usada para o Gmail
+ * (que não passa por PainelCacheExterno) e como núcleo da triagem ms-mail.
+ *
+ * Faz dedupe por (userId, externoId): só passa pelo Claude o que ainda não
+ * está em PainelEmailAI.
+ */
+export async function processarTriagemEmails(
+  userId: string,
+  emails: EmailAcao[]
+): Promise<{ classificados: number; pulados: number; erros: number }> {
   if (emails.length === 0) return { classificados: 0, pulados: 0, erros: 0 };
 
-  // IDs já classificados
   const existentes = await prisma.painelEmailAI.findMany({
     where: { userId, externoId: { in: emails.map((e) => e.id) } },
     select: { externoId: true },
@@ -171,41 +170,82 @@ export async function processarTriagem(userId: string): Promise<{
   return { classificados, pulados, erros };
 }
 
+export async function processarTriagem(userId: string): Promise<{
+  classificados: number;
+  pulados: number;
+  erros: number;
+}> {
+  const cache = await prisma.painelCacheExterno.findFirst({
+    where: { userId, source: "ms-mail" },
+  });
+  if (!cache) return { classificados: 0, pulados: 0, erros: 0 };
+
+  const emails = (cache.payload as EmailAcao[] | undefined) ?? [];
+  return processarTriagemEmails(userId, emails);
+}
+
+export async function arquivarEmailAI(
+  userId: string,
+  aiId: string
+): Promise<void> {
+  const email = await prisma.painelEmailAI.findFirst({
+    where: { id: aiId, userId },
+    select: { id: true },
+  });
+  if (!email) throw new Error("email AI nao encontrado");
+  await prisma.painelEmailAI.update({
+    where: { id: aiId },
+    data: { arquivado: true },
+  });
+}
+
 /**
  * Converte um PainelEmailAI classificado numa AcaoPainel em Q2/Q1 conforme
  * sugestão. Marca o e-mail como processado + vincula ID da ação gerada.
+ * Idempotente: clique duplo retorna o mesmo acaoId. Transacional: se a
+ * criação da ação falhar OU a atualização do email falhar, nada é gravado
+ * (evita ação órfã que reaparece em refresh).
  */
 export async function criarAcaoDeEmail(
   userId: string,
   aiId: string
 ): Promise<{ acaoId: string }> {
-  const email = await prisma.painelEmailAI.findFirst({
-    where: { id: aiId, userId },
-  });
-  if (!email) throw new Error("email AI nao encontrado");
-  if (email.processado && email.acaoGeradaId) {
-    return { acaoId: email.acaoGeradaId };
-  }
+  return prisma.$transaction(async (tx) => {
+    const email = await tx.painelEmailAI.findFirst({
+      where: { id: aiId, userId },
+    });
+    if (!email) throw new Error("email AI nao encontrado");
+    if (email.processado && email.acaoGeradaId) {
+      return { acaoId: email.acaoGeradaId };
+    }
+    // Defesa em profundidade: a UI ja gateia, mas via API direta tipo=fyi/spam
+    // criaria uma acao sem quadrante (orfa no painel).
+    if (email.tipo === "fyi" || email.tipo === "spam") {
+      throw new Error(
+        `email tipo=${email.tipo} nao gera acao (apenas acao/agendamento/cliente_novo)`
+      );
+    }
 
-  const acao = await prisma.acaoPainel.create({
-    data: {
-      userId,
-      titulo: email.tituloAcao ?? email.assunto,
-      origem: "local",
-      quadrante: email.quadranteSugerido ?? undefined,
-      importante:
-        email.quadranteSugerido === "Q1" || email.quadranteSugerido === "Q2",
-      noMeuDia: email.urgencia === "alta",
-      vence: email.venceSugerido ?? undefined,
-      clienteVinculadoId: email.clienteVinculadoId ?? undefined,
-      criadaDeEmailId: email.id,
-    },
-  });
+    const acao = await tx.acaoPainel.create({
+      data: {
+        userId,
+        titulo: email.tituloAcao ?? email.assunto,
+        origem: "local",
+        quadrante: email.quadranteSugerido ?? undefined,
+        importante:
+          email.quadranteSugerido === "Q1" || email.quadranteSugerido === "Q2",
+        noMeuDia: email.urgencia === "alta",
+        vence: email.venceSugerido ?? undefined,
+        clienteVinculadoId: email.clienteVinculadoId ?? undefined,
+        criadaDeEmailId: email.id,
+      },
+    });
 
-  await prisma.painelEmailAI.update({
-    where: { id: aiId },
-    data: { processado: true, acaoGeradaId: acao.id },
-  });
+    await tx.painelEmailAI.update({
+      where: { id: aiId },
+      data: { processado: true, acaoGeradaId: acao.id },
+    });
 
-  return { acaoId: acao.id };
+    return { acaoId: acao.id };
+  });
 }

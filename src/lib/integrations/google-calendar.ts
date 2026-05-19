@@ -1,81 +1,58 @@
 /**
  * Google Calendar API Client
- * Sincroniza posts agendados do Ecossistema Onix com o Google Calendar
+ *
+ * Refactor Fase 2 (2026-05): TODO o acesso ao Calendar passa por
+ * `getGoogleClientForUser(userId)` (UserGoogleAuth, per-user OAuth).
+ * O fluxo legado admin global (GOOGLE_REFRESH_TOKEN) foi removido.
+ *
+ * Funções de leitura e escrita exigem `userId` como primeiro parâmetro.
+ * Quem chama (route handler, cron) é responsável por descobrir o userId
+ * correto (session do admin, post.authorId, ou iteração sobre UserGoogleAuth).
  */
 
 import { google, calendar_v3 } from "googleapis";
-import { getIntegrationConfig, setIntegrationConfig } from "./config";
-
-const SCOPES = [
-  "https://www.googleapis.com/auth/calendar",
-  "https://www.googleapis.com/auth/calendar.events",
-];
+import {
+  getGoogleClientForUser,
+  GoogleNotConnectedError,
+  recordGoogleAuthError,
+} from "./google-user-oauth";
 
 const CALENDAR_ID = "primary";
 const TIMEZONE = "America/Bahia";
 
-// ============================================
-// AUTH — OAuth2
-// ============================================
-
-async function getOAuth2Client() {
-  const config = await getIntegrationConfig();
-  const clientId = config.GOOGLE_CLIENT_ID;
-  const clientSecret = config.GOOGLE_CLIENT_SECRET;
-
-  if (!clientId || !clientSecret) {
-    throw new Error("Google Calendar não configurado. Configure GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET em Integrações.");
-  }
-
-  const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
-
-  // Se temos refresh token, configurar
-  if (config.GOOGLE_REFRESH_TOKEN) {
-    oauth2Client.setCredentials({ refresh_token: config.GOOGLE_REFRESH_TOKEN });
-
-    // Salvar novo refresh token quando rotacionado
-    oauth2Client.on("tokens", async (tokens) => {
-      if (tokens.refresh_token) {
-        await setIntegrationConfig("GOOGLE_REFRESH_TOKEN", tokens.refresh_token);
-      }
-    });
-  }
-
-  return oauth2Client;
-}
-
-function getCalendarClient(auth: InstanceType<typeof google.auth.OAuth2>) {
+function getCalendarClient(auth: Awaited<ReturnType<typeof getGoogleClientForUser>>) {
   return google.calendar({ version: "v3", auth });
 }
 
-// ============================================
-// OAUTH2 AUTHORIZATION CODE FLOW
-// ============================================
-
-export function getGoogleAuthUrl(redirectUri: string, clientId: string, clientSecret: string): string {
-  const oauth2Client = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
-  return oauth2Client.generateAuthUrl({
-    access_type: "offline",
-    prompt: "consent",
-    scope: SCOPES,
-  });
+/**
+ * Detecta 403 com `insufficient_permission` / "Insufficient Permission" —
+ * tipico quando o usuario conectou ANTES da Fase 2 e nao tem o escopo
+ * `calendar.events`. Persiste o erro em UserGoogleAuth.lastError pra que
+ * a UI mostre "Reconecte sua conta Google".
+ */
+function isInsufficientPermissionError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as {
+    code?: number;
+    message?: string;
+    response?: { data?: { error?: { errors?: Array<{ reason?: string }> } } };
+  };
+  if (e.code === 403) return true;
+  const msg = e.message ?? "";
+  if (/insufficient[\s_]*permission|insufficient[\s_]*scopes?/i.test(msg)) return true;
+  const reasons = e.response?.data?.error?.errors ?? [];
+  return reasons.some((r) => /insufficient/i.test(r.reason ?? ""));
 }
 
-export async function exchangeCodeForTokens(code: string, redirectUri: string) {
-  const config = await getIntegrationConfig();
-  const oauth2Client = new google.auth.OAuth2(
-    config.GOOGLE_CLIENT_ID,
-    config.GOOGLE_CLIENT_SECRET,
-    redirectUri
-  );
-
-  const { tokens } = await oauth2Client.getToken(code);
-
-  if (tokens.refresh_token) {
-    await setIntegrationConfig("GOOGLE_REFRESH_TOKEN", tokens.refresh_token);
+async function noteScopeError(userId: string): Promise<void> {
+  try {
+    await recordGoogleAuthError(
+      userId,
+      "Escopo insuficiente — reconecte sua conta Google em /integracoes para autorizar Calendar.",
+    );
+  } catch {
+    /* nao bloqueia */
   }
-
-  return tokens;
 }
 
 // ============================================
@@ -99,10 +76,11 @@ export interface CalendarEventForMatching {
 }
 
 async function listEvents(
+  userId: string,
   timeMin: Date,
   timeMax: Date,
 ): Promise<CalendarEventForMatching[]> {
-  const auth = await getOAuth2Client();
+  const auth = await getGoogleClientForUser(userId);
   const calendar = getCalendarClient(auth);
 
   const events: CalendarEventForMatching[] = [];
@@ -148,28 +126,33 @@ async function listEvents(
 
 /** Eventos futuros na janela (default 60 dias) — pra `proximaReuniaoAt`. */
 export async function listFutureCalendarEvents(
+  userId: string,
   daysAhead: number = 60,
 ): Promise<CalendarEventForMatching[]> {
   const now = new Date();
   const max = new Date(now.getTime() + daysAhead * 24 * 60 * 60 * 1000);
-  return listEvents(now, max);
+  return listEvents(userId, now, max);
 }
 
 /** Eventos passados recentes na janela (default 30 dias) — pra `ultimaReuniaoAt`. */
 export async function listRecentCalendarEvents(
+  userId: string,
   daysBack: number = 30,
 ): Promise<CalendarEventForMatching[]> {
   const now = new Date();
   const min = new Date(now.getTime() - daysBack * 24 * 60 * 60 * 1000);
-  return listEvents(min, now);
+  return listEvents(userId, min, now);
 }
 
 // ============================================
 // CALENDAR CRUD
 // ============================================
 
-export async function createCalendarEvent(event: calendar_v3.Schema$Event): Promise<string | null> {
-  const auth = await getOAuth2Client();
+export async function createCalendarEvent(
+  userId: string,
+  event: calendar_v3.Schema$Event,
+): Promise<string | null> {
+  const auth = await getGoogleClientForUser(userId);
   const calendar = getCalendarClient(auth);
 
   const res = await calendar.events.insert({
@@ -180,8 +163,12 @@ export async function createCalendarEvent(event: calendar_v3.Schema$Event): Prom
   return res.data.id || null;
 }
 
-export async function updateCalendarEvent(eventId: string, event: calendar_v3.Schema$Event): Promise<void> {
-  const auth = await getOAuth2Client();
+export async function updateCalendarEvent(
+  userId: string,
+  eventId: string,
+  event: calendar_v3.Schema$Event,
+): Promise<void> {
+  const auth = await getGoogleClientForUser(userId);
   const calendar = getCalendarClient(auth);
 
   try {
@@ -200,8 +187,11 @@ export async function updateCalendarEvent(eventId: string, event: calendar_v3.Sc
   }
 }
 
-export async function deleteCalendarEvent(eventId: string): Promise<void> {
-  const auth = await getOAuth2Client();
+export async function deleteCalendarEvent(
+  userId: string,
+  eventId: string,
+): Promise<void> {
+  const auth = await getGoogleClientForUser(userId);
   const calendar = getCalendarClient(auth);
 
   try {
@@ -239,6 +229,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 interface PostForCalendar {
   id: string;
+  authorId: string;
   title: string;
   format: string;
   category: string;
@@ -284,43 +275,53 @@ export function buildPostEvent(post: PostForCalendar): calendar_v3.Schema$Event 
 // ============================================
 
 /**
- * Sincroniza um post com o Google Calendar.
+ * Sincroniza um post com o Google Calendar do autor do post.
  * - Se o post tem googleCalendarEventId: atualiza o evento
  * - Se não tem: cria um novo evento
- * Retorna o eventId (para salvar no post)
+ * Retorna o eventId (para salvar no post).
+ *
+ * Se o autor nao conectou Google ou nao tem escopo calendar.events,
+ * retorna null silenciosamente (nao bloqueia create/update do post).
  */
-export async function syncPostToCalendar(post: PostForCalendar): Promise<string | null> {
-  const config = await getIntegrationConfig();
-  if (!config.GOOGLE_REFRESH_TOKEN) return null;
-
+export async function syncPostToCalendar(
+  post: PostForCalendar,
+): Promise<string | null> {
   try {
     const event = buildPostEvent(post);
-
     if (post.googleCalendarEventId) {
-      await updateCalendarEvent(post.googleCalendarEventId, event);
+      await updateCalendarEvent(post.authorId, post.googleCalendarEventId, event);
       return post.googleCalendarEventId;
-    } else {
-      const eventId = await createCalendarEvent(event);
-      return eventId;
     }
+    return await createCalendarEvent(post.authorId, event);
   } catch (error) {
+    if (error instanceof GoogleNotConnectedError) return null;
+    if (isInsufficientPermissionError(error)) {
+      // Usuario conectou antes da Fase 2 (sem escopo calendar.events).
+      // Persiste o erro pra que a UI mostre "Reconecte" em vez de falhar silente.
+      await noteScopeError(post.authorId);
+      return null;
+    }
     console.error("[Google Calendar] Erro ao sincronizar post:", error);
     return post.googleCalendarEventId;
   }
 }
 
 /**
- * Remove o evento do Google Calendar associado a um post
+ * Remove o evento do Google Calendar associado a um post.
  */
-export async function removePostFromCalendar(googleCalendarEventId: string | null): Promise<void> {
+export async function removePostFromCalendar(
+  authorId: string,
+  googleCalendarEventId: string | null,
+): Promise<void> {
   if (!googleCalendarEventId) return;
-
-  const config = await getIntegrationConfig();
-  if (!config.GOOGLE_REFRESH_TOKEN) return;
-
   try {
-    await deleteCalendarEvent(googleCalendarEventId);
+    await deleteCalendarEvent(authorId, googleCalendarEventId);
   } catch (error) {
+    if (error instanceof GoogleNotConnectedError) return;
+    if (isInsufficientPermissionError(error)) {
+      await noteScopeError(authorId);
+      return;
+    }
     console.error("[Google Calendar] Erro ao remover evento:", error);
   }
 }
@@ -329,14 +330,19 @@ export async function removePostFromCalendar(googleCalendarEventId: string | nul
 // TESTAR CONEXÃO
 // ============================================
 
-export async function testGoogleConnection(): Promise<{ success: boolean; message: string }> {
+export async function testGoogleConnection(
+  userId: string,
+): Promise<{ success: boolean; message: string }> {
   try {
-    const auth = await getOAuth2Client();
+    const auth = await getGoogleClientForUser(userId);
     const calendar = getCalendarClient(auth);
     const res = await calendar.calendarList.get({ calendarId: CALENDAR_ID });
     const name = res.data.summary || "Calendário principal";
     return { success: true, message: `Conectado ao Google Calendar: ${name}` };
   } catch (error) {
+    if (error instanceof GoogleNotConnectedError) {
+      return { success: false, message: "Conta Google não conectada para este usuário." };
+    }
     return { success: false, message: error instanceof Error ? error.message : "Erro desconhecido" };
   }
 }
