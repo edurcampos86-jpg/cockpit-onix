@@ -118,21 +118,36 @@ export async function ingestConversa(
 
   let novasMensagens = 0;
   for (const m of mensagens) {
-    const r = await prisma.mensagem.upsert({
-      where: { externalId: m.externalId },
-      create: {
-        externalId: m.externalId,
-        conversaId: conversa.id,
-        fromMe: m.fromMe,
-        tipo: m.tipo,
-        body: m.body ?? null,
-        mediaUrl: m.mediaUrl ?? null,
-        sentAt: new Date(m.sentAt),
-        rawPayload: (m.rawPayload as object | undefined) ?? undefined,
-      },
-      update: {}, // idempotente — nunca sobrescreve
-    });
-    if (r.recebidoEm.getTime() > Date.now() - 5000) novasMensagens++;
+    // Tolera race condition do Prisma upsert: quando webhook e polling
+    // ingerem a mesma mensagem em paralelo, o SELECT do upsert vê "não
+    // existe", mas o INSERT seguinte colide com outro INSERT concorrente.
+    // P2002 (Unique constraint) nesse caso significa "alguém já ingeriu" —
+    // tratar como noop em vez de propagar o erro. Sem isso, o sync inteiro
+    // do vendedor parava na primeira mensagem duplicada.
+    try {
+      const r = await prisma.mensagem.upsert({
+        where: { externalId: m.externalId },
+        create: {
+          externalId: m.externalId,
+          conversaId: conversa.id,
+          fromMe: m.fromMe,
+          tipo: m.tipo,
+          body: m.body ?? null,
+          mediaUrl: m.mediaUrl ?? null,
+          sentAt: new Date(m.sentAt),
+          rawPayload: (m.rawPayload as object | undefined) ?? undefined,
+        },
+        update: {}, // idempotente — nunca sobrescreve
+      });
+      if (r.recebidoEm.getTime() > Date.now() - 5000) novasMensagens++;
+    } catch (e) {
+      const code = (e as { code?: string } | null)?.code;
+      if (code === "P2002") {
+        // Mensagem já existe (race com webhook). Segue.
+        continue;
+      }
+      throw e;
+    }
   }
 
   // Atualiza lastMessageAt se houver mensagem mais recente que o que veio no payload
