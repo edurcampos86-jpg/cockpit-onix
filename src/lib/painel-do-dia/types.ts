@@ -165,6 +165,9 @@ export type PainelDoDiaPayload = {
   // Estado da conexão Google per-user (para CTA "Conectar" nos blocos)
   googleConectado: boolean;
   googleEmail?: string;
+  // Estado da conexão Microsoft per-user (Fase 4 — Graph OAuth)
+  microsoftConectado: boolean;
+  microsoftEmail?: string;
   agendaFetchedAt?: string; // ISO — última leitura bem-sucedida do Calendar
   emailsFetchedAt?: string; // ISO — última leitura bem-sucedida do Gmail
 };

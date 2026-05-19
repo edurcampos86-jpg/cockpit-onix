@@ -87,10 +87,31 @@ export default function PrivacyPage() {
           </li>
         </ul>
         <p>
+          Quando você conecta sua conta <strong>Microsoft</strong> (Outlook
+          via Microsoft Graph), o tratamento é equivalente:
+        </p>
+        <ul className="list-disc pl-6">
+          <li>
+            <strong>Outlook Calendar (somente leitura):</strong> lemos os
+            eventos do dia para o Painel do Dia.
+          </li>
+          <li>
+            <strong>Outlook Mail (somente leitura):</strong> lemos
+            metadados/preview de e-mails não lidos das últimas 24 horas. Sem
+            acesso a anexos, sem envio em seu nome.
+          </li>
+          <li>
+            <strong>Perfil básico (User.Read):</strong> e-mail e nome da conta
+            Microsoft conectada, exibidos na tela de Integrações.
+          </li>
+        </ul>
+        <p>
           <strong>Sobre tokens:</strong> seu <em>refresh token</em> e{" "}
-          <em>access token</em> Google são armazenados cifrados em
-          AES-256-GCM no nosso banco de dados (Postgres). A chave de
-          criptografia fica apenas no servidor.
+          <em>access token</em> (Google e Microsoft) são armazenados
+          cifrados em AES-256-GCM no nosso banco de dados (Postgres). A chave
+          de criptografia fica apenas no servidor. Os refresh tokens
+          Microsoft expiram automaticamente após 90 dias de inatividade — você
+          é solicitado a reconectar quando isso acontece.
         </p>
 
         <h2 className="text-xl font-semibold">

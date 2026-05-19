@@ -1,7 +1,9 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { fetchAgendaDoDia, fetchEmailsAcao } from "./google-fetch";
+import { fetchAgendaDoDiaMs, fetchEmailsAcaoMs } from "./microsoft-fetch";
 import { GoogleNotConnectedError } from "@/lib/integrations/google-user-oauth";
+import { MicrosoftNotConnectedError } from "@/lib/integrations/microsoft-user-oauth";
 import { processarTriagemEmails } from "./triar-emails";
 import type {
   AcaoUnificada,
@@ -88,6 +90,9 @@ export async function carregarPainelDoDia(
     resGoogleAuth,
     resGoogleAgenda,
     resGoogleEmails,
+    resMicrosoftAuth,
+    resMsAgenda,
+    resMsEmails,
     resRetros,
     resSugestoes,
   ] = await Promise.allSettled([
@@ -97,6 +102,9 @@ export async function carregarPainelDoDia(
     carregarGoogleAuth(userId),
     carregarAgendaGoogle(userId, data),
     carregarEmailsGoogle(userId),
+    carregarMicrosoftAuth(userId),
+    carregarAgendaMicrosoft(userId, data),
+    carregarEmailsMicrosoft(userId),
     carregarRetrospectivaAtiva(userId),
     carregarSugestoes(userId),
   ]);
@@ -145,14 +153,45 @@ export async function carregarPainelDoDia(
       : String(resGoogleEmails.reason);
   }
 
-  // Triagem AI dos e-mails Gmail recém-buscados (dedupe interno por
-  // PainelEmailAI.externoId — só novos vão pro Claude). Best-effort:
+  // Microsoft Graph (Fase 4). Quando UserMicrosoftAuth existe, Graph eh a
+  // fonte canonica para agenda/email Microsoft — substitui o cache cowork
+  // (que continua aceito via /api/painel-do-dia/cowork-sync mas e ignorado
+  // aqui se o usuario tiver UserMicrosoftAuth).
+  const microsoftAuth =
+    resMicrosoftAuth.status === "fulfilled" ? resMicrosoftAuth.value : null;
+  const msAgendaGraph: EventoAgenda[] =
+    resMsAgenda.status === "fulfilled" ? resMsAgenda.value : [];
+  const msEmailsGraph: EmailAcao[] =
+    resMsEmails.status === "fulfilled" ? resMsEmails.value : [];
+  if (microsoftAuth) {
+    if (resMsAgenda.status === "rejected") {
+      errosPorSecao.agenda = errosPorSecao.agenda
+        ? errosPorSecao.agenda
+        : String(resMsAgenda.reason);
+    }
+    if (resMsEmails.status === "rejected") {
+      errosPorSecao.emails = errosPorSecao.emails
+        ? errosPorSecao.emails
+        : String(resMsEmails.reason);
+    }
+  }
+  // Quando Graph esta ativo, ele substitui o cache cowork (mesma origem
+  // "ms-calendar" / "ms-mail"). Sem Graph, mantemos o cache existente.
+  const usarGraphMs = !!microsoftAuth;
+  const msAgendaFinal: EventoAgenda[] = usarGraphMs
+    ? msAgendaGraph
+    : caches.agenda;
+  const msEmailsFinal: EmailAcao[] = usarGraphMs ? msEmailsGraph : caches.emails;
+
+  // Triagem AI dos e-mails Gmail + Microsoft recém-buscados (dedupe interno
+  // por PainelEmailAI.externoId — só novos vão pro Claude). Best-effort:
   // se Claude estiver fora, segue com e-mails sem classificacao.
-  if (googleEmails.length > 0) {
+  const emailsParaTriagem = [...googleEmails, ...msEmailsFinal];
+  if (emailsParaTriagem.length > 0) {
     try {
-      await processarTriagemEmails(userId, googleEmails);
+      await processarTriagemEmails(userId, emailsParaTriagem);
     } catch (err) {
-      console.error("[agregador] triagem gmail falhou", err);
+      console.error("[agregador] triagem emails falhou", err);
     }
   }
 
@@ -169,15 +208,26 @@ export async function carregarPainelDoDia(
     arquivados = new Set();
   }
 
-  // Une agenda do cache Microsoft + Google (a dedupe visual fica em AgendaUnificada)
-  const agendaUnida: EventoAgenda[] = [...caches.agenda, ...googleAgenda];
+  // Une agenda Microsoft (Graph se conectado, senao cache cowork) + Google
+  // (dedupe visual final fica em AgendaUnificada)
+  const agendaUnida: EventoAgenda[] = [...msAgendaFinal, ...googleAgenda];
   const dedupe = deduplicarAcoesVsAgenda(acoes, agendaUnida);
 
   const integracoes = montarStatusIntegracoes({
-    msCalendar: caches.agenda.length > 0 ? caches.metaMs?.calSyncedAt : undefined,
-    msMail: caches.emails.length > 0 ? caches.metaMs?.mailSyncedAt : undefined,
-    msSessaoExpirada: caches.metaMs?.expirada ?? false,
-    msMensagemErro: caches.metaMs?.mensagemErro,
+    // Microsoft: prefere Graph (now) se conectado; senao cache cowork (syncedAt)
+    msCalendar: usarGraphMs
+      ? new Date()
+      : caches.agenda.length > 0
+        ? caches.metaMs?.calSyncedAt
+        : undefined,
+    msMail: usarGraphMs
+      ? new Date()
+      : caches.emails.length > 0
+        ? caches.metaMs?.mailSyncedAt
+        : undefined,
+    msSessaoExpirada: usarGraphMs ? false : (caches.metaMs?.expirada ?? false),
+    msMensagemErro: usarGraphMs ? undefined : caches.metaMs?.mensagemErro,
+    msGraphConectado: usarGraphMs,
     pmUltima: await ultimaSyncPriorityMatrix(userId),
     googleAuth,
     googleAgendaFetchedAt: agendaFetchedAt,
@@ -210,7 +260,7 @@ export async function carregarPainelDoDia(
     };
   }
   // Arquivados sao filtrados aqui (emails sem entrada na AI seguem visiveis).
-  const emailsMs: EmailClassificado[] = caches.emails
+  const emailsMs: EmailClassificado[] = msEmailsFinal
     .filter((e) => !arquivados.has(e.id))
     .map(enriquecer);
   const emailsGmail: EmailClassificado[] = googleEmails
@@ -231,6 +281,8 @@ export async function carregarPainelDoDia(
     sugestoes,
     googleConectado: !!googleAuth,
     googleEmail: googleAuth?.googleEmail,
+    microsoftConectado: !!microsoftAuth,
+    microsoftEmail: microsoftAuth?.microsoftEmail,
     agendaFetchedAt,
     emailsFetchedAt,
   };
@@ -265,6 +317,39 @@ async function carregarEmailsGoogle(userId: string): Promise<EmailAcao[]> {
     return await fetchEmailsAcao(userId, 10);
   } catch (err) {
     if (err instanceof GoogleNotConnectedError) return [];
+    throw err;
+  }
+}
+
+async function carregarMicrosoftAuth(userId: string) {
+  return prisma.userMicrosoftAuth.findUnique({
+    where: { userId },
+    select: {
+      microsoftEmail: true,
+      lastError: true,
+      lastErrorAt: true,
+      lastUsedAt: true,
+    },
+  });
+}
+
+async function carregarAgendaMicrosoft(
+  userId: string,
+  data: string,
+): Promise<EventoAgenda[]> {
+  try {
+    return await fetchAgendaDoDiaMs(userId, data);
+  } catch (err) {
+    if (err instanceof MicrosoftNotConnectedError) return [];
+    throw err;
+  }
+}
+
+async function carregarEmailsMicrosoft(userId: string): Promise<EmailAcao[]> {
+  try {
+    return await fetchEmailsAcaoMs(userId, 10);
+  } catch (err) {
+    if (err instanceof MicrosoftNotConnectedError) return [];
     throw err;
   }
 }
@@ -466,6 +551,7 @@ function montarStatusIntegracoes(input: {
   msMail?: Date;
   msSessaoExpirada: boolean;
   msMensagemErro?: string;
+  msGraphConectado?: boolean;
   pmUltima?: Date;
   googleAuth: {
     googleEmail: string;
@@ -483,6 +569,7 @@ function montarStatusIntegracoes(input: {
     msMail,
     msSessaoExpirada,
     msMensagemErro,
+    msGraphConectado,
     pmUltima,
     googleAuth,
     googleAgendaFetchedAt,
@@ -522,6 +609,10 @@ function montarStatusIntegracoes(input: {
       ultimaSincronizacao: ultimaMs?.toISOString(),
       sessaoExpirada: msSessaoExpirada,
       mensagemErro: msSessaoExpirada ? msMensagemErro : undefined,
+      // hint pra UI: "via Microsoft Graph (OAuth per-user)" vs "via cowork-sync (legado)"
+      roadmapInfo: msGraphConectado
+        ? "Microsoft Graph (OAuth per-user) — Fase 4"
+        : undefined,
     },
     {
       provider: "google",
