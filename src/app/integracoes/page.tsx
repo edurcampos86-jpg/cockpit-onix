@@ -106,17 +106,18 @@ const INTEGRATIONS: IntegrationConfig[] = [
   },
   {
     id: "google_calendar",
-    name: "Google Calendar",
-    description: "Sincronizar programação de postagens com o Google Calendar automaticamente",
+    name: "Google (Calendar + Gmail)",
+    description: "Conecte sua conta Google para preencher Agenda e E-mails do Painel do Dia (per-user OAuth, leitura)",
     icon: <Calendar className="h-6 w-6" />,
     status: "disconnected",
     envKey: "GOOGLE_CLIENT_ID",
     docsUrl: "https://console.cloud.google.com/apis/credentials",
     features: [
-      "Criar eventos automaticamente ao agendar posts",
-      "Atualizar eventos ao mudar data/hora da publicação",
-      "Remover eventos ao excluir posts",
-      "Sincronizar posts existentes com um clique",
+      "Agenda do dia no Painel (Calendar primário, eventos de hoje)",
+      "E-mails que pedem ação das últimas 24h (Gmail, não lidos)",
+      "Cada usuário conecta a própria conta (multi-tenant)",
+      "Escopos somente leitura (calendar.readonly, gmail.readonly)",
+      "Sync de posts ao calendário (modo admin global — legado)",
     ],
   },
   {
@@ -159,6 +160,23 @@ const STATUS_BADGE: Record<string, { label: string; class: string; icon: React.R
   },
 };
 
+type GoogleUserStatus = {
+  connected: boolean;
+  email?: string;
+  scopes?: string[];
+  connectedAt?: string;
+  lastUsedAt?: string | null;
+  lastError?: "expired" | "network" | "rate_limit" | "unknown" | null;
+  lastErrorAt?: string | null;
+};
+
+const GOOGLE_ERROR_LABEL: Record<NonNullable<GoogleUserStatus["lastError"]>, string> = {
+  expired: "Sessão expirada — reconecte sua conta.",
+  network: "Falha de rede ao falar com o Google. Tente atualizar em alguns minutos.",
+  rate_limit: "Cota Google excedida temporariamente.",
+  unknown: "Erro inesperado na última chamada.",
+};
+
 export default function IntegracoesPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
@@ -166,6 +184,8 @@ export default function IntegracoesPage() {
   const [statusMap, setStatusMap] = useState<Record<string, string>>({});
   const [maskedKeys, setMaskedKeys] = useState<Record<string, string>>({});
   const [actionResult, setActionResult] = useState<{ id: string; msg: string; ok: boolean } | null>(null);
+  const [googleUser, setGoogleUser] = useState<GoogleUserStatus | null>(null);
+  const [googleLoading, setGoogleLoading] = useState(false);
 
   const refreshStatus = async () => {
     try {
@@ -179,15 +199,81 @@ export default function IntegracoesPage() {
     } catch { /* ignore */ }
   };
 
+  const refreshGoogleUserStatus = async () => {
+    try {
+      const res = await fetch("/api/integracoes/google/status");
+      if (!res.ok) {
+        setGoogleUser({ connected: false });
+        return;
+      }
+      const data = (await res.json()) as GoogleUserStatus;
+      setGoogleUser(data);
+    } catch {
+      setGoogleUser({ connected: false });
+    }
+  };
+
   // Carregar status das integrações e chaves mascaradas
   useEffect(() => {
     refreshStatus();
+    refreshGoogleUserStatus();
     // Carregar chaves mascaradas para mostrar quais já estão configuradas
     fetch("/api/integracoes/config")
       .then((r) => r.json())
       .then((data: Record<string, string>) => setMaskedKeys(data))
       .catch(() => {});
+    // Mostrar erros/sucessos vindos do callback OAuth via querystring
+    const params = new URLSearchParams(window.location.search);
+    const googleErr = params.get("google_error");
+    const googleOk = params.get("google");
+    if (googleErr) {
+      setActionResult({ id: "google_calendar", msg: `Falha na conexão Google: ${googleErr}`, ok: false });
+    } else if (googleOk === "connected") {
+      // o status (com email) chega via refresh — não passar email pela URL
+      setActionResult({
+        id: "google_calendar",
+        msg: "Conta Google conectada",
+        ok: true,
+      });
+      void refreshGoogleUserStatus();
+    }
   }, []);
+
+  const handleGoogleConnect = async () => {
+    setGoogleLoading(true);
+    setActionResult(null);
+    try {
+      const res = await fetch("/api/integracoes/google/connect");
+      const data = await res.json();
+      if (!res.ok || !data.authUrl) {
+        setActionResult({ id: "google_calendar", msg: data.error ?? "Erro ao iniciar OAuth", ok: false });
+        return;
+      }
+      window.location.href = data.authUrl;
+    } catch {
+      setActionResult({ id: "google_calendar", msg: "Erro de rede ao iniciar OAuth", ok: false });
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
+
+  const handleGoogleDisconnect = async () => {
+    setGoogleLoading(true);
+    setActionResult(null);
+    try {
+      const res = await fetch("/api/integracoes/google/disconnect", { method: "POST" });
+      if (!res.ok) {
+        setActionResult({ id: "google_calendar", msg: "Erro ao desconectar", ok: false });
+        return;
+      }
+      setGoogleUser({ connected: false });
+      setActionResult({ id: "google_calendar", msg: "Conta Google desconectada", ok: true });
+    } catch {
+      setActionResult({ id: "google_calendar", msg: "Erro de rede ao desconectar", ok: false });
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
 
   const handleSaveKey = async (integrationId: string, envKey: string) => {
     setSaving(true);
@@ -307,6 +393,72 @@ export default function IntegracoesPage() {
                     {/* Configuração */}
                     <div>
                       <h4 className="text-sm font-semibold text-foreground mb-3">Configuração</h4>
+
+                      {/* Painel per-user OAuth do Google (Calendar + Gmail) */}
+                      {integration.id === "google_calendar" && (
+                        <div className="mb-4 space-y-2 rounded-lg border border-border bg-card p-4">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            Sua conta Google (Painel do Dia)
+                          </p>
+                          {googleUser?.connected ? (
+                            <>
+                              <div className="flex items-center gap-2">
+                                <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                                <span className="text-sm text-foreground font-medium truncate">
+                                  {googleUser.email}
+                                </span>
+                              </div>
+                              {googleUser.scopes && googleUser.scopes.length > 0 && (
+                                <p className="text-[11px] text-muted-foreground">
+                                  Escopos: {googleUser.scopes
+                                    .map((s) => s.replace("https://www.googleapis.com/auth/", ""))
+                                    .join(", ")}
+                                </p>
+                              )}
+                              {googleUser.lastError && (
+                                <p className="text-xs text-amber-500">
+                                  {GOOGLE_ERROR_LABEL[googleUser.lastError]}
+                                </p>
+                              )}
+                              <div className="flex flex-wrap items-center gap-2 pt-1">
+                                <button
+                                  onClick={handleGoogleConnect}
+                                  disabled={googleLoading}
+                                  className="px-3 py-1.5 text-xs font-medium rounded-lg border border-border text-foreground hover:bg-accent disabled:opacity-50"
+                                >
+                                  Reconectar
+                                </button>
+                                <button
+                                  onClick={handleGoogleDisconnect}
+                                  disabled={googleLoading}
+                                  className="px-3 py-1.5 text-xs font-medium rounded-lg border border-red-500/30 text-red-400 hover:bg-red-500/10 disabled:opacity-50"
+                                >
+                                  Desconectar
+                                </button>
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <div className="flex items-center gap-2">
+                                <AlertCircle className="h-4 w-4 text-muted-foreground shrink-0" />
+                                <span className="text-sm text-muted-foreground">
+                                  Nenhuma conta conectada
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-muted-foreground">
+                                Você precisa conectar sua conta para que Agenda e E-mails apareçam no Painel do Dia.
+                              </p>
+                              <button
+                                onClick={handleGoogleConnect}
+                                disabled={googleLoading}
+                                className="mt-1 px-3 py-1.5 text-xs font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                              >
+                                {googleLoading ? "Abrindo Google..." : "Conectar Google"}
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      )}
 
                       {liveStatus === "coming_soon" ? (
                         <div className="bg-card border border-border rounded-lg p-4 text-center">

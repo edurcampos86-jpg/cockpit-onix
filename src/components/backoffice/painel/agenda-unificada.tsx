@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
-import { AlertTriangle, Calendar, Info } from "lucide-react";
+import { AlertTriangle, Calendar, Info, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,6 +14,20 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { EventoAgenda } from "@/lib/painel-do-dia/types";
+
+function formatarHaQuantoTempo(iso: string | undefined, agora: number): string | undefined {
+  if (!iso) return undefined;
+  const ts = new Date(iso).getTime();
+  if (isNaN(ts)) return undefined;
+  const diff = Math.max(0, agora - ts);
+  const min = Math.floor(diff / 60000);
+  if (min < 1) return "agora";
+  if (min < 60) return `${min} min atrás`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `${h}h atrás`;
+  const d = Math.floor(h / 24);
+  return `${d}d atrás`;
+}
 
 const HORA_INICIO = 8;
 const HORA_FIM = 20;
@@ -113,15 +128,50 @@ function EventoBloco({ ev }: { ev: EventoAgenda }) {
 export function AgendaUnificada({
   eventos,
   erro,
+  googleConectado = false,
+  fetchedAt,
 }: {
   eventos: EventoAgenda[];
   erro?: string;
+  googleConectado?: boolean;
+  fetchedAt?: string;
 }) {
   const [modo, setModo] = useState<"compacto" | "completo">("compacto");
-  const lista = deduplicar(eventos);
+  const [listaCliente, setListaCliente] = useState<EventoAgenda[] | null>(null);
+  const [fetchedAtCliente, setFetchedAtCliente] = useState<string | undefined>(undefined);
+  const [refreshing, setRefreshing] = useState(false);
+  const [erroRefresh, setErroRefresh] = useState<string | null>(null);
+
+  const eventosVigentes = listaCliente ?? eventos;
+  const lista = deduplicar(eventosVigentes);
   const slots = agruparPorSlot(lista);
   const slotsVisiveis =
     modo === "completo" ? slots : slots.filter((s) => s.eventos.length > 0);
+
+  const ultimaSync = fetchedAtCliente ?? fetchedAt;
+  const ultimaSyncTexto = formatarHaQuantoTempo(ultimaSync, Date.now());
+
+  async function atualizar() {
+    setRefreshing(true);
+    setErroRefresh(null);
+    try {
+      const res = await fetch("/api/painel-do-dia/agenda", { cache: "no-store" });
+      const data = await res.json();
+      if (!res.ok) {
+        setErroRefresh(data.error ?? `HTTP ${res.status}`);
+        return;
+      }
+      // mesclar Google atualizado com eventos não-Google que vieram do server
+      const naoGoogle = eventos.filter((e) => e.origem !== "google");
+      const googleNovo: EventoAgenda[] = data.eventos ?? [];
+      setListaCliente([...naoGoogle, ...googleNovo]);
+      if (data.fetchedAt) setFetchedAtCliente(data.fetchedAt);
+    } catch (err) {
+      setErroRefresh(err instanceof Error ? err.message : "Falha ao atualizar");
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   return (
     <TooltipProvider>
@@ -144,17 +194,35 @@ export function AgendaUnificada({
             </TooltipContent>
           </Tooltip>
         </CardTitle>
-        {lista.length > 0 && (
-          <Button
-            variant="ghost"
-            size="xs"
-            onClick={() =>
-              setModo((m) => (m === "compacto" ? "completo" : "compacto"))
-            }
-          >
-            {modo === "compacto" ? "Ver grade completa" : "Ver só ocupado"}
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {ultimaSyncTexto && (
+            <span className="text-[10px] text-muted-foreground tabular-nums">
+              atualizado {ultimaSyncTexto}
+            </span>
+          )}
+          {googleConectado && (
+            <Button
+              variant="ghost"
+              size="xs"
+              onClick={atualizar}
+              disabled={refreshing}
+              title="Atualizar Google Calendar"
+            >
+              <RefreshCw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")} />
+            </Button>
+          )}
+          {lista.length > 0 && (
+            <Button
+              variant="ghost"
+              size="xs"
+              onClick={() =>
+                setModo((m) => (m === "compacto" ? "completo" : "compacto"))
+              }
+            >
+              {modo === "compacto" ? "Ver grade completa" : "Ver só ocupado"}
+            </Button>
+          )}
+        </div>
       </CardHeader>
       <CardContent className="px-4">
         {erro && (
@@ -162,9 +230,26 @@ export function AgendaUnificada({
             Falha ao carregar agenda: {erro}
           </p>
         )}
-        {lista.length === 0 ? (
+        {erroRefresh && (
+          <p className="mb-3 text-sm text-destructive">
+            Erro ao atualizar: {erroRefresh}
+          </p>
+        )}
+        {!googleConectado && lista.length === 0 ? (
+          <div className="rounded-md ring-1 ring-foreground/10 p-4 text-center space-y-2">
+            <p className="text-sm text-muted-foreground">
+              Conecte sua conta Google para ver a agenda do dia aqui.
+            </p>
+            <Link
+              href="/integracoes"
+              className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+            >
+              Conectar Google Calendar
+            </Link>
+          </div>
+        ) : lista.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            Sem eventos para hoje.
+            Sem compromissos hoje — dia livre pra atacar as 3 prioridades.
           </p>
         ) : (
           <div className="flex flex-col gap-0.5">
