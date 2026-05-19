@@ -8,13 +8,12 @@ import { prisma } from "@/lib/prisma";
  * Retorna o status de configuração de cada integração
  */
 export async function GET() {
-  const [manychat, claudeAi, zapierSecret, googleClient, googleSecret, googleRefresh, metaToken, btgId, btgSecret] = await Promise.all([
+  const [manychat, claudeAi, zapierSecret, googleClient, googleSecret, metaToken, btgId, btgSecret] = await Promise.all([
     isConfigured("MANYCHAT_API_TOKEN"),
     isConfigured("ANTHROPIC_API_KEY"),
     isConfigured("ZAPIER_WEBHOOK_SECRET"),
     isConfigured("GOOGLE_CLIENT_ID"),
     isConfigured("GOOGLE_CLIENT_SECRET"),
-    isConfigured("GOOGLE_REFRESH_TOKEN"),
     isConfigured("META_ACCESS_TOKEN"),
     isConfigured("BTG_CLIENT_ID"),
     isConfigured("BTG_CLIENT_SECRET"),
@@ -27,13 +26,14 @@ export async function GET() {
         select: { googleEmail: true },
       })
     : null;
+  // Refactor Fase 2: status do Google so reflete UserGoogleAuth.
+  // CLIENT_ID/SECRET configurados sem conexao do usuario => "pending_auth"
+  // (precisa clicar Conectar no /integracoes).
   const googleStatus = userGoogle
     ? "connected"
-    : googleRefresh
-      ? "connected"
-      : googleClient && googleSecret
-        ? "pending_auth"
-        : "disconnected";
+    : googleClient && googleSecret
+      ? "pending_auth"
+      : "disconnected";
 
   return NextResponse.json({
     manychat: {
@@ -50,7 +50,7 @@ export async function GET() {
     },
     google_calendar: {
       configured: googleClient && googleSecret,
-      authenticated: !!userGoogle || googleRefresh,
+      authenticated: !!userGoogle,
       userConnected: !!userGoogle,
       userEmail: userGoogle?.googleEmail,
       status: googleStatus,

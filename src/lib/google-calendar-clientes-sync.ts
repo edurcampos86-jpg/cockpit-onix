@@ -134,9 +134,11 @@ export interface GoogleCalendarSyncResult {
 }
 
 export async function syncGoogleCalendarComClientes(opts: {
+  userId: string;
   lookaheadDias?: number;
   lookbackDias?: number;
 }): Promise<GoogleCalendarSyncResult> {
+  const { userId } = opts;
   const lookaheadDias = opts.lookaheadDias ?? 60;
   const lookbackDias = opts.lookbackDias ?? 30;
 
@@ -181,12 +183,12 @@ export async function syncGoogleCalendarComClientes(opts: {
   let futuros: CalendarEventForMatching[] = [];
   let passados: CalendarEventForMatching[] = [];
   try {
-    futuros = await listFutureCalendarEvents(lookaheadDias);
+    futuros = await listFutureCalendarEvents(userId, lookaheadDias);
   } catch (e) {
     erros.push({ etapa: "listFuture", motivo: e instanceof Error ? e.message : "?" });
   }
   try {
-    passados = await listRecentCalendarEvents(lookbackDias);
+    passados = await listRecentCalendarEvents(userId, lookbackDias);
   } catch (e) {
     erros.push({ etapa: "listRecent", motivo: e instanceof Error ? e.message : "?" });
   }
@@ -220,6 +222,7 @@ export async function syncGoogleCalendarComClientes(opts: {
       try {
         const r = await upsertReuniao({
           clienteId: m.clienteId,
+          userId,
           source: "google-cal",
           externalId: ev.id,
           startAt: ev.start,
@@ -258,8 +261,11 @@ export async function syncGoogleCalendarComClientes(opts: {
   const janelaInicio = new Date(agora.getTime() - lookbackDias * 24 * 60 * 60 * 1000);
   const janelaFim = new Date(agora.getTime() + lookaheadDias * 24 * 60 * 60 * 1000);
 
+  // Cleanup escopado por usuario — sem isso, o sync de User A apagaria
+  // reunioes de User B (cross-user delete bug encontrado no review da Fase 2).
   const candidatasPraRemover = await prisma.reuniaoCliente.findMany({
     where: {
+      userId,
       source: "google-cal",
       startAt: { gte: janelaInicio, lte: janelaFim },
     },

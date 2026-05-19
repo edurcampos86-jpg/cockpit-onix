@@ -7,14 +7,13 @@ import { syncGoogleCalendarComClientes } from "@/lib/google-calendar-clientes-sy
  * GET /api/cron/google-calendar-poll
  *
  * Polling do Google Calendar a cada 15min (configurado em railway.toml).
- * Mesma lógica do endpoint manual `/api/backoffice/google-calendar-sync`,
- * mas usa o cron-guard pra autenticar.
+ * Itera sobre TODOS os usuários com UserGoogleAuth e sincroniza o
+ * Calendar de cada um contra a base compartilhada de ClienteBackoffice.
  *
- * Lookahead/lookback fixos pelo cron — querystrings ignoradas.
- *
- * Pré-requisitos:
- * - GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN
- *   configurados via /integracoes (OAuth flow já existente)
+ * Refactor Fase 2 (2026-05): migrado de admin global (GOOGLE_REFRESH_TOKEN)
+ * pra per-user OAuth (UserGoogleAuth). Hoje só Eduardo está conectado,
+ * mas o codigo já suporta multi-tenant — quando outro assessor conectar,
+ * o sync inclui automaticamente o calendar dele.
  */
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -23,42 +22,79 @@ export async function GET(req: NextRequest) {
   const guardErr = guardCron(req);
   if (guardErr) return guardErr;
 
+  const usuarios = await prisma.userGoogleAuth.findMany({
+    select: { userId: true, googleEmail: true },
+  });
+
+  if (usuarios.length === 0) {
+    return NextResponse.json({
+      ok: true,
+      message: "Nenhum usuário com Google conectado.",
+      usuariosSincronizados: 0,
+    });
+  }
+
   const log = await prisma.btgSyncLog.create({
     data: { tipo: "google-calendar-poll", trigger: "cron" },
   });
 
-  try {
-    const result = await syncGoogleCalendarComClientes({
-      lookaheadDias: 60,
-      lookbackDias: 7, // janela curta no cron — backfill maior só no sync manual
-    });
+  let totalUpsert = 0;
+  let totalRemovidas = 0;
+  let totalRecomp = 0;
+  let totalContatos = 0;
+  let totalMatchEmail = 0;
+  let totalMatchUnico = 0;
+  let totalMatchSubstring = 0;
+  const errosAgregados: Array<{ user: string; etapa: string; motivo: string }> = [];
 
-    await prisma.btgSyncLog.update({
-      where: { id: log.id },
-      data: {
-        finalizado: new Date(),
-        sucesso: result.erros.length === 0,
-        contasProcessadas:
-          result.reunioesUpsert +
-          result.reunioesRemovidas +
-          result.contatosAtualizados,
-        contasComErro: result.erros.length,
-        resumo: `${result.reunioesUpsert} upsert · ${result.reunioesRemovidas} removidas · ${result.agregadosRecomputados} recomputados · ${result.contatosAtualizados} contatos · match: ${result.matchEmail}e/${result.matchNomeUnico}u/${result.matchNomeSubstring}s`,
-        erros: result.erros.length > 0 ? result.erros : undefined,
-      },
-    });
-
-    return NextResponse.json({
-      ok: result.erros.length === 0,
-      ...result,
-    });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : "?";
-    await prisma.btgSyncLog.update({
-      where: { id: log.id },
-      data: { finalizado: new Date(), sucesso: false, resumo: `Erro: ${msg}` },
-    });
-    // 200 pra cron não retry storm
-    return NextResponse.json({ ok: false, message: msg }, { status: 200 });
+  for (const u of usuarios) {
+    try {
+      const result = await syncGoogleCalendarComClientes({
+        userId: u.userId,
+        lookaheadDias: 60,
+        lookbackDias: 7,
+      });
+      totalUpsert += result.reunioesUpsert;
+      totalRemovidas += result.reunioesRemovidas;
+      totalRecomp += result.agregadosRecomputados;
+      totalContatos += result.contatosAtualizados;
+      totalMatchEmail += result.matchEmail;
+      totalMatchUnico += result.matchNomeUnico;
+      totalMatchSubstring += result.matchNomeSubstring;
+      for (const e of result.erros) {
+        errosAgregados.push({ user: u.googleEmail, ...e });
+      }
+    } catch (e) {
+      errosAgregados.push({
+        user: u.googleEmail,
+        etapa: "sync",
+        motivo: e instanceof Error ? e.message : "?",
+      });
+    }
   }
+
+  await prisma.btgSyncLog.update({
+    where: { id: log.id },
+    data: {
+      finalizado: new Date(),
+      sucesso: errosAgregados.length === 0,
+      contasProcessadas: totalUpsert + totalRemovidas + totalContatos,
+      contasComErro: errosAgregados.length,
+      resumo: `${usuarios.length}u · ${totalUpsert} upsert · ${totalRemovidas} removidas · ${totalRecomp} recomp · ${totalContatos} contatos · match: ${totalMatchEmail}e/${totalMatchUnico}u/${totalMatchSubstring}s`,
+      erros: errosAgregados.length > 0 ? errosAgregados : undefined,
+    },
+  });
+
+  return NextResponse.json({
+    ok: errosAgregados.length === 0,
+    usuariosSincronizados: usuarios.length,
+    reunioesUpsert: totalUpsert,
+    reunioesRemovidas: totalRemovidas,
+    agregadosRecomputados: totalRecomp,
+    contatosAtualizados: totalContatos,
+    matchEmail: totalMatchEmail,
+    matchNomeUnico: totalMatchUnico,
+    matchNomeSubstring: totalMatchSubstring,
+    erros: errosAgregados,
+  });
 }

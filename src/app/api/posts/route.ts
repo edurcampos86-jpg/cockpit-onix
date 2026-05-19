@@ -138,11 +138,12 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Sincronizar com Google Calendar (não bloqueia criação do post)
+    // Sincronizar com Google Calendar do autor (não bloqueia criação do post)
     try {
       const { syncPostToCalendar } = await import("@/lib/integrations/google-calendar");
       const eventId = await syncPostToCalendar({
         id: post.id,
+        authorId: post.authorId,
         title: post.title,
         format: post.format,
         category: post.category,

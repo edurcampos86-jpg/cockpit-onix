@@ -115,9 +115,9 @@ const INTEGRATIONS: IntegrationConfig[] = [
     features: [
       "Agenda do dia no Painel (Calendar primário, eventos de hoje)",
       "E-mails que pedem ação das últimas 24h (Gmail, não lidos)",
+      "Sync de posts agendados → eventos no Calendar do autor",
       "Cada usuário conecta a própria conta (multi-tenant)",
-      "Escopos somente leitura (calendar.readonly, gmail.readonly)",
-      "Sync de posts ao calendário (modo admin global — legado)",
+      "Escopos: calendar.readonly + calendar.events + gmail.readonly",
     ],
   },
   {
@@ -318,18 +318,6 @@ export default function IntegracoesPage() {
       setActionResult({ id: integrationId, msg: data.message, ok: data.success });
     } catch {
       setActionResult({ id: integrationId, msg: "Erro ao sincronizar", ok: false });
-    }
-  };
-
-  const handleGoogleAuth = async () => {
-    try {
-      const res = await fetch("/api/integracoes/google/auth");
-      const data = await res.json();
-      if (data.authUrl) {
-        window.open(data.authUrl, "_blank");
-      }
-    } catch {
-      setActionResult({ id: "google_calendar", msg: "Erro ao iniciar autenticação", ok: false });
     }
   };
 
@@ -583,15 +571,7 @@ export default function IntegracoesPage() {
                                 Webhook ativo — aguardando dados do Zapier
                               </span>
                             )}
-                            {/* Google Calendar: Autorizar / Testar / Sincronizar */}
-                            {integration.id === "google_calendar" && statusMap.google_calendar !== "connected" && (statusMap.google_calendar === "pending_auth" || apiKeys.google_calendar) && (
-                              <button
-                                onClick={handleGoogleAuth}
-                                className="px-3 py-2 text-sm font-medium rounded-lg border border-blue-500/30 text-blue-400 hover:bg-blue-500/10 transition-colors"
-                              >
-                                Autorizar Google
-                              </button>
-                            )}
+                            {/* Google Calendar: Testar / Sincronizar (conexao OAuth feita no card per-user acima) */}
                             {integration.id === "google_calendar" && statusMap.google_calendar === "connected" && (
                               <>
                                 <button

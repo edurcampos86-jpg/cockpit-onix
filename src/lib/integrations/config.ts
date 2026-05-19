@@ -9,13 +9,13 @@ const CONFIG_PATH = path.resolve(process.cwd(), ".integrations.json");
  */
 export async function getIntegrationConfig(): Promise<Record<string, string>> {
   // Base: variáveis de ambiente relevantes (Railway, Vercel, etc.)
+  // GOOGLE_REFRESH_TOKEN removido na Fase 2 (per-user OAuth via UserGoogleAuth).
   const envKeys = [
     "MANYCHAT_API_TOKEN",
     "ANTHROPIC_API_KEY",
     "ZAPIER_WEBHOOK_SECRET",
     "GOOGLE_CLIENT_ID",
     "GOOGLE_CLIENT_SECRET",
-    "GOOGLE_REFRESH_TOKEN",
     "META_ACCESS_TOKEN",
     "BTG_CLIENT_ID",
     "BTG_CLIENT_SECRET",

@@ -35,15 +35,16 @@ model User {
   painelEmailsAI    PainelEmailAI[]
   pessoa            Pessoa?
   googleAuth        UserGoogleAuth?
+  reunioesCliente   ReuniaoCliente[]
 }
 
 // ============================================
 // OAUTH POR USUÁRIO — Google (Calendar + Gmail)
 // ============================================
 // Tokens cifrados em AES-256-GCM (src/lib/crypto.ts).
-// Convive com o token global em .integrations.json usado pelo sync de posts
-// e sync de reuniões-clientes (legado single-user). Migração desses fluxos
-// para esta tabela fica para fase futura.
+// Padrão canônico per-user pós Fase 2: TODO acesso ao Google
+// (Calendar + Gmail, leitura e escrita) passa por esta tabela.
+// GOOGLE_REFRESH_TOKEN global foi removido.
 model UserGoogleAuth {
   id                   String    @id @default(cuid())
   userId               String    @unique
@@ -577,6 +578,14 @@ model ReuniaoCliente {
   source     String // "google-cal" | "outlook-ics" | "datacrazy-atividade" | "manual"
   externalId String // event.id do Google, UID do ICS, activity.id do Datacrazy, cuid() pra manual
 
+  // userId é o "dono" da reunião quando a fonte é per-user (google-cal pos
+  // Fase 2; outlook futuramente). NULL para fontes globais legadas
+  // (outlook-ics admin único, datacrazy-atividade) ate elas migrarem.
+  // Permite que User A e User B tenham o MESMO event.id em seus calendários
+  // sem colisão de unique constraint.
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   startAt DateTime
   endAt   DateTime?
   titulo  String?
@@ -591,9 +600,12 @@ model ReuniaoCliente {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([source, externalId]) // chave do dedupe entre fontes
+  // Dedupe escopado por usuario. NULL no userId vale para fontes globais
+  // (Postgres permite múltiplos NULL no unique).
+  @@unique([userId, source, externalId])
   @@index([clienteId, startAt])
   @@index([source, startAt])
+  @@index([userId, source])
 }
 
 // ============================================
