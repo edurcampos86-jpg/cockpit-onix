@@ -162,6 +162,11 @@ export type PainelDoDiaPayload = {
   retrospectiva?: RetrospectivaPayload;
   // Sug 3 (Auto-encerramento / sugestoes de automacao)
   sugestoes: SugestaoPainelPayload[];
+  // Estado da conexão Google per-user (para CTA "Conectar" nos blocos)
+  googleConectado: boolean;
+  googleEmail?: string;
+  agendaFetchedAt?: string; // ISO — última leitura bem-sucedida do Calendar
+  emailsFetchedAt?: string; // ISO — última leitura bem-sucedida do Gmail
 };
 
 // ============================================

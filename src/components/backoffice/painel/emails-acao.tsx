@@ -1,11 +1,14 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import {
   Archive,
+  ExternalLink,
   Info,
   Mail,
+  RefreshCw,
   Sparkles,
   Zap,
 } from "lucide-react";
@@ -20,6 +23,20 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { EmailClassificado } from "@/lib/painel-do-dia/types";
+
+function formatarHaQuantoTempo(iso: string | undefined, agora: number): string | undefined {
+  if (!iso) return undefined;
+  const ts = new Date(iso).getTime();
+  if (isNaN(ts)) return undefined;
+  const diff = Math.max(0, agora - ts);
+  const min = Math.floor(diff / 60000);
+  if (min < 1) return "agora";
+  if (min < 60) return `${min} min atrás`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `${h}h atrás`;
+  const d = Math.floor(h / 24);
+  return `${d}d atrás`;
+}
 
 const CORES_QUADRANTE: Record<string, string> = {
   Q1: "border-red-300/60 text-red-700 dark:text-red-300",
@@ -39,15 +56,47 @@ const LABEL_TIPO: Record<string, string> = {
 export function EmailsAcao({
   emails,
   erro,
+  googleConectado = false,
+  fetchedAt,
 }: {
   emails: EmailClassificado[];
   erro?: string;
+  googleConectado?: boolean;
+  fetchedAt?: string;
 }) {
   const router = useRouter();
   const [loadingId, setLoadingId] = useState<string | null>(null);
+  const [emailsCliente, setEmailsCliente] = useState<EmailClassificado[] | null>(null);
+  const [fetchedAtCliente, setFetchedAtCliente] = useState<string | undefined>(undefined);
+  const [refreshing, setRefreshing] = useState(false);
+  const [erroRefresh, setErroRefresh] = useState<string | null>(null);
 
+  const fonte = emailsCliente ?? emails;
   // Ordena: ação+alta > ação+media > agendamento > cliente_novo > fyi > spam
-  const ordenados = [...emails].sort((a, b) => pesoEmail(b) - pesoEmail(a));
+  const ordenados = [...fonte].sort((a, b) => pesoEmail(b) - pesoEmail(a));
+  const ultimaSync = fetchedAtCliente ?? fetchedAt;
+  const ultimaSyncTexto = formatarHaQuantoTempo(ultimaSync, Date.now());
+
+  async function atualizar() {
+    setRefreshing(true);
+    setErroRefresh(null);
+    try {
+      const res = await fetch("/api/painel-do-dia/emails", { cache: "no-store" });
+      const data = await res.json();
+      if (!res.ok) {
+        setErroRefresh(data.error ?? `HTTP ${res.status}`);
+        return;
+      }
+      const naoGmail = emails.filter((e) => e.origem !== "gmail");
+      const gmailNovo: EmailClassificado[] = data.emails ?? [];
+      setEmailsCliente([...naoGmail, ...gmailNovo]);
+      if (data.fetchedAt) setFetchedAtCliente(data.fetchedAt);
+    } catch (err) {
+      setErroRefresh(err instanceof Error ? err.message : "Falha ao atualizar");
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   async function criarAcao(email: EmailClassificado) {
     if (!email.aiId) return;
@@ -80,7 +129,7 @@ export function EmailsAcao({
   return (
     <TooltipProvider>
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0">
           <CardTitle className="flex items-center gap-2">
             <Mail className="h-5 w-5" /> E-mails que pedem ação
             <Tooltip>
@@ -88,13 +137,30 @@ export function EmailsAcao({
                 <Info className="h-3.5 w-3.5 text-muted-foreground" />
               </TooltipTrigger>
               <TooltipContent className="max-w-xs">
-                Inbox do Outlook classificado a cada 15min pela IA em
-                ação / fyi / spam / agendamento / cliente novo, com
-                quadrante Eisenhower sugerido. Botão ✨ converte em
-                AcaoPainel respeitando o prazo e cliente inferidos.
+                Inbox do Outlook (classificado a cada 15min pela IA) +
+                últimas 24h do Gmail filtradas por heurística (assunto
+                com &lsquo;?&rsquo;, destinatário direto ou palavras-chave de ação).
               </TooltipContent>
             </Tooltip>
           </CardTitle>
+          <div className="flex items-center gap-2">
+            {ultimaSyncTexto && (
+              <span className="text-[10px] text-muted-foreground tabular-nums">
+                atualizado {ultimaSyncTexto}
+              </span>
+            )}
+            {googleConectado && (
+              <Button
+                variant="ghost"
+                size="xs"
+                onClick={atualizar}
+                disabled={refreshing}
+                title="Atualizar Gmail"
+              >
+                <RefreshCw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")} />
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent className="px-4">
           {erro && (
@@ -102,7 +168,24 @@ export function EmailsAcao({
               Falha ao carregar e-mails: {erro}
             </p>
           )}
-          {ordenados.length === 0 ? (
+          {erroRefresh && (
+            <p className="mb-3 text-sm text-destructive">
+              Erro ao atualizar: {erroRefresh}
+            </p>
+          )}
+          {!googleConectado && ordenados.length === 0 ? (
+            <div className="rounded-md ring-1 ring-foreground/10 p-4 text-center space-y-2">
+              <p className="text-sm text-muted-foreground">
+                Conecte sua conta Google para ver e-mails que pedem ação.
+              </p>
+              <Link
+                href="/integracoes"
+                className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+              >
+                Conectar Gmail
+              </Link>
+            </div>
+          ) : ordenados.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               Sem e-mails pendentes de ação.
             </p>
@@ -208,6 +291,18 @@ export function EmailsAcao({
                 );
               })}
             </ul>
+          )}
+          {googleConectado && ordenados.some((e) => e.origem === "gmail") && (
+            <div className="mt-3 flex justify-end">
+              <a
+                href="https://mail.google.com/mail/u/0/#inbox"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary"
+              >
+                Ver todos no Gmail <ExternalLink className="h-3 w-3" />
+              </a>
+            </div>
           )}
         </CardContent>
       </Card>

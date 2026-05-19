@@ -68,10 +68,14 @@ export default async function PainelDoDiaPage() {
           <AgendaUnificada
             eventos={payload.agenda}
             erro={payload.errosPorSecao.agenda}
+            googleConectado={payload.googleConectado}
+            fetchedAt={payload.agendaFetchedAt}
           />
           <EmailsAcao
             emails={payload.emails}
             erro={payload.errosPorSecao.emails}
+            googleConectado={payload.googleConectado}
+            fetchedAt={payload.emailsFetchedAt}
           />
         </div>
       </div>

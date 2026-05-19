@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { isConfigured } from "@/lib/integrations/config";
+import { getSession } from "@/lib/session";
+import { prisma } from "@/lib/prisma";
 
 /**
  * GET /api/integracoes/status
@@ -18,6 +20,21 @@ export async function GET() {
     isConfigured("BTG_CLIENT_SECRET"),
   ]);
 
+  const session = await getSession();
+  const userGoogle = session
+    ? await prisma.userGoogleAuth.findUnique({
+        where: { userId: session.userId },
+        select: { googleEmail: true },
+      })
+    : null;
+  const googleStatus = userGoogle
+    ? "connected"
+    : googleRefresh
+      ? "connected"
+      : googleClient && googleSecret
+        ? "pending_auth"
+        : "disconnected";
+
   return NextResponse.json({
     manychat: {
       configured: manychat,
@@ -33,8 +50,10 @@ export async function GET() {
     },
     google_calendar: {
       configured: googleClient && googleSecret,
-      authenticated: googleRefresh,
-      status: googleRefresh ? "connected" : (googleClient && googleSecret) ? "pending_auth" : "disconnected",
+      authenticated: !!userGoogle || googleRefresh,
+      userConnected: !!userGoogle,
+      userEmail: userGoogle?.googleEmail,
+      status: googleStatus,
     },
     meta: {
       configured: metaToken,

@@ -1,5 +1,7 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
+import { fetchAgendaDoDia, fetchEmailsAcao } from "./google-fetch";
+import { GoogleNotConnectedError } from "@/lib/integrations/google-user-oauth";
 import type {
   AcaoUnificada,
   EmailAcao,
@@ -82,7 +84,9 @@ export async function carregarPainelDoDia(
     resAcoes,
     resPrioridades,
     resCaches,
-    resIntegracoes,
+    resGoogleAuth,
+    resGoogleAgenda,
+    resGoogleEmails,
     resRetros,
     resSugestoes,
     resEmailsAI,
@@ -90,7 +94,9 @@ export async function carregarPainelDoDia(
     carregarAcoes(userId),
     carregarPrioridades(userId, data),
     carregarCachesExternos(userId),
-    carregarStatusIntegracoes(userId),
+    carregarGoogleAuth(userId),
+    carregarAgendaGoogle(userId, data),
+    carregarEmailsGoogle(userId),
     carregarRetrospectivaAtiva(userId),
     carregarSugestoes(userId),
     carregarEmailsClassificados(userId),
@@ -114,10 +120,50 @@ export async function carregarPainelDoDia(
     errosPorSecao.emails = String(resCaches.reason);
   }
 
-  const integracoes: IntegracaoStatus[] =
-    resIntegracoes.status === "fulfilled" ? resIntegracoes.value : [];
+  const googleAuth =
+    resGoogleAuth.status === "fulfilled" ? resGoogleAuth.value : null;
 
-  const dedupe = deduplicarAcoesVsAgenda(acoes, caches.agenda);
+  const googleAgenda: EventoAgenda[] =
+    resGoogleAgenda.status === "fulfilled" ? resGoogleAgenda.value : [];
+  let agendaFetchedAt: string | undefined;
+  if (resGoogleAgenda.status === "fulfilled") {
+    agendaFetchedAt = new Date().toISOString();
+  } else if (googleAuth) {
+    // só reporta erro se o usuário está conectado — desconectado é estado normal
+    errosPorSecao.agenda = errosPorSecao.agenda
+      ? errosPorSecao.agenda
+      : String(resGoogleAgenda.reason);
+  }
+
+  const googleEmails: EmailAcao[] =
+    resGoogleEmails.status === "fulfilled" ? resGoogleEmails.value : [];
+  let emailsFetchedAt: string | undefined;
+  if (resGoogleEmails.status === "fulfilled") {
+    emailsFetchedAt = new Date().toISOString();
+  } else if (googleAuth) {
+    errosPorSecao.emails = errosPorSecao.emails
+      ? errosPorSecao.emails
+      : String(resGoogleEmails.reason);
+  }
+
+  // Une agenda do cache Microsoft + Google (a dedupe visual fica em AgendaUnificada)
+  const agendaUnida: EventoAgenda[] = [...caches.agenda, ...googleAgenda];
+  const dedupe = deduplicarAcoesVsAgenda(acoes, agendaUnida);
+
+  const integracoes = montarStatusIntegracoes({
+    msCalendar: caches.agenda.length > 0 ? caches.metaMs?.calSyncedAt : undefined,
+    msMail: caches.emails.length > 0 ? caches.metaMs?.mailSyncedAt : undefined,
+    msSessaoExpirada: caches.metaMs?.expirada ?? false,
+    msMensagemErro: caches.metaMs?.mensagemErro,
+    pmUltima: await ultimaSyncPriorityMatrix(userId),
+    googleAuth,
+    googleAgendaFetchedAt: agendaFetchedAt,
+    googleEmailsFetchedAt: emailsFetchedAt,
+    googleAgendaError:
+      resGoogleAgenda.status === "rejected" ? String(resGoogleAgenda.reason) : undefined,
+    googleEmailsError:
+      resGoogleEmails.status === "rejected" ? String(resGoogleEmails.reason) : undefined,
+  });
 
   const retrospectiva =
     resRetros.status === "fulfilled" ? resRetros.value : undefined;
@@ -125,8 +171,8 @@ export async function carregarPainelDoDia(
     resSugestoes.status === "fulfilled" ? resSugestoes.value : [];
   const emailsAI = resEmailsAI.status === "fulfilled" ? resEmailsAI.value : new Map();
 
-  // Funde classificacao AI nos emails do cache
-  const emails: EmailClassificado[] = caches.emails.map((e) => {
+  // Mescla classificação AI nos emails do cache Microsoft, e junta com Gmail puro.
+  const emailsMs: EmailClassificado[] = caches.emails.map((e) => {
     const ai = emailsAI.get(e.id);
     if (!ai) return e;
     return {
@@ -141,6 +187,7 @@ export async function carregarPainelDoDia(
       processado: ai.processado,
     };
   });
+  const emails: EmailClassificado[] = [...emailsMs, ...googleEmails];
 
   return {
     data,
@@ -153,7 +200,53 @@ export async function carregarPainelDoDia(
     pendingSyncCount: dedupe.acoes.filter((a) => a.pendingSync).length,
     retrospectiva,
     sugestoes,
+    googleConectado: !!googleAuth,
+    googleEmail: googleAuth?.googleEmail,
+    agendaFetchedAt,
+    emailsFetchedAt,
   };
+}
+
+async function carregarGoogleAuth(userId: string) {
+  return prisma.userGoogleAuth.findUnique({
+    where: { userId },
+    select: {
+      googleEmail: true,
+      lastError: true,
+      lastErrorAt: true,
+      lastUsedAt: true,
+    },
+  });
+}
+
+async function carregarAgendaGoogle(
+  userId: string,
+  data: string,
+): Promise<EventoAgenda[]> {
+  try {
+    return await fetchAgendaDoDia(userId, data);
+  } catch (err) {
+    if (err instanceof GoogleNotConnectedError) return [];
+    throw err;
+  }
+}
+
+async function carregarEmailsGoogle(userId: string): Promise<EmailAcao[]> {
+  try {
+    return await fetchEmailsAcao(userId, 10);
+  } catch (err) {
+    if (err instanceof GoogleNotConnectedError) return [];
+    throw err;
+  }
+}
+
+async function ultimaSyncPriorityMatrix(userId: string): Promise<Date | undefined> {
+  const ultimaPm = await prisma.acaoPainel.findFirst({
+    where: { userId, origem: "priority-matrix", externoId: { not: null } },
+    orderBy: { updatedAt: "desc" },
+    select: { updatedAt: true },
+  });
+  return ultimaPm?.updatedAt;
 }
 
 async function carregarRetrospectivaAtiva(
@@ -287,10 +380,18 @@ async function carregarPrioridades(
   }));
 }
 
-async function carregarCachesExternos(userId: string): Promise<{
+type CachesMs = {
   agenda: EventoAgenda[];
   emails: EmailAcao[];
-}> {
+  metaMs?: {
+    calSyncedAt?: Date;
+    mailSyncedAt?: Date;
+    expirada: boolean;
+    mensagemErro?: string;
+  };
+};
+
+async function carregarCachesExternos(userId: string): Promise<CachesMs> {
   const caches = await prisma.painelCacheExterno.findMany({
     where: { userId, source: { in: ["ms-calendar", "ms-mail"] } },
   });
@@ -298,63 +399,102 @@ async function carregarCachesExternos(userId: string): Promise<{
   const agendaCache = caches.find((c) => c.source === "ms-calendar");
   const mailCache = caches.find((c) => c.source === "ms-mail");
 
+  const calSyncedAt = agendaCache?.syncedAt;
+  const mailSyncedAt = mailCache?.syncedAt;
+  const ultimaMs =
+    calSyncedAt && mailSyncedAt
+      ? calSyncedAt < mailSyncedAt
+        ? calSyncedAt
+        : mailSyncedAt
+      : calSyncedAt ?? mailSyncedAt;
+  const expirada = !!ultimaMs && Date.now() - ultimaMs.getTime() > 24 * 60 * 60 * 1000;
+
   return {
     agenda: (agendaCache?.payload as EventoAgenda[] | undefined) ?? [],
     emails: (mailCache?.payload as EmailAcao[] | undefined) ?? [],
+    metaMs: {
+      calSyncedAt,
+      mailSyncedAt,
+      expirada,
+      mensagemErro: expirada
+        ? "Ultima sincronia ha mais de 24h — banco pode ter deslogado. Reabra o Outlook/To Do no Edge."
+        : undefined,
+    },
   };
 }
 
-async function carregarStatusIntegracoes(
-  userId: string
-): Promise<IntegracaoStatus[]> {
-  // Microsoft via cowork: status derivado dos caches
-  const caches = await prisma.painelCacheExterno.findMany({
-    where: { userId, source: { in: ["ms-calendar", "ms-mail"] } },
-    select: { source: true, syncedAt: true },
-  });
+function montarStatusIntegracoes(input: {
+  msCalendar?: Date;
+  msMail?: Date;
+  msSessaoExpirada: boolean;
+  msMensagemErro?: string;
+  pmUltima?: Date;
+  googleAuth: {
+    googleEmail: string;
+    lastError: string | null;
+    lastErrorAt: Date | null;
+    lastUsedAt: Date | null;
+  } | null;
+  googleAgendaFetchedAt?: string;
+  googleEmailsFetchedAt?: string;
+  googleAgendaError?: string;
+  googleEmailsError?: string;
+}): IntegracaoStatus[] {
+  const {
+    msCalendar,
+    msMail,
+    msSessaoExpirada,
+    msMensagemErro,
+    pmUltima,
+    googleAuth,
+    googleAgendaFetchedAt,
+    googleEmailsFetchedAt,
+    googleAgendaError,
+    googleEmailsError,
+  } = input;
 
-  const calCache = caches.find((c) => c.source === "ms-calendar");
-  const mailCache = caches.find((c) => c.source === "ms-mail");
   const ultimaMs =
-    calCache && mailCache
-      ? (calCache.syncedAt < mailCache.syncedAt
-          ? calCache.syncedAt
-          : mailCache.syncedAt)
-      : calCache?.syncedAt ?? mailCache?.syncedAt;
+    msCalendar && msMail
+      ? msCalendar < msMail
+        ? msCalendar
+        : msMail
+      : msCalendar ?? msMail;
 
-  // Sessao Microsoft considerada expirada se a ultima sync tem mais de 24h
-  // (cowork roda quando o Claude Code estoura — se a janela banco fecha, fica stale)
-  const msSessaoExpirada =
-    !!ultimaMs && Date.now() - ultimaMs.getTime() > 24 * 60 * 60 * 1000;
+  let googleStatus: IntegracaoStatus["status"] = "desconectado";
+  let googleUltima: string | undefined;
+  let googleErro: string | undefined;
+  if (googleAuth) {
+    const algumErro = googleAgendaError ?? googleEmailsError ?? googleAuth.lastError ?? null;
+    googleStatus = algumErro ? "erro" : "conectado";
+    googleUltima =
+      googleAgendaFetchedAt ??
+      googleEmailsFetchedAt ??
+      googleAuth.lastUsedAt?.toISOString();
+    if (algumErro) {
+      googleErro = /invalid_grant/i.test(algumErro)
+        ? "Sessão Google expirada — reconecte em Integrações."
+        : algumErro;
+    }
+  }
 
-  // Priority Matrix: status derivado da ultima AcaoPainel sincronizada com origem priority-matrix
-  const ultimaPm = await prisma.acaoPainel.findFirst({
-    where: { userId, origem: "priority-matrix", externoId: { not: null } },
-    orderBy: { updatedAt: "desc" },
-    select: { updatedAt: true },
-  });
-
-  // Ordem de exibicao: fontes conectadas primeiro, depois roadmap por prioridade.
   return [
     {
       provider: "microsoft",
       status: ultimaMs ? "conectado" : "desconectado",
       ultimaSincronizacao: ultimaMs?.toISOString(),
       sessaoExpirada: msSessaoExpirada,
-      mensagemErro: msSessaoExpirada
-        ? "Ultima sincronia ha mais de 24h — banco pode ter deslogado. Reabra o Outlook/To Do no Edge."
-        : undefined,
-    },
-    {
-      provider: "priority-matrix",
-      status: ultimaPm ? "conectado" : "desconectado",
-      ultimaSincronizacao: ultimaPm?.updatedAt.toISOString(),
+      mensagemErro: msSessaoExpirada ? msMensagemErro : undefined,
     },
     {
       provider: "google",
-      status: "em-breve",
-      roadmapInfo:
-        "Google Calendar (pessoal edurcampos86@gmail.com) via OAuth server-side. Plugar quando o token refresh tiver escopo calendar.readonly.",
+      status: googleStatus,
+      ultimaSincronizacao: googleUltima,
+      mensagemErro: googleErro,
+    },
+    {
+      provider: "priority-matrix",
+      status: pmUltima ? "conectado" : "desconectado",
+      ultimaSincronizacao: pmUltima?.toISOString(),
     },
     {
       provider: "datacrazy",
