@@ -1,0 +1,16 @@
+-- Backfill do tsv pra e-mails ja existentes.
+--
+-- Quando a migration 20260519240000_painel_email_ai_fts adicionou a coluna
+-- "tsv" como GENERATED ALWAYS AS (...) STORED, os e-mails ja gravados NAO
+-- recalculam automaticamente — STORED so popula em INSERT/UPDATE futuros.
+-- Sem este backfill, a busca semantica retorna 0 hits pro historico
+-- existente (~9k e-mails do Eduardo) e so funcionaria pros novos.
+--
+-- Solucao: UPDATE no-op forca o Postgres a reescrever cada row, o que
+-- aciona a regra de GENERATED e popula o tsv.
+--
+-- Custo: O(N) writes — 9k rows × ~50ms ≈ 7-8min no Railway. Migration
+-- deploy nao tem timeout, entao roda ate terminar.
+--
+-- Idempotente: rodar de novo nao quebra nada (o tsv vai ser identico).
+UPDATE "PainelEmailAI" SET "userId" = "userId";
