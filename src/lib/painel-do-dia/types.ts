@@ -123,6 +123,19 @@ export type RetrospectivaPayload = {
     };
     zumbis: Array<{ id: string; titulo: string; idadeDias: number }>;
     topClientes: Array<{ id: string; nome: string; tempoMin: number }>;
+    // Adicionados v2 (insights semanais). Opcionais pra nao quebrar
+    // payloads antigos ja salvos no banco antes da extensao.
+    emails?: {
+      total: number;
+      porTipo: Record<string, number>;
+      processados: number;
+      arquivados: number;
+    };
+    eventosExtraidos?: {
+      sugeridos: number;
+      marcados: number;
+      pendentes: number;
+    };
   };
 };
 
