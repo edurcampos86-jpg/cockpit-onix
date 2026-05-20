@@ -45,7 +45,14 @@ Regras de estilo:
   confirma no calendar.
 - Se faltar informação pra responder de verdade, peça o dado faltante de
   forma objetiva.
-- Use "você" (não "vc", não "Sr.").`;
+- Use "você" (não "vc", não "Sr.").
+
+Quando houver "Histórico da conversa" no input:
+- Use-o para manter consistência de tom, fatos prometidos e tópico.
+- NÃO repita o que você (Eduardo) já disse em respostas anteriores.
+- Se você já se comprometeu a algo nesse histórico, honre isso na resposta.
+- Se o cliente fez uma pergunta nova que ainda não foi respondida no
+  histórico, foque nela.`;
 
 export type EmailContext = {
   aiId: string;
@@ -209,6 +216,98 @@ function extrairTextoDaMensagem(payload: GmailMessagePart | null | undefined): s
 }
 
 /**
+ * Mensagem anterior numa thread — usada como contexto historico pro Claude.
+ * Pode vir do Eduardo (outbound) ou de outros participantes (inbound).
+ */
+export type ThreadMessage = {
+  fromHeader: string;
+  dateHeader: string | null;
+  corpo: string;
+  ehDoUsuario: boolean; // true se o From bate com googleEmail/aliases
+};
+
+/**
+ * Busca as mensagens ANTERIORES de uma thread (exclui a atual). Devolve em
+ * ordem cronologica (mais antiga primeiro). Limita a NUM_MSGS_HISTORICO
+ * mensagens (mais recentes), cada uma truncada a CHARS_POR_MSG, pra cabacar
+ * no contexto do Claude sem estourar o orcamento.
+ */
+const NUM_MSGS_HISTORICO = 5;
+const CHARS_POR_MSG_HISTORICO = 1200;
+const CHARS_TOTAL_HISTORICO = 6000;
+
+async function fetchGmailThread(
+  auth: OAuth2Client,
+  threadId: string,
+  excludeMessageId: string,
+  meusEmails: Set<string>,
+): Promise<ThreadMessage[]> {
+  const gmail = google.gmail({ version: "v1", auth });
+  try {
+    const res = await gmail.users.threads.get({
+      userId: "me",
+      id: threadId,
+      format: "full",
+    });
+    const msgs = res.data.messages ?? [];
+    const itens: ThreadMessage[] = [];
+    for (const m of msgs) {
+      if (!m.id || m.id === excludeMessageId) continue;
+      const headers = (m.payload?.headers ?? []) as GmailHeader[];
+      const fromHeader = findHeader(headers, "From") ?? "(desconhecido)";
+      const dateHeader = findHeader(headers, "Date");
+      const corpoRaw = extrairTextoDaMensagem(
+        m.payload as GmailMessagePart | null | undefined,
+      ).trim();
+      if (!corpoRaw) continue;
+      const fromAddr = extractEmailAddress(fromHeader).toLowerCase();
+      itens.push({
+        fromHeader,
+        dateHeader,
+        corpo: truncar(corpoRaw, CHARS_POR_MSG_HISTORICO),
+        ehDoUsuario: meusEmails.has(fromAddr),
+      });
+    }
+    // Mantem so as N mais recentes (assume gmail devolve ordem cronologica),
+    // depois aplica orcamento total de chars cortando do final pro comeco se
+    // exceder.
+    const ultimas = itens.slice(-NUM_MSGS_HISTORICO);
+    let total = 0;
+    const resultado: ThreadMessage[] = [];
+    for (let i = ultimas.length - 1; i >= 0; i--) {
+      const item = ultimas[i];
+      const tamanho = item.corpo.length;
+      if (total + tamanho > CHARS_TOTAL_HISTORICO) break;
+      total += tamanho;
+      resultado.unshift(item);
+    }
+    return resultado;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Le aliases + googleEmail do UserGoogleAuth pra saber quais e-mails da thread
+ * sao "do Eduardo" vs "do outro". Usado pra rotular o historico no prompt.
+ */
+async function carregarMeusEmails(userId: string): Promise<Set<string>> {
+  const row = await prisma.userGoogleAuth.findUnique({
+    where: { userId },
+    select: { googleEmail: true, aliases: true },
+  });
+  if (!row) return new Set();
+  const lista = [row.googleEmail.toLowerCase()];
+  if (row.aliases) {
+    for (const a of row.aliases.split(",")) {
+      const norm = a.trim().toLowerCase();
+      if (norm) lista.push(norm);
+    }
+  }
+  return new Set(lista);
+}
+
+/**
  * Busca a mensagem original no Gmail (se o e-mail veio do Gmail) e devolve
  * remetente real, threadId, headers de reply (Message-Id) e corpo.
  * Retorna null se a mensagem não estiver mais lá ou se não for um id Gmail.
@@ -296,6 +395,20 @@ function limitarPalavras(texto: string, maxPalavras: number): string {
 }
 
 /**
+ * Formata o historico da thread como bloco de texto pro prompt do Claude.
+ * Mensagens do Eduardo prefixadas com "EU (Eduardo)" — o resto com o From real.
+ */
+function formatarHistoricoThread(mensagens: ThreadMessage[]): string {
+  if (mensagens.length === 0) return "";
+  const blocos = mensagens.map((m) => {
+    const quem = m.ehDoUsuario ? "EU (Eduardo)" : m.fromHeader;
+    const data = m.dateHeader ? ` [${m.dateHeader}]` : "";
+    return `--- De: ${quem}${data} ---\n${m.corpo}`;
+  });
+  return `Histórico da conversa (mais antigos primeiro):\n\n${blocos.join("\n\n")}`;
+}
+
+/**
  * Gera o corpo da resposta com o Claude, dado um e-mail classificado.
  * Não toca em Gmail aqui — quem chama decide se vira draft ou só preview.
  */
@@ -304,13 +417,18 @@ export async function gerarRespostaClaude(opts: {
   assunto: string;
   corpoOriginal: string;
   clienteContexto: string | null;
+  historicoThread?: ThreadMessage[];
 }): Promise<string> {
   const corpoTruncado = truncar(opts.corpoOriginal, MAX_CORPO_CHARS);
   const blocoCliente = opts.clienteContexto
     ? `\n\nContexto do cliente (use pra calibrar tom — NÃO mencione textualmente nada daqui no e-mail):\n${opts.clienteContexto}`
     : "";
+  const blocoHistorico = opts.historicoThread && opts.historicoThread.length > 0
+    ? `\n\n${formatarHistoricoThread(opts.historicoThread)}`
+    : "";
 
-  const user = `E-mail recebido de: ${opts.remetente}
+  const user = `${blocoHistorico ? `${blocoHistorico}\n\n` : ""}E-mail recebido (responda a este):
+De: ${opts.remetente}
 Assunto: ${opts.assunto}
 
 Corpo do e-mail:
@@ -379,11 +497,30 @@ export async function gerarESalvarDraft(
     ? gmailCtx.corpo
     : email.snippet;
 
+  // Thread context — se a mensagem tem threadId, busca as anteriores pro
+  // Claude ter consistencia com o que ja foi dito. Best-effort: erro aqui
+  // nao quebra o draft, so resulta em prompt sem historico.
+  let historicoThread: ThreadMessage[] = [];
+  if (gmailCtx?.threadId) {
+    try {
+      const meusEmails = await carregarMeusEmails(userId);
+      historicoThread = await fetchGmailThread(
+        auth,
+        gmailCtx.threadId,
+        email.externoId,
+        meusEmails,
+      );
+    } catch {
+      historicoThread = [];
+    }
+  }
+
   const preview = await gerarRespostaClaude({
     remetente: remetenteHeader,
     assunto: assuntoOriginal,
     corpoOriginal,
     clienteContexto,
+    historicoThread,
   });
 
   const raw = buildRawMessage({
