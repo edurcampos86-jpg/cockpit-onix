@@ -58,7 +58,7 @@ jobs:
                 PATHS="/api/cron/google-calendar-poll /api/cron/auto-encerrar /api/cron/triar-emails"
                 ;;
               "*/30 * * * *")
-                PATHS="/api/cron/outlook-poll /api/cron/datacrazy-atividades-poll"
+                PATHS="/api/cron/outlook-poll /api/cron/datacrazy-atividades-poll /api/cron/juridico-email-poll"
                 ;;
               "30 10 * * 1-5")
                 PATHS="/api/cron/boot-do-dia"

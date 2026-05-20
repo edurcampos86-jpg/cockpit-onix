@@ -43,6 +43,7 @@ import {
   Shield,
   Database,
   PackagePlus,
+  Mail,
 } from "lucide-react";
 import { useState, useTransition, useEffect } from "react";
 import { cn } from "@/lib/utils";
@@ -105,6 +106,7 @@ const sharedNavigation = [
   { name: "Insights do Time", href: "/time/insights", icon: PieChart },
   { name: "Jurídico", href: "/juridico/contratos", icon: Scale },
   { name: "Auditoria", href: "/admin/auditoria/contratos", icon: Shield },
+  { name: "Ingestão por Email", href: "/admin/juridico/email-ingest", icon: Mail },
   { name: "Importar Jurídico", href: "/admin/importacao/juridico", icon: PackagePlus },
   { name: "Backups", href: "/admin/backups", icon: Database },
   { name: "Glossário", href: "/glossario", icon: BookMarked },
@@ -144,7 +146,7 @@ function getActiveModuleId(pathname: string): string {
   if (pathname.startsWith("/backoffice")) return "backoffice";
   // Shared pages don't belong to a module
   if (
-    ["/metodo", "/time", "/glossario", "/integracoes", "/juridico", "/admin/auditoria", "/admin/importacao", "/admin/backups"].some(
+    ["/metodo", "/time", "/glossario", "/integracoes", "/juridico", "/admin/auditoria", "/admin/importacao", "/admin/backups", "/admin/juridico"].some(
       (p) => pathname.startsWith(p),
     )
   )

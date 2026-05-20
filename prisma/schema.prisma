@@ -1702,3 +1702,39 @@ model ImportJob {
   @@index([iniciadoPorId, iniciadoEm(sort: Desc)])
   @@index([status])
 }
+
+// ============================================
+// JURÍDICO — FASE 2 (INGESTÃO POR EMAIL — GMAIL)
+// ============================================
+
+// Idempotência da ingestão por email: cada mensagem Gmail processada
+// (com ou sem anexo) gera 1 linha aqui. gmailMessageId unique impede
+// reprocessar a mesma mensagem 2x. Usado pelo cron e pelo backfill admin.
+model IngestaoEmail {
+  id String @id @default(cuid())
+
+  // Identidade da mensagem no Gmail (única por usuário Gmail)
+  gmailMessageId String  @unique
+  gmailThreadId  String?
+  userId         String // dono da inbox que originou (FK lógica pra User.id, sem cascade pra preservar log)
+
+  // Metadados do email
+  remetente    String
+  assunto      String?   @db.Text
+  emailDate    DateTime?
+  internalDate DateTime?
+
+  // Resultado da ingestão
+  status String // "processado" | "ignorado_sem_anexo_pdf" | "ignorado_remetente" | "duplicata_hash" | "erro"
+  motivo String? @db.Text
+
+  // Vínculo com o ContratoArquivo criado (se houve)
+  contratoArquivoId String?
+  nomeAnexoPdf      String?
+
+  processadoEm DateTime @default(now())
+
+  @@index([userId, processadoEm(sort: Desc)])
+  @@index([status])
+  @@index([gmailThreadId])
+}
