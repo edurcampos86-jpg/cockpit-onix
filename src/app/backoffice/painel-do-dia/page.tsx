@@ -19,10 +19,12 @@ import {
   EventosSugeridosBlock,
   type SugestaoEventoCard,
 } from "@/components/painel-do-dia/EventosSugeridosBlock";
+import { ClientesEsquecidosBlock } from "@/components/painel-do-dia/ClientesEsquecidosBlock";
 import {
   carregarPainelDoDia,
   hojeBahia,
 } from "@/lib/painel-do-dia/agregador";
+import { carregarClientesEsquecidos } from "@/lib/painel-do-dia/clientes-esquecidos";
 import type { EventoSugerido } from "@/lib/painel-do-dia/types";
 
 export default async function PainelDoDiaPage() {
@@ -30,7 +32,10 @@ export default async function PainelDoDiaPage() {
   if (!session) redirect("/login");
 
   const data = hojeBahia();
-  const payload = await carregarPainelDoDia(session.userId, data);
+  const [payload, clientesEsquecidos] = await Promise.all([
+    carregarPainelDoDia(session.userId, data),
+    carregarClientesEsquecidos({ limit: 20 }),
+  ]);
 
   // Sugestões de evento extraídas pela triagem AI — exibidas no bloco
   // "Eventos sugeridos por e-mail" acima do bloco de e-mails.
@@ -103,6 +108,12 @@ export default async function PainelDoDiaPage() {
       {eventosSugeridos.length > 0 && (
         <div className="px-8">
           <EventosSugeridosBlock sugestoes={eventosSugeridos} />
+        </div>
+      )}
+
+      {clientesEsquecidos.length > 0 && (
+        <div className="px-8">
+          <ClientesEsquecidosBlock clientes={clientesEsquecidos} />
         </div>
       )}
 
