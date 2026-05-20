@@ -1,5 +1,6 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@/generated/prisma/client";
 import { claudeChat } from "./claude-helpers";
 
 /**
@@ -23,6 +24,18 @@ export type RetrospectivaMetricas = {
   };
   zumbis: Array<{ id: string; titulo: string; idadeDias: number }>;
   topClientes: Array<{ id: string; nome: string; tempoMin: number }>;
+  // Adicionado v2 (insights semanais): sinais dos novos blocos do Painel.
+  emails: {
+    total: number;
+    porTipo: Record<string, number>; // "acao" | "fyi" | "spam" | "agendamento" | "cliente_novo"
+    processados: number; // viraram AcaoPainel
+    arquivados: number;
+  };
+  eventosExtraidos: {
+    sugeridos: number; // total de e-mails com eventoSugeridoJson na semana
+    marcados: number; // eventoProcessado = true E criou evento (heuristica: tem em Calendar)
+    pendentes: number; // eventoProcessado = false
+  };
 };
 
 function segundaFimDeSemanaPassada(): { inicio: Date; fim: Date } {
@@ -47,29 +60,49 @@ export async function coletarMetricas(userId: string): Promise<{
 }> {
   const { inicio, fim } = segundaFimDeSemanaPassada();
 
-  const [encerradas, clientes, abertas] = await Promise.all([
-    prisma.acaoPainel.findMany({
-      where: {
-        userId,
-        concluida: true,
-        concluidaEm: { gte: inicio, lte: fim },
-      },
-      include: { clienteVinculado: { select: { id: true, nome: true } } },
-    }),
-    prisma.clienteBackoffice.findMany({
-      where: { OR: [{ classificacao: "A" }, { classificacao: "B" }] },
-      select: {
-        id: true,
-        nome: true,
-        classificacao: true,
-        ultimoContatoAt: true,
-      },
-    }),
-    prisma.acaoPainel.findMany({
-      where: { userId, concluida: false },
-      select: { id: true, titulo: true, createdAt: true },
-    }),
-  ]);
+  const [encerradas, clientes, abertas, emails, eventosSugeridosTotal, eventosPendentes] =
+    await Promise.all([
+      prisma.acaoPainel.findMany({
+        where: {
+          userId,
+          concluida: true,
+          concluidaEm: { gte: inicio, lte: fim },
+        },
+        include: { clienteVinculado: { select: { id: true, nome: true } } },
+      }),
+      prisma.clienteBackoffice.findMany({
+        where: { OR: [{ classificacao: "A" }, { classificacao: "B" }] },
+        select: {
+          id: true,
+          nome: true,
+          classificacao: true,
+          ultimoContatoAt: true,
+        },
+      }),
+      prisma.acaoPainel.findMany({
+        where: { userId, concluida: false },
+        select: { id: true, titulo: true, createdAt: true },
+      }),
+      prisma.painelEmailAI.findMany({
+        where: { userId, classificadoEm: { gte: inicio, lte: fim } },
+        select: { tipo: true, processado: true, arquivado: true },
+      }),
+      prisma.painelEmailAI.count({
+        where: {
+          userId,
+          classificadoEm: { gte: inicio, lte: fim },
+          eventoSugeridoJson: { not: Prisma.AnyNull },
+        },
+      }),
+      prisma.painelEmailAI.count({
+        where: {
+          userId,
+          classificadoEm: { gte: inicio, lte: fim },
+          eventoSugeridoJson: { not: Prisma.AnyNull },
+          eventoProcessado: false,
+        },
+      }),
+    ]);
 
   const porQuadrante: RetrospectivaMetricas["porQuadrante"] = {
     Q1: { count: 0, tempoMin: 0 },
@@ -143,6 +176,16 @@ export async function coletarMetricas(userId: string): Promise<{
     .sort((a, b) => b.tempoMin - a.tempoMin)
     .slice(0, 5);
 
+  // E-mails da semana — contagens por tipo + estado
+  const porTipo: Record<string, number> = {};
+  let emailsProcessados = 0;
+  let emailsArquivados = 0;
+  for (const e of emails) {
+    porTipo[e.tipo] = (porTipo[e.tipo] ?? 0) + 1;
+    if (e.processado) emailsProcessados++;
+    if (e.arquivado) emailsArquivados++;
+  }
+
   return {
     semanaInicio: inicio,
     semanaFim: fim,
@@ -154,6 +197,17 @@ export async function coletarMetricas(userId: string): Promise<{
       saudeSupernova: { aFora: aFora.slice(0, 10), bFora: bFora.slice(0, 10) },
       zumbis,
       topClientes,
+      emails: {
+        total: emails.length,
+        porTipo,
+        processados: emailsProcessados,
+        arquivados: emailsArquivados,
+      },
+      eventosExtraidos: {
+        sugeridos: eventosSugeridosTotal,
+        marcados: eventosSugeridosTotal - eventosPendentes,
+        pendentes: eventosPendentes,
+      },
     },
   };
 }
@@ -166,6 +220,12 @@ export async function gerarInsight(
   const pctQ1 = total > 0 ? Math.round((q.Q1.tempoMin * 100) / total) : 0;
   const pctQ2 = total > 0 ? Math.round((q.Q2.tempoMin * 100) / total) : 0;
 
+  const top3Tipos = Object.entries(metricas.emails.porTipo)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 3)
+    .map(([t, n]) => `${t}=${n}`)
+    .join(", ");
+
   const resumo = [
     `Ações encerradas: ${metricas.totalEncerradas}`,
     `Tempo total: ${Math.round(metricas.tempoTotalMin / 60)}h`,
@@ -173,6 +233,8 @@ export async function gerarInsight(
     `Clientes A fora de cadência (>30d): ${metricas.saudeSupernova.aFora.length}`,
     `Clientes B fora de cadência (>60d): ${metricas.saudeSupernova.bFora.length}`,
     `Ações zumbi (>14d sem mover): ${metricas.zumbis.length}`,
+    `E-mails classificados: ${metricas.emails.total}${top3Tipos ? ` (${top3Tipos})` : ""}, ${metricas.emails.processados} viraram ação, ${metricas.emails.arquivados} arquivados`,
+    `Eventos sugeridos por e-mail: ${metricas.eventosExtraidos.sugeridos} (${metricas.eventosExtraidos.marcados} marcados, ${metricas.eventosExtraidos.pendentes} pendentes)`,
   ].join(" · ");
 
   const clientesStr = metricas.saudeSupernova.aFora
@@ -192,9 +254,11 @@ Metodologia:
 - Eisenhower: Q1=urgente+importante, Q2=importante+nao-urgente, Q3=urgente+nao-importante, Q4=rotina
 - Supernova: cliente A = contato a cada 30d, cliente B = 60d
 - Meta: idealmente 40%+ do tempo em Q2 (trabalho estrategico)
+- E-mails: "acao"=requer resposta, "fyi"=ler e descartar, "agendamento"=reuniao a marcar, "cliente_novo"=lead
+- Eventos sugeridos pendentes sao reunioes que o Claude detectou em e-mails mas Eduardo nao confirmou — risco de furo
 
 Escreva um insight curto (max 4 linhas) em primeira pessoa, com:
-1. Diagnostico da semana (tom honesto, nao apaziguador)
+1. Diagnostico da semana (tom honesto, nao apaziguador) — destaque o sinal mais forte
 2. 1 acao concreta para a semana que entra
 Comece direto, sem "Semana passada..." nem saudacoes.`,
       maxTokens: 400,
