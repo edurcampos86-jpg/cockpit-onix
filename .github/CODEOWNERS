@@ -1,0 +1,26 @@
+# CODEOWNERS — Cockpit Onix
+#
+# Sintaxe: <padrão> <@usuario|@time>
+# Quem aparece aqui é auto-adicionado como revisor obrigatório em qualquer
+# PR que toque os caminhos correspondentes. Combinado com a regra
+# "Require review from Code Owners" no branch protection da `main`, isso
+# garante que mudanças críticas não passam sem revisão (mesmo solo, força
+# olhar o diff uma segunda vez).
+#
+# Para configurar a branch protection, ver docs/BRANCH_PROTECTION.md.
+
+# Default: tudo no repo
+*                               @edurcampos86-jpg
+
+# Disaster recovery + CI: revisão extra obrigatória
+/.github/workflows/             @edurcampos86-jpg
+/.github/CODEOWNERS             @edurcampos86-jpg
+/scripts/validate-restore.sql   @edurcampos86-jpg
+/docs/DISASTER_RECOVERY.md      @edurcampos86-jpg
+/docs/BACKUP_ARCHITECTURE.md    @edurcampos86-jpg
+/docs/SECRETS.md                @edurcampos86-jpg
+/docs/BRANCH_PROTECTION.md      @edurcampos86-jpg
+
+# Schema do banco — mudanças aqui passam pelo migration-doctor
+/prisma/schema.prisma           @edurcampos86-jpg
+/prisma/migrations/             @edurcampos86-jpg
