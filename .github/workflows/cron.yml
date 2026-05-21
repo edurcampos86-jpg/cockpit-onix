@@ -22,8 +22,11 @@ on:
     - cron: '*/30 * * * *'  # outlook-poll + datacrazy-atividades-poll
     - cron: '30 10 * * 1-5' # boot-do-dia (seg-sex 07:30 Bahia / 10:30 UTC)
     - cron: '0 23 * * 0'    # retrospectiva-semanal (dom 20:00 Bahia / 23:00 UTC)
-    - cron: '0 7 * * *'     # backup-daily (04h Bahia / 07h UTC)
-    - cron: '0 8 1 * *'     # backup-restore-test (1º do mês, 05h Bahia / 08h UTC)
+    # Backup do Postgres e restore drill vivem em workflows próprios:
+    # .github/workflows/db-backup.yml (06:00 UTC diário, faz pg_dump direto sem
+    # depender da app) e .github/workflows/restore-drill.yml (segunda 07:00 UTC).
+    # Os schedules 0 7 * * * (backup-daily) e 0 8 1 * * (backup-restore-test)
+    # foram removidos daqui — chamavam endpoints inexistentes em produção.
   workflow_dispatch:
     inputs:
       paths:
@@ -65,12 +68,6 @@ jobs:
                 ;;
               "0 23 * * 0")
                 PATHS="/api/cron/retrospectiva-semanal"
-                ;;
-              "0 7 * * *")
-                PATHS="/api/cron/backup-daily"
-                ;;
-              "0 8 1 * *")
-                PATHS="/api/cron/backup-restore-test"
                 ;;
               *)
                 echo "Schedule '$SCHEDULE' não mapeado — nenhum endpoint executado."
