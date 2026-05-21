@@ -32,6 +32,10 @@ Configurar em **Settings → Secrets and variables → Actions → New repositor
 | `SLACK_WEBHOOK_URL` | `db-backup.yml`, `post-deploy-smoke.yml`, `restore-drill.yml` | Slack App → Incoming Webhooks → Add New Webhook to Workspace | **Opcional.** Sem ele, workflows só logam falhas. |
 | `CRON_SECRET` | `cron.yml` (já existente) | Definido por você; mesmo valor entra na env `CRON_SECRET` no Railway | Bearer usado pra autenticar cron→app. |
 
+> `GITHUB_TOKEN` é **automático** — o `post-deploy-smoke.yml` usa
+> `${{ secrets.GITHUB_TOKEN }}` que o Actions injeta sozinho para criar
+> a issue de incidente. Não precisa configurar.
+
 > **Não confundir:** `R2_ACCESS_KEY_ID` ≠ `R2_ACCOUNT_ID`. O primeiro é o ID
 > do token (gerado por bucket), o segundo é o ID global da conta Cloudflare.
 
