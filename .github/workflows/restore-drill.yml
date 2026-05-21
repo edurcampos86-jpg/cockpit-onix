@@ -1,0 +1,326 @@
+name: Restore drill (semanal)
+
+# Garante que o backup não é só um arquivo no R2: testa que ele restaura
+# de verdade e produz um banco consultável. Sem isso, descobrir que o
+# backup está corrompido só acontece no momento que ele é necessário.
+#
+# Roda toda segunda-feira 07:00 UTC (04:00 BRT):
+#   1. Sobe Postgres 16 temporário (service container)
+#   2. Baixa do R2 o backup mais recente em daily/
+#   3. Restaura com pg_restore
+#   4. Roda scripts/validate-restore.sql (5 tabelas, frescor, User existe)
+#   5. Gera relatório markdown e posta resumo no Slack
+#   6. Se falhar → cria Issue com label `backup-broken` (PRIORIDADE MÁX)
+
+on:
+  schedule:
+    - cron: '0 7 * * 1'   # Segunda 07:00 UTC = 04:00 BRT
+  workflow_dispatch:
+    inputs:
+      backup_key:
+        description: 'Chave específica no R2 (ex: daily/cockpit-onix-20260521-060000.dump.gz). Vazio = mais recente.'
+        required: false
+        default: ''
+
+concurrency:
+  group: restore-drill
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  drill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # Postgres temporário onde vamos restaurar
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: drill
+          POSTGRES_PASSWORD: drill
+          POSTGRES_DB: drill
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U drill"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: drill
+      PGPASSWORD: drill
+      PGDATABASE: drill
+
+    steps:
+      - name: Checkout (for validate-restore.sql)
+        uses: actions/checkout@v4
+
+      - name: Validate required secrets
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          MISSING=""
+          [ -z "$R2_ACCOUNT_ID" ]        && MISSING="$MISSING R2_ACCOUNT_ID"
+          [ -z "$R2_ACCESS_KEY_ID" ]     && MISSING="$MISSING R2_ACCESS_KEY_ID"
+          [ -z "$R2_SECRET_ACCESS_KEY" ] && MISSING="$MISSING R2_SECRET_ACCESS_KEY"
+          [ -z "$R2_BUCKET" ]            && MISSING="$MISSING R2_BUCKET"
+          if [ -n "$MISSING" ]; then
+            echo "::error::Secrets ausentes:$MISSING"
+            exit 1
+          fi
+
+      - name: Install postgres-client-16 (matching server major)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-16
+          pg_restore --version
+          psql --version
+
+      - name: Resolve backup key
+        id: backup
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          MANUAL_KEY: ${{ github.event.inputs.backup_key }}
+        run: |
+          set -euo pipefail
+          ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          if [ -n "$MANUAL_KEY" ]; then
+            KEY="$MANUAL_KEY"
+          else
+            # Lista daily/ e pega o mais recente (sort lexicográfico do nome
+            # com timestamp YYYYMMDD-HHMMSS funciona como sort cronológico).
+            KEY=$(aws s3api list-objects-v2 \
+              --bucket "$R2_BUCKET" \
+              --prefix "daily/" \
+              --endpoint-url "$ENDPOINT" \
+              --query 'Contents[?ends_with(Key, `.dump.gz`)].Key' \
+              --output json | jq -r 'sort | last')
+          fi
+          if [ -z "$KEY" ] || [ "$KEY" = "null" ]; then
+            echo "::error::Nenhum backup encontrado em daily/ — backup nunca rodou?"
+            exit 1
+          fi
+          echo "key=$KEY" >> "$GITHUB_OUTPUT"
+          echo "Backup escolhido: $KEY"
+
+      - name: Download backup from R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          KEY: ${{ steps.backup.outputs.key }}
+        run: |
+          set -euo pipefail
+          ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          mkdir -p ./backup
+          aws s3 cp "s3://${R2_BUCKET}/${KEY}" ./backup/backup.dump.gz \
+            --endpoint-url "$ENDPOINT" --no-progress
+          ls -lh ./backup/backup.dump.gz
+          gunzip -f ./backup/backup.dump.gz
+          ls -lh ./backup/backup.dump
+
+      - name: Restore into Postgres service
+        id: restore
+        run: |
+          set -euo pipefail
+          START=$(date +%s)
+          # --no-owner / --no-acl: backup veio do role do Railway que não
+          # existe no Postgres temporário — sem isso, pg_restore loga
+          # warnings de role inexistente mas continua. Mantemos pra log
+          # ficar limpo.
+          # --exit-on-error: qualquer erro estrutural quebra o drill.
+          pg_restore \
+            --no-owner --no-acl \
+            --dbname="postgresql://drill:drill@localhost:5432/drill" \
+            --exit-on-error \
+            --verbose \
+            ./backup/backup.dump 2>&1 | tail -50 || {
+              echo "::error::pg_restore falhou"
+              exit 1
+            }
+          END=$(date +%s)
+          ELAPSED=$((END - START))
+          echo "elapsed=$ELAPSED" >> "$GITHUB_OUTPUT"
+          echo "Restore concluído em ${ELAPSED}s"
+
+      - name: Run validation SQL
+        id: validate
+        run: |
+          set -euo pipefail
+          psql "postgresql://drill:drill@localhost:5432/drill" \
+            -v ON_ERROR_STOP=1 \
+            -f scripts/validate-restore.sql \
+            > /tmp/validate.out 2>&1
+          cat /tmp/validate.out
+
+          # Pega as métricas (formato chave=valor)
+          TABLES_COUNT=$(grep -c '^TABLE:' /tmp/validate.out || true)
+          USER_COUNT=$(grep -oE 'COUNT:User=[0-9]+' /tmp/validate.out | grep -oE '[0-9]+$' || echo "0")
+          CLIENTE_COUNT=$(grep -oE 'COUNT:ClienteBackoffice=[0-9]+' /tmp/validate.out | grep -oE '[0-9]+$' || echo "0")
+          RECEITA_COUNT=$(grep -oE 'COUNT:ReceitaItem=[0-9]+' /tmp/validate.out | grep -oE '[0-9]+$' || echo "0")
+          MOV_COUNT=$(grep -oE 'COUNT:MovimentacaoBtg=[0-9]+' /tmp/validate.out | grep -oE '[0-9]+$' || echo "0")
+          PESSOA_COUNT=$(grep -oE 'COUNT:Pessoa=[0-9]+' /tmp/validate.out | grep -oE '[0-9]+$' || echo "0")
+          FRESHNESS=$(grep -oE 'recent_7d=(yes|no)' /tmp/validate.out | head -1 | cut -d= -f2 || echo "unknown")
+
+          echo "tables_count=$TABLES_COUNT"     >> "$GITHUB_OUTPUT"
+          echo "user_count=$USER_COUNT"         >> "$GITHUB_OUTPUT"
+          echo "cliente_count=$CLIENTE_COUNT"   >> "$GITHUB_OUTPUT"
+          echo "receita_count=$RECEITA_COUNT"   >> "$GITHUB_OUTPUT"
+          echo "mov_count=$MOV_COUNT"           >> "$GITHUB_OUTPUT"
+          echo "pessoa_count=$PESSOA_COUNT"     >> "$GITHUB_OUTPUT"
+          echo "freshness=$FRESHNESS"           >> "$GITHUB_OUTPUT"
+
+          # Critérios duros — qualquer um falhando quebra o drill
+          if [ "$TABLES_COUNT" -lt 5 ]; then
+            echo "::error::Apenas $TABLES_COUNT tabelas no schema — schema vazio?"
+            exit 1
+          fi
+          if [ "$USER_COUNT" -lt 1 ]; then
+            echo "::error::User=$USER_COUNT — sem usuários, app não loga"
+            exit 1
+          fi
+          if [ "$FRESHNESS" != "yes" ]; then
+            echo "::warning::Nenhuma tabela com updatedAt nos últimos 7 dias — backup fóssil?"
+            # Warning, não erro: pode acontecer em fim de semana longo
+          fi
+
+      - name: Generate restore report
+        if: always() && steps.backup.outputs.key != ''
+        env:
+          KEY: ${{ steps.backup.outputs.key }}
+          ELAPSED: ${{ steps.restore.outputs.elapsed }}
+          TABLES_COUNT: ${{ steps.validate.outputs.tables_count }}
+          USER_COUNT: ${{ steps.validate.outputs.user_count }}
+          CLIENTE_COUNT: ${{ steps.validate.outputs.cliente_count }}
+          RECEITA_COUNT: ${{ steps.validate.outputs.receita_count }}
+          MOV_COUNT: ${{ steps.validate.outputs.mov_count }}
+          PESSOA_COUNT: ${{ steps.validate.outputs.pessoa_count }}
+          FRESHNESS: ${{ steps.validate.outputs.freshness }}
+          STATUS: ${{ job.status }}
+        run: |
+          DATE=$(date -u '+%Y%m%d')
+          REPORT="restore-report-${DATE}.md"
+          {
+            echo "# Restore drill — $(date -u '+%Y-%m-%d %H:%M UTC')"
+            echo ""
+            echo "- **Status:** \`${STATUS}\`"
+            echo "- **Backup testado:** \`${KEY:-N/A}\`"
+            echo "- **Tempo de restore:** ${ELAPSED:-N/A}s"
+            echo "- **Frescor (updated_at nos últimos 7d):** ${FRESHNESS:-N/A}"
+            echo ""
+            echo "## Contagens"
+            echo ""
+            echo "| Tabela | Registros |"
+            echo "|--------|-----------|"
+            echo "| Tabelas no schema | ${TABLES_COUNT:-?} |"
+            echo "| User | ${USER_COUNT:-?} |"
+            echo "| ClienteBackoffice | ${CLIENTE_COUNT:-?} |"
+            echo "| ReceitaItem | ${RECEITA_COUNT:-?} |"
+            echo "| MovimentacaoBtg | ${MOV_COUNT:-?} |"
+            echo "| Pessoa | ${PESSOA_COUNT:-?} |"
+            echo ""
+            echo "## Saída completa do validate-restore.sql"
+            echo ""
+            echo "\`\`\`"
+            cat /tmp/validate.out 2>/dev/null || echo "(validação não rodou)"
+            echo "\`\`\`"
+          } > "$REPORT"
+          cat "$REPORT" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload report as artifact
+        if: always() && steps.backup.outputs.key != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: restore-report
+          path: restore-report-*.md
+          retention-days: 90
+
+      - name: Notify Slack on success
+        if: success()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          KEY: ${{ steps.backup.outputs.key }}
+          ELAPSED: ${{ steps.restore.outputs.elapsed }}
+          TABLES_COUNT: ${{ steps.validate.outputs.tables_count }}
+          USER_COUNT: ${{ steps.validate.outputs.user_count }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "SLACK_WEBHOOK_URL ausente — pulando."
+            exit 0
+          fi
+          MSG=":white_check_mark: Backup \`${KEY}\` restaurou em ${ELAPSED}s — ${TABLES_COUNT} tabelas, ${USER_COUNT} usuários validados"
+          PAYLOAD=$(jq -n --arg text "$MSG" '{text: $text}')
+          curl -fsS -X POST -H 'Content-Type: application/json' \
+            -d "$PAYLOAD" "$SLACK_WEBHOOK_URL"
+
+      - name: Notify Slack + create issue on failure
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KEY: ${{ steps.backup.outputs.key }}
+        run: |
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+          # Slack
+          if [ -n "$SLACK_WEBHOOK_URL" ]; then
+            MSG=":rotating_light: *RESTORE DRILL FALHOU* — backup \`${KEY:-?}\` não restaura. PRIORIDADE MÁX. <${RUN_URL}|Ver run>"
+            PAYLOAD=$(jq -n --arg text "$MSG" '{text: $text}')
+            curl -fsS -X POST -H 'Content-Type: application/json' \
+              -d "$PAYLOAD" "$SLACK_WEBHOOK_URL" || true
+          fi
+
+          # Cria label backup-broken se não existir (idempotente)
+          curl -sS -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/labels" \
+            -d '{"name":"backup-broken","color":"b60205","description":"Restore drill detectou backup corrompido — PRIORIDADE MÁX"}' \
+            > /dev/null || true
+
+          TITLE="🚨🚨 BACKUP QUEBRADO — drill de $(date -u '+%Y-%m-%d') falhou"
+          BODY=$(cat <<EOF
+          ## Restore drill semanal falhou — INVESTIGAR HOJE
+
+          O backup mais recente do R2 não restaura ou validou abaixo dos critérios mínimos.
+          Sem backup íntegro, **a regra 3-2-1-1-0 está quebrada** — o "0 erros após teste" virou ≥1.
+
+          - **Backup testado:** \`${KEY:-?}\`
+          - **Run:** $RUN_URL
+
+          ### Checklist de investigação
+
+          1. Abrir o run e ver em qual step falhou (download, pg_restore, validate-restore.sql)
+          2. Se pg_restore falhou → backup está corrompido. Testar backup anterior manualmente:
+             \`\`\`
+             aws s3 ls s3://\${R2_BUCKET}/daily/ --endpoint-url=https://...
+             \`\`\`
+          3. Se validate falhou (User=0 ou tabelas faltando) → backup foi gerado contra DB vazio
+             ou schema diferente. Verificar logs do último \`db-backup.yml\`.
+          4. Se tudo passa em backup anterior → algo quebrou no \`db-backup.yml\` desde então.
+          5. Procedimento completo em \`docs/DISASTER_RECOVERY.md\` cenário 3.
+          EOF
+          )
+          JSON=$(jq -n --arg title "$TITLE" --arg body "$BODY" \
+            '{title:$title, body:$body, labels:["backup-broken","incident"]}')
+          curl -sS -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues" \
+            -d "$JSON" | jq -r '"Issue criada: " + .html_url'
