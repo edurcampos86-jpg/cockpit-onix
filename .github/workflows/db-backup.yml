@@ -150,7 +150,7 @@ jobs:
             --key "daily/$FILE" \
             --endpoint-url "$ENDPOINT" \
             > /tmp/head.json
-          REMOTE_SIZE=$(grep -o '"ContentLength":[[:space:]]*[0-9]*' /tmp/head.json | grep -o '[0-9]*')
+          REMOTE_SIZE=$(jq -r '.ContentLength' /tmp/head.json)
           LOCAL_SIZE=$(stat -c%s "./out/$FILE")
           echo "Local:  $LOCAL_SIZE bytes"
           echo "Remoto: $REMOTE_SIZE bytes"
