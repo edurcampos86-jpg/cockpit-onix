@@ -97,6 +97,25 @@ Subagentes Claude Code em [`.claude/agents/`](.claude/agents/) automatizam:
 
 Detalhes e gatilhos em [`.claude/agents/README.md`](.claude/agents/README.md).
 
+## Disaster Recovery
+
+Arquitetura de backup e procedimentos de recuperação seguem a regra
+**3-2-1-1-0** (3 cópias, 2 mídias, 1 offsite, 1 imutável, 0 erros após teste).
+
+| Camada | Onde está |
+|--------|-----------|
+| Backup diário do Postgres → Cloudflare R2 | [`.github/workflows/db-backup.yml`](.github/workflows/db-backup.yml) |
+| Smoke tests pós-deploy + cron 15min | [`.github/workflows/post-deploy-smoke.yml`](.github/workflows/post-deploy-smoke.yml) |
+| Restore drill semanal automatizado | [`.github/workflows/restore-drill.yml`](.github/workflows/restore-drill.yml) |
+| Endpoint público de health | [`src/app/api/health/route.ts`](src/app/api/health/route.ts) |
+
+Documentação operacional:
+
+- [`docs/DISASTER_RECOVERY.md`](docs/DISASTER_RECOVERY.md) — RTO/RPO, 4 cenários de incidente passo-a-passo
+- [`docs/BACKUP_ARCHITECTURE.md`](docs/BACKUP_ARCHITECTURE.md) — diagrama Mermaid + custos
+- [`docs/SECRETS.md`](docs/SECRETS.md) — inventário de secrets, rotação, backup do `.env` com `age`
+- [`docs/BRANCH_PROTECTION.md`](docs/BRANCH_PROTECTION.md) — config manual da proteção da `main`
+
 ## Convenções
 
 - **Matching de cliente nunca só por nome.** Chave forte: CPF/CNPJ, número de conta, ID BTG, CGE, telefone. Nome é apenas confirmação.
