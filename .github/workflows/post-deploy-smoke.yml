@@ -1,0 +1,222 @@
+name: Post-deploy smoke tests
+
+# Smoke tests da produção. Roda em 3 situações:
+#   1. Webhook do Railway pós-deploy (repository_dispatch event_type=deployed)
+#   2. Cron a cada 15 min como fallback (mesmo sem deploy, monitora uptime)
+#   3. Manualmente via workflow_dispatch (debug)
+#
+# Cada execução testa 3 endpoints da produção:
+#   - GET /                   → 200 (landing carrega)
+#   - GET /api/health         → 200 + db:'up' (Postgres responde)
+#   - GET /login              → 200 + contém "Acesse sua conta"
+#
+# Em caso de falha:
+#   - Posta no Slack (se SLACK_WEBHOOK_URL configurado)
+#   - Cria GitHub Issue com label `incident` (auto-cria a label se não existir)
+#
+# Para configurar o webhook do Railway:
+#   curl -X POST \
+#     -H "Accept: application/vnd.github.everest-preview+json" \
+#     -H "Authorization: token $GH_PAT" \
+#     https://api.github.com/repos/edurcampos86-jpg/cockpit-onix/dispatches \
+#     -d '{"event_type":"deployed"}'
+
+on:
+  repository_dispatch:
+    types: [deployed]
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  # Evita runs paralelos pisando uns nos outros. Se o anterior demorar mais
+  # que 15min (improvável), o próximo enfileira.
+  group: post-deploy-smoke
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write   # pra abrir issue de incidente
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Resolve base URL
+        id: base
+        env:
+          BASE_URL: ${{ vars.APP_BASE_URL }}
+        run: |
+          if [ -z "$BASE_URL" ]; then
+            echo "::error::APP_BASE_URL não configurado (Settings → Variables)"
+            exit 1
+          fi
+          # Remove trailing slashes pra evitar // nas URLs concatenadas
+          while [ "${BASE_URL: -1}" = "/" ]; do BASE_URL="${BASE_URL%/}"; done
+          echo "url=$BASE_URL" >> "$GITHUB_OUTPUT"
+          echo "Base: $BASE_URL"
+
+      - name: Probe GET /
+        id: root
+        env:
+          BASE: ${{ steps.base.outputs.url }}
+        run: |
+          CODE=$(curl -sS -o /tmp/root.html -w "%{http_code}" --max-time 30 "$BASE/")
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "GET / → HTTP $CODE"
+          if [ "$CODE" != "200" ]; then
+            echo "::error::GET / retornou HTTP $CODE (esperado 200)"
+            exit 1
+          fi
+
+      - name: Probe GET /api/health
+        id: health
+        env:
+          BASE: ${{ steps.base.outputs.url }}
+        run: |
+          CODE=$(curl -sS -o /tmp/health.json -w "%{http_code}" --max-time 30 "$BASE/api/health")
+          BODY=$(cat /tmp/health.json | head -c 1000)
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "body=$BODY" >> "$GITHUB_OUTPUT"
+          echo "GET /api/health → HTTP $CODE"
+          echo "body: $BODY"
+          if [ "$CODE" != "200" ]; then
+            echo "::error::/api/health retornou HTTP $CODE — body: $BODY"
+            exit 1
+          fi
+          # Confirma que o ping ao Postgres deu up. Sem isso, app responde
+          # 200 com DB down (cenário de degradação parcial) e a gente perde.
+          DB=$(echo "$BODY" | jq -r '.db // "missing"')
+          if [ "$DB" != "up" ]; then
+            echo "::error::/api/health respondeu mas DB está '$DB' (esperado 'up')"
+            exit 1
+          fi
+
+      - name: Probe GET /login
+        id: login
+        env:
+          BASE: ${{ steps.base.outputs.url }}
+        run: |
+          CODE=$(curl -sS -o /tmp/login.html -w "%{http_code}" --max-time 30 "$BASE/login")
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "GET /login → HTTP $CODE"
+          if [ "$CODE" != "200" ]; then
+            echo "::error::GET /login retornou HTTP $CODE"
+            exit 1
+          fi
+          if ! grep -q "Acesse sua conta" /tmp/login.html; then
+            echo "::error::/login retornou 200 mas não contém 'Acesse sua conta' — render quebrado?"
+            head -c 500 /tmp/login.html
+            exit 1
+          fi
+
+      - name: Summary on success
+        if: success()
+        env:
+          BASE: ${{ steps.base.outputs.url }}
+        run: |
+          {
+            echo "## Smoke OK"
+            echo ""
+            echo "- \`GET /\` ✅"
+            echo "- \`GET /api/health\` ✅ (DB up)"
+            echo "- \`GET /login\` ✅ (render OK)"
+            echo ""
+            echo "Base: $BASE"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # ─────────────────────────────────────────────────────────────────
+      # Falhas: Slack + Issue
+      # ─────────────────────────────────────────────────────────────────
+
+      - name: Notify Slack on failure
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          BASE: ${{ steps.base.outputs.url }}
+          TRIGGER: ${{ github.event_name }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "SLACK_WEBHOOK_URL não configurado — pulando."
+            exit 0
+          fi
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          # jq monta o JSON com escaping seguro
+          PAYLOAD=$(jq -n \
+            --arg base "$BASE" \
+            --arg trigger "$TRIGGER" \
+            --arg run "$RUN_URL" \
+            '{
+              text: ":rotating_light: Smoke test do Cockpit Onix falhou",
+              blocks: [
+                { type: "header", text: { type: "plain_text", text: ":rotating_light: Smoke FAIL — Cockpit Onix" } },
+                { type: "section", fields: [
+                  { type: "mrkdwn", text: ("*App:*\n" + $base) },
+                  { type: "mrkdwn", text: ("*Trigger:*\n" + $trigger) },
+                  { type: "mrkdwn", text: ("*Run:*\n<" + $run + "|Ver detalhes>") }
+                ]},
+                { type: "context", elements: [
+                  { type: "mrkdwn", text: "Veja `docs/DISASTER_RECOVERY.md` para procedimentos de rollback." }
+                ]}
+              ]
+            }')
+          curl -fsS -X POST -H 'Content-Type: application/json' \
+            -d "$PAYLOAD" "$SLACK_WEBHOOK_URL"
+
+      - name: Create incident issue on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE: ${{ steps.base.outputs.url }}
+          TRIGGER: ${{ github.event_name }}
+          ROOT_CODE: ${{ steps.root.outputs.code }}
+          HEALTH_CODE: ${{ steps.health.outputs.code }}
+          HEALTH_BODY: ${{ steps.health.outputs.body }}
+          LOGIN_CODE: ${{ steps.login.outputs.code }}
+        run: |
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          TITLE="🚨 Smoke FAIL — $(date -u '+%Y-%m-%d %H:%M UTC')"
+          # Garante que a label existe (idempotente — silencia se já existir)
+          curl -sS -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/labels" \
+            -d '{"name":"incident","color":"b60205","description":"Falha detectada por automação"}' \
+            > /dev/null || true
+
+          BODY=$(cat <<EOF
+          ## Smoke test pós-deploy falhou
+
+          - **Base:** $BASE
+          - **Trigger:** $TRIGGER
+          - **Run:** $RUN_URL
+
+          | Endpoint | HTTP | Esperado |
+          |----------|------|----------|
+          | \`GET /\` | $ROOT_CODE | 200 |
+          | \`GET /api/health\` | $HEALTH_CODE | 200 + db:up |
+          | \`GET /login\` | $LOGIN_CODE | 200 + "Acesse sua conta" |
+
+          ### /api/health body (truncado)
+
+          \`\`\`json
+          $HEALTH_BODY
+          \`\`\`
+
+          ### Próximos passos
+
+          1. Abrir o Run no link acima e ver qual step falhou.
+          2. Se DB down → checar Railway → Postgres service.
+          3. Se app down → checar último deploy em Railway → Deployments.
+          4. Para rollback, ver \`docs/DISASTER_RECOVERY.md\` cenário 1.
+          EOF
+          )
+          # Cria issue via API (gh CLI não está disponível no runner remoto)
+          JSON=$(jq -n --arg title "$TITLE" --arg body "$BODY" \
+            '{title: $title, body: $body, labels: ["incident"]}')
+          curl -sS -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues" \
+            -d "$JSON" | jq -r '"Issue criada: " + .html_url'
