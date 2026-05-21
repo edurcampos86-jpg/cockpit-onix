@@ -1,0 +1,207 @@
+name: DB Backup → Cloudflare R2
+
+# Backup diário do Postgres do Railway para Cloudflare R2.
+#
+# Estratégia 3-2-1-1-0:
+#   3 cópias: Railway primary + Railway PITR (manual) + R2
+#   2 mídias: Railway (block storage) + R2 (object storage)
+#   1 offsite: R2 (Cloudflare, fora do Railway)
+#   1 imutável: lifecycle do R2 + bucket versioning (configurado manualmente)
+#   0 erros: validado pelo restore-drill.yml semanal
+#
+# O backup roda dentro de um container postgres:16-alpine para garantir
+# compatibilidade exata do pg_dump com o servidor. Sem isso, mismatch de
+# versão entre client e server quebra silenciosamente.
+#
+# Retenção é feita por lifecycle rules NO BUCKET R2 (configurar manualmente
+# no painel Cloudflare — ver docs/SECRETS.md):
+#   - prefixo daily/   → manter 30 dias
+#   - prefixo weekly/  → manter 84 dias (~12 semanas)
+#   - prefixo monthly/ → manter 365 dias (~12 meses)
+#
+# Cada execução grava em até 3 prefixos:
+#   - sempre em daily/
+#   - se for segunda-feira, também em weekly/
+#   - se for dia 1 do mês, também em monthly/
+
+on:
+  schedule:
+    # 06:00 UTC = 03:00 BRT (Bahia, sem horário de verão).
+    # Cedo o suficiente pra fechar o ciclo do dia anterior, antes da rotina.
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Motivo do backup manual (vai no log)'
+        required: false
+        default: 'manual via UI'
+
+concurrency:
+  group: db-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Validate required secrets
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          MISSING=""
+          [ -z "$DATABASE_URL" ]        && MISSING="$MISSING DATABASE_URL"
+          [ -z "$R2_ACCOUNT_ID" ]       && MISSING="$MISSING R2_ACCOUNT_ID"
+          [ -z "$R2_ACCESS_KEY_ID" ]    && MISSING="$MISSING R2_ACCESS_KEY_ID"
+          [ -z "$R2_SECRET_ACCESS_KEY" ] && MISSING="$MISSING R2_SECRET_ACCESS_KEY"
+          [ -z "$R2_BUCKET" ]           && MISSING="$MISSING R2_BUCKET"
+          if [ -n "$MISSING" ]; then
+            echo "::error::Secrets ausentes:$MISSING"
+            echo "::error::Configure em Settings → Secrets and variables → Actions"
+            echo "::error::Detalhes em docs/SECRETS.md"
+            exit 1
+          fi
+
+      - name: Compute filename and prefixes
+        id: meta
+        run: |
+          TS=$(date -u '+%Y%m%d-%H%M%S')
+          DOW=$(date -u '+%u')   # 1=segunda ... 7=domingo
+          DOM=$(date -u '+%d')   # 01..31
+          FILE="cockpit-onix-${TS}.dump.gz"
+          PREFIXES="daily"
+          [ "$DOW" = "1" ] && PREFIXES="$PREFIXES weekly"
+          [ "$DOM" = "01" ] && PREFIXES="$PREFIXES monthly"
+          echo "filename=$FILE"      >> "$GITHUB_OUTPUT"
+          echo "prefixes=$PREFIXES"  >> "$GITHUB_OUTPUT"
+          echo "timestamp=$TS"       >> "$GITHUB_OUTPUT"
+          echo "Arquivo: $FILE"
+          echo "Prefixos: $PREFIXES"
+
+      - name: Run pg_dump inside postgres:16-alpine
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          FILE: ${{ steps.meta.outputs.filename }}
+        run: |
+          # Roda pg_dump dentro do container oficial pra casar com Postgres 16
+          # do Railway. Sem isso, server version mismatch faz dump falhar.
+          # -Fc = custom format (compactável, pg_restore seletivo)
+          # --no-owner / --no-privileges = restore funciona em qualquer DB
+          # --no-acl = sem ACLs que pertencem ao role do Railway
+          set -euo pipefail
+          mkdir -p ./out
+          docker run --rm \
+            -e PGPASSWORD_FILE=/dev/null \
+            -v "$PWD/out:/out" \
+            postgres:16-alpine \
+            sh -c "pg_dump --format=custom --no-owner --no-privileges --no-acl --compress=0 --dbname='$DATABASE_URL' --file=/out/backup.dump"
+          ls -lh ./out/backup.dump
+          gzip -9 ./out/backup.dump
+          mv ./out/backup.dump.gz "./out/$FILE"
+          ls -lh "./out/$FILE"
+          SIZE=$(stat -c%s "./out/$FILE")
+          echo "Backup gerado: $FILE ($((SIZE / 1024 / 1024)) MB)"
+          if [ "$SIZE" -lt 1024 ]; then
+            echo "::error::Backup suspeito: menor que 1KB"
+            exit 1
+          fi
+
+      - name: Upload to R2 (every applicable prefix)
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          FILE: ${{ steps.meta.outputs.filename }}
+          PREFIXES: ${{ steps.meta.outputs.prefixes }}
+        run: |
+          set -euo pipefail
+          ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          for prefix in $PREFIXES; do
+            DEST="s3://${R2_BUCKET}/${prefix}/${FILE}"
+            echo "Subindo para $DEST"
+            aws s3 cp "./out/$FILE" "$DEST" \
+              --endpoint-url "$ENDPOINT" \
+              --no-progress \
+              --metadata "source=github-actions,workflow=db-backup,sha=${GITHUB_SHA}"
+          done
+          echo "Upload concluído em todos os prefixos."
+
+      - name: Verify upload landed in R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          FILE: ${{ steps.meta.outputs.filename }}
+        run: |
+          set -euo pipefail
+          ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          # HEAD no objeto em daily/ — se subiu, retorna 200 + metadata
+          aws s3api head-object \
+            --bucket "$R2_BUCKET" \
+            --key "daily/$FILE" \
+            --endpoint-url "$ENDPOINT" \
+            > /tmp/head.json
+          REMOTE_SIZE=$(grep -o '"ContentLength":[[:space:]]*[0-9]*' /tmp/head.json | grep -o '[0-9]*')
+          LOCAL_SIZE=$(stat -c%s "./out/$FILE")
+          echo "Local:  $LOCAL_SIZE bytes"
+          echo "Remoto: $REMOTE_SIZE bytes"
+          if [ "$REMOTE_SIZE" != "$LOCAL_SIZE" ]; then
+            echo "::error::Tamanho do objeto no R2 difere do local"
+            exit 1
+          fi
+          echo "Verificação OK."
+
+      - name: Notify Slack on failure
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          FILE: ${{ steps.meta.outputs.filename }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "SLACK_WEBHOOK_URL não configurado — pulando notificação."
+            exit 0
+          fi
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          PAYLOAD=$(cat <<EOF
+          {
+            "text": ":rotating_light: *Backup do Cockpit Onix falhou*",
+            "blocks": [
+              { "type": "header", "text": { "type": "plain_text", "text": ":rotating_light: Backup Postgres → R2 falhou" } },
+              { "type": "section", "fields": [
+                { "type": "mrkdwn", "text": "*Arquivo previsto:*\n${FILE}" },
+                { "type": "mrkdwn", "text": "*Workflow:*\n<${RUN_URL}|Ver execução>" }
+              ]},
+              { "type": "context", "elements": [
+                { "type": "mrkdwn", "text": "Cheque se Postgres está acessível e se os secrets R2 ainda valem. Procedimento manual em \`docs/DISASTER_RECOVERY.md\`." }
+              ]}
+            ]
+          }
+          EOF
+          )
+          curl -fsS -X POST -H 'Content-Type: application/json' \
+            -d "$PAYLOAD" "$SLACK_WEBHOOK_URL"
+
+      - name: Summary
+        if: success()
+        env:
+          FILE: ${{ steps.meta.outputs.filename }}
+          PREFIXES: ${{ steps.meta.outputs.prefixes }}
+        run: |
+          {
+            echo "## Backup concluído"
+            echo ""
+            echo "- **Arquivo:** \`$FILE\`"
+            echo "- **Prefixos no R2:** $PREFIXES"
+            echo "- **Bucket:** ${{ secrets.R2_BUCKET }}"
+            echo ""
+            echo "Próxima verificação automática: \`restore-drill.yml\` (segunda às 07:00 UTC)."
+          } >> "$GITHUB_STEP_SUMMARY"
