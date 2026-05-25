@@ -6,13 +6,14 @@ const publicRoutes = [
   "/login",
   "/recriar-senha",                    // Reset de senha — protegido por PASSWORD_RESET_SECRET
   "/onboarding/",                      // Rota pública de onboarding por token (Fase 2C — gestão do time)
-  "/api/onix-corretora/ingest",
-  "/api/onix-corretora/analisar",      // GET diagnóstico (apenas lê flags, não expõe tokens)
-  "/api/onix-corretora/test-pipeline", // Diagnóstico do pipeline
-  "/api/onix-corretora/coletivo",      // Geração de relatório coletivo
-  "/api/integracoes/zapier/webhook",
-  "/api/webhooks/btg",                 // Webhook BTG — autentica via x-webhook-secret se configurado
   "/api/cron/",                        // Crons do Painel do Dia — autenticam via Bearer CRON_SECRET
+  "/api/health",                       // Health check do smoke pós-deploy — sem dados sensíveis
+  "/api/integracoes/zapier/webhook",
+  "/api/onix-corretora/analisar",      // GET diagnóstico (apenas lê flags, não expõe tokens)
+  "/api/onix-corretora/coletivo",      // Geração de relatório coletivo
+  "/api/onix-corretora/ingest",
+  "/api/onix-corretora/test-pipeline", // Diagnóstico do pipeline
+  "/api/webhooks/btg",                 // Webhook BTG — autentica via x-webhook-secret se configurado
 ];
 const secretKey = process.env.SESSION_SECRET;
 const encodedKey = new TextEncoder().encode(secretKey);
