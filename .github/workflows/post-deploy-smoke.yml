@@ -6,9 +6,9 @@ name: Post-deploy smoke tests
 #   3. Manualmente via workflow_dispatch (debug)
 #
 # Cada execução testa 3 endpoints da produção:
-#   - GET /                   → 200 (landing carrega)
+#   - GET /login              → 200 (sentinela do proxy/middleware)
 #   - GET /api/health         → 200 + db:'up' (Postgres responde)
-#   - GET /login              → 200 + contém "Acesse sua conta"
+#   - GET /login              → 200 + contém "Acesse sua conta" (render OK)
 #
 # Em caso de falha:
 #   - Posta no Slack (se SLACK_WEBHOOK_URL configurado)
@@ -57,16 +57,20 @@ jobs:
           echo "url=$BASE_URL" >> "$GITHUB_OUTPUT"
           echo "Base: $BASE_URL"
 
-      - name: Probe GET /
+      - name: Probe GET /login (root proxy check)
         id: root
         env:
           BASE: ${{ steps.base.outputs.url }}
+        # Probe básico de roteamento. A raiz redireciona pra /login com 307
+        # quando deslogado (qualquer smoke roda sem cookie), então testar GET /
+        # esperando 200 dava falso positivo. Hitamos /login direto e validamos
+        # 200 — o render do conteúdo é validado no step seguinte.
         run: |
-          CODE=$(curl -sS -o /tmp/root.html -w "%{http_code}" --max-time 30 "$BASE/")
+          CODE=$(curl -sS -o /tmp/root.html -w "%{http_code}" --max-time 30 "$BASE/login")
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
-          echo "GET / → HTTP $CODE"
+          echo "GET /login (root proxy) → HTTP $CODE"
           if [ "$CODE" != "200" ]; then
-            echo "::error::GET / retornou HTTP $CODE (esperado 200)"
+            echo "::error::GET /login retornou HTTP $CODE (esperado 200)"
             exit 1
           fi
 
@@ -119,7 +123,7 @@ jobs:
           {
             echo "## Smoke OK"
             echo ""
-            echo "- \`GET /\` ✅"
+            echo "- \`GET /login\` ✅ (proxy)"
             echo "- \`GET /api/health\` ✅ (DB up)"
             echo "- \`GET /login\` ✅ (render OK)"
             echo ""
@@ -194,9 +198,9 @@ jobs:
 
           | Endpoint | HTTP | Esperado |
           |----------|------|----------|
-          | \`GET /\` | $ROOT_CODE | 200 |
+          | \`GET /login\` (root proxy) | $ROOT_CODE | 200 |
           | \`GET /api/health\` | $HEALTH_CODE | 200 + db:up |
-          | \`GET /login\` | $LOGIN_CODE | 200 + "Acesse sua conta" |
+          | \`GET /login\` (render) | $LOGIN_CODE | 200 + "Acesse sua conta" |
 
           ### /api/health body (truncado)
 
