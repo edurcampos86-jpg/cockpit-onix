@@ -277,7 +277,7 @@ gh workflow run db-backup.yml
 | Cenário 3 — Restore total do R2 | _nunca_ | — | — | — |
 | Cenário 3 — Restore parcial (1 tabela) | _nunca_ | — | — | — |
 | Cenário 4 — Subir em outro provedor | _nunca_ | — | — | — |
-| Restore drill automático (`restore-drill.yml`) | _aguardando 1ª segunda após deploy_ | — | — | bot |
+| Restore drill automático (`restore-drill.yml`) | 2026-05-25 13:31 UTC | 2s (restore) + ~1min total | ✅ verde — 65 tabelas, 1 User, 2602 ClienteBackoffice, frescor=yes (73 colunas timestamp varridas) — [run 26403048590](https://github.com/edurcampos86-jpg/cockpit-onix/actions/runs/26403048590) | claude code |
 | Snapshot `.env` Railway → 1Password | _nunca_ | — | — | — |
 | Rotação `R2_ACCESS_KEY_ID` | _nunca_ | — | — | — |
 | Rotação `CRON_SECRET` | _nunca_ | — | — | — |
