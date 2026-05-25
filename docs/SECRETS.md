@@ -45,7 +45,7 @@ Configurar em **Settings → Secrets and variables → Actions → Variables →
 
 | Nome | Usado por | Valor | Observação |
 |------|-----------|-------|------------|
-| `APP_BASE_URL` | `cron.yml`, `post-deploy-smoke.yml` | `https://cockpit-onix-production.up.railway.app` | URL pública da app. Mude se trocar de domínio. |
+| `APP_BASE_URL` | `cron.yml`, `post-deploy-smoke.yml` | `https://cockpit-onix-app-production.up.railway.app` | URL pública da app. Mude se trocar de domínio. |
 
 ## Railway — Environment Variables
 

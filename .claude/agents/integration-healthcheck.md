@@ -38,7 +38,7 @@ Pra cada um, ler último `BtgSyncLog` do mesmo `tipo` e conferir `sucesso=true` 
 
 ## Procedimento
 
-1. Determinar base URL: usar `RAILWAY_PUBLIC_DOMAIN` ou `https://cockpit-onix-production.up.railway.app`.
+1. Determinar base URL: usar `RAILWAY_PUBLIC_DOMAIN` ou `https://cockpit-onix-app-production.up.railway.app`.
 2. GET `/api/integracoes/status` → mapa de configured/status.
    - **Atenção:** essa rota agora exige sessão. Rodando como cron sem cookie, hit direto via `getConfig()` (skip o HTTP) ou crie um endpoint dedicado `/api/cron/healthcheck` com auth via shared secret.
 3. Para cada integração com `configured=true`, hit no endpoint `/test` correspondente (5s timeout, com cookie/secret).

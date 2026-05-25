@@ -15,7 +15,7 @@ import {
  * chega no WhatsApp. Configure a URL no painel do DataCrazy (procurar por
  * "webhooks" ou "integrações" na conta) apontando pra:
  *
- *   https://cockpit-onix-production.up.railway.app/api/webhooks/datacrazy
+ *   https://cockpit-onix-app-production.up.railway.app/api/webhooks/datacrazy
  *
  * Autenticação: header `x-webhook-secret` ou `authorization: Bearer ...`
  *   contendo o valor de DATACRAZY_WEBHOOK_SECRET (salvo na tabela Config).

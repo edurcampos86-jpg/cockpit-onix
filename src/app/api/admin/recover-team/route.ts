@@ -10,10 +10,10 @@
  *    Idempotente (upsert por CPF / nome).
  *
  * Uso (com session cookie de admin):
- *   curl https://cockpit-onix-production.up.railway.app/api/admin/recover-team \
+ *   curl https://cockpit-onix-app-production.up.railway.app/api/admin/recover-team \
  *     -b "session=..."
  *
- *   curl -X POST https://cockpit-onix-production.up.railway.app/api/admin/recover-team \
+ *   curl -X POST https://cockpit-onix-app-production.up.railway.app/api/admin/recover-team \
  *     -H "Content-Type: application/json" \
  *     -b "session=..." \
  *     -d '{"confirm":"yes-recover-the-team"}'
