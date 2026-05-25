@@ -61,7 +61,9 @@ Configurar em **Settings → Secrets and variables → Actions → Variables →
 | `GOOGLE_CLIENT_SECRET` | OAuth | idem |
 | `MS_CLIENT_ID` | OAuth Microsoft | `src/lib/integrations/microsoft/*` |
 | `MS_CLIENT_SECRET` | OAuth Microsoft | idem |
-| `BTG_API_TOKEN` | API key | `src/lib/integrations/btg/*` |
+| `BTG_CLIENT_ID` | OAuth2 client id | `src/lib/integrations/btg.ts` + `config.ts` |
+| `BTG_CLIENT_SECRET` | OAuth2 client secret | idem (`client_credentials` flow contra `api.btgpactual.com/iaas-auth`) |
+| `BTG_WEBHOOK_SECRET` | Secret do webhook receptor | `src/app/api/webhooks/btg/route.ts` — opcional; se ausente, webhook aceita qualquer push |
 | `DATACRAZY_API_TOKEN` | API key | `src/lib/integrations/datacrazy/*` |
 | `DATACRAZY_WEBHOOK_SECRET` | HMAC | webhook handler |
 | `MANYCHAT_API_TOKEN` | API key | `src/app/api/webhooks/manychat/*` |
@@ -117,6 +119,55 @@ A lista completa varia ao longo do tempo. Snapshot oficial: ver
 
 ---
 
+## BTG Pactual — Partner API (OAuth2 client credentials)
+
+A integração consome a IaaS Partner API do BTG (`api.btgpactual.com`).
+Autenticação via `client_credentials` no endpoint
+`/iaas-auth/api/v1/authorization/oauth2/accesstoken` — devolve token Bearer
+com validade ~15 min (cache em memória no app).
+
+### Variáveis necessárias (Railway)
+
+| Variável | Obrigatória | Função |
+|----------|-------------|--------|
+| `BTG_CLIENT_ID` | sim | Identificador do parceiro fornecido pelo BTG |
+| `BTG_CLIENT_SECRET` | sim | Segredo correspondente |
+| `BTG_WEBHOOK_SECRET` | opcional | Validado em `/api/webhooks/btg`. Sem ele, webhook aceita qualquer push |
+
+### Como obter / rotacionar
+
+Credenciais são emitidas pelo BTG via portal do parceiro. Não há
+auto-serviço — abra ticket no contato comercial BTG ou na
+[developer-partner](https://developer-partner.btgpactual.com) pedindo
+re-emissão. Após receber:
+
+1. **Railway → projeto `cockpit-onix` → Variables**: atualizar
+   `BTG_CLIENT_ID` e `BTG_CLIENT_SECRET`
+2. Aguardar redeploy (~2 min)
+3. Validar em `/integracoes` (logado) → card "BTG Pactual" → "Testar token".
+   Esperado: `Conectado ao BTG Partner API. Token Bearer obtido (...)`
+4. Se falhar, ver `console` do Railway pra mensagem do `BTG token error`
+
+### Webhook (caminho assíncrono)
+
+URL pública: `https://cockpit-onix-app-production.up.railway.app/api/webhooks/btg`
+
+Cadastrar no portal BTG **com** o `BTG_WEBHOOK_SECRET` (header pode ser
+qualquer um de: `Authorization: Bearer …`, `x-api-key`, `apikey`,
+`x-webhook-secret`, `x-btg-signature` — handler aceita os 5 formatos).
+
+BTG não empurra dados sozinho: webhook só recebe quando o app solicita
+algo assíncrono (ex.: `postMovementsByPartnerPeriod` retorna 202 e a
+resposta vem via webhook depois).
+
+### Cron semanal
+
+`/api/cron/btg-movements-poll` roda terças 04:00 UTC via
+`.github/workflows/cron.yml` (schedule `0 4 * * 2`). Notifica
+`#backup_ecossistema_onix` em sucesso e falha.
+
+---
+
 ## Backup do `.env` do Railway (offline)
 
 O Railway é fonte da verdade das variáveis em produção, mas se a conta cair
@@ -160,6 +211,8 @@ você fica sem acesso. Para sobreviver a esse cenário, mantenha uma cópia
 | `CRON_SECRET` | A cada 12 meses | Gerar novo (`openssl rand -hex 32`) → atualizar Railway **E** GitHub Secret no mesmo deploy |
 | `SESSION_SECRET` | Em vazamento (invalida sessões) | Gerar novo → atualizar Railway → todos os usuários precisam relogar |
 | Tokens OAuth (Google/MS) | Quando refresh token expirar | Refluxo OAuth dentro do app (`/integracoes`) |
+| `BTG_CLIENT_ID` / `BTG_CLIENT_SECRET` | Em incidente ou anualmente | Pedir re-emissão ao BTG via portal do parceiro → atualizar Railway → validar em `/integracoes` (botão "Testar token") |
+| `BTG_WEBHOOK_SECRET` | Em incidente | Gerar novo (`openssl rand -hex 32`) → atualizar Railway **E** cadastrar no portal BTG no mesmo dia (até atualizar lá, webhook BTG cai com 401) |
 
 > Toda rotação deve ser registrada em `docs/DISASTER_RECOVERY.md` na
 > tabela **"Última data de teste/rotação"**.
