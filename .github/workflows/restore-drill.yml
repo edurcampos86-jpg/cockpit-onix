@@ -8,7 +8,7 @@ name: Restore drill (semanal)
 #   1. Sobe Postgres 16 temporário (service container)
 #   2. Baixa do R2 o backup mais recente em daily/
 #   3. Restaura com pg_restore
-#   4. Roda scripts/validate-restore.sql (5 tabelas, frescor, User existe)
+#   4. Roda scripts/validate-restore.sql (sanity, frescor schema-agnostic, User existe)
 #   5. Gera relatório markdown e posta resumo no Slack
 #   6. Se falhar → cria Issue com label `backup-broken` (PRIORIDADE MÁX)
 
@@ -169,7 +169,12 @@ jobs:
             > /tmp/validate.out 2>&1
           cat /tmp/validate.out
 
-          # Pega as métricas (formato chave=valor)
+          # Parser do validate-restore.sql. A saída vem em formato chave=valor
+          # (linhas tipo "COUNT:X=N" e "FRESHNESS:...|recent_7d=yes"), prefixadas
+          # com "NOTICE:" porque o SQL usa RAISE NOTICE pra iterar tabelas via
+          # information_schema. Os grep abaixo não ancoram em ^ exatamente por
+          # isso. Se uma tabela sumir, o SQL emite "COUNT:X=MISSING" e o
+          # fallback "|| echo 0" do grep cobre.
           TABLES_COUNT=$(grep -c '^TABLE:' /tmp/validate.out || true)
           USER_COUNT=$(grep -oE 'COUNT:User=[0-9]+' /tmp/validate.out | grep -oE '[0-9]+$' || echo "0")
           CLIENTE_COUNT=$(grep -oE 'COUNT:ClienteBackoffice=[0-9]+' /tmp/validate.out | grep -oE '[0-9]+$' || echo "0")
@@ -177,14 +182,16 @@ jobs:
           MOV_COUNT=$(grep -oE 'COUNT:MovimentacaoBtg=[0-9]+' /tmp/validate.out | grep -oE '[0-9]+$' || echo "0")
           PESSOA_COUNT=$(grep -oE 'COUNT:Pessoa=[0-9]+' /tmp/validate.out | grep -oE '[0-9]+$' || echo "0")
           FRESHNESS=$(grep -oE 'recent_7d=(yes|no)' /tmp/validate.out | head -1 | cut -d= -f2 || echo "unknown")
+          FRESHNESS_SCANNED=$(grep -oE 'scanned_cols=[0-9]+' /tmp/validate.out | grep -oE '[0-9]+$' || echo "0")
 
-          echo "tables_count=$TABLES_COUNT"     >> "$GITHUB_OUTPUT"
-          echo "user_count=$USER_COUNT"         >> "$GITHUB_OUTPUT"
-          echo "cliente_count=$CLIENTE_COUNT"   >> "$GITHUB_OUTPUT"
-          echo "receita_count=$RECEITA_COUNT"   >> "$GITHUB_OUTPUT"
-          echo "mov_count=$MOV_COUNT"           >> "$GITHUB_OUTPUT"
-          echo "pessoa_count=$PESSOA_COUNT"     >> "$GITHUB_OUTPUT"
-          echo "freshness=$FRESHNESS"           >> "$GITHUB_OUTPUT"
+          echo "tables_count=$TABLES_COUNT"          >> "$GITHUB_OUTPUT"
+          echo "user_count=$USER_COUNT"              >> "$GITHUB_OUTPUT"
+          echo "cliente_count=$CLIENTE_COUNT"        >> "$GITHUB_OUTPUT"
+          echo "receita_count=$RECEITA_COUNT"        >> "$GITHUB_OUTPUT"
+          echo "mov_count=$MOV_COUNT"                >> "$GITHUB_OUTPUT"
+          echo "pessoa_count=$PESSOA_COUNT"          >> "$GITHUB_OUTPUT"
+          echo "freshness=$FRESHNESS"                >> "$GITHUB_OUTPUT"
+          echo "freshness_scanned=$FRESHNESS_SCANNED" >> "$GITHUB_OUTPUT"
 
           # Critérios duros — qualquer um falhando quebra o drill
           if [ "$TABLES_COUNT" -lt 5 ]; then
@@ -212,6 +219,7 @@ jobs:
           MOV_COUNT: ${{ steps.validate.outputs.mov_count }}
           PESSOA_COUNT: ${{ steps.validate.outputs.pessoa_count }}
           FRESHNESS: ${{ steps.validate.outputs.freshness }}
+          FRESHNESS_SCANNED: ${{ steps.validate.outputs.freshness_scanned }}
           STATUS: ${{ job.status }}
         run: |
           DATE=$(date -u '+%Y%m%d')
@@ -222,7 +230,7 @@ jobs:
             echo "- **Status:** \`${STATUS}\`"
             echo "- **Backup testado:** \`${KEY:-N/A}\`"
             echo "- **Tempo de restore:** ${ELAPSED:-N/A}s"
-            echo "- **Frescor (updated_at nos últimos 7d):** ${FRESHNESS:-N/A}"
+            echo "- **Frescor (timestamps recentes em 7d):** ${FRESHNESS:-N/A} (${FRESHNESS_SCANNED:-0} colunas varridas)"
             echo ""
             echo "## Contagens"
             echo ""

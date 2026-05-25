@@ -1,15 +1,17 @@
--- Validação de restore drill — executado pelo workflow restore-drill.yml.
+-- Validação de restore drill — schema-agnostic.
 --
 -- Saída em formato chave=valor (pipe-separated) para o workflow parsear
--- com awk/grep sem precisar de jq. Cada linha começa com prefixo SECTION:
--- pra facilitar grep -E '^TABLES_COUNT:' etc.
+-- com grep/awk. Tudo via RAISE NOTICE em blocos DO — assim podemos
+-- iterar sobre tabelas/colunas via information_schema sem quebrar quando
+-- uma some, é renomeada, ou usa convenção diferente (createdAt vs criadoEm).
 --
 -- Critérios validados:
---   1. Existem tabelas no schema public (sanity check)
---   2. As 5 tabelas mais importantes têm contagem de registros conhecida
---   3. Pelo menos 1 User existe (sem isso a app não loga)
---   4. Existe pelo menos UMA linha com updated_at / updatedAt / createdAt
---      nos últimos 7 dias — confirma que o dump não é fóssil
+--   1. Existem tabelas no schema public (sanity check via TABLE:)
+--   2. As 5 tabelas mais importantes têm contagem conhecida (MISSING se sumiu)
+--   3. Pelo menos 1 User existe — gate no workflow via USER_COUNT >= 1
+--   4. Pelo menos uma tabela com timestamp (createdAt/updatedAt/criadoEm/...)
+--      tem registro nos últimos 7 dias — descobre tabelas e colunas via
+--      information_schema, sobrevive a migrations sem manutenção neste arquivo.
 
 \pset format unaligned
 \pset tuples_only on
@@ -17,7 +19,6 @@
 
 \echo === RESTORE_VALIDATION_BEGIN ===
 
--- 1. Lista de tabelas do schema public
 \echo
 \echo --- TABLES_LIST ---
 SELECT 'TABLE:' || table_name
@@ -25,42 +26,60 @@ FROM information_schema.tables
 WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
 ORDER BY table_name;
 
--- 2. Contagem das 5 tabelas mais importantes
---    (User, ClienteBackoffice, ReceitaItem, MovimentacaoBtg, Pessoa)
---    Identificadores em camelCase do Prisma → quoted, case-sensitive no Postgres.
 \echo
 \echo --- TOP_TABLES_COUNT ---
-SELECT 'COUNT:User=' || COUNT(*)::text                FROM "User";
-SELECT 'COUNT:ClienteBackoffice=' || COUNT(*)::text   FROM "ClienteBackoffice";
-SELECT 'COUNT:ReceitaItem=' || COUNT(*)::text         FROM "ReceitaItem";
-SELECT 'COUNT:MovimentacaoBtg=' || COUNT(*)::text     FROM "MovimentacaoBtg";
-SELECT 'COUNT:Pessoa=' || COUNT(*)::text              FROM "Pessoa";
+DO $$
+DECLARE
+    n bigint;
+    t text;
+BEGIN
+    FOREACH t IN ARRAY ARRAY['User','ClienteBackoffice','ReceitaItem','MovimentacaoBtg','Pessoa'] LOOP
+        IF to_regclass('public.' || quote_ident(t)) IS NULL THEN
+            RAISE NOTICE 'COUNT:%=MISSING', t;
+        ELSE
+            EXECUTE format('SELECT COUNT(*) FROM %I', t) INTO n;
+            RAISE NOTICE 'COUNT:%=%', t, n;
+        END IF;
+    END LOOP;
+END $$;
 
--- 3. Tabela crítica: User precisa ter >= 1 (sem usuário não tem login)
-\echo
-\echo --- CRITICAL_TABLES ---
-SELECT 'CRITICAL_OK:User' WHERE (SELECT COUNT(*) FROM "User") >= 1;
-SELECT 'CRITICAL_FAIL:User_empty' WHERE (SELECT COUNT(*) FROM "User") = 0;
-
--- 4. Frescor: alguma updatedAt/createdAt nas últimas 168h?
---    Verifica nas tabelas mais movimentadas — basta UMA ter timestamp recente
---    para considerar que o backup não é antigo.
 \echo
 \echo --- FRESHNESS ---
-WITH recencias AS (
-    SELECT MAX("updatedAt") AS u FROM "ClienteBackoffice"
-    UNION ALL
-    SELECT MAX("updatedAt") FROM "AcaoPainel"
-    UNION ALL
-    SELECT MAX("createdAt") FROM "ReceitaItem"
-    UNION ALL
-    SELECT MAX("createdAt") FROM "MovimentacaoBtg"
-    UNION ALL
-    SELECT MAX("updatedAt") FROM "Pessoa"
-)
-SELECT 'FRESHNESS:max_ts=' || COALESCE(MAX(u)::text, 'NULL') ||
-       '|recent_7d=' || (CASE WHEN MAX(u) >= NOW() - INTERVAL '7 days' THEN 'yes' ELSE 'no' END)
-FROM recencias;
+DO $$
+DECLARE
+    rec record;
+    latest timestamp;
+    overall_max timestamp;
+    has_recent boolean := false;
+    scanned int := 0;
+BEGIN
+    FOR rec IN
+        SELECT c.table_name, c.column_name
+        FROM information_schema.columns c
+        JOIN information_schema.tables t
+          ON t.table_schema = c.table_schema AND t.table_name = c.table_name
+        WHERE c.table_schema = 'public'
+          AND t.table_type = 'BASE TABLE'
+          AND c.column_name IN ('updatedAt','createdAt','criadoEm','updated_at','created_at')
+          AND c.data_type LIKE 'timestamp%'
+        ORDER BY c.table_name, c.column_name
+    LOOP
+        EXECUTE format('SELECT MAX(%I) FROM %I', rec.column_name, rec.table_name) INTO latest;
+        scanned := scanned + 1;
+        IF latest IS NOT NULL THEN
+            IF overall_max IS NULL OR latest > overall_max THEN
+                overall_max := latest;
+            END IF;
+            IF latest >= NOW() - INTERVAL '7 days' THEN
+                has_recent := true;
+            END IF;
+        END IF;
+    END LOOP;
+    RAISE NOTICE 'FRESHNESS:scanned_cols=%|max_ts=%|recent_7d=%',
+        scanned,
+        COALESCE(overall_max::text, 'NULL'),
+        CASE WHEN has_recent THEN 'yes' ELSE 'no' END;
+END $$;
 
 \echo
 \echo === RESTORE_VALIDATION_END ===
