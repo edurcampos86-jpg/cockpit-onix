@@ -21,7 +21,7 @@
 
 | Componente | Onde mora | Como acessar | Backup |
 |------------|-----------|--------------|--------|
-| App Next.js | Railway (projeto `cockpit-onix`) | <https://cockpit-onix-production.up.railway.app> | Git (GitHub `main`) + Railway redeploy |
+| App Next.js | Railway (projeto `cockpit-onix`) | <https://cockpit-onix-app-production.up.railway.app> | Git (GitHub `main`) + Railway redeploy |
 | Postgres | Railway (mesmo projeto) | Internal: `DATABASE_URL` env var | **R2 diário** + Railway PITR (clicar no painel) |
 | Storage de PDFs | Backblaze B2 | `B2_BUCKET` env | Replicação B2 (configurar manualmente) |
 | OAuth tokens (Google/MS) | Postgres (`UserGoogleAuth`, `UserMicrosoftAuth`) cifrados | `CRYPTO_KEY` env decifra | Junto com o dump Postgres |
@@ -64,7 +64,7 @@ git log --oneline -3 origin/main
 # 3. Aguardar healthcheck do Railway ficar verde (~2min)
 
 # 4. Confirmar volta:
-curl -fsS https://cockpit-onix-production.up.railway.app/api/health | jq .
+curl -fsS https://cockpit-onix-app-production.up.railway.app/api/health | jq .
 #    → { "status": "ok", "db": "up", ... }
 
 # 5. Disparar smoke manualmente para fechar o ciclo
@@ -155,7 +155,7 @@ pg_restore --no-owner --no-acl --verbose --exit-on-error \
 #    Railway redeploya automaticamente.
 
 # 8. Validar com health + smoke:
-curl -fsS https://cockpit-onix-production.up.railway.app/api/health | jq .
+curl -fsS https://cockpit-onix-app-production.up.railway.app/api/health | jq .
 
 # 9. Re-habilitar webhooks (revertendo passo 1).
 

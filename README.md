@@ -1,6 +1,6 @@
 # Cockpit Onix
 
-Painel de comando do **Grupo Onix** — Next.js 16 + Postgres. Hospedado em [cockpit-onix-production.up.railway.app](https://cockpit-onix-production.up.railway.app).
+Painel de comando do **Grupo Onix** — Next.js 16 + Postgres. Hospedado em [cockpit-onix-app-production.up.railway.app](https://cockpit-onix-app-production.up.railway.app).
 
 ## O que é
 
@@ -15,7 +15,7 @@ O Cockpit reúne em um único sistema cinco frentes que antes viviam espalhadas:
 ## Autoexplicativo
 
 Cada tela operacional traz no topo um cartão **"Como funciona"** com três blocos:
-**Propósito · Como usar · Como te ajuda.** Em caso de dúvida sobre um termo, consulte o **[/glossario](https://cockpit-onix-production.up.railway.app/glossario)** dentro do app.
+**Propósito · Como usar · Como te ajuda.** Em caso de dúvida sobre um termo, consulte o **[/glossario](https://cockpit-onix-app-production.up.railway.app/glossario)** dentro do app.
 
 ## Stack
 

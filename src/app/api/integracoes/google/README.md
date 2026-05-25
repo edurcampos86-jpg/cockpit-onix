@@ -66,7 +66,7 @@ node -e 'console.log("GOOGLE_OAUTH_STATE_SECRET="+require("crypto").randomBytes(
    - **Gmail API**
 3. Em **Credentials → OAuth 2.0 Client ID** (tipo Web application), em *Authorized redirect URIs* adicione:
    - `http://localhost:3000/api/integracoes/google/connect-callback`
-   - `https://<seu-dominio>/api/integracoes/google/connect-callback` (ex.: `https://cockpit-onix-production.up.railway.app/...`)
+   - `https://<seu-dominio>/api/integracoes/google/connect-callback` (ex.: `https://cockpit-onix-app-production.up.railway.app/...`)
 4. Em **OAuth consent screen**:
    - User type: **External** (ou Internal se for Workspace).
    - Scopes: adicione `openid`, `email`, `profile`, `Calendar API .../auth/calendar.readonly`, `Gmail API .../auth/gmail.readonly`.

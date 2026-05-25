@@ -11,7 +11,7 @@ name: Cockpit Crons
 # Setup necessário (1 vez):
 # - Repo Settings → Secrets and variables → Actions:
 #   - Secret  CRON_SECRET   (mesmo valor que vai no Railway Variables)
-#   - Variable APP_BASE_URL (ex: https://cockpit-onix-production.up.railway.app)
+#   - Variable APP_BASE_URL (ex: https://cockpit-onix-app-production.up.railway.app)
 #
 # workflow_dispatch permite disparar manualmente da aba Actions.
 
