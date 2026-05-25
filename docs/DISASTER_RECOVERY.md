@@ -258,7 +258,7 @@ gh workflow run db-backup.yml
 | # | Quem | Quando | Canal |
 |---|------|--------|-------|
 | 1 | Eduardo Campos (owner) | Sempre — qualquer incidente | WhatsApp pessoal, e-mail |
-| 2 | Slack `#alertas-cockpit` | Falhas automáticas (workflows mandam) | Webhook |
+| 2 | Slack `#backup_ecossistema_onix` | Falhas automáticas (workflows mandam) | Webhook ativo desde 2026-05 |
 | 3 | GitHub Issues com label `incident` ou `backup-broken` | Criadas pelo `post-deploy-smoke.yml` e `restore-drill.yml` | (web) |
 | 4 | Suporte Railway | DB caiu, projeto suspenso, billing | help.railway.app / Discord |
 | 5 | Suporte Cloudflare | Bucket R2 inacessível | dash.cloudflare.com → Support |
