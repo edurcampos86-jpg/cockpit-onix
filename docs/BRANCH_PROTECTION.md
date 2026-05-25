@@ -110,4 +110,17 @@ gh api repos/edurcampos86-jpg/cockpit-onix/rulesets > ruleset.json
 
 | Data | Quem | O que mudou |
 |------|------|-------------|
-| _aguardando primeira configuração_ | — | — |
+| 2026-05-25 | claude code | Ativação inicial via `gh api PUT /branches/main/protection` — admin enforcement ON, PR + 1 approval, dismiss stale approvals, no force push, no deletion, linear history, conversation resolution. Status checks ainda não exigidos (sem CI de PR; smoke roda contra produção). Validado: push direto em `main` rejeitado com `GH006`. |
+
+## Conhecido — auto-aprovação em repo solo
+
+Com `required_approving_review_count = 1` e `enforce_admins = true`, o
+próprio owner **não consegue mergear suas próprias PRs**: o GitHub bloqueia
+self-approval e a regra vale também pra admin. Opções:
+
+1. Adicionar um colaborador (ou conta secundária) só pra aprovar
+2. Temporariamente desativar `enforce_admins` quando precisar mergear sem aprovação
+3. Baixar `required_approving_review_count` pra 0 (perde valor da proteção)
+
+A linha 90 deste documento (texto "você mesmo aprova") está incorreta —
+GitHub nunca permitiu self-approval. Manter ciente disso ao operar.
