@@ -103,13 +103,17 @@ A lista completa varia ao longo do tempo. Snapshot oficial: ver
 
 ## Slack Webhook — como obter
 
+> **Estado atual:** webhook ativo, postando em `#backup_ecossistema_onix`
+> (configurado em 2026-05). Os passos abaixo descrevem como rotacionar ou
+> recriar o webhook se o atual for revogado/perdido.
+
 1. Crie ou reuse um Slack App em <https://api.slack.com/apps>.
 2. **Incoming Webhooks → Activate** → **Add New Webhook to Workspace**.
-3. Escolha o canal (sugestão: `#alertas-cockpit`).
+3. Escolha o canal `#backup_ecossistema_onix` (canal padrão de alertas do Cockpit).
 4. Copie a URL que começa com `https://hooks.slack.com/services/...` → vira `SLACK_WEBHOOK_URL`.
 
-> **Opcional.** Se o secret não existir, os workflows apenas logam a falha
-> sem quebrar — útil para começar sem Slack e adicionar depois.
+> **Opcional para novos ambientes.** Se o secret não existir, os workflows apenas
+> logam a falha sem quebrar — útil para começar sem Slack e adicionar depois.
 
 ---
 
