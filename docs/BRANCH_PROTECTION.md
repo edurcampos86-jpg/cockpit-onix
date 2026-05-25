@@ -16,7 +16,7 @@ Em `Branch name pattern`: `main`
 ### Marque as seguintes opções
 
 - [x] **Require a pull request before merging**
-  - [x] Require approvals: **1**
+  - [x] Require approvals: **0** _(solo dev — PR continua obrigatório; valor está no diff review visual antes do merge, não em approval formal que ninguém pode dar)_
   - [x] Dismiss stale pull request approvals when new commits are pushed
   - [x] Require review from Code Owners _(usa o `.github/CODEOWNERS`)_
   - [ ] Restrict who can dismiss pull request reviews _(deixe desmarcado — solo dev)_
@@ -87,7 +87,9 @@ git checkout -b feature/algo
 # faça mudanças
 git commit -m "feat: ..."
 git push -u origin feature/algo
-# abre PR → pede approval (você mesmo aprova) → merge
+# abre PR → revisa o diff visualmente no GitHub UI → merge (squash)
+# Sem aprovação obrigatória: o ganho é o review visual do diff, não um
+# approval formal (que ninguém pode te dar em repo solo).
 ```
 
 ## Sobre rulesets (alternativa moderna)
@@ -111,16 +113,14 @@ gh api repos/edurcampos86-jpg/cockpit-onix/rulesets > ruleset.json
 | Data | Quem | O que mudou |
 |------|------|-------------|
 | 2026-05-25 | claude code | Ativação inicial via `gh api PUT /branches/main/protection` — admin enforcement ON, PR + 1 approval, dismiss stale approvals, no force push, no deletion, linear history, conversation resolution. Status checks ainda não exigidos (sem CI de PR; smoke roda contra produção). Validado: push direto em `main` rejeitado com `GH006`. |
+| 2026-05-25 | claude code | Reduzido `required_approving_review_count` para `0` (solo dev — owner não conseguia mergear próprias PRs com 1 approval + enforce_admins). Mantidos: `enforce_admins=true`, sem force push, sem deletion, linear history, conversation resolution. PR continua obrigatório; push direto em `main` continua rejeitado com `GH006`. |
 
-## Conhecido — auto-aprovação em repo solo
+## Conhecido — limitação em repo solo
 
 Com `required_approving_review_count = 1` e `enforce_admins = true`, o
 próprio owner **não consegue mergear suas próprias PRs**: o GitHub bloqueia
-self-approval e a regra vale também pra admin. Opções:
+self-approval e a regra vale também pra admin. Por isso a config atual
+roda com `0 approvals` — PR continua obrigatório (proteção contra push
+direto em `main`), mas o approval formal vira voluntário.
 
-1. Adicionar um colaborador (ou conta secundária) só pra aprovar
-2. Temporariamente desativar `enforce_admins` quando precisar mergear sem aprovação
-3. Baixar `required_approving_review_count` pra 0 (perde valor da proteção)
-
-A linha 90 deste documento (texto "você mesmo aprova") está incorreta —
-GitHub nunca permitiu self-approval. Manter ciente disso ao operar.
+Se algum dia entrar um colaborador, considerar voltar pra `1 approval`.
