@@ -22,6 +22,7 @@ on:
     - cron: '*/30 * * * *'  # outlook-poll + datacrazy-atividades-poll
     - cron: '30 10 * * 1-5' # boot-do-dia (seg-sex 07:30 Bahia / 10:30 UTC)
     - cron: '0 23 * * 0'    # retrospectiva-semanal (dom 20:00 Bahia / 23:00 UTC)
+    - cron: '0 4 * * 2'     # btg-movements-poll (ter 01:00 Bahia / 04:00 UTC — fora de pico)
     # Backup do Postgres e restore drill vivem em workflows próprios:
     # .github/workflows/db-backup.yml (06:00 UTC diário, faz pg_dump direto sem
     # depender da app) e .github/workflows/restore-drill.yml (segunda 07:00 UTC).
@@ -69,6 +70,9 @@ jobs:
               "0 23 * * 0")
                 PATHS="/api/cron/retrospectiva-semanal"
                 ;;
+              "0 4 * * 2")
+                PATHS="/api/cron/btg-movements-poll"
+                ;;
               *)
                 echo "Schedule '$SCHEDULE' não mapeado — nenhum endpoint executado."
                 PATHS=""
@@ -89,6 +93,9 @@ jobs:
             exit 1
           fi
           FAIL=0
+          # Salva a última resposta em /tmp/last_*.txt (persiste entre steps no
+          # mesmo job). Step "Notify Slack — BTG" consome esses arquivos quando
+          # o schedule do dia é o cron weekly BTG (1 path só, sem ambiguidade).
           for path in ${{ steps.resolve.outputs.paths }}; do
             URL="${BASE_URL}${path}"
             echo "[$(date '+%H:%M:%S')] GET $URL"
@@ -99,6 +106,8 @@ jobs:
             BODY=$(cat /tmp/resp.txt 2>/dev/null | head -c 2000)
             echo "  → HTTP $HTTP_CODE"
             echo "  → body: $BODY"
+            echo "$HTTP_CODE" > /tmp/last_code.txt
+            echo "$path"      > /tmp/last_path.txt
             if [ "$HTTP_CODE" != "200" ]; then
               echo "::warning::$path retornou HTTP $HTTP_CODE"
               FAIL=$((FAIL+1))
@@ -110,3 +119,57 @@ jobs:
           # Não usamos exit 1 mesmo com falhas — não queremos que GitHub
           # mande email a cada blip de rede. Acompanhar via logs do workflow
           # e /api/backoffice/sync-logs no Cockpit.
+
+      # ─────────────────────────────────────────────────────────────────
+      # Notify Slack — APENAS para o cron semanal BTG.
+      #
+      # Único cron deste workflow com notificação Slack. Justificativa:
+      # BTG é semanal (não roda a cada 5/15/30min), então o sinal não vira
+      # ruído. E é a única integração onde silêncio = perda de dado
+      # invisível — sem o ping, MovimentacaoBtg pode ficar vazia por
+      # semanas sem ninguém notar.
+      #
+      # Sucesso E falha são notificados (não só falha): Eduardo quer ver
+      # vida do cron pelo menos 1x/semana. Mensagens distintas pra não
+      # confundir com smoke alerts.
+      # ─────────────────────────────────────────────────────────────────
+
+      - name: Notify Slack — BTG sync semanal
+        if: always() && contains(steps.resolve.outputs.paths, '/api/cron/btg-movements-poll')
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "SLACK_WEBHOOK_URL não configurado — pulando."
+            exit 0
+          fi
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          CODE=$(cat /tmp/last_code.txt 2>/dev/null || echo "000")
+          BODY=$(cat /tmp/resp.txt 2>/dev/null || echo "")
+
+          # Tenta parsear o body como JSON (resposta do handler). Se falhar,
+          # cai pra erro de transporte (HTTP != 200).
+          OK=$(echo "$BODY" | jq -r '.ok // false' 2>/dev/null || echo "false")
+          CREATED=$(echo "$BODY" | jq -r '.recordsCreated // 0' 2>/dev/null || echo "0")
+          SKIPPED=$(echo "$BODY" | jq -r '.recordsSkipped // 0' 2>/dev/null || echo "0")
+          ORPHANED=$(echo "$BODY" | jq -r '.recordsOrphaned // 0' 2>/dev/null || echo "0")
+          DURATION=$(echo "$BODY" | jq -r '.durationMs // 0' 2>/dev/null || echo "0")
+          ERR_MSG=$(echo "$BODY" | jq -r '.errorMessage // (.errors[0].motivo // "")' 2>/dev/null || echo "")
+
+          if [ "$CODE" = "200" ] && [ "$OK" = "true" ]; then
+            MSG=":white_check_mark: BTG sync semanal — *${CREATED}* movimentações novas, ${SKIPPED} duplicadas, ${ORPHANED} órfãs · ${DURATION}ms · <${RUN_URL}|run>"
+          else
+            FIRST_ERR="${ERR_MSG:-HTTP $CODE}"
+            # Trunca pra evitar mensagem gigante no Slack
+            FIRST_ERR=$(echo "$FIRST_ERR" | head -c 300)
+            MSG=":rotating_light: *BTG SYNC FALHOU* — backup semanal de movimentações não rodou
+Erro: \`${FIRST_ERR}\`
+Run: <${RUN_URL}|ver detalhes>
+Próxima tentativa: terça que vem 04:00 UTC"
+          fi
+
+          PAYLOAD=$(jq -n --arg text "$MSG" '{text: $text}')
+          curl -fsS -X POST -H 'Content-Type: application/json' \
+            -d "$PAYLOAD" "$SLACK_WEBHOOK_URL" \
+            && echo "Slack notificado." \
+            || echo "::warning::Falha ao postar no Slack — verificar SLACK_WEBHOOK_URL"
