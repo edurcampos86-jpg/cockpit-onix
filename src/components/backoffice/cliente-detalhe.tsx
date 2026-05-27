@@ -57,6 +57,8 @@ interface Interacao {
 interface Cliente {
   id: string;
   nome: string;
+  nomeCompleto: string | null;
+  apelido: string | null;
   numeroConta: string;
   classificacao: string;
   saldo: number;
@@ -283,7 +285,12 @@ function CadastroTab({ cliente: c }: { cliente: Cliente }) {
 
       {(c.cpfCnpj || c.email || c.telefone || c.aniversario || c.profissao || c.estadoCivil || c.genero || c.nacionalidade || c.tipoConta || c.cpfConjuge) && (
         <CadastroSection title="Identificação">
-          <CadastroField label="Nome" value={c.nome} />
+          {/* Apelido (manual), nome (Base BTG), nomeCompleto (Informacoes) — as 3
+              fontes da identidade tripla. Exibidas separadamente pra o operador
+              ver origem; uso programático passa por getNomeRelacionamento(). */}
+          <CadastroField label="Apelido" value={c.apelido} />
+          <CadastroField label="Nome (curto / Base BTG)" value={c.nome} />
+          <CadastroField label="Nome completo (Informações)" value={c.nomeCompleto} />
           <CadastroField label="Conta" value={c.numeroConta} mono />
           <CadastroField label="Tipo de conta" value={c.tipoConta} />
           <CadastroField label="CPF / CNPJ" value={c.cpfCnpj ? formatarCpfCnpj(c.cpfCnpj) : null} mono />
