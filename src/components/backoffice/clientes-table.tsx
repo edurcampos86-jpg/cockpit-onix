@@ -26,6 +26,8 @@ import {
   MessageCircle,
   CalendarPlus,
 } from "lucide-react";
+import { getNomeRelacionamento } from "@/lib/backoffice/display-name";
+import { ApelidoEditButton } from "@/components/backoffice/apelido-edit-button";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 declare global {
@@ -216,6 +218,8 @@ function mapRowToCliente(row: Record<string, unknown>): Record<string, unknown> 
 interface Cliente {
   id: string;
   nome: string;
+  nomeCompleto: string | null;
+  apelido: string | null;
   numeroConta: string;
   saldo: number;
   saldoConta: number;
@@ -1160,23 +1164,39 @@ export function ClientesTable({
                       </div>
                     </td>
 
-                    <td className="px-3 py-3 font-medium">
-                      <Link
-                        href={`/backoffice/clientes/${c.id}`}
-                        className="hover:underline hover:text-primary"
-                        title={[
-                          c.nome,
-                          c.email ? `E-mail: ${c.email}` : null,
-                          c.telefone ? `Tel: ${c.telefone}` : null,
-                          c.profissao ? `Profissão: ${c.profissao}` : null,
-                          c.nicho ? `Nicho: ${c.nicho}` : null,
-                          c.assessorNome ? `Assessor: ${c.assessorNome}` : null,
-                        ]
-                          .filter(Boolean)
-                          .join("\n")}
-                      >
-                        {c.nome}
-                      </Link>
+                    <td className="px-3 py-3 font-medium group">
+                      {/* Linha principal: apelido > nome > nomeCompleto.
+                          Hover na célula revela o lápis de edição. */}
+                      <div className="flex items-center gap-1.5">
+                        <Link
+                          href={`/backoffice/clientes/${c.id}`}
+                          className="hover:underline hover:text-primary"
+                          title={[
+                            getNomeRelacionamento(c),
+                            c.apelido && c.nome && c.apelido !== c.nome ? `Nome: ${c.nome}` : null,
+                            c.nomeCompleto && c.nomeCompleto !== getNomeRelacionamento(c) ? `Completo: ${c.nomeCompleto}` : null,
+                            c.email ? `E-mail: ${c.email}` : null,
+                            c.telefone ? `Tel: ${c.telefone}` : null,
+                            c.profissao ? `Profissão: ${c.profissao}` : null,
+                            c.nicho ? `Nicho: ${c.nicho}` : null,
+                            c.assessorNome ? `Assessor: ${c.assessorNome}` : null,
+                          ]
+                            .filter(Boolean)
+                            .join("\n")}
+                        >
+                          {getNomeRelacionamento(c)}
+                        </Link>
+                        <ApelidoEditButton
+                          cliente={c}
+                          onSave={(novoApelido) =>
+                            setClientes((prev) => prev.map((x) => (x.id === c.id ? { ...x, apelido: novoApelido } : x)))
+                          }
+                        />
+                      </div>
+                      {/* Subtítulo: nome formal quando o apelido difere */}
+                      {c.apelido && c.nomeCompleto && c.apelido !== c.nomeCompleto && (
+                        <div className="text-xs text-muted-foreground">{c.nomeCompleto}</div>
+                      )}
                     </td>
 
                     <td className="px-3 py-3 text-muted-foreground font-mono text-xs">{c.numeroConta}</td>
