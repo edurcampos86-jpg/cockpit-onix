@@ -2,6 +2,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
 import { claudeChat } from "./claude-helpers";
+import { getNomeRelacionamento } from "@/lib/backoffice/display-name";
 
 /**
  * Sug 5 — Retrospectiva semanal.
@@ -68,13 +69,15 @@ export async function coletarMetricas(userId: string): Promise<{
           concluida: true,
           concluidaEm: { gte: inicio, lte: fim },
         },
-        include: { clienteVinculado: { select: { id: true, nome: true } } },
+        include: { clienteVinculado: { select: { id: true, nome: true, nomeCompleto: true, apelido: true } } },
       }),
       prisma.clienteBackoffice.findMany({
         where: { OR: [{ classificacao: "A" }, { classificacao: "B" }] },
         select: {
           id: true,
           nome: true,
+          nomeCompleto: true,
+          apelido: true,
           classificacao: true,
           ultimoContatoAt: true,
         },
@@ -127,7 +130,9 @@ export async function coletarMetricas(userId: string): Promise<{
     }
     if (a.clienteVinculadoId && a.clienteVinculado) {
       const prev = tempoPorCliente.get(a.clienteVinculadoId) ?? {
-        nome: a.clienteVinculado.nome,
+        // Nome usado nas mensagens da retrospectiva → relacionamento
+        // (apelido > nome > nomeCompleto). getNomeRelacionamento abstrai.
+        nome: getNomeRelacionamento(a.clienteVinculado),
         tempoMin: 0,
       };
       prev.tempoMin += t;
@@ -145,19 +150,20 @@ export async function coletarMetricas(userId: string): Promise<{
   const aFora: RetrospectivaMetricas["saudeSupernova"]["aFora"] = [];
   const bFora: RetrospectivaMetricas["saudeSupernova"]["bFora"] = [];
   for (const c of clientes) {
+    const nomeRel = getNomeRelacionamento(c);
     if (!c.ultimoContatoAt) {
       (c.classificacao === "A" ? aFora : bFora).push({
         id: c.id,
-        nome: c.nome,
+        nome: nomeRel,
         diasSemContato: 999,
       });
       continue;
     }
     const dias = Math.floor((agora - c.ultimoContatoAt.getTime()) / DIA);
     if (c.classificacao === "A" && dias > 30) {
-      aFora.push({ id: c.id, nome: c.nome, diasSemContato: dias });
+      aFora.push({ id: c.id, nome: nomeRel, diasSemContato: dias });
     } else if (c.classificacao === "B" && dias > 60) {
-      bFora.push({ id: c.id, nome: c.nome, diasSemContato: dias });
+      bFora.push({ id: c.id, nome: nomeRel, diasSemContato: dias });
     }
   }
 
