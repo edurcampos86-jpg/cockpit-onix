@@ -577,6 +577,65 @@ model ClienteBackoffice {
   usuariosBtg                 Json? // Lista de usuários da conta no BTG (nome, email, telefone, isOwner)
   ultimaSyncBtg               DateTime? // Quando foi a última sincronização BTG (qualquer endpoint)
 
+  // === Identidade tripla ===
+  // nome (curto, Base_BTG), nomeCompleto (formal, Informacoes), apelido (manual).
+  // Use getNomeRelacionamento() em src/lib/backoffice/display-name.ts.
+  nomeCompleto      String?
+  apelido           String?
+  apelidoEditadoEm  DateTime?
+  apelidoEditadoPor String? // userId de quem editou (sessao atual)
+
+  // === Multi-fonte BTG (auditoria de fonte por campo) ===
+  // fonteUltimoUpdate registra qual fonte (base_btg/informacoes/saldo_em_cc/manual)
+  // escreveu por ultimo cada campo. Ver lib/backoffice/field-source-policy.
+  fonteUltimoUpdate Json?
+  // contaCorrenteBase = saldo CC vindo do Base_BTG. Saldo_em_CC tem prioridade
+  // e escreve em saldoConta.
+  contaCorrenteBase Float?
+
+  // === Breakdown financeiro por classe (de Base_BTG) ===
+  // Antes ficavam só em breakdownProdutos Json — viraram colunas pra permitir
+  // queries/sums no SQL e KPIs por classe de ativo.
+  fundos          Float?
+  rendaFixa       Float?
+  rendaVariavel   Float?
+  previdencia     Float?
+  derivativos     Float?
+  valorEmTransito Float?
+  criptoativos    Float?
+  plDeclarado     Float?
+
+  // === Aportes e retiradas ===
+  aportes        Float?
+  retiradas      Float?
+  primeiroAporte DateTime?
+  ultimoAporte   DateTime?
+  qtdAportes     Int?
+
+  // === Quantidades por classe ===
+  qtdAtivos          Int?
+  qtdFundos          Int?
+  qtdRendaFixa       Int?
+  qtdRendaVariavel   Int?
+  qtdPrevidencia     Int?
+  qtdDerivativos     Int?
+  qtdValorEmTransito Int?
+  qtdCriptoativos    Int?
+
+  // === Carteira e marcacao ===
+  carteiraAdministrada String?
+  termoMarcacaoCurva   String?
+
+  // === Cadastrais adicionais (de Informacoes) ===
+  documento             String? // RG / CNH / Passaporte / etc
+  numeroDocumento       String?
+  dataEmissaoDocumento  DateTime?
+  dataVinculoAssessor   DateTime?
+  dataVinculoEscritorio DateTime?
+  idade                 Int?
+  perfilAcesso          String?
+  statusToken           String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
