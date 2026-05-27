@@ -26,6 +26,8 @@ export default async function ClientesPage() {
   let clientes: Array<{
     id: string;
     nome: string;
+    nomeCompleto: string | null;
+    apelido: string | null;
     numeroConta: string;
     saldo: number;
     saldoConta: number;
@@ -54,6 +56,8 @@ export default async function ClientesPage() {
     clientes = raw.map((c) => ({
       id: c.id,
       nome: c.nome,
+      nomeCompleto: c.nomeCompleto,
+      apelido: c.apelido,
       numeroConta: c.numeroConta,
       saldo: c.saldo,
       saldoConta: c.saldoConta,

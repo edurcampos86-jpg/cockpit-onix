@@ -1,6 +1,7 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { hojeBahia } from "./agregador";
+import { getNomeRelacionamento } from "@/lib/backoffice/display-name";
 
 /**
  * Boot do Dia — heurística noturna que sugere as 3 Prioridades do Dia.
@@ -34,6 +35,8 @@ export async function gerarCandidatos(userId: string): Promise<BootCandidato[]> 
       select: {
         id: true,
         nome: true,
+        nomeCompleto: true,
+        apelido: true,
         classificacao: true,
         ultimoContatoAt: true,
       },
@@ -83,15 +86,16 @@ export async function gerarCandidatos(userId: string): Promise<BootCandidato[]> 
   for (const c of clientes) {
     if (!c.ultimoContatoAt) continue;
     const diasSemContato = (agora - c.ultimoContatoAt.getTime()) / DIA;
+    const nomeRel = getNomeRelacionamento(c);
     if (c.classificacao === "A" && diasSemContato >= 25) {
       candidatos.push({
-        texto: `Contatar ${c.nome} (cliente A)`,
+        texto: `Contatar ${nomeRel} (cliente A)`,
         motivo: `${Math.floor(diasSemContato)} dias sem contato — cadência A = 30d`,
         peso: 70,
       });
     } else if (c.classificacao === "B" && diasSemContato >= 55) {
       candidatos.push({
-        texto: `Contatar ${c.nome} (cliente B)`,
+        texto: `Contatar ${nomeRel} (cliente B)`,
         motivo: `${Math.floor(diasSemContato)} dias sem contato — cadência B = 60d`,
         peso: 50,
       });
