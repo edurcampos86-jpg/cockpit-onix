@@ -12,6 +12,7 @@ import {
   DollarSign,
 } from "lucide-react";
 import Link from "next/link";
+import { getNomeRelacionamento } from "@/lib/backoffice/display-name";
 
 interface Props {
   data: {
@@ -36,6 +37,8 @@ interface Props {
     topClientes: Array<{
       id: string;
       nome: string;
+      nomeCompleto?: string | null;
+      apelido?: string | null;
       classificacao: string;
       saldo: number;
       receitaAnual: number;
@@ -221,7 +224,7 @@ export function PerformanceDashboard({ data }: Props) {
                       href={`/backoffice/clientes/${c.id}`}
                       className="hover:underline hover:text-primary"
                     >
-                      {c.nome}
+                      {getNomeRelacionamento(c)}
                     </Link>
                   </td>
                   <td className="px-4 py-2 text-right font-mono">{moeda(c.saldo)}</td>

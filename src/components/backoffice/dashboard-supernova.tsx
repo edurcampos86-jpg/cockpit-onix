@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Users, TrendingUp, AlertTriangle, Target, Phone } from "lucide-react";
 import Link from "next/link";
+import { getNomeRelacionamento } from "@/lib/backoffice/display-name";
 
 interface DashboardData {
   resumo: {
@@ -16,6 +17,8 @@ interface DashboardData {
   orfaos: Array<{
     id: string;
     nome: string;
+    nomeCompleto?: string | null;
+    apelido?: string | null;
     classificacao: string;
     saldo: number;
     ultimoContatoAt: string | null;
@@ -23,6 +26,8 @@ interface DashboardData {
   aVencer: Array<{
     id: string;
     nome: string;
+    nomeCompleto?: string | null;
+    apelido?: string | null;
     classificacao: string;
     proximoContatoAt: string | null;
   }>;
@@ -210,7 +215,7 @@ export function DashboardSupernova() {
                         {c.classificacao}
                       </span>
                     </td>
-                    <td className="px-4 py-2 font-medium">{c.nome}</td>
+                    <td className="px-4 py-2 font-medium">{getNomeRelacionamento(c)}</td>
                     <td className="px-4 py-2 text-right font-mono text-xs text-muted-foreground">
                       {moeda(c.saldo)}
                     </td>
@@ -252,7 +257,7 @@ export function DashboardSupernova() {
                         {c.classificacao}
                       </span>
                     </td>
-                    <td className="px-4 py-2 font-medium">{c.nome}</td>
+                    <td className="px-4 py-2 font-medium">{getNomeRelacionamento(c)}</td>
                     <td className="px-4 py-2 text-xs text-muted-foreground text-right">
                       {c.proximoContatoAt
                         ? new Date(c.proximoContatoAt).toLocaleDateString("pt-BR")

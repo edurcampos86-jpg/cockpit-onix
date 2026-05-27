@@ -2,10 +2,13 @@
 
 import { useState } from "react";
 import { Phone, Calendar, AlertTriangle, Clock, CheckCircle2, X } from "lucide-react";
+import { getNomeRelacionamento } from "@/lib/backoffice/display-name";
 
 interface Cliente {
   id: string;
   nome: string;
+  nomeCompleto?: string | null;
+  apelido?: string | null;
   classificacao: string;
   saldo: number;
   email: string | null;
@@ -86,7 +89,7 @@ export function CadenciaBoard({ clientes }: { clientes: Cliente[] }) {
                     className="rounded-lg bg-white dark:bg-zinc-900 border border-border p-3 text-xs"
                   >
                     <div className="flex items-start justify-between gap-2 mb-1">
-                      <p className="font-semibold text-sm leading-tight flex-1">{c.nome}</p>
+                      <p className="font-semibold text-sm leading-tight flex-1">{getNomeRelacionamento(c)}</p>
                       <span
                         className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold ${
                           classCores[c.classificacao]
