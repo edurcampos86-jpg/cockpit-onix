@@ -1,6 +1,10 @@
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
+import { type FonteImport } from "@/lib/backoffice/field-source-policy";
+import { upsertPorPolitica } from "@/lib/backoffice/upsert-cliente";
 import { NextRequest, NextResponse } from "next/server";
+
+const FONTES_VALIDAS: ReadonlySet<FonteImport> = new Set(["base_btg", "informacoes", "saldo_em_cc", "manual"]);
 
 function calcularCortesABC(saldos: number[]): { corteA: number; corteB: number } {
   if (saldos.length === 0) return { corteA: Infinity, corteB: Infinity };
@@ -597,6 +601,186 @@ export async function POST(request: NextRequest) {
     console.error("Erro ao importar clientes:", error);
     return NextResponse.json({ error: "Erro ao processar dados" }, { status: 500 });
   }
+}
+
+/**
+ * Caminho novo: import respeitando FIELD_SOURCE_POLICY. Cada linha vai pelo
+ * upsertPorPolitica, que (a) bloqueia campos que a fonte nao pode escrever,
+ * (b) preserva valores existentes quando o campo vem vazio, e (c) registra
+ * `fonteUltimoUpdate` por campo pra auditoria. Devolve breakdown completo:
+ * quantas linhas criadas, atualizadas, no-op, e quais campos foram bloqueados
+ * (util pra detectar XLSX classificado como fonte errada).
+ *
+ * TODO: Integrar este handler ao POST de /api/backoffice/clientes.
+ * Decisao pendente: coexistencia com auto-deteccao de tipo (PR #18) vs
+ * fonte explicita no body. Ver opcoes 2a/2b/2c em discussao.
+ */
+async function handleImportPorPolitica(fonte: FonteImport, recebidos: IncomingCliente[]) {
+  // Parse + normalizacao — reaproveita parseNumber/parseDate/clean ja
+  // existentes no escopo do modulo, mas filtra so os campos que a policy
+  // pode escrever (passa o resto adiante; o upsertPorPolitica vai bloquear).
+  const linhas = recebidos.map((c) => normalizeIncoming(c));
+  const descartes: Array<{ idxBatch: number; motivo: string; amostra: string }> = [];
+  const bloqueadosAgg: Record<string, number> = {};
+  let criados = 0;
+  let atualizados = 0;
+  let noop = 0;
+
+  for (let idx = 0; idx < linhas.length; idx++) {
+    const linha = linhas[idx];
+    if (!linha.numeroConta) {
+      // Sem conta nao da pra upsert. Se tiver so nome, vira descarte —
+      // diferente do fluxo legacy onde "Conta XXX" era criado.
+      descartes.push({
+        idxBatch: idx,
+        motivo: "sem numeroConta (chave de identidade)",
+        amostra: JSON.stringify({ nome: linha.nome }).slice(0, 200),
+      });
+      continue;
+    }
+    try {
+      const res = await upsertPorPolitica({
+        numeroConta: linha.numeroConta,
+        dadosImportados: linha.payload,
+        fonte,
+      });
+      if (res.acao === "create") criados++;
+      else if (res.acao === "update") atualizados++;
+      else noop++;
+      for (const b of res.camposBloqueados) {
+        bloqueadosAgg[b.campo] = (bloqueadosAgg[b.campo] ?? 0) + 1;
+      }
+    } catch (e) {
+      descartes.push({
+        idxBatch: idx,
+        motivo: `prisma upsert falhou: ${e instanceof Error ? e.message : "erro"}`,
+        amostra: JSON.stringify({ numeroConta: linha.numeroConta, nome: linha.nome }).slice(0, 200),
+      });
+    }
+  }
+
+  console.log("[POST /clientes fonte=" + fonte + "] batch", {
+    fonte,
+    recebidas: recebidos.length,
+    processadas: linhas.length,
+    criados,
+    atualizados,
+    noop,
+    descartesTotal: descartes.length,
+    camposBloqueados: bloqueadosAgg,
+  });
+  if (descartes.length > 0) {
+    console.warn("[POST /clientes fonte=" + fonte + "] descartes", descartes);
+  }
+
+  const partes = [`${criados} novos`, `${atualizados} atualizados`];
+  if (noop > 0) partes.push(`${noop} sem mudanca`);
+  if (Object.keys(bloqueadosAgg).length > 0) {
+    partes.push(`${Object.keys(bloqueadosAgg).length} campo(s) bloqueado(s) pela politica`);
+  }
+  if (descartes.length > 0) partes.push(`${descartes.length} descartada(s)`);
+
+  return NextResponse.json({
+    message: partes.join(" · "),
+    fonte,
+    recebidas: recebidos.length,
+    criados,
+    atualizados,
+    noop,
+    descartes: descartes.slice(0, 50),
+    descartesTotal: descartes.length,
+    camposBloqueados: bloqueadosAgg,
+  });
+}
+
+/**
+ * Converte uma linha bruta (IncomingCliente) num payload chave-valor
+ * pronto pra upsertPorPolitica. Aplica parseNumber/parseDate/clean nos
+ * tipos esperados. Mantem EXATAMENTE os mesmos campos que o fluxo legacy
+ * preenchia — quem decide se escreve eh a policy.
+ */
+function normalizeIncoming(c: IncomingCliente): { numeroConta: string; nome: string | undefined; payload: Record<string, unknown> } {
+  const numeroConta = clean(c.numeroConta) ?? "";
+  const nome = clean(c.nome);
+  const payload: Record<string, unknown> = {
+    nome,
+    nomeCompleto: clean(c.nomeCompleto),
+    cpfCnpj: cleanCpfCnpj(c.cpfCnpj),
+    saldo: parseNumber(c.saldo),
+    saldoConta: parseNumber(c.saldoConta),
+    email: clean(c.email),
+    telefone: clean(c.telefone),
+    profissao: clean(c.profissao),
+    nicho: clean(c.nicho),
+    receitaAnual: parseNumber(c.receitaAnual),
+    aniversario: parseDate(c.aniversario),
+    perfilInvestidor: clean(c.perfilInvestidor)?.toLowerCase(),
+    suitabilityValidoAte: parseDate(c.suitabilityValidoAte),
+    tipoInvestidor: clean(c.tipoInvestidor),
+    faixaCliente: clean(c.faixaCliente),
+    ativacaoConta: clean(c.ativacaoConta),
+    pendenciaCadastral: clean(c.pendenciaCadastral),
+    dataAberturaConta: parseDate(c.dataAberturaConta),
+    dataUltimaRevisaoCadastral: parseDate(c.dataUltimaRevisaoCadastral),
+    dataProximaRevisaoCadastral: parseDate(c.dataProximaRevisaoCadastral),
+    idClienteBtg: clean(c.idClienteBtg),
+    tipoConta: clean(c.tipoConta)?.toUpperCase(),
+    estadoCivil: clean(c.estadoCivil),
+    genero: clean(c.genero),
+    nacionalidade: clean(c.nacionalidade),
+    cpfConjuge: clean(c.cpfConjuge)?.replace(/\D/g, "") || undefined,
+    endereco: clean(c.endereco),
+    complemento: clean(c.complemento),
+    cidade: clean(c.cidade),
+    estado: clean(c.estado),
+    cep: clean(c.cep)?.replace(/\D/g, "") || undefined,
+    assessorNome: clean(c.assessorNome),
+    assessorCge: clean(c.assessorCge),
+    assessorEmail: clean(c.assessorEmail),
+    tipoParceiro: clean(c.tipoParceiro),
+    escritorio: clean(c.escritorio),
+    codigoEscritorio: clean(c.codigoEscritorio),
+    // Breakdown financeiro (agora colunas)
+    fundos: parseNumber(c.fundos),
+    rendaFixa: parseNumber(c.rendaFixa),
+    rendaVariavel: parseNumber(c.rendaVariavel),
+    previdencia: parseNumber(c.previdencia),
+    derivativos: parseNumber(c.derivativos),
+    valorEmTransito: parseNumber(c.valorEmTransito),
+    criptoativos: parseNumber(c.criptoativos),
+    plDeclarado: parseNumber(c.plDeclarado),
+    aportes: parseNumber(c.aportes),
+    retiradas: parseNumber(c.retiradas),
+    primeiroAporte: parseDate(c.primeiroAporte),
+    ultimoAporte: parseDate(c.ultimoAporte),
+    qtdAportes: parseIntSafe(c.qtdAportes),
+    qtdAtivos: parseIntSafe(c.qtdAtivos),
+    qtdFundos: parseIntSafe(c.qtdFundos),
+    qtdRendaFixa: parseIntSafe(c.qtdRendaFixa),
+    qtdRendaVariavel: parseIntSafe(c.qtdRendaVariavel),
+    qtdPrevidencia: parseIntSafe(c.qtdPrevidencia),
+    qtdDerivativos: parseIntSafe(c.qtdDerivativos),
+    qtdValorEmTransito: parseIntSafe(c.qtdValorEmTransito),
+    qtdCriptoativos: parseIntSafe(c.qtdCriptoativos),
+    carteiraAdministrada: clean(c.carteiraAdministrada),
+    termoMarcacaoCurva: clean(c.termoMarcacaoCurva),
+    contaCorrenteBase: parseNumber(c.contaCorrenteBase),
+    dataVinculoAssessor: parseDate(c.dataVinculoAssessor),
+    dataVinculoEscritorio: parseDate(c.dataVinculoEscritorio),
+    documento: clean(c.documento),
+    numeroDocumento: clean(c.numeroDocumento),
+    dataEmissaoDocumento: parseDate(c.dataEmissaoDocumento),
+    perfilAcesso: clean(c.perfilAcesso),
+    statusToken: clean(c.statusToken),
+    idade: parseIntSafe(c.idade),
+  };
+  return { numeroConta, nome, payload };
+}
+
+function parseIntSafe(v: unknown): number | undefined {
+  const n = parseNumber(v);
+  if (n === undefined) return undefined;
+  return Math.round(n);
 }
 
 export async function DELETE() {

@@ -12,6 +12,7 @@ import {
   Heart,
   Mail,
 } from "lucide-react";
+import { getNomeRelacionamento } from "@/lib/backoffice/display-name";
 
 interface Indicacao {
   id: string;
@@ -29,6 +30,8 @@ interface Indicacao {
 interface Cliente {
   id: string;
   nome: string;
+  nomeCompleto?: string | null;
+  apelido?: string | null;
   classificacao: string;
 }
 
@@ -173,7 +176,7 @@ export function IndicacoesBoard({
               <option value="">Quem indicou (opcional)...</option>
               {clientes.map((c) => (
                 <option key={c.id} value={c.id}>
-                  [{c.classificacao}] {c.nome}
+                  [{c.classificacao}] {getNomeRelacionamento(c)}
                 </option>
               ))}
             </select>

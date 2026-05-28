@@ -22,10 +22,13 @@ import type {
   AcaoUnificada,
   EncerrarAcaoInput,
 } from "@/lib/painel-do-dia/types";
+import { getNomeRelacionamento } from "@/lib/backoffice/display-name";
 
 type ClienteMini = {
   id: string;
   nome: string;
+  nomeCompleto?: string | null;
+  apelido?: string | null;
   classificacao?: string | null;
 };
 
@@ -90,8 +93,13 @@ export function FecharAtividadeModal({
   const sugestoesClientes = useMemo(() => {
     const q = clienteQuery.trim().toLowerCase();
     if (!q || clienteSelecionado) return [];
+    // Busca contra apelido + nome + nomeCompleto pra que o operador
+    // ache "Pimenta" (apelido) e "Souza" (sobrenome formal) do mesmo cliente.
     return clientes
-      .filter((c) => c.nome.toLowerCase().includes(q))
+      .filter((c) => {
+        const alvos = [c.apelido, c.nome, c.nomeCompleto].filter(Boolean) as string[];
+        return alvos.some((s) => s.toLowerCase().includes(q));
+      })
       .slice(0, 6);
   }, [clienteQuery, clientes, clienteSelecionado]);
 
@@ -221,7 +229,7 @@ export function FecharAtividadeModal({
                       setClienteQuery("");
                     }}
                   >
-                    <span className="truncate">{c.nome}</span>
+                    <span className="truncate">{getNomeRelacionamento(c)}</span>
                     {c.classificacao && (
                       <Badge
                         variant="outline"

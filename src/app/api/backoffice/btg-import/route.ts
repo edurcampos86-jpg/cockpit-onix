@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import * as btg from "@/lib/integrations/btg";
+import { parseValorFinanceiro } from "@/lib/backoffice/parse-financeiro";
+import { reconciliarTotaisBtg } from "@/lib/backoffice/reconciliacao-btg";
 
 /**
  * POST /api/backoffice/btg-import
@@ -110,13 +112,20 @@ export async function POST() {
   const erros: Array<{ conta: string; etapa: string; motivo: string }> = [];
   let criados = 0;
   let atualizados = 0;
+  let semSaldoBtg = 0; // contas no listAllAccounts sem entrada em listAllBalances
 
   for (const conta of contas) {
     const numeroConta = normalizeAccount(conta.numeroConta);
     try {
-      const saldos = saldosMap.get(numeroConta) || { saldo: 0, saldoConta: 0 };
+      const saldos = saldosMap.get(numeroConta);
       const posicao = posicoesMap.get(numeroConta);
-      const aum = posicao?.aum ?? saldos.saldo;
+      if (!saldos) semSaldoBtg++;
+      // Se o BTG não retornou saldo pra essa conta nesta janela, NÃO
+      // sobrescrever o saldo persistido com 0 — preservar o último valor
+      // bom. Essa era a 2ª causa de divergência (contas BTG sem entrada em
+      // listAllBalances zeravam o registro local).
+      const aum: number | undefined = posicao?.aum ?? saldos?.saldo;
+      const saldoConta: number | undefined = saldos?.saldoConta;
 
       const existente = await prisma.clienteBackoffice.findFirst({
         where: { numeroConta },
@@ -124,15 +133,16 @@ export async function POST() {
       });
 
       if (existente) {
+        const updateData: Record<string, unknown> = {
+          breakdownProdutos: (posicao?.breakdown as never) ?? undefined,
+          positionDate: posicao?.positionDate ?? undefined,
+          ultimaSyncBtg: new Date(),
+        };
+        if (aum !== undefined) updateData.saldo = aum;
+        if (saldoConta !== undefined) updateData.saldoConta = saldoConta;
         await prisma.clienteBackoffice.update({
           where: { id: existente.id },
-          data: {
-            saldo: aum,
-            saldoConta: saldos.saldoConta,
-            breakdownProdutos: (posicao?.breakdown as never) ?? undefined,
-            positionDate: posicao?.positionDate ?? undefined,
-            ultimaSyncBtg: new Date(),
-          },
+          data: updateData,
         });
         atualizados++;
       } else {
@@ -140,8 +150,8 @@ export async function POST() {
           data: {
             numeroConta,
             nome: `Cliente ${numeroConta}`,
-            saldo: aum,
-            saldoConta: saldos.saldoConta,
+            saldo: aum ?? 0,
+            saldoConta: saldoConta ?? 0,
             breakdownProdutos: (posicao?.breakdown as never) ?? undefined,
             positionDate: posicao?.positionDate ?? undefined,
             ultimaSyncBtg: new Date(),
@@ -156,31 +166,41 @@ export async function POST() {
 
   const totalAum = Array.from(posicoesMap.values()).reduce((s, p) => s + p.aum, 0);
 
+  // 5. Reconciliação: somar totais do BTG e do DB e bloquear se divergência > 0.01%
+  const recon = await reconciliarTotaisBtg({ contasBtg: contas.length, saldosMap, posicoesMap });
+
+  const reconResumo = recon.divergeAcima
+    ? ` ⚠️ DIVERG[${(recon.divergPctAum * 100).toFixed(3)}% AUM, ${(recon.divergPctSaldoConta * 100).toFixed(3)}% saldo conta]`
+    : "";
+
   await prisma.btgSyncLog.update({
     where: { id: log.id },
     data: {
       finalizado: new Date(),
-      sucesso: erros.length === 0,
+      sucesso: erros.length === 0 && !recon.divergeAcima,
       contasProcessadas: criados + atualizados,
       contasComErro: erros.length,
-      resumo: `${criados} criado(s), ${atualizados} atualizado(s), ${erros.length} erro(s). Saldos parseados: ${saldosMap.size}/${contas.length} (shape: ${balancesShape}). AUM total: R$ ${totalAum.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`,
+      resumo: `${criados} criado(s), ${atualizados} atualizado(s), ${erros.length} erro(s). Saldos parseados: ${saldosMap.size}/${contas.length} (shape: ${balancesShape}). AUM total: R$ ${totalAum.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}.${reconResumo}`,
       erros: erros.length > 0 ? erros : undefined,
     },
   });
 
   return NextResponse.json({
-    success: true,
-    message: `${criados} cliente(s) criado(s), ${atualizados} atualizado(s), ${erros.length} erro(s). Saldos parseados: ${saldosMap.size}/${contas.length}. AUM total: R$ ${totalAum.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`,
+    success: !recon.divergeAcima,
+    message: `${criados} cliente(s) criado(s), ${atualizados} atualizado(s), ${erros.length} erro(s). Saldos parseados: ${saldosMap.size}/${contas.length}. AUM total: R$ ${totalAum.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}.${reconResumo}`,
     criados,
     atualizados,
     totalContas: contas.length,
     totalAum,
     saldosParseados: saldosMap.size,
+    semSaldoBtg,
+    reconciliacao: recon,
     balancesShape,
     balancesSample: saldosMap.size === 0 ? balancesSample : undefined,
     erros: erros.slice(0, 50),
   });
 }
+
 
 // ===== PARSERS DEFENSIVOS =====
 
@@ -297,11 +317,11 @@ function pickString(obj: Record<string, unknown>, keys: string[]): string | null
 function pickNumber(obj: Record<string, unknown>, keys: string[]): number | null {
   for (const k of keys) {
     const v = obj[k];
-    if (typeof v === "number" && !isNaN(v)) return v;
-    if (typeof v === "string") {
-      const n = parseFloat(v);
-      if (!isNaN(n)) return n;
-    }
+    if (v === undefined || v === null) continue;
+    // parseValorFinanceiro lida com number, string pt-BR/en-US, contábil,
+    // R$ -X / -R$ X / (X,XX) — sem virar 0 silencioso em parse fail.
+    const n = parseValorFinanceiro(v);
+    if (n !== undefined) return n;
   }
   return null;
 }

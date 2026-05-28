@@ -2,6 +2,8 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { Upload, FileSpreadsheet, Trash2, AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
+import { parseValorFinanceiro } from "@/lib/backoffice/parse-financeiro";
+import { mapRowToCliente as mapRowShared } from "@/lib/backoffice/xlsx-mapping";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 declare global {
@@ -22,21 +24,18 @@ interface DadosUploadProps {
   initialTotal: number;
 }
 
-function mapRowToCliente(row: Record<string, unknown>) {
-  const nome = String(
-    row["nome"] ?? row["Nome"] ?? row["NOME"] ?? row["name"] ?? row["Name"] ?? ""
-  ).trim();
-
-  const numeroConta = String(
-    row["numero_conta"] ?? row["numeroConta"] ?? row["Numero da Conta"] ??
-    row["conta"] ?? row["Conta"] ?? row["CONTA"] ?? row["account"] ??
-    row["numero conta"] ?? row["Número da Conta"] ?? row["N Conta"] ?? ""
-  ).trim();
-
-  const saldoRaw =
-    row["saldo"] ?? row["Saldo"] ?? row["SALDO"] ?? row["balance"] ?? row["Balance"] ?? 0;
-  const saldo = typeof saldoRaw === "number" ? saldoRaw : parseFloat(String(saldoRaw).replace(/[^\d.,-]/g, "").replace(",", ".")) || 0;
-
+// Antes este componente usava um parser primitivo que só conhecia 5
+// variantes do header "nome" — qualquer XLSX com "Cliente" / "Titular" /
+// "Razão Social" perdia o nome e a linha era descartada (filter
+// `c.nome.length > 0` mais abaixo). Agora delega pro mapping compartilhado
+// que conhece dezenas de variantes BTG.
+function mapRowToClienteLocal(row: Record<string, unknown>) {
+  const { data } = mapRowShared(row);
+  const nome = String(data.nome ?? "").trim();
+  const numeroConta = String(data.numeroConta ?? "").trim();
+  // parseValorFinanceiro preserva negativos (contábil "(X,XX)", "-R$ X,XX",
+  // "R$ -X,XX") e devolve undefined em parse-fail — não vira 0 silencioso.
+  const saldo = parseValorFinanceiro(data.saldo ?? data.saldoConta) ?? 0;
   return { nome, numeroConta, saldo };
 }
 
@@ -109,7 +108,18 @@ export function DadosUpload({ initialClientes, initialTotal }: DadosUploadProps)
         return;
       }
 
-      const parsedClientes = rows.map(mapRowToCliente).filter((c) => c.nome.length > 0);
+      // Antes filtrava por `c.nome.length > 0` — descartava silenciosamente
+      // qualquer linha cujo cabeçalho de nome não fosse reconhecido. Agora
+      // aceita também linhas só com conta (caso do Saldo_em_CC.xlsx, onde
+      // a coluna de identidade pode ser só o número da conta).
+      const mapeados = rows.map(mapRowToClienteLocal);
+      const descartadas = mapeados.filter((c) => !c.nome && !c.numeroConta).length;
+      const parsedClientes = mapeados.filter((c) => c.nome.length > 0 || c.numeroConta.length > 0);
+      console.log("[DadosUpload] pipeline", {
+        linhasNoXlsx: rows.length,
+        mapeadas: parsedClientes.length,
+        descartadasPorFaltarNomeEConta: descartadas,
+      });
 
       if (parsedClientes.length === 0) {
         setMessage({ type: "error", text: "Nenhum cliente valido. Verifique se a planilha tem coluna 'nome'." });

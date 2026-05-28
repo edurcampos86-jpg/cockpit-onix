@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import * as btg from "@/lib/integrations/btg";
+import { parseValorFinanceiro } from "@/lib/backoffice/parse-financeiro";
 
 /**
  * POST /api/backoffice/btg-sync
@@ -36,48 +37,56 @@ export async function POST() {
         continue;
       }
       const data = r.body as {
-        TotalAmmount?: string;
+        TotalAmmount?: string | number;
         PositionDate?: string;
-        CashBalance?: string;
-        AvailableBalance?: string;
-        AccountBalance?: string;
-        Products?: Array<{ ProductName?: string; TotalAmmount?: string; Balance?: string }>;
+        CashBalance?: string | number;
+        AvailableBalance?: string | number;
+        AccountBalance?: string | number;
+        Products?: Array<{ ProductName?: string; TotalAmmount?: string | number; Balance?: string | number }>;
       };
-      const novoSaldo = data.TotalAmmount ? parseFloat(data.TotalAmmount) : 0;
+      // parseValorFinanceiro preserva negativos e devolve undefined em fail.
+      // Se TotalAmmount não vier no payload, preservamos o saldo anterior
+      // em vez de zerar — fix da divergência de R$ 1MM vs BTG (TotalAmmount
+      // ausente virava 0 no banco).
+      const novoSaldo = parseValorFinanceiro(data.TotalAmmount);
       const positionDate = data.PositionDate ? new Date(data.PositionDate) : new Date();
 
       // Extrair saldo em conta corrente (cash disponível)
-      let saldoConta = 0;
-      if (data.CashBalance) {
-        saldoConta = parseFloat(data.CashBalance);
-      } else if (data.AvailableBalance) {
-        saldoConta = parseFloat(data.AvailableBalance);
-      } else if (data.AccountBalance) {
-        saldoConta = parseFloat(data.AccountBalance);
-      } else if (data.Products && Array.isArray(data.Products)) {
+      let saldoConta: number | undefined =
+        parseValorFinanceiro(data.CashBalance) ??
+        parseValorFinanceiro(data.AvailableBalance) ??
+        parseValorFinanceiro(data.AccountBalance);
+      if (saldoConta === undefined && data.Products && Array.isArray(data.Products)) {
         // Procura produto de conta corrente no breakdown
         const contaCorrente = data.Products.find((p) => {
           const name = (p.ProductName || "").toLowerCase();
           return name.includes("conta") || name.includes("cash") || name.includes("disponível") || name.includes("disponivel") || name.includes("saldo");
         });
         if (contaCorrente) {
-          saldoConta = parseFloat(contaCorrente.TotalAmmount || contaCorrente.Balance || "0");
+          saldoConta = parseValorFinanceiro(contaCorrente.TotalAmmount ?? contaCorrente.Balance);
         }
       }
 
+      const updateData: { saldo?: number; saldoConta?: number; positionDate: Date; ultimaSyncBtg: Date } = {
+        positionDate,
+        ultimaSyncBtg: new Date(),
+      };
+      if (novoSaldo !== undefined) updateData.saldo = novoSaldo;
+      if (saldoConta !== undefined) updateData.saldoConta = saldoConta;
+
       await prisma.clienteBackoffice.update({
         where: { id: c.id },
-        data: { saldo: novoSaldo, saldoConta: isNaN(saldoConta) ? 0 : saldoConta },
+        data: updateData,
       });
       detalhes.push({
         conta: c.numeroConta,
         nome: c.nome,
         saldoAnterior: c.saldo,
-        saldoNovo: novoSaldo,
-        saldoConta: isNaN(saldoConta) ? 0 : saldoConta,
+        saldoNovo: novoSaldo ?? c.saldo,
+        saldoConta: saldoConta ?? 0,
         positionDate: positionDate.toISOString(),
       });
-      totalAum += novoSaldo;
+      totalAum += novoSaldo ?? c.saldo;
       updated++;
     } catch (e) {
       failed++;

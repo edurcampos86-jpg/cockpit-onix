@@ -55,3 +55,7 @@ dev.db-journal
 
 # Claude Code agent worktrees (created by isolation: "worktree")
 .claude/worktrees/
+.claude/launch.json
+
+# Migration backups (ad-hoc dumps locais, fora do controle de versao)
+.migration-backups/
