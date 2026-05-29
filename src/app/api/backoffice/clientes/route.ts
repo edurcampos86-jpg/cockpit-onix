@@ -55,6 +55,13 @@ function parseNumber(v: unknown): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
+// Para colunas Int? — XLSX pode trazer com decimal (ex.: "12,0" de planilhas
+// que formatam tudo como número). Math.trunc é conservador (não arredonda).
+function parseInteger(v: unknown): number | undefined {
+  const n = parseNumber(v);
+  return n === undefined ? undefined : Math.trunc(n);
+}
+
 function parseDate(v: unknown): Date | undefined {
   if (v === null || v === undefined || v === "") return undefined;
   if (v instanceof Date) return Number.isNaN(v.getTime()) ? undefined : v;
@@ -71,30 +78,14 @@ function parseDate(v: unknown): Date | undefined {
 
 const CLASSES_VALIDAS = new Set(["A", "B", "C"]);
 
-// Campos que vão pro Json breakdownProdutos (não viram colunas).
-const BREAKDOWN_KEYS = [
-  "fundos",
-  "rendaFixa",
-  "rendaVariavel",
-  "previdencia",
-  "derivativos",
-  "valorEmTransito",
-  "criptoativos",
-  "qtdAtivos",
-  "qtdFundos",
-  "qtdRendaFixa",
-  "qtdRendaVariavel",
-  "qtdPrevidencia",
-  "qtdDerivativos",
-  "qtdValorEmTransito",
-  "qtdCriptoativos",
-  "qtdAportes",
-  "aportes",
-  "retiradas",
-  "plDeclarado",
-] as const;
-const BREAKDOWN_DATE_KEYS = ["primeiroAporte", "ultimoAporte"] as const;
-const BREAKDOWN_TEXT_KEYS = ["carteiraAdministrada", "termoMarcacaoNaCurva"] as const;
+// Histórico: estes campos viviam em breakdownProdutos (Json). A migration
+// multi_fonte_btg_apelido promoveu todos para colunas reais (Float/Int/
+// DateTime/String). Agora cada um vai pro top-level de ClienteLimpo e é
+// gravado direto pela FIELD_SOURCE_POLICY no upsertPorPolitica.
+//
+// breakdownProdutos (Json) é preservado no schema só pra compat com o
+// shape escrito pelo btg-import (API BTG, não XLSX) que ainda popula um
+// array de produtos. Esse caminho NÃO passa por aqui.
 
 type IncomingCliente = {
   nome?: unknown;
@@ -135,7 +126,30 @@ type IncomingCliente = {
   tipoParceiro?: unknown;
   escritorio?: unknown;
   codigoEscritorio?: unknown;
-  // Detalhamento financeiro (consolidado em breakdownProdutos)
+  // Detalhamento financeiro (colunas reais pós-migration multi_fonte)
+  fundos?: unknown;
+  rendaFixa?: unknown;
+  rendaVariavel?: unknown;
+  previdencia?: unknown;
+  derivativos?: unknown;
+  valorEmTransito?: unknown;
+  criptoativos?: unknown;
+  plDeclarado?: unknown;
+  aportes?: unknown;
+  retiradas?: unknown;
+  qtdAtivos?: unknown;
+  qtdFundos?: unknown;
+  qtdRendaFixa?: unknown;
+  qtdRendaVariavel?: unknown;
+  qtdPrevidencia?: unknown;
+  qtdDerivativos?: unknown;
+  qtdValorEmTransito?: unknown;
+  qtdCriptoativos?: unknown;
+  qtdAportes?: unknown;
+  primeiroAporte?: unknown;
+  ultimoAporte?: unknown;
+  carteiraAdministrada?: unknown;
+  termoMarcacaoCurva?: unknown;
   [k: string]: unknown;
 };
 
@@ -178,6 +192,32 @@ type ClienteLimpo = {
   tipoParceiro?: string;
   escritorio?: string;
   codigoEscritorio?: string;
+  // Detalhamento financeiro — colunas reais pós-migration multi_fonte.
+  fundos?: number;
+  rendaFixa?: number;
+  rendaVariavel?: number;
+  previdencia?: number;
+  derivativos?: number;
+  valorEmTransito?: number;
+  criptoativos?: number;
+  plDeclarado?: number;
+  aportes?: number;
+  retiradas?: number;
+  qtdAtivos?: number;
+  qtdFundos?: number;
+  qtdRendaFixa?: number;
+  qtdRendaVariavel?: number;
+  qtdPrevidencia?: number;
+  qtdDerivativos?: number;
+  qtdValorEmTransito?: number;
+  qtdCriptoativos?: number;
+  qtdAportes?: number;
+  primeiroAporte?: Date;
+  ultimoAporte?: Date;
+  carteiraAdministrada?: string;
+  termoMarcacaoCurva?: string;
+  // Preservado por compat com o caminho legacy (POST update/create) que
+  // ainda referencia. Nunca mais setado aqui — fica undefined.
   breakdownProdutos?: Record<string, string | number | null>;
 };
 
@@ -309,21 +349,6 @@ export async function POST(request: NextRequest) {
         const classe = clean(c.classificacao)?.toUpperCase();
         const perfilSuit = clean(c.perfilInvestidor)?.toLowerCase();
 
-        // Consolida detalhamento financeiro em breakdownProdutos
-        const breakdown: Record<string, string | number | null> = {};
-        for (const k of BREAKDOWN_KEYS) {
-          const n = parseNumber(c[k]);
-          if (n !== undefined) breakdown[k] = n;
-        }
-        for (const k of BREAKDOWN_DATE_KEYS) {
-          const d = parseDate(c[k]);
-          if (d) breakdown[k] = d.toISOString().slice(0, 10);
-        }
-        for (const k of BREAKDOWN_TEXT_KEYS) {
-          const s = clean(c[k]);
-          if (s) breakdown[k] = s;
-        }
-
         return {
           nome: nome ?? `Conta ${numeroConta}`,
           numeroConta,
@@ -363,7 +388,30 @@ export async function POST(request: NextRequest) {
           tipoParceiro: clean(c.tipoParceiro),
           escritorio: clean(c.escritorio),
           codigoEscritorio: clean(c.codigoEscritorio),
-          breakdownProdutos: Object.keys(breakdown).length > 0 ? breakdown : undefined,
+          // Detalhamento financeiro — colunas reais pós-migration multi_fonte.
+          fundos: parseNumber(c.fundos),
+          rendaFixa: parseNumber(c.rendaFixa),
+          rendaVariavel: parseNumber(c.rendaVariavel),
+          previdencia: parseNumber(c.previdencia),
+          derivativos: parseNumber(c.derivativos),
+          valorEmTransito: parseNumber(c.valorEmTransito),
+          criptoativos: parseNumber(c.criptoativos),
+          plDeclarado: parseNumber(c.plDeclarado),
+          aportes: parseNumber(c.aportes),
+          retiradas: parseNumber(c.retiradas),
+          qtdAtivos: parseInteger(c.qtdAtivos),
+          qtdFundos: parseInteger(c.qtdFundos),
+          qtdRendaFixa: parseInteger(c.qtdRendaFixa),
+          qtdRendaVariavel: parseInteger(c.qtdRendaVariavel),
+          qtdPrevidencia: parseInteger(c.qtdPrevidencia),
+          qtdDerivativos: parseInteger(c.qtdDerivativos),
+          qtdValorEmTransito: parseInteger(c.qtdValorEmTransito),
+          qtdCriptoativos: parseInteger(c.qtdCriptoativos),
+          qtdAportes: parseInteger(c.qtdAportes),
+          primeiroAporte: parseDate(c.primeiroAporte),
+          ultimoAporte: parseDate(c.ultimoAporte),
+          carteiraAdministrada: clean(c.carteiraAdministrada),
+          termoMarcacaoCurva: clean(c.termoMarcacaoCurva),
         };
       })
       .filter((c): c is ClienteLimpo => c !== null);
