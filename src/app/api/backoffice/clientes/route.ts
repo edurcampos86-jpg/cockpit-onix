@@ -377,6 +377,18 @@ export async function POST(request: NextRequest) {
 
     const modo = detectarModo(limpos);
 
+    // Mapeia o `modo` (vocabulario legacy auto-detectado por detectarModo)
+    // para a `fonte` da FIELD_SOURCE_POLICY. Se fonte != null, roda o
+    // caminho novo (handleImportPorPoliticaPlain) que escreve os 37 campos
+    // novos da migration multi_fonte e grava fonteUltimoUpdate por campo.
+    // Se fonte == null (modo novo, futuro), cai no fallback legacy.
+    const fontePorModo: Record<string, FonteImport | null> = {
+      primario: "base_btg",
+      update_saldo: "saldo_em_cc",
+      update_cadastral: "informacoes",
+    };
+    const fonte: FonteImport | null = fontePorModo[modo] ?? null;
+
     const pareados = await Promise.all(
       limpos.map(async (input) => ({ input, existente: await findExisting(input) })),
     );
@@ -394,6 +406,7 @@ export async function POST(request: NextRequest) {
     let atualizados = 0;
     let orfaos = 0;
     let duplicadosResolvidos = 0;
+    const bloqueadosAgg: Record<string, number> = {};
 
     // Campos cadastrais — atualizados em `update_cadastral`. NÃO inclui
     // `nome` pra evitar regredir nome completo do BTG ("Cesar Henrique
@@ -427,7 +440,115 @@ export async function POST(request: NextRequest) {
       "cep",
     ];
 
-    for (const { input, existente } of pareados) {
+    if (fonte) {
+      // ── CAMINHO NOVO: handleImportPorPoliticaPlain + FIELD_SOURCE_POLICY ──
+
+      // Swap saldo→saldoConta: o XLSX oficial BTG "Saldo em CC (D 0)" usa
+      // header literal "Saldo", que via HEADER_MAP cai em `saldo` (campo
+      // PL). Em saldo_em_cc o significado real é saldoConta. Sem o swap,
+      // a policy bloqueia (saldo só por base_btg) e nada é gravado.
+      if (fonte === "saldo_em_cc") {
+        for (const p of pareados) {
+          if (p.input.saldo !== undefined && p.input.saldoConta === undefined) {
+            p.input.saldoConta = p.input.saldo;
+            p.input.saldo = undefined;
+          }
+        }
+      }
+
+      // Update-only modes: sem match = órfão. NUNCA cria (upsertPorPolitica
+      // sempre criaria — filtra antes pra preservar a semântica legacy).
+      let pareadosParaEnviar = pareados;
+      if (fonte === "saldo_em_cc" || fonte === "informacoes") {
+        for (const { existente } of pareados) {
+          if (!existente) orfaos++;
+        }
+        pareadosParaEnviar = pareados.filter((p) => p.existente);
+      }
+
+      const resPolitica = await handleImportPorPoliticaPlain(
+        fonte,
+        pareadosParaEnviar.map((p) => p.input as unknown as IncomingCliente),
+      );
+      criados += resPolitica.criados;
+      atualizados += resPolitica.atualizados;
+      orfaos += resPolitica.descartesTotal; // sem numeroConta = órfão também
+      for (const [campo, qtd] of Object.entries(resPolitica.camposBloqueados)) {
+        bloqueadosAgg[campo] = (bloqueadosAgg[campo] ?? 0) + qtd;
+      }
+
+      // Contar duplicadosResolvidos: pareados com numeroConta diferente do
+      // existente.numeroConta foram unificados via findExisting (CPF/nome).
+      for (const { input, existente } of pareadosParaEnviar) {
+        if (
+          existente &&
+          input.numeroConta &&
+          existente.numeroConta &&
+          input.numeroConta !== existente.numeroConta
+        ) {
+          duplicadosResolvidos++;
+        }
+      }
+
+      // Recálculo ABC: só primario. updateMany agrupado por classe (3 queries
+      // em vez de N loops).
+      if (modo === "primario") {
+        const itemsComId = resPolitica.items.filter((it) => it.id && it.acao !== "noop");
+        const pareadosPorConta = new Map(
+          pareadosParaEnviar.map((p) => [p.input.numeroConta ?? "", p]),
+        );
+        const idsA: string[] = [];
+        const idsB: string[] = [];
+        const idsC: string[] = [];
+        const manuaisComInput: Array<{ id: string; classe: string }> = [];
+
+        for (const item of itemsComId) {
+          const p = pareadosPorConta.get(item.numeroConta);
+          if (!p) continue;
+          // Se input.classificacao foi enviado, vira manual (override)
+          if (p.input.classificacao) {
+            manuaisComInput.push({ id: item.id!, classe: p.input.classificacao });
+            continue;
+          }
+          // Se existente já era manual, preserva (não recalcula)
+          if (item.acao === "update" && p.existente?.classificacaoManual) continue;
+
+          const saldoFinal = p.input.saldo ?? p.existente?.saldo ?? 0;
+          const classe = saldoFinal >= corteA ? "A" : saldoFinal >= corteB ? "B" : "C";
+          if (classe === "A") idsA.push(item.id!);
+          else if (classe === "B") idsB.push(item.id!);
+          else idsC.push(item.id!);
+        }
+
+        await Promise.all(
+          [
+            idsA.length &&
+              prisma.clienteBackoffice.updateMany({
+                where: { id: { in: idsA } },
+                data: { classificacao: "A", classificacaoManual: false },
+              }),
+            idsB.length &&
+              prisma.clienteBackoffice.updateMany({
+                where: { id: { in: idsB } },
+                data: { classificacao: "B", classificacaoManual: false },
+              }),
+            idsC.length &&
+              prisma.clienteBackoffice.updateMany({
+                where: { id: { in: idsC } },
+                data: { classificacao: "C", classificacaoManual: false },
+              }),
+            ...manuaisComInput.map((m) =>
+              prisma.clienteBackoffice.update({
+                where: { id: m.id },
+                data: { classificacao: m.classe, classificacaoManual: true },
+              }),
+            ),
+          ].filter(Boolean),
+        );
+      }
+    } else {
+      // ── FALLBACK LEGACY (preservado intacto pra modos não mapeados) ──
+      for (const { input, existente } of pareados) {
       // Modos de update-only NUNCA criam — sem match = órfão.
       if (!existente) {
         if (modo === "update_saldo" || modo === "update_cadastral") {
@@ -563,6 +684,7 @@ export async function POST(request: NextRequest) {
         });
         criados++;
       }
+      }
     }
 
     const rotuloModo =
@@ -583,6 +705,10 @@ export async function POST(request: NextRequest) {
     if (duplicadosResolvidos > 0) {
       partes.push(`${duplicadosResolvidos} pareados por CPF/nome`);
     }
+    const qtdBloqueados = Object.keys(bloqueadosAgg).length;
+    if (qtdBloqueados > 0) {
+      partes.push(`${qtdBloqueados} campo(s) bloqueado(s) pela política`);
+    }
     if (modo === "primario") {
       partes.push("ABC recalculado");
     }
@@ -591,11 +717,13 @@ export async function POST(request: NextRequest) {
       message: partes.join(" · "),
       total: limpos.length,
       modo,
+      fonte,
       rotuloModo,
       criados,
       atualizados,
       orfaos,
       duplicadosResolvidos,
+      camposBloqueados: bloqueadosAgg,
     });
   } catch (error) {
     console.error("Erro ao importar clientes:", error);
@@ -607,21 +735,34 @@ export async function POST(request: NextRequest) {
  * Caminho novo: import respeitando FIELD_SOURCE_POLICY. Cada linha vai pelo
  * upsertPorPolitica, que (a) bloqueia campos que a fonte nao pode escrever,
  * (b) preserva valores existentes quando o campo vem vazio, e (c) registra
- * `fonteUltimoUpdate` por campo pra auditoria. Devolve breakdown completo:
- * quantas linhas criadas, atualizadas, no-op, e quais campos foram bloqueados
- * (util pra detectar XLSX classificado como fonte errada).
+ * `fonteUltimoUpdate` por campo pra auditoria. Devolve breakdown completo
+ * em objeto plano (sem NextResponse) pra ser composto com agregados do POST
+ * principal (orfaos calculados antes, ABC calculado depois).
  *
- * TODO: Integrar este handler ao POST de /api/backoffice/clientes.
- * Decisao pendente: coexistencia com auto-deteccao de tipo (PR #18) vs
- * fonte explicita no body. Ver opcoes 2a/2b/2c em discussao.
+ * `items` traz `{ numeroConta, acao, id }` pra cada linha persistida — o
+ * caller usa pra recalcular ABC com updateMany agrupado por classe.
  */
-async function handleImportPorPolitica(fonte: FonteImport, recebidos: IncomingCliente[]) {
+interface ResultadoImportPorPolitica {
+  criados: number;
+  atualizados: number;
+  noop: number;
+  descartes: Array<{ idxBatch: number; motivo: string; amostra: string }>;
+  descartesTotal: number;
+  camposBloqueados: Record<string, number>;
+  items: Array<{ numeroConta: string; acao: "create" | "update" | "noop"; id?: string }>;
+}
+
+async function handleImportPorPoliticaPlain(
+  fonte: FonteImport,
+  recebidos: IncomingCliente[],
+): Promise<ResultadoImportPorPolitica> {
   // Parse + normalizacao — reaproveita parseNumber/parseDate/clean ja
   // existentes no escopo do modulo, mas filtra so os campos que a policy
   // pode escrever (passa o resto adiante; o upsertPorPolitica vai bloquear).
   const linhas = recebidos.map((c) => normalizeIncoming(c));
   const descartes: Array<{ idxBatch: number; motivo: string; amostra: string }> = [];
   const bloqueadosAgg: Record<string, number> = {};
+  const items: ResultadoImportPorPolitica["items"] = [];
   let criados = 0;
   let atualizados = 0;
   let noop = 0;
@@ -644,6 +785,7 @@ async function handleImportPorPolitica(fonte: FonteImport, recebidos: IncomingCl
         dadosImportados: linha.payload,
         fonte,
       });
+      items.push({ numeroConta: linha.numeroConta, acao: res.acao, id: res.id });
       if (res.acao === "create") criados++;
       else if (res.acao === "update") atualizados++;
       else noop++;
@@ -673,24 +815,15 @@ async function handleImportPorPolitica(fonte: FonteImport, recebidos: IncomingCl
     console.warn("[POST /clientes fonte=" + fonte + "] descartes", descartes);
   }
 
-  const partes = [`${criados} novos`, `${atualizados} atualizados`];
-  if (noop > 0) partes.push(`${noop} sem mudanca`);
-  if (Object.keys(bloqueadosAgg).length > 0) {
-    partes.push(`${Object.keys(bloqueadosAgg).length} campo(s) bloqueado(s) pela politica`);
-  }
-  if (descartes.length > 0) partes.push(`${descartes.length} descartada(s)`);
-
-  return NextResponse.json({
-    message: partes.join(" · "),
-    fonte,
-    recebidas: recebidos.length,
+  return {
     criados,
     atualizados,
     noop,
-    descartes: descartes.slice(0, 50),
+    descartes,
     descartesTotal: descartes.length,
     camposBloqueados: bloqueadosAgg,
-  });
+    items,
+  };
 }
 
 /**
