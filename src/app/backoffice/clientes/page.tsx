@@ -14,6 +14,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { ClientesTable } from "@/components/backoffice/clientes-table";
 import { ReferenciaLivro } from "@/components/backoffice/referencia-livro";
 import { ComoFunciona } from "@/components/backoffice/como-funciona";
+import { BuscaInteligente } from "@/components/backoffice/busca-inteligente";
 import { REF_CLASSIFICACAO_ABC } from "@/lib/backoffice/referencias";
 
 export default async function ClientesPage() {
@@ -95,6 +96,9 @@ export default async function ClientesPage() {
           comoUsar="Filtre por classe, assessor ou cadência; ordene por qualquer coluna; use os badges 12-4-2 para identificar A fora de prazo."
           comoAjuda="Garante que você invista o tempo certo em cada perfil — sem deixar um A esquecido nem desperdiçar horas em C."
         />
+
+        {isAdmin && <BuscaInteligente />}
+
         <ReferenciaLivro
           referencias={REF_CLASSIFICACAO_ABC}
           titulo="Por que classificar clientes em A, B e C?"
