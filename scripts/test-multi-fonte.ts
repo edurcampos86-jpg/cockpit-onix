@@ -108,7 +108,8 @@ eq("nomeCompleto só por informacoes", podeEscrever("nomeCompleto", "informacoes
 eq("nomeCompleto NÃO por base_btg", podeEscrever("nomeCompleto", "base_btg"), false);
 
 eq("saldoConta primário é saldo_em_cc", FIELD_SOURCE_POLICY.saldoConta?.[0], "saldo_em_cc");
-eq("saldoConta secundário é base_btg", FIELD_SOURCE_POLICY.saldoConta?.[1], "base_btg");
+eq("saldoConta tem fonte única (saldo_em_cc)", FIELD_SOURCE_POLICY.saldoConta?.length, 1);
+eq("saldoConta NÃO editável por base_btg", podeEscrever("saldoConta", "base_btg"), false);
 eq("saldoConta NÃO editável manualmente", podeEscrever("saldoConta", "manual"), false);
 
 eq("pendenciaCadastral só por informacoes", podeEscrever("pendenciaCadastral", "informacoes"), true);

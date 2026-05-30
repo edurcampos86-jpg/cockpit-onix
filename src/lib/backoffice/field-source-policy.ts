@@ -92,11 +92,13 @@ export const FIELD_SOURCE_POLICY: Record<string, FonteImport[]> = {
   telefone: ["informacoes"],
   email: ["informacoes"], // task chama de "emailAcesso"
 
-  // ── Saldo CC (fonte: saldo_em_cc tem PRIORIDADE; base_btg é fallback) ─
-  // Ordem na lista define prioridade: a primeira fonte autorizada que escreveu
-  // depois ganha. Pra um campo com 2 fontes, qualquer uma das duas pode
-  // escrever — mas saldo_em_cc é o "canônico".
-  saldoConta: ["saldo_em_cc", "base_btg"],
+  // ── Saldo CC (fonte ÚNICA: saldo_em_cc) ──────────────────────────────
+  // saldo_em_cc é o relatório canônico pro saldo em conta corrente. Base BTG
+  // até traz a coluna "Conta Corrente" no XLSX, mas (a) reflete um snapshot
+  // antigo, (b) sobrescrever o saldo_em_cc por base_btg viola a regra de
+  // negócio. Se preciso popular `contaCorrenteBase` (snapshot da base) com
+  // o valor da Base BTG, usar campo dedicado — não saldoConta.
+  saldoConta: ["saldo_em_cc"],
 };
 
 /**
