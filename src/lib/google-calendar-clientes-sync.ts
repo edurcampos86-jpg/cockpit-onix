@@ -10,6 +10,7 @@ import {
   recomputeAgregadosBatch,
 } from "@/lib/reunioes";
 import { buildClienteIndex, matchEventToClientes } from "@/lib/google-calendar-match";
+import { reunioesParaRemover } from "@/lib/reunioes-cleanup";
 
 /**
  * Sync de reuniões do Google Calendar com a base de clientes.
@@ -83,16 +84,23 @@ export async function syncGoogleCalendarComClientes(opts: {
   const erros: Array<{ etapa: string; motivo: string }> = [];
 
   // ── Buscar eventos
+  // `fetchOk` precisa virar false se QUALQUER listagem falhar — o cleanup
+  // mais abaixo deleta com base em "o que NÃO apareceu no fetch", então um
+  // fetch incompleto faria o cleanup apagar reuniões válidas (bug que apagou
+  // 171 reuniões num run com token invalid_grant).
   let futuros: CalendarEventForMatching[] = [];
   let passados: CalendarEventForMatching[] = [];
+  let fetchOk = true;
   try {
     futuros = await listFutureCalendarEvents(userId, lookaheadDias);
   } catch (e) {
+    fetchOk = false;
     erros.push({ etapa: "listFuture", motivo: e instanceof Error ? e.message : "?" });
   }
   try {
     passados = await listRecentCalendarEvents(userId, lookbackDias);
   } catch (e) {
+    fetchOk = false;
     erros.push({ etapa: "listRecent", motivo: e instanceof Error ? e.message : "?" });
   }
 
@@ -155,32 +163,49 @@ export async function syncGoogleCalendarComClientes(opts: {
   // ── Cleanup: eventos da fonte google-cal que sumiram da janela atual
   // são deletados. Restrito à janela [agora - lookback, agora + lookahead]
   // pra não apagar reuniões antigas fora do escopo do sync atual.
-  const agora = new Date();
-  const janelaInicio = new Date(agora.getTime() - lookbackDias * 24 * 60 * 60 * 1000);
-  const janelaFim = new Date(agora.getTime() + lookaheadDias * 24 * 60 * 60 * 1000);
-
-  // Cleanup escopado por usuario — sem isso, o sync de User A apagaria
-  // reunioes de User B (cross-user delete bug encontrado no review da Fase 2).
-  const candidatasPraRemover = await prisma.reuniaoCliente.findMany({
-    where: {
-      userId,
-      source: "google-cal",
-      startAt: { gte: janelaInicio, lte: janelaFim },
-    },
-    select: { id: true, clienteId: true, externalId: true },
-  });
-
-  const idsPraRemover = candidatasPraRemover
-    .filter((r) => !externalIdsVistos.has(r.externalId))
-    .map((r) => ({ id: r.id, clienteId: r.clienteId }));
-
+  //
+  // GUARDA CRÍTICA: só roda se o fetch teve sucesso real. `externalIdsVistos`
+  // é construído a partir dos eventos buscados; se a listagem falhou (token
+  // invalid_grant, rede, quota), esse set fica vazio/parcial e o cleanup
+  // deletaria reuniões que NA VERDADE ainda existem. Nunca delete a partir de
+  // uma janela construída sobre fetch que falhou.
   let reunioesRemovidas = 0;
-  if (idsPraRemover.length > 0) {
-    const removeResult = await prisma.reuniaoCliente.deleteMany({
-      where: { id: { in: idsPraRemover.map((x) => x.id) } },
+  if (!fetchOk) {
+    // Fetch incompleto → não deleta nada (ver reunioes-cleanup.ts).
+    erros.push({
+      etapa: "cleanup",
+      motivo:
+        "pulado — listagem de eventos falhou; cleanup não roda sobre fetch incompleto (evita deleção em massa)",
     });
-    reunioesRemovidas = removeResult.count;
-    for (const x of idsPraRemover) clientesAfetados.add(x.clienteId);
+  } else {
+    const agora = new Date();
+    const janelaInicio = new Date(agora.getTime() - lookbackDias * 24 * 60 * 60 * 1000);
+    const janelaFim = new Date(agora.getTime() + lookaheadDias * 24 * 60 * 60 * 1000);
+
+    // Cleanup escopado por usuario — sem isso, o sync de User A apagaria
+    // reunioes de User B (cross-user delete bug encontrado no review da Fase 2).
+    const candidatasPraRemover = await prisma.reuniaoCliente.findMany({
+      where: {
+        userId,
+        source: "google-cal",
+        startAt: { gte: janelaInicio, lte: janelaFim },
+      },
+      select: { id: true, clienteId: true, externalId: true },
+    });
+
+    const idsPraRemover = reunioesParaRemover(
+      fetchOk,
+      candidatasPraRemover,
+      externalIdsVistos,
+    );
+
+    if (idsPraRemover.length > 0) {
+      const removeResult = await prisma.reuniaoCliente.deleteMany({
+        where: { id: { in: idsPraRemover.map((x) => x.id) } },
+      });
+      reunioesRemovidas = removeResult.count;
+      for (const x of idsPraRemover) clientesAfetados.add(x.clienteId);
+    }
   }
 
   // ── Recomputar agregados (proxima/ultimaReuniaoAt) pros clientes afetados
