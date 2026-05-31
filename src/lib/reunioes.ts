@@ -46,6 +46,28 @@ export const MATCH_SCORE: Record<ReuniaoMatchedVia, number> = {
   manual: 0,
 };
 
+/**
+ * Confiança mínima pra um match PROMOVER os agregados
+ * `proximaReuniaoAt` / `ultimaReuniaoAt` do cliente (FIX A).
+ *
+ * `nome-substring` (score 30) é recall agressivo e gera falso-positivo em
+ * homônimos → fica GRAVADO em ReuniaoCliente (pra revisão / fase 2) mas
+ * NÃO sobe pro rollup automaticamente. `manual` (score 0) é verdade humana
+ * e sempre promove, apesar do score baixo.
+ */
+export const MIN_SCORE_ROLLUP = 50;
+
+/**
+ * Filtro Prisma: reuniões que têm confiança suficiente pra entrar no rollup.
+ * score >= 50 (email/telefone/nome-unico) OU origem manual (humano).
+ */
+const ROLLUP_CONFIAVEL = {
+  OR: [
+    { matchScore: { gte: MIN_SCORE_ROLLUP } },
+    { matchedVia: "manual" as ReuniaoMatchedVia },
+  ],
+};
+
 export interface UpsertReuniaoInput {
   clienteId: string;
   source: ReuniaoSource;
@@ -158,14 +180,16 @@ export async function recomputeAgregadosReuniao(
 ): Promise<{ proxima: Date | null; ultima: Date | null }> {
   const agora = new Date();
 
+  // Só matches confiáveis (score >= 50 ou manual) promovem os agregados.
+  // nome-substring (30) é ignorado aqui — fica gravado pra revisão.
   const [proxima, ultima] = await Promise.all([
     prisma.reuniaoCliente.findFirst({
-      where: { clienteId, startAt: { gte: agora } },
+      where: { clienteId, startAt: { gte: agora }, ...ROLLUP_CONFIAVEL },
       orderBy: { startAt: "asc" },
       select: { startAt: true },
     }),
     prisma.reuniaoCliente.findFirst({
-      where: { clienteId, startAt: { lt: agora } },
+      where: { clienteId, startAt: { lt: agora }, ...ROLLUP_CONFIAVEL },
       orderBy: { startAt: "desc" },
       select: { startAt: true },
     }),

@@ -23,6 +23,7 @@ on:
     - cron: '30 10 * * 1-5' # boot-do-dia (seg-sex 07:30 Bahia / 10:30 UTC)
     - cron: '0 23 * * 0'    # retrospectiva-semanal (dom 20:00 Bahia / 23:00 UTC)
     - cron: '0 4 * * 2'     # btg-movements-poll (ter 01:00 Bahia / 04:00 UTC — fora de pico)
+    - cron: '0 9 * * *'     # cadencia-backfill (diário 06:00 Bahia / 09:00 UTC — semeia proximoContatoAt de novatos)
     # Backup do Postgres e restore drill vivem em workflows próprios:
     # .github/workflows/db-backup.yml (06:00 UTC diário, faz pg_dump direto sem
     # depender da app) e .github/workflows/restore-drill.yml (segunda 07:00 UTC).
@@ -72,6 +73,9 @@ jobs:
                 ;;
               "0 4 * * 2")
                 PATHS="/api/cron/btg-movements-poll"
+                ;;
+              "0 9 * * *")
+                PATHS="/api/cron/cadencia-backfill"
                 ;;
               *)
                 echo "Schedule '$SCHEDULE' não mapeado — nenhum endpoint executado."
