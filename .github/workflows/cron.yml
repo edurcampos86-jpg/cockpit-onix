@@ -163,9 +163,9 @@ jobs:
             # Trunca pra evitar mensagem gigante no Slack
             FIRST_ERR=$(echo "$FIRST_ERR" | head -c 300)
             MSG=":rotating_light: *BTG SYNC FALHOU* — backup semanal de movimentações não rodou
-Erro: \`${FIRST_ERR}\`
-Run: <${RUN_URL}|ver detalhes>
-Próxima tentativa: terça que vem 04:00 UTC"
+          Erro: \`${FIRST_ERR}\`
+          Run: <${RUN_URL}|ver detalhes>
+          Próxima tentativa: terça que vem 04:00 UTC"
           fi
 
           PAYLOAD=$(jq -n --arg text "$MSG" '{text: $text}')
