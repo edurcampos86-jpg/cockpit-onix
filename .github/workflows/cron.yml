@@ -25,6 +25,7 @@ on:
     - cron: '0 4 * * 2'     # btg-movements-poll (ter 01:00 Bahia / 04:00 UTC — fora de pico)
     - cron: '0 9 * * *'     # btg-balances-poll (diário 06:00 Bahia / 09:00 UTC — saldoConta)
     - cron: '0 7 * * 0'     # btg-cadastral-poll (dom 04:00 Bahia / 07:00 UTC — off-peak, incremental)
+    - cron: '0 11 * * *'    # alertas-clientes (diário 08:00 Bahia / 11:00 UTC — após saldos)
     # Backup do Postgres e restore drill vivem em workflows próprios:
     # .github/workflows/db-backup.yml (06:00 UTC diário, faz pg_dump direto sem
     # depender da app) e .github/workflows/restore-drill.yml (segunda 07:00 UTC).
@@ -82,6 +83,9 @@ jobs:
                 ;;
               "0 7 * * 0")
                 PATHS="/api/cron/btg-cadastral-poll"
+                ;;
+              "0 11 * * *")
+                PATHS="/api/cron/alertas-clientes"
                 ;;
               *)
                 echo "Schedule '$SCHEDULE' não mapeado — nenhum endpoint executado."
