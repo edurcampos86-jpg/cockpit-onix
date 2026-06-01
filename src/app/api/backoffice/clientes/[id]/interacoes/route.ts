@@ -1,18 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
-
-// Cadência Supernova: 12 ligações + 4 reuniões + 2 revisões = 18 toques/ano para A
-// B = 6 toques/ano, C = 2 toques/ano
-function proximoContatoPor(classificacao: string): Date {
-  const hoje = new Date();
-  const diasPorClasse: Record<string, number> = {
-    A: 30, // mensal
-    B: 60, // bimestral
-    C: 180, // semestral
-  };
-  const dias = diasPorClasse[classificacao] ?? 180;
-  return new Date(hoje.getTime() + dias * 24 * 60 * 60 * 1000);
-}
+import { proximoContatoPor } from "@/lib/cadencia";
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
