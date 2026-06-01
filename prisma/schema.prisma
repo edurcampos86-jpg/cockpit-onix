@@ -128,6 +128,27 @@ model IntegracaoAuditoria {
   @@index([integracao])
 }
 
+/// Dedupe de alertas proativos de relacionamento (Entrega C — Fase 3). Uma
+/// linha por (gatilho, cliente). Mesmo padrão de IntegracaoAuditoria: alerta
+/// na entrada, reenvio no máx 1x/semana enquanto seguir disparando,
+/// "resolvido" ao sair. Sem FK p/ ClienteBackoffice (ref soft, igual o userId
+/// aqui em cima) — o cron só lê clientes existentes.
+model AlertaClienteLog {
+  id          String    @id @default(cuid())
+  chave       String    @unique // "<gatilho>:<clienteId>"
+  gatilho     String // "saldo_parado" | "rf_vencendo" | "termometro_vermelho"
+  clienteId   String
+  status      String    @default("ativo") // "ativo" | "resolvido"
+  statusDesde DateTime? // desde quando o gatilho começou a disparar
+  alertadoEm  DateTime? // último alerta Slack (dedupe + reenvio 1x/semana)
+  ultimoValor String? // snapshot do valor que disparou (debug/auditoria)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([gatilho])
+  @@index([clienteId])
+}
+
 // ============================================
 // CALENDÁRIO EDITORIAL E CONTEÚDO
 // ============================================
