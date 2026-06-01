@@ -1,28 +1,17 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
+import { DIAS_POR_CLASSE, DIAS_CLASSE_PADRAO, diasCadencia } from "@/lib/cadencia-core";
 
 /**
- * Cadência Supernova ABC — fonte única da régua de contato.
+ * Cadência Supernova ABC — régua de contato (lado server).
  *
- * 12-4-2 = toques/ano por classe:
- *   A = 12 toques/ano  → ~mensal   → 30 dias entre contatos
- *   B = 6 toques/ano   → ~bimestral → 60 dias
- *   C = 2 toques/ano   → ~semestral → 180 dias
- *
- * Mantém a MESMA régua que o fluxo manual de registro de interação
- * (`proximoContatoPor`), pra Cadência e backfill nunca divergirem.
+ * A régua (DIAS_POR_CLASSE A=30/B=90/C=180) e o termômetro de presença vivem
+ * em `cadencia-core.ts` (puro, importável no client). Aqui ficam só os helpers
+ * que tocam o banco. Re-exporta as constantes pra não quebrar imports antigos.
  */
-export const DIAS_POR_CLASSE: Record<string, number> = {
-  A: 30,
-  B: 60,
-  C: 180,
-};
-
-export const DIAS_CLASSE_PADRAO = 180; // fallback p/ classificação desconhecida
-
-export function diasCadencia(classificacao: string | null | undefined): number {
-  return DIAS_POR_CLASSE[(classificacao || "").toUpperCase()] ?? DIAS_CLASSE_PADRAO;
-}
+export { DIAS_POR_CLASSE, DIAS_CLASSE_PADRAO, diasCadencia };
+export { statusTermometro } from "@/lib/cadencia-core";
+export type { StatusTermometro, TermometroPresenca } from "@/lib/cadencia-core";
 
 const MS_DIA = 24 * 60 * 60 * 1000;
 

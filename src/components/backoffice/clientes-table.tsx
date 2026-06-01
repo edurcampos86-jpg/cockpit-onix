@@ -25,7 +25,9 @@ import {
   ChevronDown,
   MessageCircle,
   CalendarPlus,
+  Phone,
 } from "lucide-react";
+import { statusTermometro, type StatusTermometro } from "@/lib/cadencia-core";
 import { getNomeRelacionamento } from "@/lib/backoffice/display-name";
 import { ApelidoEditButton } from "@/components/backoffice/apelido-edit-button";
 
@@ -275,11 +277,13 @@ const classLegenda: Record<string, string> = {
   C: "Manutenção",
 };
 
-// Cadência 12-4-2 — limites em dias desde último contato
-const CADENCIA_DIAS: Record<string, { atencao: number; alerta: number }> = {
-  A: { atencao: 30, alerta: 45 },
-  B: { atencao: 90, alerta: 120 },
-  C: { atencao: 180, alerta: 270 },
+// Termômetro de presença — cores vivas por status. A régua de cadência
+// (A=30/B=90/C=180) e o cálculo verde/amarelo/vermelho vivem em cadencia-core.ts.
+const SELO_TERMOMETRO: Record<StatusTermometro, { dot: string; texto: string; label: string }> = {
+  verde: { dot: "bg-emerald-500", texto: "text-emerald-700 dark:text-emerald-400", label: "Em dia" },
+  amarelo: { dot: "bg-amber-400", texto: "text-amber-700 dark:text-amber-400", label: "Atenção" },
+  vermelho: { dot: "bg-red-500", texto: "text-red-700 dark:text-red-400", label: "Atrasado" },
+  "sem-historico": { dot: "bg-zinc-300 dark:bg-zinc-600", texto: "text-muted-foreground", label: "Sem histórico" },
 };
 
 const SALDO_PARADO_LIMITE = 50_000;
@@ -317,6 +321,7 @@ export function ClientesTable({
   const [xlsxReady, setXlsxReady] = useState(false);
   const [marcandoContato, setMarcandoContato] = useState(false);
   const [registrandoReuniao, setRegistrandoReuniao] = useState<string | null>(null);
+  const [registrandoContato, setRegistrandoContato] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -352,12 +357,13 @@ export function ClientesTable({
     return new Date(data).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
   };
 
+  // Status legado de 3 estados (ok/atencao/alerta) usado por filtros e contadores.
+  // Deriva do termômetro compartilhado: vermelho→alerta, amarelo→atencao,
+  // verde/sem-historico→ok (nunca-contatado é estado neutro, não conta como fora).
   const statusCadencia = (c: Cliente): "ok" | "atencao" | "alerta" => {
-    const limite = CADENCIA_DIAS[c.classificacao] || CADENCIA_DIAS.C;
-    const dias = diasDesde(c.ultimoContatoAt);
-    if (dias === null) return "alerta";
-    if (dias >= limite.alerta) return "alerta";
-    if (dias >= limite.atencao) return "atencao";
+    const { status } = statusTermometro(c.classificacao, c.ultimoContatoAt);
+    if (status === "vermelho") return "alerta";
+    if (status === "amarelo") return "atencao";
     return "ok";
   };
 
@@ -737,6 +743,35 @@ export function ClientesTable({
     }
   };
 
+  const registrarContatoAgora = async (id: string, nome: string) => {
+    if (!confirm(`Registrar contato realizado agora com ${nome}?`)) return;
+    setRegistrandoContato(id);
+    try {
+      const res = await fetch(`/api/backoffice/clientes/${id}/interacoes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tipo: "ligacao",
+          canal: "telefone",
+          assunto: "Contato registrado",
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const interacao = await res.json();
+      const agora = interacao.data ?? new Date().toISOString();
+      // Atualiza ultimoContatoAt local → o selo do termômetro recalcula na hora.
+      // proximoContatoAt é recalculado no servidor (interacoes POST).
+      setClientes((prev) =>
+        prev.map((c) => (c.id === id ? { ...c, ultimoContatoAt: agora } : c)),
+      );
+    } catch (e) {
+      console.error("Erro ao registrar contato:", e);
+      alert("Não foi possível registrar o contato. Tente novamente.");
+    } finally {
+      setRegistrandoContato(null);
+    }
+  };
+
   const marcarContatadosHoje = async () => {
     if (selecionados.size === 0) return;
     if (!confirm(`Marcar ${selecionados.size} cliente(s) como contatado(s) hoje?`)) return;
@@ -1084,18 +1119,25 @@ export function ClientesTable({
                 <Th onClick={() => toggleSort("ultimoContatoAt")}>
                   Último contato <SortIcon k="ultimoContatoAt" />
                 </Th>
+                <th className="text-left px-3 py-3 font-medium text-muted-foreground">
+                  <span title="Termômetro de presença: dias desde o último contato vs a cadência da classe (A=30, B=90, C=180 dias). Verde até 80%, amarelo 80-100%, vermelho acima.">
+                    Presença
+                  </span>
+                </th>
                 <Th onClick={() => toggleSort("ultimaReuniaoAt")}>
                   Última reunião <SortIcon k="ultimaReuniaoAt" />
                 </Th>
                 <Th onClick={() => toggleSort("proximaReuniaoAt")}>
                   Próxima reunião <SortIcon k="proximaReuniaoAt" />
                 </Th>
-                <th className="text-left px-3 py-3 font-medium text-muted-foreground w-24">Ações</th>
+                <th className="text-left px-3 py-3 font-medium text-muted-foreground whitespace-nowrap">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {ordenados.map((c) => {
                 const cadencia = statusCadencia(c);
+                const term = statusTermometro(c.classificacao, c.ultimoContatoAt);
+                const selo = SELO_TERMOMETRO[term.status];
                 const waLink = whatsappLink(c.telefone);
                 const diasContato = diasDesde(c.ultimoContatoAt);
                 const diasProxReuniao = diasAte(c.proximaReuniaoAt);
@@ -1152,7 +1194,7 @@ export function ClientesTable({
                           <span
                             title={`Cliente A fora da cadência 12-4-2 (último contato há ${
                               diasContato === null ? "—" : `${diasContato} dias`
-                            }). Limite atenção: 30d, alerta: 45d.`}
+                            }). Cadência A: 30 dias (amarelo ≥24d, vermelho >30d).`}
                           >
                             <AlertTriangle
                               className={`h-3.5 w-3.5 ${
@@ -1260,6 +1302,20 @@ export function ClientesTable({
                       )}
                     </td>
 
+                    <td className="px-3 py-3">
+                      <span
+                        className="inline-flex items-center gap-1.5"
+                        title={
+                          term.status === "sem-historico"
+                            ? "Nenhum contato registrado"
+                            : `${term.dias}d desde o último contato · cadência classe ${c.classificacao}: ${term.cadencia}d (${Math.round((term.pct ?? 0) * 100)}%)`
+                        }
+                      >
+                        <span className={`h-2.5 w-2.5 rounded-full ${selo.dot}`} />
+                        <span className={`text-xs ${selo.texto}`}>{selo.label}</span>
+                      </span>
+                    </td>
+
                     <td className="px-3 py-3 text-xs text-muted-foreground">
                       {c.ultimaReuniaoAt ? formatData(c.ultimaReuniaoAt) : "—"}
                     </td>
@@ -1297,6 +1353,19 @@ export function ClientesTable({
                         ) : (
                           <span className="text-xs text-muted-foreground italic">sem tel</span>
                         )}
+                        <button
+                          onClick={() => registrarContatoAgora(c.id, c.nome)}
+                          disabled={registrandoContato === c.id}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded bg-sky-500/10 text-sky-700 dark:text-sky-400 hover:bg-sky-500/20 text-xs disabled:opacity-50"
+                          title="Registrar contato realizado agora (liga/whats/sala) — atualiza Último contato e recalcula próximo contato"
+                        >
+                          {registrandoContato === c.id ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <Phone className="h-3 w-3" />
+                          )}
+                          Contato
+                        </button>
                         <button
                           onClick={() => registrarReuniaoAgora(c.id, c.nome)}
                           disabled={registrandoReuniao === c.id}
