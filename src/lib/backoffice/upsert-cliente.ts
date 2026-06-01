@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { FIELD_SOURCE_POLICY, type FonteImport } from "./field-source-policy";
+import { contaCanonica, variacoesConta } from "./conta";
 
 /**
  * Upsert respeitando FIELD_SOURCE_POLICY. Vive separado de
@@ -55,8 +56,13 @@ export async function upsertPorPolitica(args: {
     return { acao: "noop", camposEscritos, camposBloqueados };
   }
 
+  // Casa por QUALQUER variação da conta (com/sem zeros à esquerda, pad9), não
+  // só pelo valor exato — senão um sync que normaliza diferente do que foi
+  // persistido cria um gêmeo. orderBy createdAt asc: se houver duplicata
+  // legada, prefere a linha mais antiga (a canônica, com histórico).
   const existente = await prisma.clienteBackoffice.findFirst({
-    where: { numeroConta },
+    where: { numeroConta: { in: variacoesConta(numeroConta) } },
+    orderBy: { createdAt: "asc" },
     select: { id: true, fonteUltimoUpdate: true },
   });
 
@@ -87,7 +93,7 @@ export async function upsertPorPolitica(args: {
       : `Conta ${numeroConta}`;
   const created = await prisma.clienteBackoffice.create({
     data: {
-      numeroConta,
+      numeroConta: contaCanonica(numeroConta),
       nome: nomeCreate,
       ...(dadosFiltrados as Record<string, never>),
       fonteUltimoUpdate: fonteAtualizada as never,

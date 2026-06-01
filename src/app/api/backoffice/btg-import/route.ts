@@ -4,6 +4,7 @@ import { getSession } from "@/lib/session";
 import * as btg from "@/lib/integrations/btg";
 import { parseValorFinanceiro } from "@/lib/backoffice/parse-financeiro";
 import { reconciliarTotaisBtg } from "@/lib/backoffice/reconciliacao-btg";
+import { contaCanonica, variacoesConta } from "@/lib/backoffice/conta";
 
 /**
  * POST /api/backoffice/btg-import
@@ -127,8 +128,11 @@ export async function POST() {
       const aum: number | undefined = posicao?.aum ?? saldos?.saldo;
       const saldoConta: number | undefined = saldos?.saldoConta;
 
+      // Casa por variações da conta (com/sem zeros, pad9) pra não criar gêmeo
+      // de uma linha já persistida noutro formato. Prefere a mais antiga.
       const existente = await prisma.clienteBackoffice.findFirst({
-        where: { numeroConta },
+        where: { numeroConta: { in: variacoesConta(numeroConta) } },
+        orderBy: { createdAt: "asc" },
         select: { id: true },
       });
 
@@ -148,7 +152,7 @@ export async function POST() {
       } else {
         await prisma.clienteBackoffice.create({
           data: {
-            numeroConta,
+            numeroConta: contaCanonica(numeroConta),
             nome: `Cliente ${numeroConta}`,
             saldo: aum ?? 0,
             saldoConta: saldoConta ?? 0,
