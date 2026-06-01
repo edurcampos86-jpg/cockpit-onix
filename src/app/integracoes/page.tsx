@@ -161,6 +161,16 @@ const STATUS_BADGE: Record<string, { label: string; class: string; icon: React.R
     class: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
     icon: <CheckCircle2 className="h-3.5 w-3.5" />,
   },
+  needs_reconnect: {
+    label: "Reconectar",
+    class: "bg-red-500/10 text-red-400 border-red-500/30",
+    icon: <AlertCircle className="h-3.5 w-3.5" />,
+  },
+  unstable: {
+    label: "Instável",
+    class: "bg-amber-500/10 text-amber-400 border-amber-500/20",
+    icon: <AlertCircle className="h-3.5 w-3.5" />,
+  },
   pending_auth: {
     label: "Aguardando autorização",
     class: "bg-amber-500/10 text-amber-400 border-amber-500/20",
@@ -224,6 +234,31 @@ const MICROSOFT_ERROR_LABEL: Record<
   rate_limit: "Cota Microsoft Graph excedida temporariamente.",
   unknown: "Erro inesperado na última chamada Microsoft.",
 };
+
+// Selo reflete a VALIDADE do token, não só a existência da conexão:
+// erro de credencial (expired/escopo) → "Reconectar" (vermelho);
+// erro transitório (rede/quota) → "Instável" (âmbar); senão "Conectado".
+type ErroIntegracao =
+  | "expired"
+  | "insufficient_scope"
+  | "network"
+  | "rate_limit"
+  | "unknown"
+  | null
+  | undefined;
+function badgeValidade(
+  connected: boolean | undefined,
+  lastError: ErroIntegracao,
+): string | null {
+  if (!connected) return null; // cai pro status padrão (não conectado etc.)
+  if (lastError === "expired" || lastError === "insufficient_scope") {
+    return "needs_reconnect";
+  }
+  if (lastError === "network" || lastError === "rate_limit" || lastError === "unknown") {
+    return "unstable";
+  }
+  return "connected";
+}
 
 export default function IntegracoesPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -474,7 +509,15 @@ export default function IntegracoesPage() {
         />
         {INTEGRATIONS.map((integration) => {
           // Usar status da API se disponível, senão o default hardcoded
-          const liveStatus = statusMap[integration.id] || integration.status;
+          let liveStatus = statusMap[integration.id] || integration.status;
+          // Google/Microsoft: selo reflete a validade do token (lastError),
+          // não só a existência da conexão.
+          if (integration.id === "google_calendar") {
+            liveStatus = badgeValidade(googleUser?.connected, googleUser?.lastError) ?? liveStatus;
+          } else if (integration.id === "microsoft_graph") {
+            liveStatus =
+              badgeValidade(microsoftUser?.connected, microsoftUser?.lastError) ?? liveStatus;
+          }
           const badge = STATUS_BADGE[liveStatus] || STATUS_BADGE[integration.status];
           const isExpanded = expandedId === integration.id;
 
