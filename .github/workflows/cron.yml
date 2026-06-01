@@ -19,7 +19,7 @@ on:
   schedule:
     - cron: '*/5 * * * *'   # datacrazy-poll (mensagens WhatsApp)
     - cron: '*/15 * * * *'  # google-calendar-poll + auto-encerrar + triar-emails
-    - cron: '*/30 * * * *'  # outlook-poll + datacrazy-atividades-poll
+    - cron: '*/30 * * * *'  # outlook-poll + datacrazy-atividades-poll + integration-audit
     - cron: '30 10 * * 1-5' # boot-do-dia (seg-sex 07:30 Bahia / 10:30 UTC)
     - cron: '0 23 * * 0'    # retrospectiva-semanal (dom 20:00 Bahia / 23:00 UTC)
     - cron: '0 4 * * 2'     # btg-movements-poll (ter 01:00 Bahia / 04:00 UTC — fora de pico)
@@ -62,7 +62,7 @@ jobs:
                 PATHS="/api/cron/google-calendar-poll /api/cron/auto-encerrar /api/cron/triar-emails"
                 ;;
               "*/30 * * * *")
-                PATHS="/api/cron/outlook-poll /api/cron/datacrazy-atividades-poll /api/cron/juridico-email-poll"
+                PATHS="/api/cron/outlook-poll /api/cron/datacrazy-atividades-poll /api/cron/juridico-email-poll /api/cron/integration-audit"
                 ;;
               "30 10 * * 1-5")
                 PATHS="/api/cron/boot-do-dia"

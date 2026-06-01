@@ -104,6 +104,31 @@ model UserMicrosoftAuth {
 }
 
 // ============================================
+// AUDITORIA DE INTEGRAÇÕES
+// ============================================
+// Estado por integração pro Auditor (src/lib/audit-integracoes.ts):
+// guarda o último status classificado, desde quando está falhando e quando
+// foi o último alerta — pra dedupe (alertar na transição, reenviar 1x/dia,
+// avisar "resolvido") sem spammar. BTG não tem modelo de auth próprio, então
+// o estado dele vive aqui também (chave="btg", userId=null).
+model IntegracaoAuditoria {
+  id                String   @id @default(cuid())
+  // chave única: "google:<userId>" | "microsoft:<userId>" | "btg"
+  chave             String   @unique
+  integracao        String // "google" | "microsoft" | "btg"
+  userId            String? // dono (null para integrações globais como BTG)
+  status            String // último StatusIntegracao: ok|refresh_recuperado|precisa_reconectar|transitorio
+  statusDesde       DateTime? // desde quando está falhando (para "há quanto tempo caiu")
+  alertadoEm        DateTime? // último alerta Slack enviado (dedupe + reenvio 1x/dia)
+  transitorioStreak Int      @default(0) // falhas transitórias consecutivas (alerta só com >=3)
+  ultimoErro        String?  @db.Text // última mensagem de erro crua (debug)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([integracao])
+}
+
+// ============================================
 // CALENDÁRIO EDITORIAL E CONTEÚDO
 // ============================================
 
