@@ -19,11 +19,10 @@ on:
   schedule:
     - cron: '*/5 * * * *'   # datacrazy-poll (mensagens WhatsApp)
     - cron: '*/15 * * * *'  # google-calendar-poll + auto-encerrar + triar-emails
-    - cron: '*/30 * * * *'  # outlook-poll + datacrazy-atividades-poll
+    - cron: '*/30 * * * *'  # outlook-poll + datacrazy-atividades-poll + integration-audit
     - cron: '30 10 * * 1-5' # boot-do-dia (seg-sex 07:30 Bahia / 10:30 UTC)
     - cron: '0 23 * * 0'    # retrospectiva-semanal (dom 20:00 Bahia / 23:00 UTC)
     - cron: '0 4 * * 2'     # btg-movements-poll (ter 01:00 Bahia / 04:00 UTC — fora de pico)
-    - cron: '0 9 * * *'     # cadencia-backfill (diário 06:00 Bahia / 09:00 UTC — semeia proximoContatoAt de novatos)
     # Backup do Postgres e restore drill vivem em workflows próprios:
     # .github/workflows/db-backup.yml (06:00 UTC diário, faz pg_dump direto sem
     # depender da app) e .github/workflows/restore-drill.yml (segunda 07:00 UTC).
@@ -63,7 +62,7 @@ jobs:
                 PATHS="/api/cron/google-calendar-poll /api/cron/auto-encerrar /api/cron/triar-emails"
                 ;;
               "*/30 * * * *")
-                PATHS="/api/cron/outlook-poll /api/cron/datacrazy-atividades-poll /api/cron/juridico-email-poll"
+                PATHS="/api/cron/outlook-poll /api/cron/datacrazy-atividades-poll /api/cron/juridico-email-poll /api/cron/integration-audit"
                 ;;
               "30 10 * * 1-5")
                 PATHS="/api/cron/boot-do-dia"
@@ -73,9 +72,6 @@ jobs:
                 ;;
               "0 4 * * 2")
                 PATHS="/api/cron/btg-movements-poll"
-                ;;
-              "0 9 * * *")
-                PATHS="/api/cron/cadencia-backfill"
                 ;;
               *)
                 echo "Schedule '$SCHEDULE' não mapeado — nenhum endpoint executado."
