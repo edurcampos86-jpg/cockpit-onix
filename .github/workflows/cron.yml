@@ -23,6 +23,8 @@ on:
     - cron: '30 10 * * 1-5' # boot-do-dia (seg-sex 07:30 Bahia / 10:30 UTC)
     - cron: '0 23 * * 0'    # retrospectiva-semanal (dom 20:00 Bahia / 23:00 UTC)
     - cron: '0 4 * * 2'     # btg-movements-poll (ter 01:00 Bahia / 04:00 UTC — fora de pico)
+    - cron: '0 9 * * *'     # btg-balances-poll (diário 06:00 Bahia / 09:00 UTC — saldoConta)
+    - cron: '0 7 * * 0'     # btg-cadastral-poll (dom 04:00 Bahia / 07:00 UTC — off-peak, incremental)
     # Backup do Postgres e restore drill vivem em workflows próprios:
     # .github/workflows/db-backup.yml (06:00 UTC diário, faz pg_dump direto sem
     # depender da app) e .github/workflows/restore-drill.yml (segunda 07:00 UTC).
@@ -44,7 +46,9 @@ concurrency:
 jobs:
   dispatch:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 12min: btg-cadastral-poll pode levar ~9min (rate limit 55/min). Os demais
+    # schedules terminam em segundos.
+    timeout-minutes: 12
     steps:
       - name: Resolve paths
         id: resolve
@@ -73,6 +77,12 @@ jobs:
               "0 4 * * 2")
                 PATHS="/api/cron/btg-movements-poll"
                 ;;
+              "0 9 * * *")
+                PATHS="/api/cron/btg-balances-poll"
+                ;;
+              "0 7 * * 0")
+                PATHS="/api/cron/btg-cadastral-poll"
+                ;;
               *)
                 echo "Schedule '$SCHEDULE' não mapeado — nenhum endpoint executado."
                 PATHS=""
@@ -99,9 +109,16 @@ jobs:
           for path in ${{ steps.resolve.outputs.paths }}; do
             URL="${BASE_URL}${path}"
             echo "[$(date '+%H:%M:%S')] GET $URL"
+            # btg-cadastral-poll é rate-limited (55/min) e processa ~480 contas
+            # por run → precisa de janela maior. Os demais paths terminam em
+            # segundos; 120s é teto de segurança.
+            case "$path" in
+              */btg-cadastral-poll) MAXT=540 ;;
+              *) MAXT=120 ;;
+            esac
             HTTP_CODE=$(curl -fsS -o /tmp/resp.txt -w "%{http_code}" \
               -H "Authorization: Bearer ${CRON_SECRET}" \
-              --max-time 120 \
+              --max-time "$MAXT" \
               "$URL") || HTTP_CODE="000"
             BODY=$(cat /tmp/resp.txt 2>/dev/null | head -c 2000)
             echo "  → HTTP $HTTP_CODE"

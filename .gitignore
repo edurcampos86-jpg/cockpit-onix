@@ -59,3 +59,4 @@ dev.db-journal
 
 # Migration backups (ad-hoc dumps locais, fora do controle de versao)
 .migration-backups/
+scripts/_btg-discovery-output.json
