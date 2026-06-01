@@ -7,6 +7,7 @@ import {
   recomputeAgregadosBatch,
   type ReuniaoMatchedVia,
 } from "@/lib/reunioes";
+import { reunioesParaRemover } from "@/lib/reunioes-cleanup";
 
 /**
  * Sync de reuniões do Outlook (ICS público) → ReuniaoCliente
@@ -146,10 +147,15 @@ export async function syncOutlookIcsComClientes(opts: {
   }
 
   // ── Buscar eventos
+  // `fetchOk` precisa virar false se a listagem falhar — o cleanup deleta com
+  // base em "o que NÃO apareceu no fetch"; sobre fetch falho isso apagaria
+  // reuniões válidas (mesmo bug do google-calendar-clientes-sync).
   let events: IcsEvent[] = [];
+  let fetchOk = true;
   try {
     events = await fetchIcsEvents(icsUrl);
   } catch (e) {
+    fetchOk = false;
     erros.push({ etapa: "fetchIcs", motivo: e instanceof Error ? e.message : "?" });
   }
 
@@ -248,25 +254,31 @@ export async function syncOutlookIcsComClientes(opts: {
     }
   }
 
-  // ── Cleanup
-  const candidatas = await prisma.reuniaoCliente.findMany({
-    where: {
-      source: "outlook-ics",
-      startAt: { gte: janelaInicio, lte: janelaFim },
-    },
-    select: { id: true, clienteId: true, externalId: true },
-  });
-  const removerIds = candidatas
-    .filter((r) => !externalIdsVistos.has(r.externalId))
-    .map((r) => ({ id: r.id, clienteId: r.clienteId }));
-
+  // ── Cleanup — só sobre fetch que teve sucesso real (ver fetchOk acima).
   let reunioesRemovidas = 0;
-  if (removerIds.length > 0) {
-    const r = await prisma.reuniaoCliente.deleteMany({
-      where: { id: { in: removerIds.map((x) => x.id) } },
+  if (!fetchOk) {
+    erros.push({
+      etapa: "cleanup",
+      motivo:
+        "pulado — fetchIcs falhou; cleanup não roda sobre fetch incompleto (evita deleção em massa)",
     });
-    reunioesRemovidas = r.count;
-    for (const x of removerIds) clientesAfetados.add(x.clienteId);
+  } else {
+    const candidatas = await prisma.reuniaoCliente.findMany({
+      where: {
+        source: "outlook-ics",
+        startAt: { gte: janelaInicio, lte: janelaFim },
+      },
+      select: { id: true, clienteId: true, externalId: true },
+    });
+    const removerIds = reunioesParaRemover(fetchOk, candidatas, externalIdsVistos);
+
+    if (removerIds.length > 0) {
+      const r = await prisma.reuniaoCliente.deleteMany({
+        where: { id: { in: removerIds.map((x) => x.id) } },
+      });
+      reunioesRemovidas = r.count;
+      for (const x of removerIds) clientesAfetados.add(x.clienteId);
+    }
   }
 
   // ── Recompute agregados

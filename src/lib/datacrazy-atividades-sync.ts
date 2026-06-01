@@ -6,6 +6,7 @@ import {
   deleteReuniaoByExternal,
   recomputeAgregadosBatch,
 } from "@/lib/reunioes";
+import { reunioesParaRemover } from "@/lib/reunioes-cleanup";
 import { prisma } from "@/lib/prisma";
 
 /**
@@ -56,7 +57,12 @@ export async function syncDatacrazyAtividades(opts: {
   const erros: Array<{ etapa: string; motivo: string }> = [];
 
   // ── Listar atividades
+  // `fetchOk` guarda APENAS a listagem (fetchAtividades) — é ela que monta
+  // `externalIdsVistos`. Se falhar, o cleanup deletaria atividades válidas
+  // (mesmo bug do google-calendar-clientes-sync). Falhas de fetchLead são
+  // por-atividade e não corrompem o set (o id já foi visto antes).
   let atividades: Awaited<ReturnType<typeof fetchAtividades>> = [];
+  let fetchOk = true;
   try {
     atividades = await fetchAtividades({
       token: opts.token,
@@ -65,6 +71,7 @@ export async function syncDatacrazyAtividades(opts: {
       startDateLte,
     });
   } catch (e) {
+    fetchOk = false;
     erros.push({
       etapa: "fetchAtividades",
       motivo: e instanceof Error ? e.message : "?",
@@ -152,25 +159,32 @@ export async function syncDatacrazyAtividades(opts: {
     }
   }
 
-  // ── Cleanup: atividades que sumiram da janela atual
-  const candidatas = await prisma.reuniaoCliente.findMany({
-    where: {
-      source: "datacrazy-atividade",
-      startAt: { gte: startDateGte, lte: startDateLte },
-    },
-    select: { id: true, clienteId: true, externalId: true },
-  });
-  const removerIds: { id: string; clienteId: string }[] = candidatas
-    .filter((r) => !externalIdsVistos.has(r.externalId))
-    .map((r) => ({ id: r.id, clienteId: r.clienteId }));
-
+  // ── Cleanup: atividades que sumiram da janela atual — só sobre fetch que
+  // teve sucesso real (ver fetchOk acima).
   let reunioesRemovidas = 0;
-  if (removerIds.length > 0) {
-    const r = await prisma.reuniaoCliente.deleteMany({
-      where: { id: { in: removerIds.map((x) => x.id) } },
+  if (!fetchOk) {
+    erros.push({
+      etapa: "cleanup",
+      motivo:
+        "pulado — fetchAtividades falhou; cleanup não roda sobre fetch incompleto (evita deleção em massa)",
     });
-    reunioesRemovidas = r.count;
-    for (const x of removerIds) clientesAfetados.add(x.clienteId);
+  } else {
+    const candidatas = await prisma.reuniaoCliente.findMany({
+      where: {
+        source: "datacrazy-atividade",
+        startAt: { gte: startDateGte, lte: startDateLte },
+      },
+      select: { id: true, clienteId: true, externalId: true },
+    });
+    const removerIds = reunioesParaRemover(fetchOk, candidatas, externalIdsVistos);
+
+    if (removerIds.length > 0) {
+      const r = await prisma.reuniaoCliente.deleteMany({
+        where: { id: { in: removerIds.map((x) => x.id) } },
+      });
+      reunioesRemovidas = r.count;
+      for (const x of removerIds) clientesAfetados.add(x.clienteId);
+    }
   }
 
   // ── Recomputar agregados
