@@ -5,6 +5,12 @@
  *   - base_btg     → posição financeira (PL, alocação, aportes, datas BTG)
  *   - informacoes  → cadastrais (PF, endereço, suitability, status conta)
  *   - saldo_em_cc  → saldo em conta corrente (apenas saldoConta)
+ *   - api          → Partner API BTG (sync automático). Cobertura FINA: só o
+ *                    que getAccountInformation + getSuitabilityInfo + listAllBalances
+ *                    devolvem (ver scripts/btg-discovery.ts). Tudo o que a API
+ *                    NÃO traz (profissão, estado civil, PL declarado, renda anual,
+ *                    AUM, breakdown) segue vindo do arquivo — `api` NÃO é fonte
+ *                    autorizada nesses campos, então upsertPorPolitica os bloqueia.
  *   - manual       → campos editados pelo operador (apelido + observações)
  *
  * Quando há sobreposição (ex.: o Base_BTG também sabe saldoConta via
@@ -16,13 +22,15 @@
  * escrever, e registra a fonte+timestamp em `fonteUltimoUpdate`.
  */
 
-export type FonteImport = "base_btg" | "informacoes" | "saldo_em_cc" | "manual";
+export type FonteImport = "base_btg" | "informacoes" | "saldo_em_cc" | "api" | "manual";
 
 export const FIELD_SOURCE_POLICY: Record<string, FonteImport[]> = {
   // ── Identidade ─────────────────────────────────────────────────────────
   // Nome curto vem do Base_BTG; informacoes preenche o formal.
   nome: ["base_btg"],
-  nomeCompleto: ["informacoes"],
+  // nomeCompleto: o arquivo Base não tem nome completo formal; quem traz é a
+  // Partner API (holder.name). `informacoes` mantido por compat com imports antigos.
+  nomeCompleto: ["informacoes", "api"],
   // apelido é MANUAL — nenhuma import sobrescreve.
   apelido: ["manual"],
 
@@ -70,11 +78,11 @@ export const FIELD_SOURCE_POLICY: Record<string, FonteImport[]> = {
   documento: ["informacoes"],
   numeroDocumento: ["informacoes"],
   dataEmissaoDocumento: ["informacoes"],
-  cpfCnpj: ["informacoes", "base_btg"], // cai pro base_btg se Informacoes faltar
+  cpfCnpj: ["informacoes", "base_btg", "api"], // cai pro base_btg se Informacoes faltar; api = holder.taxIdentification
   cpfConjuge: ["informacoes"],
   perfilAcesso: ["informacoes"],
-  perfilInvestidor: ["informacoes"], // task chama de "perfilSuitability"
-  suitabilityValidoAte: ["informacoes"], // task chama de "vencimentoSuitability"
+  perfilInvestidor: ["informacoes", "api"], // task chama de "perfilSuitability"; api = getSuitabilityInfo.description
+  suitabilityValidoAte: ["informacoes", "api"], // task chama de "vencimentoSuitability"; api = getSuitabilityInfo.expirationDate
   dataUltimaRevisaoCadastral: ["informacoes"],
   dataProximaRevisaoCadastral: ["informacoes"],
   pendenciaCadastral: ["informacoes"],
@@ -89,8 +97,8 @@ export const FIELD_SOURCE_POLICY: Record<string, FonteImport[]> = {
   cidade: ["informacoes"],
   estado: ["informacoes"],
   cep: ["informacoes"],
-  telefone: ["informacoes"],
-  email: ["informacoes"], // task chama de "emailAcesso"
+  telefone: ["informacoes", "api"], // api = users[owner].phoneNumber
+  email: ["informacoes", "api"], // task chama de "emailAcesso"; api = users[owner].userEmail
 
   // ── Saldo CC (fonte ÚNICA: saldo_em_cc) ──────────────────────────────
   // saldo_em_cc é o relatório canônico pro saldo em conta corrente. Base BTG
@@ -98,7 +106,9 @@ export const FIELD_SOURCE_POLICY: Record<string, FonteImport[]> = {
   // antigo, (b) sobrescrever o saldo_em_cc por base_btg viola a regra de
   // negócio. Se preciso popular `contaCorrenteBase` (snapshot da base) com
   // o valor da Base BTG, usar campo dedicado — não saldoConta.
-  saldoConta: ["saldo_em_cc"],
+  // api = listAllBalances.availableBalance (sync diário). saldo_em_cc mantém
+  // prioridade conceitual (relatório canônico), mas o sync diário é mais fresco.
+  saldoConta: ["saldo_em_cc", "api"],
 };
 
 /**
