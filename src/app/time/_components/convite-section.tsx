@@ -75,6 +75,8 @@ export async function ConviteSection({
 
   if (conviteValido) {
     const path = `/onboarding/${convite.token}`;
+    const base = (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "");
+    const linkConvite = base ? `${base}${path}` : path;
     return (
       <SectionShell>
         <div className="space-y-3">
@@ -96,11 +98,8 @@ export async function ConviteSection({
           </div>
 
           <code className="block text-xs bg-background border border-border rounded p-2 break-all select-all">
-            {path}
+            {linkConvite}
           </code>
-          <p className="text-[10px] text-muted-foreground italic">
-            Use o domínio do seu Cockpit ao mandar — ex.: https://cockpit-onix-app-production.up.railway.app{path}
-          </p>
 
           <div className="flex items-center gap-2 pt-1">
             <form action={gerarConviteForm}>
