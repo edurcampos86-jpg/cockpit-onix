@@ -71,8 +71,9 @@ export async function gerarConvite(
   // Em ambiente Server Action, não temos acesso direto ao host. Usamos uma env opcional.
   const base =
     process.env.NEXT_PUBLIC_APP_URL ||
-    process.env.RAILWAY_PUBLIC_DOMAIN ||
-    ""; // sem base, retorna só o path
+    (process.env.RAILWAY_PUBLIC_DOMAIN
+      ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+      : ""); // sem base, retorna só o path
   const url = base
     ? `${base.replace(/\/$/, "")}/onboarding/${token}`
     : `/onboarding/${token}`;
