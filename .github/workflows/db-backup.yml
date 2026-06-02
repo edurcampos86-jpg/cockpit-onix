@@ -9,6 +9,12 @@ name: DB Backup → Cloudflare R2
 #   1 imutável: lifecycle do R2 + bucket versioning (configurado manualmente)
 #   0 erros: validado pelo restore-drill.yml semanal
 #
+# Confidencialidade: o dump (dados financeiros de clientes) é cifrado
+# CLIENT-SIDE com age (X25519) ANTES do upload. Só o .age sai do runner;
+# nada em claro toca o R2. A chave PRIVADA vive só no secret AGE_PRIVATE_KEY
+# (usada pelo restore-drill) e offline — ver RESTORE-DB.md. O db-backup só
+# precisa da chave PÚBLICA (AGE_PUBLIC_KEY), que não é segredo de fato.
+#
 # O backup roda dentro de um container postgres:16-alpine para garantir
 # compatibilidade exata do pg_dump com o servidor. Sem isso, mismatch de
 # versão entre client e server quebra silenciosamente.
@@ -53,6 +59,7 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          AGE_PUBLIC_KEY: ${{ secrets.AGE_PUBLIC_KEY }}
         run: |
           MISSING=""
           [ -z "$DATABASE_URL" ]        && MISSING="$MISSING DATABASE_URL"
@@ -60,6 +67,7 @@ jobs:
           [ -z "$R2_ACCESS_KEY_ID" ]    && MISSING="$MISSING R2_ACCESS_KEY_ID"
           [ -z "$R2_SECRET_ACCESS_KEY" ] && MISSING="$MISSING R2_SECRET_ACCESS_KEY"
           [ -z "$R2_BUCKET" ]           && MISSING="$MISSING R2_BUCKET"
+          [ -z "$AGE_PUBLIC_KEY" ]      && MISSING="$MISSING AGE_PUBLIC_KEY"
           if [ -n "$MISSING" ]; then
             echo "::error::Secrets ausentes:$MISSING"
             echo "::error::Configure em Settings → Secrets and variables → Actions"
@@ -73,20 +81,36 @@ jobs:
           TS=$(date -u '+%Y%m%d-%H%M%S')
           DOW=$(date -u '+%u')   # 1=segunda ... 7=domingo
           DOM=$(date -u '+%d')   # 01..31
-          FILE="cockpit-onix-${TS}.dump.gz"
+          # PLAIN = dump em claro, intermediário, NUNCA sai do runner.
+          # FILE  = objeto cifrado (.age) que de fato sobe pro R2.
+          PLAIN="cockpit-onix-${TS}.dump.gz"
+          FILE="${PLAIN}.age"
           PREFIXES="daily"
           [ "$DOW" = "1" ] && PREFIXES="$PREFIXES weekly"
           [ "$DOM" = "01" ] && PREFIXES="$PREFIXES monthly"
           echo "filename=$FILE"      >> "$GITHUB_OUTPUT"
+          echo "plainfile=$PLAIN"    >> "$GITHUB_OUTPUT"
           echo "prefixes=$PREFIXES"  >> "$GITHUB_OUTPUT"
           echo "timestamp=$TS"       >> "$GITHUB_OUTPUT"
-          echo "Arquivo: $FILE"
+          echo "Arquivo (cifrado): $FILE"
           echo "Prefixos: $PREFIXES"
+
+      - name: Install age (pinned)
+        env:
+          AGE_VERSION: v1.2.1
+        run: |
+          set -euo pipefail
+          cd /tmp
+          curl -fsSL -o age.tar.gz \
+            "https://github.com/FiloSottile/age/releases/download/${AGE_VERSION}/age-${AGE_VERSION}-linux-amd64.tar.gz"
+          tar xzf age.tar.gz
+          sudo install -m 0755 age/age /usr/local/bin/age
+          age --version
 
       - name: Run pg_dump inside postgres:16-alpine
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          FILE: ${{ steps.meta.outputs.filename }}
+          PLAIN: ${{ steps.meta.outputs.plainfile }}
         run: |
           # Roda pg_dump dentro do container oficial pra casar com Postgres 16
           # do Railway. Sem isso, server version mismatch faz dump falhar.
@@ -102,12 +126,34 @@ jobs:
             sh -c "pg_dump --format=custom --no-owner --no-privileges --no-acl --compress=0 --dbname='$DATABASE_URL' --file=/out/backup.dump"
           ls -lh ./out/backup.dump
           gzip -9 ./out/backup.dump
-          mv ./out/backup.dump.gz "./out/$FILE"
+          mv ./out/backup.dump.gz "./out/$PLAIN"
+          ls -lh "./out/$PLAIN"
+          SIZE=$(stat -c%s "./out/$PLAIN")
+          echo "Dump em claro gerado: $PLAIN ($((SIZE / 1024 / 1024)) MB)"
+          if [ "$SIZE" -lt 1024 ]; then
+            echo "::error::Dump suspeito: menor que 1KB"
+            exit 1
+          fi
+
+      - name: Encrypt dump with age (client-side)
+        env:
+          AGE_PUBLIC_KEY: ${{ secrets.AGE_PUBLIC_KEY }}
+          PLAIN: ${{ steps.meta.outputs.plainfile }}
+          FILE: ${{ steps.meta.outputs.filename }}
+        run: |
+          # Cifra X25519 com a chave pública do destinatário. O valor da chave
+          # vem por env e não é impresso. Depois apaga o claro pra garantir que
+          # só o .age exista no runner / suba pro R2.
+          set -euo pipefail
+          age -r "$AGE_PUBLIC_KEY" -o "./out/$FILE" "./out/$PLAIN"
+          rm -f "./out/$PLAIN"
           ls -lh "./out/$FILE"
           SIZE=$(stat -c%s "./out/$FILE")
-          echo "Backup gerado: $FILE ($((SIZE / 1024 / 1024)) MB)"
+          echo "Backup cifrado gerado: $FILE ($((SIZE / 1024 / 1024)) MB)"
+          # age sempre adiciona header/overhead; um .age < 1KB indica dump vazio
+          # ou cifra que não rodou. Aborta — não trata como sucesso.
           if [ "$SIZE" -lt 1024 ]; then
-            echo "::error::Backup suspeito: menor que 1KB"
+            echo "::error::Backup cifrado suspeito: menor que 1KB"
             exit 1
           fi
 
