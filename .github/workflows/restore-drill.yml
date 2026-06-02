@@ -68,12 +68,17 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          AGE_PRIVATE_KEY: ${{ secrets.AGE_PRIVATE_KEY }}
         run: |
           MISSING=""
           [ -z "$R2_ACCOUNT_ID" ]        && MISSING="$MISSING R2_ACCOUNT_ID"
           [ -z "$R2_ACCESS_KEY_ID" ]     && MISSING="$MISSING R2_ACCESS_KEY_ID"
           [ -z "$R2_SECRET_ACCESS_KEY" ] && MISSING="$MISSING R2_SECRET_ACCESS_KEY"
           [ -z "$R2_BUCKET" ]            && MISSING="$MISSING R2_BUCKET"
+          # AGE_PRIVATE_KEY é obrigatória pra decifrar os backups .age. Backups
+          # .gz antigos (pré-cifra, ainda na retenção) não a usam, mas o drill
+          # deve provar que a chave decifra — então exigimos sempre.
+          [ -z "$AGE_PRIVATE_KEY" ]      && MISSING="$MISSING AGE_PRIVATE_KEY"
           if [ -n "$MISSING" ]; then
             echo "::error::Secrets ausentes:$MISSING"
             exit 1
@@ -85,6 +90,18 @@ jobs:
           sudo apt-get install -y -qq postgresql-client-16
           pg_restore --version
           psql --version
+
+      - name: Install age (pinned)
+        env:
+          AGE_VERSION: v1.2.1
+        run: |
+          set -euo pipefail
+          cd /tmp
+          curl -fsSL -o age.tar.gz \
+            "https://github.com/FiloSottile/age/releases/download/${AGE_VERSION}/age-${AGE_VERSION}-linux-amd64.tar.gz"
+          tar xzf age.tar.gz
+          sudo install -m 0755 age/age /usr/local/bin/age
+          age --version
 
       - name: Resolve backup key
         id: backup
@@ -103,11 +120,13 @@ jobs:
           else
             # Lista daily/ e pega o mais recente (sort lexicográfico do nome
             # com timestamp YYYYMMDD-HHMMSS funciona como sort cronológico).
+            # contains(.dump.gz) casa tanto os .dump.gz antigos quanto os
+            # .dump.gz.age novos — a transição é transparente.
             KEY=$(aws s3api list-objects-v2 \
               --bucket "$R2_BUCKET" \
               --prefix "daily/" \
               --endpoint-url "$ENDPOINT" \
-              --query 'Contents[?ends_with(Key, `.dump.gz`)].Key' \
+              --query 'Contents[?contains(Key, `.dump.gz`)].Key' \
               --output json | jq -r 'sort | last')
           fi
           if [ -z "$KEY" ] || [ "$KEY" = "null" ]; then
@@ -117,7 +136,7 @@ jobs:
           echo "key=$KEY" >> "$GITHUB_OUTPUT"
           echo "Backup escolhido: $KEY"
 
-      - name: Download backup from R2
+      - name: Download backup from R2 (decrypt if .age)
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
@@ -125,12 +144,31 @@ jobs:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
           KEY: ${{ steps.backup.outputs.key }}
+          AGE_PRIVATE_KEY: ${{ secrets.AGE_PRIVATE_KEY }}
         run: |
           set -euo pipefail
           ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
           mkdir -p ./backup
-          aws s3 cp "s3://${R2_BUCKET}/${KEY}" ./backup/backup.dump.gz \
-            --endpoint-url "$ENDPOINT" --no-progress
+          case "$KEY" in
+            *.age)
+              # Backup cifrado (novo formato). Baixa o .age e decifra com a
+              # chave privada via process substitution — a chave nunca toca o
+              # disco nem aparece em `ps`. O valor não é impresso.
+              aws s3 cp "s3://${R2_BUCKET}/${KEY}" ./backup/backup.dump.gz.age \
+                --endpoint-url "$ENDPOINT" --no-progress
+              ls -lh ./backup/backup.dump.gz.age
+              age -d -i <(printf '%s\n' "$AGE_PRIVATE_KEY") \
+                -o ./backup/backup.dump.gz ./backup/backup.dump.gz.age
+              rm -f ./backup/backup.dump.gz.age
+              echo "Backup decifrado com age."
+              ;;
+            *)
+              # Backup em claro (formato antigo, pré-cifra, ainda na retenção).
+              aws s3 cp "s3://${R2_BUCKET}/${KEY}" ./backup/backup.dump.gz \
+                --endpoint-url "$ENDPOINT" --no-progress
+              echo "Backup em claro (formato legado .gz)."
+              ;;
+          esac
           ls -lh ./backup/backup.dump.gz
           gunzip -f ./backup/backup.dump.gz
           ls -lh ./backup/backup.dump
