@@ -39,11 +39,16 @@ function mapRowToClienteLocal(row: Record<string, unknown>) {
   return { nome, numeroConta, saldo };
 }
 
+// Frase fixa que o usuário precisa digitar pra liberar o wipe total. Casa com
+// a trava server-side em /api/backoffice/clientes (DELETE).
+const CONFIRMACAO_DELETE_TOTAL = "REMOVER TODOS OS CLIENTES";
+
 export function DadosUpload({ initialClientes, initialTotal }: DadosUploadProps) {
   const [clientes, setClientes] = useState<Cliente[]>(initialClientes);
   const [total, setTotal] = useState(initialTotal);
   const [uploading, setUploading] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [confirmText, setConfirmText] = useState("");
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [xlsxReady, setXlsxReady] = useState(false);
@@ -156,14 +161,22 @@ export function DadosUpload({ initialClientes, initialTotal }: DadosUploadProps)
   };
 
   const handleDelete = async () => {
-    if (!confirm("Tem certeza que deseja remover todos os dados de clientes?")) return;
+    // Gate por frase digitada (o botão já fica desabilitado até bater, mas
+    // reforçamos aqui). force:true acompanha a confirmação pra casar com a
+    // trava server-side que bloqueia o wipe quando há movimentações BTG.
+    if (confirmText !== CONFIRMACAO_DELETE_TOTAL) return;
 
     setDeleting(true);
     try {
-      const res = await fetch("/api/backoffice/clientes", { method: "DELETE" });
+      const res = await fetch("/api/backoffice/clientes", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: CONFIRMACAO_DELETE_TOTAL, force: true }),
+      });
       if (res.ok) {
         setClientes([]);
         setTotal(0);
+        setConfirmText("");
         setMessage({ type: "success", text: "Dados removidos com sucesso" });
         clearMessage();
       }
@@ -207,14 +220,26 @@ export function DadosUpload({ initialClientes, initialTotal }: DadosUploadProps)
             </div>
           </div>
           {total > 0 && (
-            <button
-              onClick={handleDelete}
-              disabled={deleting}
-              className="flex items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-destructive/10 rounded-lg transition-colors disabled:opacity-50"
-            >
-              {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-              Limpar dados
-            </button>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={confirmText}
+                onChange={(e) => setConfirmText(e.target.value)}
+                placeholder={CONFIRMACAO_DELETE_TOTAL}
+                disabled={deleting}
+                aria-label="Digite a frase de confirmação para liberar a remoção total"
+                className="px-2 py-2 text-sm border rounded-lg bg-background w-64 disabled:opacity-50"
+              />
+              <button
+                onClick={handleDelete}
+                disabled={deleting || confirmText !== CONFIRMACAO_DELETE_TOTAL}
+                title={`Digite "${CONFIRMACAO_DELETE_TOTAL}" para habilitar`}
+                className="flex items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-destructive/10 rounded-lg transition-colors disabled:opacity-50"
+              >
+                {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                Limpar dados
+              </button>
+            </div>
           )}
         </div>
 
