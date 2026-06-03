@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
+import { executarMergeLeadingZeros } from "@/lib/backoffice/merge-leading-zeros";
 
 /**
  * POST /api/backoffice/clientes/cleanup-leading-zeros
@@ -134,102 +135,26 @@ export async function POST() {
   if (guard.error) return guard.error;
 
   try {
-    const antigos = await prisma.clienteBackoffice.findMany({
-      where: { NOT: { numeroConta: { startsWith: "0" } } },
-    });
-    const novos = await prisma.clienteBackoffice.findMany({
-      where: { numeroConta: { startsWith: "0" } },
-      select: {
-        id: true,
-        numeroConta: true,
-        proximaReuniaoAt: true,
-        ultimaReuniaoAt: true,
-        ultimoContatoAt: true,
-        observacoes: true,
-        perfilEmocional: true,
-        classificacaoManual: true,
-      },
-    });
-    const novosByConta = new Map(novos.map((n) => [n.numeroConta, n]));
-
-    let pares_encontrados = 0;
-    let migrados = 0;
-    let deletados = 0;
-    let antigos_sem_par_normalizados = 0;
-    let antigos_sem_par_pulados = 0;
-    const erros: Array<{ id: string; conta: string; motivo: string }> = [];
-
-    for (const antigo of antigos) {
-      const padded = normalizarConta(antigo.numeroConta);
-      if (!padded) {
-        antigos_sem_par_pulados++;
-        continue;
-      }
-      const novo = novosByConta.get(padded);
-
-      if (novo) {
-        pares_encontrados++;
-        const patch: Record<string, unknown> = {};
-        if (antigo.proximaReuniaoAt && !novo.proximaReuniaoAt) patch.proximaReuniaoAt = antigo.proximaReuniaoAt;
-        if (antigo.ultimaReuniaoAt && !novo.ultimaReuniaoAt) patch.ultimaReuniaoAt = antigo.ultimaReuniaoAt;
-        if (antigo.ultimoContatoAt && !novo.ultimoContatoAt) patch.ultimoContatoAt = antigo.ultimoContatoAt;
-        if (antigo.observacoes && !novo.observacoes) patch.observacoes = antigo.observacoes;
-        if (antigo.perfilEmocional && !novo.perfilEmocional) patch.perfilEmocional = antigo.perfilEmocional;
-        if (antigo.classificacaoManual && !novo.classificacaoManual) {
-          patch.classificacaoManual = true;
-          patch.classificacao = antigo.classificacao;
-        }
-
-        try {
-          if (Object.keys(patch).length > 0) {
-            await prisma.clienteBackoffice.update({ where: { id: novo.id }, data: patch });
-            migrados++;
-          }
-          await prisma.clienteBackoffice.delete({ where: { id: antigo.id } });
-          deletados++;
-        } catch (e) {
-          erros.push({
-            id: antigo.id,
-            conta: antigo.numeroConta,
-            motivo: e instanceof Error ? e.message : "erro desconhecido",
-          });
-        }
-      } else {
-        // Sem par: só normaliza o numeroConta pra prevenir nova duplicação
-        // se a coluna padronizada não estiver em uso por outro cliente
-        const colisao = await prisma.clienteBackoffice.findFirst({
-          where: { numeroConta: padded, NOT: { id: antigo.id } },
-        });
-        if (colisao) {
-          antigos_sem_par_pulados++;
-          continue;
-        }
-        try {
-          await prisma.clienteBackoffice.update({
-            where: { id: antigo.id },
-            data: { numeroConta: padded },
-          });
-          antigos_sem_par_normalizados++;
-        } catch (e) {
-          erros.push({
-            id: antigo.id,
-            conta: antigo.numeroConta,
-            motivo: e instanceof Error ? e.message : "erro desconhecido",
-          });
-        }
-      }
-    }
-
+    // Merge transacional com re-link de todos os filhos antes do delete.
+    // Ver src/lib/backoffice/merge-leading-zeros.ts.
+    const summary = await executarMergeLeadingZeros(prisma);
     return NextResponse.json({
       success: true,
-      message: `${deletados} antigos deletados, ${migrados} migrações, ${antigos_sem_par_normalizados} órfãos normalizados, ${erros.length} erros.`,
-      pares_encontrados,
-      migrados,
-      deletados,
-      antigos_sem_par_normalizados,
-      antigos_sem_par_pulados,
-      erros: erros.slice(0, 20),
-      total_erros: erros.length,
+      message:
+        `${summary.merged} pares mesclados, ` +
+        `${summary.abortados_conflito_1a1} abortados por conflito 1:1, ` +
+        `${summary.abortados_filhos_restantes} abortados por filhos restantes, ` +
+        `${summary.antigos_sem_par_normalizados} órfãos normalizados, ` +
+        `${summary.erros.length} erros.`,
+      pares_encontrados: summary.pares_encontrados,
+      merged: summary.merged,
+      abortados_conflito_1a1: summary.abortados_conflito_1a1,
+      abortados_filhos_restantes: summary.abortados_filhos_restantes,
+      antigos_sem_par_normalizados: summary.antigos_sem_par_normalizados,
+      antigos_sem_par_pulados: summary.antigos_sem_par_pulados,
+      resultados: summary.resultados.slice(0, 50),
+      erros: summary.erros.slice(0, 20),
+      total_erros: summary.erros.length,
     });
   } catch (error) {
     console.error("[cleanup-leading-zeros] erro:", error);
