@@ -1,5 +1,26 @@
 import { prisma } from "@/lib/prisma";
+import { getSession } from "@/lib/session";
 import { NextRequest, NextResponse } from "next/server";
+
+// Mesmo padrão de guarda admin das demais rotas de clientes (clientes/route.ts,
+// cleanup-leading-zeros). Sessão obrigatória + role admin.
+async function requireAdmin() {
+  const session = await getSession();
+  if (!session) {
+    return {
+      error: NextResponse.json({ error: "Não autenticado" }, { status: 401 }),
+    };
+  }
+  if (session.role !== "admin") {
+    return {
+      error: NextResponse.json(
+        { error: "Apenas o login administrador pode remover clientes." },
+        { status: 403 },
+      ),
+    };
+  }
+  return { session };
+}
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -69,6 +90,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const guard = await requireAdmin();
+  if (guard.error) return guard.error;
   try {
     const { id } = await params;
     await prisma.clienteBackoffice.delete({ where: { id } });

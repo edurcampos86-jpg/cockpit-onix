@@ -964,11 +964,46 @@ function parseIntSafe(v: unknown): number | undefined {
   return Math.round(n);
 }
 
-export async function DELETE() {
+// Frase fixa exigida no body pra confirmar o wipe total — evita DELETE
+// acidental (request sem corpo não apaga mais nada).
+const CONFIRMACAO_DELETE_TOTAL = "REMOVER TODOS OS CLIENTES";
+
+export async function DELETE(req: NextRequest) {
   const guard = await requireAdmin();
   if (guard.error) return guard.error;
 
+  // Body é opcional no transporte, mas a confirmação é obrigatória.
+  let body: { confirm?: string; force?: boolean } = {};
   try {
+    body = await req.json();
+  } catch {
+    body = {};
+  }
+
+  if (body.confirm !== CONFIRMACAO_DELETE_TOTAL) {
+    return NextResponse.json(
+      {
+        error: `Confirmação obrigatória: envie { "confirm": "${CONFIRMACAO_DELETE_TOTAL}" } no body para apagar TODOS os clientes.`,
+      },
+      { status: 400 },
+    );
+  }
+
+  try {
+    // Trava de dado: apagar clientes cascateia e destrói MovimentacaoBtg
+    // (financeiro, insubstituível). Só prossegue se não houver movimentações
+    // OU se vier force explícito — para o caso legítimo de reset.
+    const movimentacoes = await prisma.movimentacaoBtg.count();
+    if (movimentacoes > 0 && body.force !== true) {
+      return NextResponse.json(
+        {
+          error: `Existem ${movimentacoes} movimentações BTG que seriam apagadas em cascata. Envie { "force": true } junto da confirmação para prosseguir.`,
+          movimentacoes,
+        },
+        { status: 409 },
+      );
+    }
+
     await prisma.clienteBackoffice.deleteMany();
     return NextResponse.json({ message: "Dados removidos com sucesso" });
   } catch (error) {
