@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { ComoFunciona } from "@/components/layout/como-funciona";
 import Link from "next/link";
 import { ArrowRight, Target, TrendingUp } from "lucide-react";
-import { PAT_PROFILES } from "@/lib/pat-profiles";
+import { PAT_PROFILES } from "@/content/pat-profiles";
 import {
   TRILHAS,
   getFaseAtual,
