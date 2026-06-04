@@ -9,7 +9,7 @@ import {
   upsertReuniao,
   recomputeAgregadosBatch,
 } from "@/lib/reunioes";
-import { buildClienteIndex, matchEventToClientes } from "@/lib/google-calendar-match";
+import { buildClienteIndex, matchEventToClientes } from "@/lib/integrations/google-calendar-match";
 import { reunioesParaRemover } from "@/lib/reunioes-cleanup";
 
 /**
