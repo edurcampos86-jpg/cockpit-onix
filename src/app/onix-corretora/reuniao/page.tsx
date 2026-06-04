@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { prisma } from "@/lib/prisma";
 import { ReuniaoClient } from "./reuniao-client";
-import { PAT_PROFILES } from "@/lib/pat-profiles";
+import { PAT_PROFILES } from "@/content/pat-profiles";
 
 export const metadata = {
   title: "Reuniao Semanal — Formato C",

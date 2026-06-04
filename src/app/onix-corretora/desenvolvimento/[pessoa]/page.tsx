@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
-import { PAT_PROFILES } from "@/lib/pat-profiles";
+import { PAT_PROFILES } from "@/content/pat-profiles";
 import {
   TRILHAS,
   getFaseAtual,
