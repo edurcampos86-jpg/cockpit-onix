@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { getConfig } from "@/lib/config-db";
-import { syncDatacrazyAtividades } from "@/lib/datacrazy-atividades-sync";
+import { syncDatacrazyAtividades } from "@/lib/integrations/datacrazy-atividades-sync";
 
 /**
  * POST /api/backoffice/datacrazy-atividades-sync

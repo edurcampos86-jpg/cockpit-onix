@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getConfig } from "@/lib/config-db";
 import { guardCron } from "@/lib/painel-do-dia/cron-guard";
-import { syncDatacrazyAtividades } from "@/lib/datacrazy-atividades-sync";
+import { syncDatacrazyAtividades } from "@/lib/integrations/datacrazy-atividades-sync";
 
 /**
  * GET /api/cron/datacrazy-atividades-poll

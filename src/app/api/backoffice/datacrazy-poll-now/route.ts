@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { getConfig } from "@/lib/config-db";
-import { runDatacrazyPoll } from "@/lib/datacrazy-poll-runner";
+import { runDatacrazyPoll } from "@/lib/integrations/datacrazy-poll-runner";
 
 /**
  * GET /api/backoffice/datacrazy-poll-now

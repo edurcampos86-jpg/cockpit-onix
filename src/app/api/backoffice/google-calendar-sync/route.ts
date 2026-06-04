@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { syncGoogleCalendarComClientes } from "@/lib/google-calendar-clientes-sync";
+import { syncGoogleCalendarComClientes } from "@/lib/integrations/google-calendar-clientes-sync";
 
 /**
  * POST /api/backoffice/google-calendar-sync

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { guardCron } from "@/lib/painel-do-dia/cron-guard";
-import { syncOutlookIcsComClientes } from "@/lib/outlook-clientes-sync";
+import { syncOutlookIcsComClientes } from "@/lib/integrations/outlook-clientes-sync";
 
 /**
  * GET /api/cron/outlook-poll
