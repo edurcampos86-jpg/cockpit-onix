@@ -6,7 +6,7 @@ import {
   extrairBody,
   type ConversaCanonical,
   type MensagemCanonical,
-} from "@/lib/datacrazy-ingest";
+} from "@/lib/integrations/datacrazy-ingest";
 
 /**
  * POST /api/webhooks/datacrazy
