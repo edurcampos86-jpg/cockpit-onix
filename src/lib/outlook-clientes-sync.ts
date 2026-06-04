@@ -1,7 +1,7 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { getConfig } from "@/lib/config-db";
-import { fetchIcsEvents, type IcsEvent } from "@/lib/outlook-ics";
+import { fetchIcsEvents, type IcsEvent } from "@/lib/integrations/outlook-ics";
 import {
   upsertReuniao,
   recomputeAgregadosBatch,
