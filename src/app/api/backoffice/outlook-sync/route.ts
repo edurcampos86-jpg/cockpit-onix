@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { syncOutlookIcsComClientes } from "@/lib/outlook-clientes-sync";
+import { syncOutlookIcsComClientes } from "@/lib/integrations/outlook-clientes-sync";
 
 /**
  * POST /api/backoffice/outlook-sync

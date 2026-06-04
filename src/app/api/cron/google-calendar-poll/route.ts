@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { guardCron } from "@/lib/painel-do-dia/cron-guard";
-import { syncGoogleCalendarComClientes } from "@/lib/google-calendar-clientes-sync";
+import { syncGoogleCalendarComClientes } from "@/lib/integrations/google-calendar-clientes-sync";
 
 /**
  * GET /api/cron/google-calendar-poll
