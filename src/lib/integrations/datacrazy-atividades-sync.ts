@@ -6,7 +6,7 @@ import {
   deleteReuniaoByExternal,
   recomputeAgregadosBatch,
 } from "@/lib/reunioes";
-import { reunioesParaRemover } from "@/lib/reunioes-cleanup";
+import { reunioesParaRemover } from "@/lib/integrations/reunioes-cleanup";
 import { prisma } from "@/lib/prisma";
 
 /**

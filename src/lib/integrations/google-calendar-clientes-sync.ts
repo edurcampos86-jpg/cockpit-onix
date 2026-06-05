@@ -10,7 +10,7 @@ import {
   recomputeAgregadosBatch,
 } from "@/lib/reunioes";
 import { buildClienteIndex, matchEventToClientes } from "@/lib/integrations/google-calendar-match";
-import { reunioesParaRemover } from "@/lib/reunioes-cleanup";
+import { reunioesParaRemover } from "@/lib/integrations/reunioes-cleanup";
 
 /**
  * Sync de reuniões do Google Calendar com a base de clientes.

@@ -7,7 +7,7 @@ import {
   recomputeAgregadosBatch,
   type ReuniaoMatchedVia,
 } from "@/lib/reunioes";
-import { reunioesParaRemover } from "@/lib/reunioes-cleanup";
+import { reunioesParaRemover } from "@/lib/integrations/reunioes-cleanup";
 
 /**
  * Sync de reuniões do Outlook (ICS público) → ReuniaoCliente

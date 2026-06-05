@@ -6,7 +6,7 @@ import {
   fetchMensagens,
   VENDEDORES_CONFIG,
 } from "@/lib/datacrazy";
-import { listarArquivos, filtrarArquivosPorPeriodo, buscarTranscricao } from "@/lib/plaud";
+import { listarArquivos, filtrarArquivosPorPeriodo, buscarTranscricao } from "@/lib/integrations/plaud";
 
 interface ContatoResumo {
   data: string;
