@@ -37,6 +37,7 @@ model User {
   googleAuth        UserGoogleAuth?
   microsoftAuth     UserMicrosoftAuth?
   reunioesCliente   ReuniaoCliente[]
+  implementacoes    Implementacao[]
 
   // Jurídico — fase 1A
   contratosArquivosEnviados   ContratoArquivo[]  @relation("ContratoUploadedBy")
@@ -1842,4 +1843,40 @@ model IngestaoEmail {
   @@index([userId, processadoEm(sort: Desc)])
   @@index([status])
   @@index([gmailThreadId])
+}
+
+// ============================================
+// IMPLEMENTAÇÕES — Central Golden Circle (Fase 3)
+// Espelha o padrão de PainelSugestao (cuid, userId, status string, timestamps).
+// ============================================
+
+model Implementacao {
+  id           String  @id @default(cuid())
+  userId       String
+  empresaId    String // ex "investimentos" (casa com empresas-config)
+  departamento String?
+  tipo         String  @default("melhoria") // "melhoria" | "erro" | "ideia"
+
+  // Golden Circle
+  porQue  String  @db.Text // Why
+  como    String? @db.Text // How
+  oQue    String  @db.Text // What (o pedido concreto)
+  printUrl String? // key do objeto no Backblaze B2
+
+  // Priorização RICE
+  reach      Int?
+  impact     Int?
+  confidence Int?
+  effort     Int?
+  score      Float? // reach*impact*confidence/effort (calc no app)
+
+  status String @default("triagem") // triagem|aprovada|em-andamento|concluida|recusada
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([empresaId, status])
+  @@index([userId])
 }
