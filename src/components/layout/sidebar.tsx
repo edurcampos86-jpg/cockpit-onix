@@ -44,6 +44,7 @@ import {
   Database,
   PackagePlus,
   Mail,
+  Home,
 } from "lucide-react";
 import { useState, useTransition, useEffect } from "react";
 import { cn } from "@/lib/utils";
@@ -154,6 +155,77 @@ function getActiveModuleId(pathname: string): string {
   return "mkt";
 }
 
+/* ────────────────────────────────────────────────────────────────
+ * NAV V2 — modelo híbrido (atrás da flag NEXT_PUBLIC_NAV_V2)
+ * Mesma navegação de rotas; apenas reorganiza a arquitetura de
+ * informação em grupos "Empresas" e "Transversal" + itens globais.
+ * Os arrays antigos acima permanecem intactos.
+ * ──────────────────────────────────────────────────────────────── */
+
+const NAV_V2 = process.env.NEXT_PUBLIC_NAV_V2 === "true";
+
+// Marketing reaproveita o mktNavigation sem "Painel" (vira "Início" global)
+// e sem "Configurações" (vira item global no rodapé).
+const marketingItemsV2 = mktNavigation.filter(
+  (item) => item.name !== "Painel" && item.name !== "Configurações",
+);
+
+const pessoasItemsV2 = [
+  { name: "Time", href: "/time", icon: UsersRound },
+  { name: "Insights do Time", href: "/time/insights", icon: PieChart },
+];
+
+const juridicoItemsV2 = [
+  { name: "Jurídico", href: "/juridico/contratos", icon: Scale },
+  { name: "Auditoria", href: "/admin/auditoria/contratos", icon: Shield },
+  { name: "Ingestão por Email", href: "/admin/juridico/email-ingest", icon: Mail },
+  { name: "Importar Jurídico", href: "/admin/importacao/juridico", icon: PackagePlus },
+];
+
+const operacoesItemsV2 = [
+  { name: "Backups", href: "/admin/backups", icon: Database },
+  { name: "Integrações", href: "/integracoes", icon: Plug },
+  { name: "Método Onix", href: "/metodo", icon: Compass },
+  { name: "Glossário", href: "/glossario", icon: BookMarked },
+];
+
+const empresasModulesV2 = [
+  { id: "onix-invest", label: "Onix Investimentos", icon: Building2, items: backofficeNavigation },
+  { id: "onix-corretora", label: "Onix Corretora", icon: Briefcase, items: onixCorretorNavigation },
+];
+
+const transversalModulesV2 = [
+  { id: "marketing", label: "Marketing", icon: Megaphone, items: marketingItemsV2 },
+  { id: "pessoas", label: "Pessoas", icon: UsersRound, items: pessoasItemsV2 },
+  { id: "juridico", label: "Jurídico", icon: Scale, items: juridicoItemsV2 },
+  { id: "operacoes", label: "Operações", icon: Database, items: operacoesItemsV2 },
+];
+
+const allModulesV2 = [...empresasModulesV2, ...transversalModulesV2];
+
+const inicioItemV2 = { name: "Início", href: "/", icon: Home };
+const configItemV2 = { name: "Configurações", href: "/configuracoes", icon: Settings };
+
+function getActiveModuleIdV2(pathname: string): string {
+  if (pathname.startsWith("/onix-corretora")) return "onix-corretora";
+  if (pathname.startsWith("/backoffice")) return "onix-invest";
+  if (pathname.startsWith("/time")) return "pessoas";
+  if (
+    ["/juridico", "/admin/auditoria", "/admin/juridico", "/admin/importacao"].some((p) =>
+      pathname.startsWith(p),
+    )
+  )
+    return "juridico";
+  if (
+    ["/admin/backups", "/integracoes", "/metodo", "/glossario"].some((p) =>
+      pathname.startsWith(p),
+    )
+  )
+    return "operacoes";
+  // Demais rotas (raiz + páginas de marketing) caem em Marketing
+  return "marketing";
+}
+
 /* ── Componente Sidebar ─────────────────────────────── */
 
 export function Sidebar() {
@@ -163,11 +235,13 @@ export function Sidebar() {
   const { theme, toggleTheme } = useTheme();
 
   // Tracks which module sections are open (multiple can be open)
-  const activeModuleId = getActiveModuleId(pathname);
+  const sectionModules = NAV_V2 ? allModulesV2 : modules;
+  const defaultModuleId = NAV_V2 ? "marketing" : "mkt";
+  const activeModuleId = NAV_V2 ? getActiveModuleIdV2(pathname) : getActiveModuleId(pathname);
   const [openSections, setOpenSections] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {};
-    modules.forEach((m) => {
-      initial[m.id] = m.id === (activeModuleId || "mkt");
+    sectionModules.forEach((m) => {
+      initial[m.id] = m.id === (activeModuleId || defaultModuleId);
     });
     return initial;
   });
@@ -221,6 +295,86 @@ export function Sidebar() {
     return link;
   };
 
+  /* ── Render a collapsible module (section header + its items) ── */
+  const renderModule = (mod: {
+    id: string;
+    label: string;
+    icon: React.ComponentType<{ className?: string }>;
+    items: { name: string; href: string; icon: React.ComponentType<{ className?: string }> }[];
+  }) => {
+    const isOpen = openSections[mod.id];
+    const hasActiveChild = mod.items.some((item) => isItemActive(item.href));
+
+    if (collapsed) {
+      // In collapsed mode, show only the module icon (links to its first page)
+      const firstHref = mod.items[0]?.href || "/";
+      return (
+        <Tooltip key={mod.id}>
+          <TooltipTrigger className="w-full">
+            <Link
+              href={firstHref}
+              className={cn(
+                "flex items-center justify-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
+                hasActiveChild
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-accent"
+              )}
+            >
+              <mod.icon className={cn("h-5 w-5 shrink-0", hasActiveChild && "text-primary")} />
+            </Link>
+          </TooltipTrigger>
+          <TooltipContent side="right">{mod.label}</TooltipContent>
+        </Tooltip>
+      );
+    }
+
+    return (
+      <div key={mod.id}>
+        {/* Section header (clickable to expand/collapse) */}
+        <button
+          onClick={() => toggleSection(mod.id)}
+          className={cn(
+            "flex items-center gap-3 w-full px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+            hasActiveChild
+              ? "text-primary"
+              : "text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-accent"
+          )}
+        >
+          <mod.icon className={cn("h-4 w-4 shrink-0", hasActiveChild && "text-primary")} />
+          <span className="flex-1 text-left">{mod.label}</span>
+          <ChevronDown
+            className={cn(
+              "h-3.5 w-3.5 transition-transform duration-200",
+              isOpen && "rotate-180"
+            )}
+          />
+        </button>
+
+        {/* Collapsible items */}
+        <div
+          className={cn(
+            "overflow-hidden transition-all duration-200",
+            isOpen ? "max-h-[800px] opacity-100" : "max-h-0 opacity-0"
+          )}
+        >
+          <div className="pl-3 space-y-0.5 pb-1">
+            {mod.items.map(renderNavLink)}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  /* ── Section label (uppercase group heading) ── */
+  const renderSectionLabel = (label: string) =>
+    !collapsed && (
+      <div className="px-3 pt-3 pb-1">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+          {label}
+        </span>
+      </div>
+    );
+
   return (
     <aside
       className={cn(
@@ -249,93 +403,48 @@ export function Sidebar() {
 
       {/* ── Scrollable nav area ── */}
       <div className="flex-1 overflow-y-auto">
-        {/* ── GERAL ── */}
-        {!collapsed && (
-          <div className="px-3 pt-4 pb-1">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-              Geral
-            </span>
-          </div>
+        {NAV_V2 ? (
+          <>
+            {/* ── Item global: Início (fixo no topo) ── */}
+            <div className="px-2 pt-3 pb-2 space-y-0.5">
+              {renderNavLink(inicioItemV2)}
+            </div>
+
+            {/* ── EMPRESAS ── */}
+            {renderSectionLabel("Empresas")}
+            <div className="px-2 pb-2 space-y-1">
+              {empresasModulesV2.map(renderModule)}
+            </div>
+
+            {/* ── TRANSVERSAL ── */}
+            {renderSectionLabel("Transversal")}
+            <div className="px-2 pb-2 space-y-1">
+              {transversalModulesV2.map(renderModule)}
+            </div>
+          </>
+        ) : (
+          <>
+            {/* ── GERAL ── */}
+            {renderSectionLabel("Geral")}
+            <div className="px-2 pb-2 space-y-0.5">
+              {sharedNavigation.map(renderNavLink)}
+            </div>
+
+            {/* ── EMPRESAS ── */}
+            {renderSectionLabel("Empresas")}
+            <div className="px-2 pb-2 space-y-1">
+              {modules.map(renderModule)}
+            </div>
+          </>
         )}
-        <div className="px-2 pb-2 space-y-0.5">
-          {sharedNavigation.map(renderNavLink)}
-        </div>
-
-        {/* ── EMPRESAS ── */}
-        {!collapsed && (
-          <div className="px-3 pt-3 pb-1">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-              Empresas
-            </span>
-          </div>
-        )}
-
-        <div className="px-2 pb-2 space-y-1">
-          {modules.map((mod) => {
-            const isOpen = openSections[mod.id];
-            const hasActiveChild = mod.items.some((item) => isItemActive(item.href));
-
-            if (collapsed) {
-              // In collapsed mode, show only the module icon (links to its first page)
-              const firstHref = mod.items[0]?.href || "/";
-              return (
-                <Tooltip key={mod.id}>
-                  <TooltipTrigger className="w-full">
-                    <Link
-                      href={firstHref}
-                      className={cn(
-                        "flex items-center justify-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
-                        hasActiveChild
-                          ? "bg-primary/10 text-primary"
-                          : "text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-accent"
-                      )}
-                    >
-                      <mod.icon className={cn("h-5 w-5 shrink-0", hasActiveChild && "text-primary")} />
-                    </Link>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">{mod.label}</TooltipContent>
-                </Tooltip>
-              );
-            }
-
-            return (
-              <div key={mod.id}>
-                {/* Section header (clickable to expand/collapse) */}
-                <button
-                  onClick={() => toggleSection(mod.id)}
-                  className={cn(
-                    "flex items-center gap-3 w-full px-3 py-2 rounded-lg text-sm font-medium transition-colors",
-                    hasActiveChild
-                      ? "text-primary"
-                      : "text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-accent"
-                  )}
-                >
-                  <mod.icon className={cn("h-4 w-4 shrink-0", hasActiveChild && "text-primary")} />
-                  <span className="flex-1 text-left">{mod.label}</span>
-                  <ChevronDown
-                    className={cn(
-                      "h-3.5 w-3.5 transition-transform duration-200",
-                      isOpen && "rotate-180"
-                    )}
-                  />
-                </button>
-
-                {/* Collapsible items */}
-                <div
-                  className={cn(
-                    "overflow-hidden transition-all duration-200",
-                    isOpen ? "max-h-[800px] opacity-100" : "max-h-0 opacity-0"
-                  )}
-                >
-                  <div className="pl-3 space-y-0.5 pb-1">
-                    {mod.items.map(renderNavLink)}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
       </div>
+
+      {/* ── Item global: Configurações (fixo no rodapé) ── */}
+      {NAV_V2 && (
+        <div className="border-t border-sidebar-border px-2 py-2 space-y-0.5">
+          {renderNavLink(configItemV2)}
+        </div>
+      )}
 
       {/* ── User info & actions ── */}
       <div className="border-t border-sidebar-border p-3">
