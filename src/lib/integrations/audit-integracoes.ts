@@ -12,7 +12,7 @@ import {
   avaliarProbe,
   type ProbeResultado,
   type StatusIntegracao,
-} from "@/lib/audit-integracoes-core";
+} from "@/lib/integrations/audit-integracoes-core";
 
 /**
  * Auditor de Integrações — roda um teste leve em cada integração com token,

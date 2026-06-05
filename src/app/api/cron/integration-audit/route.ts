@@ -2,13 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { guardCron } from "@/lib/painel-do-dia/cron-guard";
 import { sendSlackMessage } from "@/lib/integrations/slack";
-import { auditarTodas, type ResultadoAuditoria } from "@/lib/audit-integracoes";
+import { auditarTodas, type ResultadoAuditoria } from "@/lib/integrations/audit-integracoes";
 import {
   decidirAlerta,
   type AcaoAlerta,
   type EstadoAuditoria,
   type StatusIntegracao,
-} from "@/lib/audit-integracoes-core";
+} from "@/lib/integrations/audit-integracoes-core";
 
 /**
  * GET /api/cron/integration-audit
