@@ -29,7 +29,7 @@ const investimentos: EmpresaConfig = {
     { label: "ROI", icon: "DollarSign", href: "/backoffice/receita" },
     { label: "Treinamento", icon: "GraduationCap", href: "/backoffice/storyselling" },
     { label: "Time/Pessoas", icon: "UsersRound", emBreve: true },
-    { label: "Melhorias", icon: "Sparkles", emBreve: true }, // Fase 3
+    { label: "Melhorias", icon: "Sparkles", href: "/configuracoes/implementacoes/nova?empresa=investimentos" },
     // ── Núcleo cliente ──
     { label: "BTG", icon: "Building2", href: "/backoffice/btg" },
     { label: "Cadência", icon: "Repeat", href: "/backoffice/cadencia" },
