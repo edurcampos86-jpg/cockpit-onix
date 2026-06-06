@@ -1211,7 +1211,7 @@ export function ClientesTable({
                           Hover na célula revela o lápis de edição. */}
                       <div className="flex items-center gap-1.5">
                         <Link
-                          href={`/backoffice/clientes/${c.id}`}
+                          href={`/empresas/investimentos/clientes/${c.id}`}
                           className="hover:underline hover:text-primary"
                           title={[
                             getNomeRelacionamento(c),

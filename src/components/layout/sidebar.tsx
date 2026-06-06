@@ -85,18 +85,18 @@ const onixCorretorNavigation = [
 ];
 
 const backofficeNavigation = [
-  { name: "Painel", href: "/backoffice", icon: LayoutDashboard },
-  { name: "Painel do Dia", href: "/backoffice/painel-do-dia", icon: Target },
-  { name: "Clientes", href: "/backoffice/clientes", icon: Users },
-  { name: "Cadência 12-4-2", href: "/backoffice/cadencia", icon: CalendarCheck },
-  { name: "Storyselling", href: "/backoffice/storyselling", icon: BookOpen },
-  { name: "Indicações", href: "/backoffice/indicacoes", icon: UserCircle },
-  { name: "Performance", href: "/backoffice/performance", icon: Gauge },
-  { name: "BTG Dashboard", href: "/backoffice/btg", icon: Building2 },
-  { name: "Receita", href: "/backoffice/receita", icon: BarChart3 },
-  { name: "Tarefas", href: "/backoffice/tarefas", icon: CheckSquare },
-  { name: "Relatórios", href: "/backoffice/relatorios", icon: ClipboardList },
-  { name: "Configurações", href: "/backoffice/configuracoes", icon: Settings },
+  { name: "Painel", href: "/empresas/investimentos", icon: LayoutDashboard },
+  { name: "Painel do Dia", href: "/empresas/investimentos/painel-do-dia", icon: Target },
+  { name: "Clientes", href: "/empresas/investimentos/clientes", icon: Users },
+  { name: "Cadência 12-4-2", href: "/empresas/investimentos/cadencia", icon: CalendarCheck },
+  { name: "Storyselling", href: "/empresas/investimentos/storyselling", icon: BookOpen },
+  { name: "Indicações", href: "/empresas/investimentos/indicacoes", icon: UserCircle },
+  { name: "Performance", href: "/empresas/investimentos/performance", icon: Gauge },
+  { name: "BTG Dashboard", href: "/empresas/investimentos/btg", icon: Building2 },
+  { name: "Receita", href: "/empresas/investimentos/receita", icon: BarChart3 },
+  { name: "Tarefas", href: "/empresas/investimentos/tarefas", icon: CheckSquare },
+  { name: "Relatórios", href: "/empresas/investimentos/relatorios", icon: ClipboardList },
+  { name: "Configurações", href: "/empresas/investimentos/configuracoes", icon: Settings },
 ];
 
 /* ── Itens compartilhados (Geral) ───────────────────── */
@@ -136,7 +136,7 @@ const modules = [
     label: "Assessoria",
     icon: Building2,
     items: backofficeNavigation,
-    pathPrefix: "/backoffice",
+    pathPrefix: "/empresas/investimentos",
   },
 ];
 
@@ -144,7 +144,7 @@ const modules = [
 
 function getActiveModuleId(pathname: string): string {
   if (pathname.startsWith("/onix-corretora")) return "corretora";
-  if (pathname.startsWith("/backoffice")) return "backoffice";
+  if (pathname.startsWith("/empresas/investimentos")) return "backoffice";
   // Shared pages don't belong to a module
   if (
     ["/metodo", "/time", "/glossario", "/integracoes", "/juridico", "/admin/auditoria", "/admin/importacao", "/admin/backups", "/admin/juridico"].some(
@@ -208,7 +208,7 @@ const configItemV2 = { name: "Configurações", href: "/configuracoes", icon: Se
 
 function getActiveModuleIdV2(pathname: string): string {
   if (pathname.startsWith("/onix-corretora")) return "onix-corretora";
-  if (pathname.startsWith("/backoffice")) return "onix-invest";
+  if (pathname.startsWith("/empresas/investimentos")) return "onix-invest";
   if (pathname.startsWith("/time")) return "pessoas";
   if (
     ["/juridico", "/admin/auditoria", "/admin/juridico", "/admin/importacao"].some((p) =>
@@ -261,7 +261,7 @@ export function Sidebar() {
   const isItemActive = (href: string) => {
     if (href === "/") return pathname === "/";
     if (href === "/onix-corretora") return pathname === "/onix-corretora";
-    if (href === "/backoffice") return pathname === "/backoffice";
+    if (href === "/empresas/investimentos") return pathname === "/empresas/investimentos";
     return pathname.startsWith(href);
   };
 

@@ -44,7 +44,7 @@ export default async function ClienteDetalhePage({
       />
       <div className="px-8 space-y-6">
         <Link
-          href="/backoffice/clientes"
+          href="/empresas/investimentos/clientes"
           className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="h-4 w-4" /> Voltar para lista de clientes

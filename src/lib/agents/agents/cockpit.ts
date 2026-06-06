@@ -12,7 +12,7 @@ const ROUTE_HINTS: Record<string, string> = {
   "/kpis": "KPIs em 4 camadas (funil AARRR).",
   "/onix-corretora": "Modulo Corretora — gestao comercial, relatorios PAT, score semanal.",
   "/onix-corretora/relatorios": "Lista de relatorios PAT semanais por vendedor.",
-  "/backoffice": "Backoffice — Carteira Supernova, Metodo 12-4-2 (12 contatos, 4 reunioes, 2 reviews/ano).",
+  "/empresas/investimentos": "Backoffice — Carteira Supernova, Metodo 12-4-2 (12 contatos, 4 reunioes, 2 reviews/ano).",
   "/integracoes": "Integracoes — BTG, Datacrazy, Outlook, Plaud.ai, Anthropic.",
   "/configuracoes": "Configuracoes do ecossistema.",
   "/glossario": "Glossario de termos do metodo.",

@@ -252,7 +252,7 @@ export async function avaliarAlertasClientes(opts: {
 
     if (acao === "novo" || acao === "reenvio") {
       const c = d.cliente;
-      const url = link ? `${link}/backoffice/clientes/${c.id}` : `/backoffice/clientes/${c.id}`;
+      const url = link ? `${link}/empresas/investimentos/clientes/${c.id}` : `/empresas/investimentos/clientes/${c.id}`;
       const lembrete = acao === "reenvio" ? " _(lembrete semanal)_" : "";
       const msg =
         `:rotating_light: *${LABEL_GATILHO[d.gatilho]}*${lembrete} — ${c.nome} ` +

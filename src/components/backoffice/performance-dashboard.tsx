@@ -221,7 +221,7 @@ export function PerformanceDashboard({ data }: Props) {
                   </td>
                   <td className="px-4 py-2 font-medium">
                     <Link
-                      href={`/backoffice/clientes/${c.id}`}
+                      href={`/empresas/investimentos/clientes/${c.id}`}
                       className="hover:underline hover:text-primary"
                     >
                       {getNomeRelacionamento(c)}
