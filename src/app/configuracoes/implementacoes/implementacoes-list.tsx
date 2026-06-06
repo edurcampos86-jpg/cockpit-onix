@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useRef, useState, useTransition } from "react";
-import { Plus } from "lucide-react";
+import { Plus, Paperclip } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { calcRiceScore } from "@/lib/rice";
 import { atualizarRice, atualizarStatus } from "@/app/actions/implementacao";
@@ -214,9 +214,15 @@ export function ImplementacoesList({
                       <span className="font-semibold">Por quê:</span> {r.porQue}
                     </p>
                     {r.printUrl && (
-                      <span className="mt-1 inline-block text-[10px] text-muted-foreground">
-                        📎 print anexado
-                      </span>
+                      <a
+                        href={`/api/configuracoes/implementacoes/${r.id}/print`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline"
+                      >
+                        <Paperclip className="h-3 w-3" />
+                        Ver print
+                      </a>
                     )}
                   </td>
                   <td className="px-3 py-2 text-xs text-muted-foreground">
