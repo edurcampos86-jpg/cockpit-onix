@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { calcRiceScore } from "@/lib/rice";
@@ -81,6 +81,14 @@ export function ImplementacoesList({
   const [fStatus, setFStatus] = useState<string>("todos");
   const [, startTransition] = useTransition();
 
+  // Espelho autoritativo do estado mais recente. `rows` no closure de um handler
+  // reflete o render que o criou; se vários commits acontecem no MESMO tick (sem
+  // re-render entre eles), o closure fica defasado. O ref é atualizado de forma
+  // síncrona dentro de cada commit (única origem de mudança de `rows`), então o
+  // commit seguinte do mesmo tick já enxerga o valor anterior — evitando que
+  // payloads parciais (com fatores ainda nulos) sobrescrevam uns aos outros.
+  const rowsRef = useRef(rows);
+
   const visiveis = useMemo(() => {
     const filtered = rows.filter(
       (r) =>
@@ -97,33 +105,38 @@ export function ImplementacoesList({
   }, [rows, fEmpresa, fStatus]);
 
   function commitRice(id: string, patch: Partial<ImplementacaoDTO>) {
-    setRows((prev) =>
-      prev.map((r) => {
-        if (r.id !== id) return r;
-        const merged = { ...r, ...patch };
-        merged.score = calcRiceScore(
-          merged.reach,
-          merged.impact,
-          merged.confidence,
-          merged.effort,
-        );
-        return merged;
-      }),
-    );
-    const row = rows.find((r) => r.id === id);
-    const next = { ...row, ...patch } as ImplementacaoDTO;
+    // Compõe a partir do estado MAIS RECENTE (ref), não do snapshot do closure.
+    const next = rowsRef.current.map((r) => {
+      if (r.id !== id) return r;
+      const merged = { ...r, ...patch };
+      merged.score = calcRiceScore(
+        merged.reach,
+        merged.impact,
+        merged.confidence,
+        merged.effort,
+      );
+      return merged;
+    });
+    rowsRef.current = next; // visível para o próximo commit do mesmo tick
+    setRows(next);
+
+    const row = next.find((r) => r.id === id)!;
     startTransition(() =>
       atualizarRice(id, {
-        reach: next.reach,
-        impact: next.impact,
-        confidence: next.confidence,
-        effort: next.effort,
+        reach: row.reach,
+        impact: row.impact,
+        confidence: row.confidence,
+        effort: row.effort,
       }),
     );
   }
 
   function commitStatus(id: string, status: string) {
-    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, status } : r)));
+    const next = rowsRef.current.map((r) =>
+      r.id === id ? { ...r, status } : r,
+    );
+    rowsRef.current = next; // mantém o ref autoritativo entre commits do mesmo tick
+    setRows(next);
     startTransition(() => atualizarStatus(id, status));
   }
 
