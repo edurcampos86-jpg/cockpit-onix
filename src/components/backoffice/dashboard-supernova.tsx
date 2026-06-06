@@ -191,7 +191,7 @@ export function DashboardSupernova() {
               </p>
             </div>
             <Link
-              href="/backoffice/cadencia"
+              href="/empresas/investimentos/cadencia"
               className="text-xs font-medium text-red-900 dark:text-red-200 underline"
             >
               Ver cadência completa →

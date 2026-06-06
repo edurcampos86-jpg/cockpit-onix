@@ -134,7 +134,7 @@ export function ClientesEsquecidosBlock({
                   {processando === c.id ? "Marcando..." : "Marcar contato"}
                 </Button>
                 <Link
-                  href={`/backoffice/clientes/${c.id}`}
+                  href={`/empresas/investimentos/clientes/${c.id}`}
                   className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
                 >
                   Ver perfil <ExternalLink className="h-3 w-3" />

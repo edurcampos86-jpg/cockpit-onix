@@ -10,7 +10,7 @@ import { GruposClientesPanel } from "@/components/backoffice/grupos-clientes-pan
 export default async function GruposPage() {
   const session = await getSession();
   if (!session) redirect("/login");
-  if (session.role !== "admin") redirect("/backoffice");
+  if (session.role !== "admin") redirect("/empresas/investimentos");
 
   // Carrega TODOS clientes pro dropdown (lado client filtra por busca textual).
   const clientes = await prisma.clienteBackoffice.findMany({
