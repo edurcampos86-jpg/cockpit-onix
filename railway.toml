@@ -6,9 +6,6 @@
 # Authorization: Bearer $CRON_SECRET. Se CRON_SECRET estiver vazio,
 # cron-guard.ts libera (modo dev).
 
-[build]
-builder = "NIXPACKS"
-
 [deploy]
 startCommand = "prisma migrate deploy && next start"
 # ────────────────────────────────────────────────────────────────────────
