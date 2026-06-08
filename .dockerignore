@@ -1,0 +1,16 @@
+# Evita copiar artefatos locais pro build context (bloat + clobber do npm ci/build).
+node_modules
+.next
+.git
+.github
+npm-debug.log*
+*.log
+
+# Segredos e ambiente local — nunca entram na imagem.
+.env
+.env.*
+
+# Lixo de SO/editor
+.DS_Store
+.vscode
+.idea
