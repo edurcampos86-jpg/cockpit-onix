@@ -1,0 +1,21 @@
+name: docker-build-check
+on:
+  pull_request:
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "railway.toml"
+      - ".github/workflows/docker-build-check.yml"
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker image
+        run: docker build -t cockpit-onix:ci .
+      - name: Verify pg_dump present (major 16)
+        run: |
+          ver="$(docker run --rm --entrypoint pg_dump cockpit-onix:ci --version)"
+          echo "$ver"
+          echo "$ver" | grep -q 'PostgreSQL) 16' || { echo "ERRO: pg_dump nao e major 16"; exit 1; }
