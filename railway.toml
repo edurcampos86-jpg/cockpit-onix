@@ -12,7 +12,7 @@
 builder = "DOCKERFILE"
 
 [deploy]
-startCommand = "prisma migrate deploy && next start"
+startCommand = "npm run start"
 # ────────────────────────────────────────────────────────────────────────
 # Sug 1 — Boot do Dia: gera sugestões de 3 prioridades
 #   Segunda a sexta, 07:30 Bahia = 10:30 UTC
