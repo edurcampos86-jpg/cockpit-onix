@@ -29,6 +29,12 @@ RUN apt-get update \
 
 WORKDIR /app
 
+# node_modules/.bin no PATH: o startCommand do Railway chama `prisma`/`next`
+# direto (`prisma migrate deploy && next start`). Imagens Railpack/Nixpacks
+# adicionam isso sozinhas; base node:22 NÃO — sem isto o container sai com
+# `sh: prisma: not found` no boot (deploy "FAILED", build verde).
+ENV PATH="/app/node_modules/.bin:$PATH"
+
 # Dependências primeiro (cache de layer). postinstall = `prisma generate`,
 # que precisa do schema presente → copia prisma/ antes do npm ci.
 COPY package.json package-lock.json ./
