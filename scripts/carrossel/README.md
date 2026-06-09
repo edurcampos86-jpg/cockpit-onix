@@ -1,7 +1,9 @@
-# Carrossel — "Tudo dá trabalho" (identidade Onix Capital)
+# Carrossel — "Tudo dá trabalho" (estilo post @eduardocampos86)
 
-Releitura do post motivacional do Caio Carneiro com a identidade visual do **Ecossistema Onix**:
-fundo preto `#080808`, texto creme `#FFFAF0`, ouro `#FFB114` e tipografia **Poppins**.
+Releitura do post motivacional do Caio Carneiro no **layout dos posts do Eduardo Campos**:
+fundo azul-marinho em gradiente (`#182433` → `#0A0E1A`), cabeçalho de perfil (avatar + nome +
+selo verificado + @handle), título branco em caixa baixa, corpo em cinza, linha de **destaque
+dourada** (`#C9A15C`) e botão **"Leia a legenda"**. Tipografia **Poppins**.
 
 ## Como gerar
 
@@ -10,19 +12,18 @@ node scripts/carrossel/gerar.mjs
 ```
 
 As imagens (1080×1350, formato retrato Instagram 4:5) saem em `scripts/carrossel/out/`:
-`slide-01.png` … `slide-06.png`.
+`slide-01.png` … `slide-05.png`.
 
 Dependências (instaladas com `npm install --no-save`): `satori` (layout + fontes) e
 `@resvg/resvg-js` (SVG → PNG). As fontes Poppins em TTF ficam em `fonts/`.
 
 ## Roteiro dos slides
 
-1. **Capa** — "Tudo dá trabalho." + gancho
-2. Casa / Família / Cliente dá trabalho
-3. "Se você for reclamar de tudo que exige a sua dedicação…"
-4. "…vai viver em constante frustração."
-5. Virada — "A rotina desgasta. Mas é sinal de vida em movimento."
-6. Fechamento + assinatura (Eduardo Campos · Onix Capital)
+1. "Tudo dá trabalho. E está tudo certo." — casa, família, cliente cobram dedicação
+2. "Nada que importa se sustenta sozinho."
+3. "Reclamar do peso só trava você."
+4. "A rotina desgasta." — desgaste é sinal de movimento
+5. Fechamento — "É sinal de vida em movimento." + destaque dourado + botão "Leia a legenda"
 
 ## Legenda sugerida
 
