@@ -27,6 +27,9 @@ const BLUE = "#3897F0"; // selo verificado
 const W = 1080;
 const H = 1350;
 
+// Avatar (foto real, recortada em assets/avatar.png) embutido como data URI
+const AVATAR = `data:image/png;base64,${readFileSync(join(__dirname, "assets", "avatar.png")).toString("base64")}`;
+
 const font = (file) => readFileSync(join(FONTS, file));
 const fonts = [
   { name: "Poppins", data: font("Poppins-Regular.ttf"), weight: 400, style: "normal" },
@@ -72,7 +75,7 @@ function header(numero, total) {
     h(
       "div",
       { style: { display: "flex", alignItems: "center", gap: "22px" } },
-      // avatar com iniciais
+      // avatar com a foto real
       h(
         "div",
         {
@@ -83,23 +86,16 @@ function header(numero, total) {
             width: "100px",
             height: "100px",
             borderRadius: "50px",
-            backgroundColor: "#101a29",
-            border: `2px solid rgba(201,161,92,0.55)`,
+            overflow: "hidden",
+            border: `2px solid rgba(201,161,92,0.65)`,
           },
         },
-        h(
-          "div",
-          {
-            style: {
-              color: GOLD,
-              fontFamily: "Poppins",
-              fontWeight: 700,
-              fontSize: "40px",
-              letterSpacing: "0.02em",
-            },
-          },
-          "EC"
-        )
+        h("img", {
+          src: AVATAR,
+          width: 100,
+          height: 100,
+          style: { width: "100px", height: "100px", objectFit: "cover", borderRadius: "50px" },
+        })
       ),
       h(
         "div",
