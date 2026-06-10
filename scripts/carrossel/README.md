@@ -27,11 +27,18 @@ Dependências (instaladas com `npm install --no-save`): `satori` (layout + fonte
 
 ## Legenda sugerida
 
-> Tudo dá trabalho. Casa, família, cliente — tudo exige dedicação.
-> Se você reclamar de cada peso, vai viver em frustração constante.
-> Mas tem outro jeito de enxergar: a rotina desgasta porque você está em movimento.
-> Peso é sinal de que você está carregando algo que vale a pena. 🖤
+> Tudo dá trabalho. E tá tudo certo.
 >
-> Salve esse post pra lembrar nos dias pesados.
+> Casa dá trabalho. Família dá trabalho. Cliente dá trabalho. Tudo que tem valor cobra dedicação, e nada que importa se sustenta no automático.
 >
-> #OnixCapital #Mentalidade #Rotina #AltaPerformance
+> O que para de receber cuidado começa a se desfazer caladinho. Aí é fácil cair na armadilha de reclamar de cada coisa que exige a sua entrega. Só que viver reclamando do que importa é o caminho mais curto pra frustração.
+>
+> A rotina cansa mesmo. Mas cansaço é sinal de movimento. Quem não carrega nada nunca cansa, e também não constrói nada.
+>
+> Então da próxima vez que bater aquele peso, lembra: ele não é castigo. É a prova de que tem coisa boa nas suas costas, coisa que vale a pena. 🖤
+>
+> Salva esse post pra reler num dia difícil. E me conta aqui embaixo: o que tem te dado mais trabalho (e mais orgulho) ultimamente?
+>
+> .
+> .
+> #mentalidade #altaperformance #disciplina #rotina #propósito #empreendedorismo #gestãodepatrimônio #onixcapital
