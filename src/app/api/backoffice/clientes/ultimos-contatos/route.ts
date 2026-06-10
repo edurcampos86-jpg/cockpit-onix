@@ -14,11 +14,6 @@ interface ContatoResumo {
   resumo: string;
 }
 
-interface ClienteContatos {
-  clienteId: string;
-  contatos: ContatoResumo[];
-}
-
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -47,7 +42,7 @@ export async function POST(request: Request) {
 
     // ── Datacraze (WhatsApp) ──────────────────────────────────────────────
     const datacrazyToken = await getConfig("DATACRAZY_TOKEN");
-    let conversasMap: Map<string, { data: string; nome: string; resumo: string }> = new Map();
+    const conversasMap: Map<string, { data: string; nome: string; resumo: string }> = new Map();
 
     if (datacrazyToken) {
       try {
@@ -124,7 +119,7 @@ export async function POST(request: Request) {
 
     // ── Plaud (Reuniões gravadas) ─────────────────────────────────────────
     const plaudToken = await getConfig("PLAUD_TOKEN");
-    let reunioesMap: Map<string, { data: string; nome: string; resumo: string }> = new Map();
+    const reunioesMap: Map<string, { data: string; nome: string; resumo: string }> = new Map();
 
     if (plaudToken) {
       try {

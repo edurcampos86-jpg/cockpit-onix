@@ -408,7 +408,6 @@ export function ClientesTable({
       if (saldoParado && c.saldoConta < SALDO_PARADO_LIMITE) return false;
       return true;
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientes, busca, filtroClasse, filtroSaldoConta, filtroAssessor, foraCadencia, semProximaReuniao, saldoParado]);
 
   // Ordenação
@@ -491,7 +490,6 @@ export function ClientesTable({
       pendencias,
       aniversariantes,
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtrados]);
 
   const contadores = {

@@ -145,7 +145,7 @@ export function ClienteBtgSection({
 
         {!temDadosBtg ? (
           <p className="text-sm text-muted-foreground">
-            Nenhum dado BTG sincronizado ainda. Use os botões "Importar do BTG" e "Enriquecer dados" na lista de clientes.
+            Nenhum dado BTG sincronizado ainda. Use os botões &quot;Importar do BTG&quot; e &quot;Enriquecer dados&quot; na lista de clientes.
           </p>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
@@ -253,7 +253,7 @@ export function ClienteBtgSection({
         </div>
         {movimentacoes.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            Nenhuma movimentação sincronizada. Use o botão "Sync Movimentações" na lista de clientes.
+            Nenhuma movimentação sincronizada. Use o botão &quot;Sync Movimentações&quot; na lista de clientes.
           </p>
         ) : (
           <div className="space-y-1">

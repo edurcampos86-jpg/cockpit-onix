@@ -15,14 +15,6 @@ interface Post {
   ctaType: string | null;
 }
 
-const CATEGORY_LABELS: Record<string, string> = {
-  pergunta_semana: "Pergunta da Semana",
-  onix_pratica: "Onix na Prática",
-  patrimonio_mimimi: "Patrimônio sem Mimimi",
-  alerta_patrimonial: "Alerta Patrimonial",
-  sabado_bastidores: "Sábado de Bastidores",
-};
-
 const STATUS_COLORS: Record<string, string> = {
   rascunho: "bg-zinc-600 text-zinc-100",
   roteiro_pronto: "bg-blue-600 text-blue-100",
@@ -88,7 +80,7 @@ export function WeekCalendar({ posts }: WeekCalendarProps) {
       </CardHeader>
       <CardContent>
         <div className="grid grid-cols-7 gap-2">
-          {weekDays.map((date, idx) => {
+          {weekDays.map((date) => {
             const dateStr = date.toISOString().split("T")[0];
             const dayPosts = posts.filter((p) => {
               const postDate = new Date(p.scheduledDate).toISOString().split("T")[0];
@@ -96,7 +88,6 @@ export function WeekCalendar({ posts }: WeekCalendarProps) {
             });
             const isToday = date.toDateString() === today.toDateString();
             const isPast = date < today && !isToday;
-            const dayIndex = (idx + 1) % 7; // 0=Sun...6=Sat but we start from Monday
 
             return (
               <div

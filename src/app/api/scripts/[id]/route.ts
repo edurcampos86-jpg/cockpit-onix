@@ -34,7 +34,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   }
 
   // Remover campos internos antes de salvar
-  const { _changeReason, ...updateData } = body;
+  const updateData = { ...body };
+  delete updateData._changeReason;
 
   const script = await prisma.script.update({
     where: { id },

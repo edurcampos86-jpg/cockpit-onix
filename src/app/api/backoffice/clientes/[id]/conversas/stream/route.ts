@@ -40,7 +40,7 @@ export async function GET(
         if (closed) return;
         try {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
-        } catch (e) {
+        } catch {
           // Stream provavelmente já fechado
           closed = true;
           unsub();

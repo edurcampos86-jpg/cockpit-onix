@@ -16,6 +16,7 @@ if (!token) {
   process.exit(1);
 }
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- script CommonJS executado com `node` puro; migrar pra ESM mudaria a forma de execução
 const { PrismaClient } = require("../src/generated/prisma");
 const prisma = new PrismaClient();
 

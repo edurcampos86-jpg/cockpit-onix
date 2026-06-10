@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/layout/page-header";
 import { ComoFunciona } from "@/components/layout/como-funciona";
-import { BookOpen, Star, ChevronDown } from "lucide-react";
+import { BookOpen, Star } from "lucide-react";
 
 const VENDEDORES = ["Eduardo Campos", "Thiago Vergal", "Rose Oliveira"];
 

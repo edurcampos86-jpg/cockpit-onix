@@ -7,7 +7,6 @@ import type { CalendarPost } from "@/app/calendario/page";
 import { Plus } from "lucide-react";
 import {
   CATEGORY_LABELS,
-  CATEGORY_DAYS,
   type PostCategory,
   type PostStatus,
 } from "@/lib/types";
@@ -23,7 +22,6 @@ interface CalendarWeekGridProps {
 }
 
 const WEEKDAYS = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
-const WEEKDAY_FULL = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"];
 
 // Quadro fixo esperado para cada dia da semana (1=Seg...6=Sáb)
 const EXPECTED_CATEGORY: Record<number, PostCategory> = {

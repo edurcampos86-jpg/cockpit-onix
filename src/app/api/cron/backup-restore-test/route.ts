@@ -87,7 +87,7 @@ export async function GET(req: Request) {
           { timeout: 30_000 }
         );
         counts[tabela] = parseInt(stdout.trim(), 10);
-      } catch (e) {
+      } catch {
         counts[tabela] = -1; // tabela não existe ou sem permissão
       }
     }

@@ -11,7 +11,6 @@ import {
   CheckSquare,
   Users,
   Target,
-  TrendingUp,
   Award,
 } from "lucide-react";
 import { CATEGORY_LABELS, type PostCategory } from "@/lib/types";
