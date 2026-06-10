@@ -43,8 +43,19 @@ export function PrioridadesCard({
     )
   );
   const [loading, setLoading] = useState<number | null>(null);
+  const [erroFoco, setErroFoco] = useState<string | null>(null);
 
   const haSugestoes = prioridades.some((p) => p.sugeridaPorBoot);
+
+  async function lerErro(res: Response): Promise<string> {
+    try {
+      const body = (await res.json()) as { error?: string };
+      if (body.error) return body.error;
+    } catch {
+      // corpo não-JSON (ex.: 404 de rota inexistente)
+    }
+    return `Falha no bloco de foco (HTTP ${res.status}).`;
+  }
 
   async function salvar(posicao: 1 | 2 | 3) {
     const texto = textos[posicao]?.trim();
@@ -106,11 +117,18 @@ export function PrioridadesCard({
     const p = porPosicao.get(posicao);
     if (!p || !p.tempoEstimadoMin) return;
     setLoading(posicao);
+    setErroFoco(null);
     try {
-      await fetch(`/api/painel-do-dia/prioridades/${p.id}/focus-block`, {
+      const res = await fetch(`/api/painel-do-dia/prioridades/${p.id}/focus-block`, {
         method: "POST",
       });
+      if (!res.ok) {
+        setErroFoco(await lerErro(res));
+        return;
+      }
       router.refresh();
+    } catch {
+      setErroFoco("Falha de rede ao agendar o bloco de foco.");
     } finally {
       setLoading(null);
     }
@@ -120,11 +138,18 @@ export function PrioridadesCard({
     const p = porPosicao.get(posicao);
     if (!p) return;
     setLoading(posicao);
+    setErroFoco(null);
     try {
-      await fetch(`/api/painel-do-dia/prioridades/${p.id}/focus-block`, {
+      const res = await fetch(`/api/painel-do-dia/prioridades/${p.id}/focus-block`, {
         method: "DELETE",
       });
+      if (!res.ok) {
+        setErroFoco(await lerErro(res));
+        return;
+      }
       router.refresh();
+    } catch {
+      setErroFoco("Falha de rede ao remover o bloco de foco.");
     } finally {
       setLoading(null);
     }
@@ -149,6 +174,11 @@ export function PrioridadesCard({
           </CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
+          {erroFoco && (
+            <p className="mx-4 text-sm text-destructive" role="alert">
+              {erroFoco}
+            </p>
+          )}
           {haSugestoes && (
             <div className="mx-4 flex items-center justify-between gap-2 rounded-md border border-amber-300/40 bg-amber-50 dark:bg-amber-950/20 p-2 text-xs">
               <span className="flex items-center gap-1.5">
