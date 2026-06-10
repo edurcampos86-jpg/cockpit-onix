@@ -27,11 +27,11 @@ on:
     - cron: '0 7 * * 0'     # btg-cadastral-poll (dom 04:00 Bahia / 07:00 UTC — off-peak, incremental)
     - cron: '0 11 * * *'    # alertas-clientes (diário 08:00 Bahia / 11:00 UTC — após saldos)
     - cron: '0 7 * * *'     # backup-daily → B2 (diário 04:00 Bahia / 07:00 UTC)
+    - cron: '0 8 1 * *'     # backup-restore-test → B2 (dia 1 do mês, 05:00 Bahia / 08:00 UTC)
     # Backup do Postgres roda em DOIS destinos independentes (regra 3-2-1):
     # .github/workflows/db-backup.yml (06:00 UTC diário, pg_dump direto → R2,
-    # restore drill semanal em restore-drill.yml) e o schedule 0 7 * * * acima
-    # (app → B2 via /api/cron/backup-daily, retenção GFS).
-    # O schedule 0 8 1 * * (backup-restore-test) segue sem agendamento aqui.
+    # restore drill semanal em restore-drill.yml) e os schedules 0 7 * * * /
+    # 0 8 1 * * acima (app → B2: backup diário + restore test mensal, GFS).
   workflow_dispatch:
     inputs:
       paths:
@@ -90,6 +90,9 @@ jobs:
                 ;;
               "0 7 * * *")
                 PATHS="/api/cron/backup-daily"
+                ;;
+              "0 8 1 * *")
+                PATHS="/api/cron/backup-restore-test"
                 ;;
               *)
                 echo "Schedule '$SCHEDULE' não mapeado — nenhum endpoint executado."
