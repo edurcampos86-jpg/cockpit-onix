@@ -1,0 +1,17 @@
+name: actionlint
+
+# Valida a sintaxe de todos os workflows em toda PR.
+# Sem path filter de propósito: rodar sempre (custa segundos) permite
+# torná-lo required check sem o deadlock de "check expected que nunca roda".
+on:
+  pull_request:
+
+jobs:
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run actionlint
+        run: |
+          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash) 1.7.7
+          ./actionlint -color
