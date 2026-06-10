@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
-import { generateEditorialPlan, type PlannedPost } from "@/lib/integrations/claude-ai";
+import { generateEditorialPlan } from "@/lib/integrations/claude-ai";
 import { getThemesForPeriod } from "@/lib/seasonal-themes";
 import { getSession } from "@/lib/session";
 

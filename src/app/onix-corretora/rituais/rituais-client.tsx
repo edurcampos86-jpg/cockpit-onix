@@ -6,7 +6,6 @@ import { ComoFunciona } from "@/components/layout/como-funciona";
 import {
   CalendarDays,
   CheckCircle2,
-  Circle,
   Flame,
   Clock,
   Users,

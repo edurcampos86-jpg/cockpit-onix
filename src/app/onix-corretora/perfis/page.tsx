@@ -1,7 +1,7 @@
 import { PageHeader } from "@/components/layout/page-header";
 import { ComoFunciona } from "@/components/layout/como-funciona";
 import Link from "next/link";
-import { UserCircle, ChevronRight } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 
 const PERFIS = [
   {

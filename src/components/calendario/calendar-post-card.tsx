@@ -8,7 +8,6 @@ import {
   FORMAT_LABELS,
   CTA_LABELS,
   CATEGORY_PILAR_MAP,
-  PILAR_LABELS,
   type PostStatus,
   type PostFormat,
   type PostCategory,

@@ -21,8 +21,6 @@ export async function GET(request: NextRequest) {
     
     // Calcular período da semana anterior (segunda a domingo)
     const now = new Date()
-    const dayOfWeek = now.getDay() // 0 = domingo
-    const daysToLastMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1
     
     const weekEnd = new Date(now)
     weekEnd.setDate(now.getDate() - 1) // ontem (sábado)

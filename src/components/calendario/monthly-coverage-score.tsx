@@ -1,9 +1,8 @@
 "use client";
 
-import { TrendingUp, Target } from "lucide-react";
+import { Target } from "lucide-react";
 import {
   CATEGORY_PILAR_MAP,
-  PILAR_LABELS,
   type PostCategory,
   type PilarEditorial,
 } from "@/lib/types";
@@ -25,7 +24,6 @@ export function MonthlyCoverageScore({ posts, year, month }: MonthlyCoverageScor
   // Group posts by week number (ISO week within the month)
   const weekSets: Set<number>[] = [];
   for (let d = 1; d <= totalDays; d++) {
-    const date = new Date(year, month, d);
     const weekIdx = Math.floor((d - 1 + firstDay.getDay()) / 7);
     if (!weekSets[weekIdx]) weekSets[weekIdx] = new Set();
   }

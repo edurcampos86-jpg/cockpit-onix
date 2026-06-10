@@ -108,8 +108,6 @@ export async function fetchConversas(
       // Skip groups
       if (conversa.isGroup === true) continue;
 
-      // Skip if contactId is in internal contacts
-      const contactId = conversa.contactId ?? conversa.contact?.id ?? "";
       const contactPhone =
         conversa.contact?.phone ??
         conversa.contact?.number ??

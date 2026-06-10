@@ -110,7 +110,7 @@ export function BtgDashboard(props: Props) {
             <h3 className="font-semibold">Clientes por perfil de investidor</h3>
           </div>
           {props.perPerfil.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Sem dados ainda. Rode "Enriquecer dados" na lista de clientes.</p>
+            <p className="text-sm text-muted-foreground">Sem dados ainda. Rode &quot;Enriquecer dados&quot; na lista de clientes.</p>
           ) : (
             <div className="space-y-2">
               {props.perPerfil.map((p) => (

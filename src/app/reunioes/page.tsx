@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { PageHeader } from "@/components/layout/page-header";
 import { ComoFunciona } from "@/components/layout/como-funciona";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Mic,
   Clock,
@@ -41,7 +41,7 @@ export default function ReunioesPage() {
   const [generatingScript, setGeneratingScript] = useState<string | null>(null);
   const [scriptResult, setScriptResult] = useState<{ id: string; script: string } | null>(null);
   const [showNewPost, setShowNewPost] = useState(false);
-  const [newPostPreTitle, setNewPostPreTitle] = useState("");
+  const [, setNewPostPreTitle] = useState("");
 
   const fetchMeetings = useCallback(async () => {
     setLoading(true);

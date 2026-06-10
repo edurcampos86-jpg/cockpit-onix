@@ -406,7 +406,7 @@ function gerarRecomendacoes(
 /**
  * Sugere temas para a próxima semana com base em performance
  */
-function sugerirProximosTemas(posts: InstagramPostClassified[]): string[] {
+function sugerirProximosTemas(): string[] {
   const temas = [
     'Sucessão de Clínicas Médicas: O que acontece com sua clínica se você falecer?',
     'ITCMD na Bahia: Quanto vai custar para sua família receber sua herança?',
@@ -434,7 +434,7 @@ export function analyzeWeek(posts: InstagramPostClassified[]): AnalysisResult {
   const metricasPorFormato = calcularMetricasPorFormato(posts)
   const descobertas = identificarDescobertas(posts, metricasPorPilar)
   const recomendacoes = gerarRecomendacoes(posts, metricasPorPilar, metricasPorFormato)
-  const proximosTemas = sugerirProximosTemas(posts)
+  const proximosTemas = sugerirProximosTemas()
   
   // Snapshot
   const pilares: Record<string, number> = {}

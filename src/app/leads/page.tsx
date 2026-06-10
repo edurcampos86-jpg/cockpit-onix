@@ -7,7 +7,6 @@ import {
   Plus,
   Phone,
   Mail,
-  Clock,
   Flame,
   Snowflake,
   Thermometer,
@@ -18,7 +17,7 @@ import {
   Filter,
   X,
 } from "lucide-react";
-import type { LeadStage, LeadTemperature } from "@/lib/types";
+import type { LeadStage } from "@/lib/types";
 import { LeadTimer } from "@/components/leads/lead-timer";
 
 interface LeadData {
@@ -209,17 +208,6 @@ export default function LeadsPage() {
     } catch (error) {
       console.error("Error creating lead:", error);
     }
-  };
-
-  const getTimeSinceContact = (lastContactAt: string | null, enteredAt: string) => {
-    const refDate = lastContactAt ? new Date(lastContactAt) : new Date(enteredAt);
-    const diffMs = Date.now() - refDate.getTime();
-    const diffMin = Math.floor(diffMs / 60000);
-    if (diffMin < 60) return `${diffMin}min`;
-    const diffH = Math.floor(diffMin / 60);
-    if (diffH < 24) return `${diffH}h`;
-    const diffD = Math.floor(diffH / 24);
-    return `${diffD}d`;
   };
 
   const isResponseLate = (lead: LeadData) => {

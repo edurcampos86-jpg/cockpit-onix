@@ -1,6 +1,5 @@
 "use client";
 
-import { cn } from "@/lib/utils";
 import { CATEGORY_LABELS, type PostCategory } from "@/lib/types";
 import type { ScriptData } from "@/app/roteiros/page";
 import { Pencil, Copy, Trash2, Link2, Clock, CalendarPlus } from "lucide-react";

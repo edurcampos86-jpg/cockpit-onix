@@ -97,11 +97,6 @@ async function authedRequest(
   return { status: res.status, body, raw };
 }
 
-// Helper legado mantido pra compatibilidade com código antigo
-async function authedGet(path: string) {
-  return authedRequest("position", path);
-}
-
 // ===== POSIÇÃO (iaas-api-position) =====
 
 export async function getPositionByAccount(accountNumber: string) {
@@ -251,7 +246,7 @@ export async function rateLimitedSequential<T, R>(
 
 export async function testConnection(): Promise<{ success: boolean; message: string }> {
   try {
-    const token = await getAccessToken();
+    await getAccessToken();
     return {
       success: true,
       message: `Conectado ao BTG Partner API. Token Bearer obtido (válido ~15 min, cache automático).`,

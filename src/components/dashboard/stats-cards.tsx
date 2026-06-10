@@ -18,7 +18,6 @@ interface StatsCardsProps {
 
 export function StatsCards({ weekPosts, pendingTasks, todayTasksCount, todayCompletedCount }: StatsCardsProps) {
   const weekGoalMet = weekPosts.total >= 5;
-  const weekProgress = Math.min((weekPosts.total / 5) * 100, 100);
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

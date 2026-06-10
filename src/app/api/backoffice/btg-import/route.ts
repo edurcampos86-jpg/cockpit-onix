@@ -211,14 +211,6 @@ export async function POST() {
 interface ParsedAccount { numeroConta: string }
 interface ParsedBalance { numeroConta: string; saldoTotal: number; saldoConta: number }
 interface ParsedPosition { numeroConta: string; aum: number; positionDate: Date | null; breakdown: unknown }
-interface ParsedCadastral {
-  nome: string | null;
-  cpfCnpj: string | null;
-  email: string | null;
-  telefone: string | null;
-  coHolders: unknown;
-  usuariosBtg: unknown;
-}
 
 function asArray(body: unknown): unknown[] {
   if (Array.isArray(body)) return body;
@@ -271,39 +263,7 @@ function parsePartnerPositions(body: unknown): ParsedPosition[] {
     .filter((x): x is ParsedPosition => x !== null);
 }
 
-function parseAccountInformation(body: unknown): ParsedCadastral {
-  if (!body || typeof body !== "object") {
-    return { nome: null, cpfCnpj: null, email: null, telefone: null, coHolders: null, usuariosBtg: null };
-  }
-  const p = body as Record<string, unknown>;
-  const holder = (p.holder ?? p.Holder) as Record<string, unknown> | undefined;
-  const coHolders = (p.coHolders ?? p.CoHolders) as unknown[] | undefined;
-  const users = (p.users ?? p.Users) as Array<Record<string, unknown>> | undefined;
-
-  const nome = holder ? pickString(holder, ["name", "Name"]) : null;
-  const cpfCnpj = holder ? pickString(holder, ["taxIdentification", "TaxIdentification", "cpf", "cnpj"]) : null;
-
-  const owner = users?.find((u) => u.isOwner === true) || users?.[0];
-  const email = owner ? pickString(owner, ["userEmail", "email", "Email"]) : null;
-  const telefone = owner ? pickString(owner, ["phoneNumber", "phone", "Phone"]) : null;
-
-  return {
-    nome,
-    cpfCnpj,
-    email,
-    telefone,
-    coHolders: coHolders ?? null,
-    usuariosBtg: users ?? null,
-  };
-}
-
 // ===== HELPERS =====
-
-function shouldReplaceName(atual: string, novo: string | null): boolean {
-  if (!novo) return false;
-  // Substitui só se o nome atual é placeholder "Cliente NNN" ou vazio
-  return /^Cliente\s+\d+$/.test(atual.trim()) || atual.trim() === "";
-}
 
 function normalizeAccount(s: string): string {
   return s.replace(/^0+/, "").trim();

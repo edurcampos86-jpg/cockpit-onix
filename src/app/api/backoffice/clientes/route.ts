@@ -4,7 +4,6 @@ import { type FonteImport } from "@/lib/backoffice/field-source-policy";
 import { upsertPorPolitica } from "@/lib/backoffice/upsert-cliente";
 import { NextRequest, NextResponse } from "next/server";
 
-const FONTES_VALIDAS: ReadonlySet<FonteImport> = new Set(["base_btg", "informacoes", "saldo_em_cc", "manual"]);
 
 function calcularCortesABC(saldos: number[]): { corteA: number; corteB: number } {
   if (saldos.length === 0) return { corteA: Infinity, corteB: Infinity };

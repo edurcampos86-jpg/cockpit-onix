@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { PageHeader } from "@/components/layout/page-header";
 import { ComoFunciona } from "@/components/layout/como-funciona";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { BriefingPanel } from "@/components/kpis/briefing-panel";
 import {
   TrendingUp,
@@ -169,16 +169,6 @@ function loadAllWeeks(): WeekData[] {
 
 function saveAllWeeks(weeks: WeekData[]) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(weeks));
-}
-
-function getAllKpiIds(): string[] {
-  const ids = ESSENTIAL_KPIS.map((k) => k.id);
-  for (const camada of CAMADAS) {
-    for (const kpi of camada.kpis) {
-      if (!ids.includes(kpi.id)) ids.push(kpi.id);
-    }
-  }
-  return ids;
 }
 
 // ── Component ──────────────────────────────────────────────────────────────────

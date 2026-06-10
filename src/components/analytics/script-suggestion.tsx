@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Wand2, CheckCircle2, X, ChevronDown, ChevronUp, Copy, Check } from "lucide-react";
+import { Wand2, CheckCircle2, ChevronDown, ChevronUp, Copy, Check } from "lucide-react";
 
 interface ScriptSuggestionProps {
   recommendationId: string;
