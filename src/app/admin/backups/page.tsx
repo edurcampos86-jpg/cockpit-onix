@@ -47,7 +47,7 @@ export default async function BackupsPage() {
       <div className="p-8 space-y-6 max-w-6xl">
         <ComoFunciona
           proposito="Pipeline completo de backup do Postgres + restore test mensal. Dumps vão pro Backblaze B2 (bucket onix-cockpit-backups), retenção 30 daily + 12 monthly + 5 yearly (GFS)."
-          comoUsar="Cron diário roda 04h (Bahia). Restore test mensal valida que os dumps são restauráveis. Manualmente dá pra disparar um backup já com 'Rodar agora'."
+          comoUsar="Backup automático em dois destinos: GitHub Actions → R2 (diário 03h Bahia, cifrado, restore drill semanal) e app → B2 (diário 04h Bahia via cron.yml, retenção GFS, restore test mensal). 'Rodar agora' dispara um backup B2 manual."
           comoAjuda="Backup que não foi testado não é backup. O restore test é a única garantia real de que o pipeline funciona. Se o sanity check falhar, Slack + WhatsApp alertam imediatamente."
         />
 
