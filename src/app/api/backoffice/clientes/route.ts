@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { type FonteImport } from "@/lib/backoffice/field-source-policy";
 import { upsertPorPolitica } from "@/lib/backoffice/upsert-cliente";
+import { gateSanidadeSaldoCc } from "@/lib/backoffice/import-sanity";
 import { NextRequest, NextResponse } from "next/server";
 
 
@@ -435,6 +436,39 @@ export async function POST(request: NextRequest) {
       update_cadastral: "informacoes",
     };
     const fonte: FonteImport | null = fontePorModo[modo] ?? null;
+
+    // Caller pode declarar o que ACHA que está mandando (automação sempre
+    // declara). Heurística divergente = arquivo errado/malformado — rejeita
+    // inteiro em vez de importar no modo errado (pior caso: saldo CC
+    // truncado detectado como `primario` CRIARIA clientes-fantasma).
+    const fonteEsperada = clean(body?.fonteEsperada);
+    if (fonteEsperada && fonteEsperada !== fonte) {
+      return NextResponse.json(
+        {
+          error:
+            `Gate de sanidade: o arquivo foi detectado como "${fonte ?? modo}", mas o ` +
+            `caller declarou "${fonteEsperada}". Nada foi importado.`,
+          modo,
+          fonte,
+          fonteEsperada,
+        },
+        { status: 422 },
+      );
+    }
+
+    // Gate de sanidade pré-escrita do Saldo em CC: arquivo anômalo (truncado
+    // ou com cabeçalho irreconhecível) é rejeitado INTEIRO — nunca parcial.
+    if (fonte === "saldo_em_cc") {
+      const gate = await gateSanidadeSaldoCc({
+        recebidas: recebidos.length,
+        validas: limpos.length,
+        baseAtual: await prisma.clienteBackoffice.count(),
+      });
+      if (!gate.ok) {
+        console.warn("[POST /clientes] gate de sanidade rejeitou:", gate.erro);
+        return NextResponse.json({ error: gate.erro }, { status: 422 });
+      }
+    }
 
     const pareados = await Promise.all(
       limpos.map(async (input) => ({ input, existente: await findExisting(input) })),
