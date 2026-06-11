@@ -68,6 +68,17 @@ export const ITENS_FRESHNESS: ItemFreshness[] = [
   },
 ];
 
+// Alerta POR FONTE (warning) — camada aditiva ao check de dado-stale acima.
+// O campo-sentinela aceita fontes equivalentes, então o poll da API pode
+// mascarar um import XLSX parado; este check audita o MECANISMO saldo_em_cc:
+// qualquer campo escrito pela fonte conta, independente do frescor do dado.
+export const FONTE_WARNING = {
+  fonte: "saldo_em_cc" as FonteImport,
+  label: "Import XLSX Saldo em CC",
+  limiarHorasUteisDefault: 96, // 4 dias úteis
+  configKey: "BTG_FRESHNESS_LIMIAR_FONTE_SALDO_EM_CC_HORAS",
+};
+
 /** Dia "YYYY-MM-DD" no fuso America/Bahia. */
 function bahiaYmd(d: Date): string {
   return new Date(d.getTime() - BAHIA_OFFSET_MS).toISOString().slice(0, 10);
@@ -109,6 +120,15 @@ export interface ResultadoItem {
   stale: boolean;
 }
 
+export interface ResultadoFonteWarning {
+  fonte: string;
+  label: string;
+  ultimaEscrita: string | null; // ISO; null = fonte nunca escreveu nada
+  horasUteisDesde: number | null;
+  limiarHorasUteis: number;
+  warning: boolean;
+}
+
 async function lerFeriados(): Promise<Set<string>> {
   const raw = (await getConfig("BTG_FRESHNESS_FERIADOS")) ?? "";
   return new Set(
@@ -128,14 +148,19 @@ async function lerLimiar(item: ItemFreshness): Promise<number> {
 /**
  * Varre fonteUltimoUpdate de todos os clientes e devolve, por item
  * monitorado, o timestamp mais recente escrito por uma fonte aceita
- * no campo-sentinela.
+ * no campo-sentinela — e, para o alerta por fonte, a última escrita
+ * da fonte FONTE_WARNING em QUALQUER campo.
  */
-async function ultimoSyncPorItem(): Promise<Map<string, Date | null>> {
+async function ultimoSyncPorItem(): Promise<{
+  porItem: Map<string, Date | null>;
+  ultimaEscritaFonteWarning: Date | null;
+}> {
   const rows = await prisma.clienteBackoffice.findMany({
     select: { fonteUltimoUpdate: true },
   });
 
   const maxPorItem = new Map<string, Date | null>(ITENS_FRESHNESS.map((i) => [i.id, null]));
+  let ultimaEscritaFonteWarning: Date | null = null;
 
   for (const row of rows) {
     const json = row.fonteUltimoUpdate as Record<string, string> | null;
@@ -152,9 +177,18 @@ async function ultimoSyncPorItem(): Promise<Map<string, Date | null>> {
       const atual = maxPorItem.get(item.id);
       if (!atual || ts > atual) maxPorItem.set(item.id, ts);
     }
+    for (const valor of Object.values(json)) {
+      if (typeof valor !== "string") continue;
+      const sep = valor.indexOf(":");
+      if (sep <= 0 || valor.slice(0, sep) !== FONTE_WARNING.fonte) continue;
+      const ts = new Date(valor.slice(sep + 1));
+      if (isNaN(ts.getTime())) continue;
+      if (!ultimaEscritaFonteWarning || ts > ultimaEscritaFonteWarning)
+        ultimaEscritaFonteWarning = ts;
+    }
   }
 
-  return maxPorItem;
+  return { porItem: maxPorItem, ultimaEscritaFonteWarning };
 }
 
 function formatBahia(d: Date): string {
@@ -175,12 +209,17 @@ function formatBahia(d: Date): string {
 export async function verificarFreshnessBtg(): Promise<{
   ok: boolean;
   itens: ResultadoItem[];
+  fonteWarning: ResultadoFonteWarning | null;
   alertaEnviado: boolean;
+  warningEnviado: boolean;
   erro?: string;
 }> {
   try {
     const agora = new Date();
-    const [feriados, ultimos] = await Promise.all([lerFeriados(), ultimoSyncPorItem()]);
+    const [feriados, { porItem: ultimos, ultimaEscritaFonteWarning }] = await Promise.all([
+      lerFeriados(),
+      ultimoSyncPorItem(),
+    ]);
 
     const itens: ResultadoItem[] = [];
     for (const item of ITENS_FRESHNESS) {
@@ -211,13 +250,48 @@ export async function verificarFreshnessBtg(): Promise<{
       );
     }
 
-    return { ok: true, itens, alertaEnviado };
+    // Warning por fonte — mensagem separada com prefixo próprio para nunca
+    // competir com o alerta crítico de dado-stale acima.
+    const limiarFonteRaw = await getConfig(FONTE_WARNING.configKey);
+    const limiarFonteNum = limiarFonteRaw ? Number(limiarFonteRaw) : NaN;
+    const limiarFonte =
+      Number.isFinite(limiarFonteNum) && limiarFonteNum > 0
+        ? limiarFonteNum
+        : FONTE_WARNING.limiarHorasUteisDefault;
+    const horasFonte = ultimaEscritaFonteWarning
+      ? horasUteisEntre(ultimaEscritaFonteWarning, agora, feriados)
+      : null;
+    const fonteWarning: ResultadoFonteWarning = {
+      fonte: FONTE_WARNING.fonte,
+      label: FONTE_WARNING.label,
+      ultimaEscrita: ultimaEscritaFonteWarning?.toISOString() ?? null,
+      horasUteisDesde: horasFonte !== null ? Math.round(horasFonte * 10) / 10 : null,
+      limiarHorasUteis: limiarFonte,
+      warning:
+        ultimaEscritaFonteWarning === null || (horasFonte !== null && horasFonte > limiarFonte),
+    };
+
+    let warningEnviado = false;
+    if (fonteWarning.warning) {
+      const desde = fonteWarning.ultimaEscrita
+        ? `última escrita ${formatBahia(new Date(fonteWarning.ultimaEscrita))} (Bahia) — ${fonteWarning.horasUteisDesde}h úteis atrás`
+        : "NUNCA escreveu nenhum campo";
+      warningEnviado = await sendSlackMessage(
+        `⚠️ [fonte] *${FONTE_WARNING.label} sem atualizações*\n` +
+          `• ${desde} (limiar ${limiarFonte}h úteis)\n` +
+          `O dado pode seguir fresco via Partner API; verificar o upload da planilha Saldo em CC (Backoffice → Importar do BTG).`,
+      );
+    }
+
+    return { ok: true, itens, fonteWarning, alertaEnviado, warningEnviado };
   } catch (error) {
     console.error("[btg-freshness] erro:", error);
     return {
       ok: false,
       itens: [],
+      fonteWarning: null,
       alertaEnviado: false,
+      warningEnviado: false,
       erro: error instanceof Error ? error.message : String(error),
     };
   }
