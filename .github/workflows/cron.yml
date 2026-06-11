@@ -28,6 +28,7 @@ on:
     - cron: '0 11 * * *'    # alertas-clientes (diário 08:00 Bahia / 11:00 UTC — após saldos)
     - cron: '0 7 * * *'     # backup-daily → B2 (diário 04:00 Bahia / 07:00 UTC)
     - cron: '0 8 1 * *'     # backup-restore-test → B2 (dia 1 do mês, 05:00 Bahia / 08:00 UTC)
+    - cron: '0 13 * * 1-5'  # btg-freshness (seg-sex 10:00 Bahia / 13:00 UTC — heartbeat de dados BTG, após balances-poll)
     # Backup do Postgres roda em DOIS destinos independentes (regra 3-2-1):
     # .github/workflows/db-backup.yml (06:00 UTC diário, pg_dump direto → R2,
     # restore drill semanal em restore-drill.yml) e os schedules 0 7 * * * /
@@ -93,6 +94,9 @@ jobs:
                 ;;
               "0 8 1 * *")
                 PATHS="/api/cron/backup-restore-test"
+                ;;
+              "0 13 * * 1-5")
+                PATHS="/api/cron/btg-freshness"
                 ;;
               *)
                 echo "Schedule '$SCHEDULE' não mapeado — nenhum endpoint executado."
