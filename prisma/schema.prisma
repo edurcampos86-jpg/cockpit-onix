@@ -263,6 +263,14 @@ model Lead {
   assignedTo   User   @relation(fields: [assignedToId], references: [id])
 
   meetings Meeting[]
+
+  // ── F5 Meta Ads (Fase 1): origem de tracking do lead ──
+  sourceSubpersona String?
+  sourceDor        String?
+  sourceProjeto    String?
+  firstEventId     String?
+  firstEvent       TrackingEvent?  @relation("LeadFirstEvent", fields: [firstEventId], references: [id])
+  trackingEvents   TrackingEvent[]
 }
 
 // ============================================
@@ -1879,4 +1887,56 @@ model Implementacao {
 
   @@index([empresaId, status])
   @@index([userId])
+}
+
+// ============================================
+// F5 — META ADS / PIXEL & TRÁFEGO (Fase 1)
+// ============================================
+
+// Evento de tracking vindo do site MSP (via /api/integracoes/meta/ingest).
+// Fase 1 cria a estrutura; população começa quando o Pixel entrar no MSP.
+model TrackingEvent {
+  id            String   @id @default(cuid())
+  eventName     String // "PageView" | "Lead" | "CompleteRegistration" | "Schedule"
+  occurredAt    DateTime
+  sourcePostId  String? // casa com Post.id quando o UTM vier do Calendário
+  utmSource     String?
+  utmMedium     String?
+  utmCampaign   String?
+  utmContent    String?
+  subpersonaTag String?
+  dorTag        String?
+  projetoTag    String?
+  costBrl       Float? // rateado pelo cron meta-sync a partir do spend D-1
+  rawPayload    String?  @db.Text // JSON cru do ingest
+  createdAt     DateTime @default(now())
+
+  leadId String?
+  lead   Lead?   @relation(fields: [leadId], references: [id])
+
+  leadsFirstEvent Lead[] @relation("LeadFirstEvent")
+
+  @@index([occurredAt(sort: Desc)])
+  @@index([subpersonaTag, dorTag, projetoTag])
+}
+
+// Snapshot diário por (date, campaign, adset, ad) vindo da Marketing API.
+model AdCampaignSnapshot {
+  id           String   @id @default(cuid())
+  date         DateTime // dia da janela (00:00 UTC)
+  campaignId   String
+  campaignName String?
+  adsetId      String?
+  adId         String?
+  impressions  Int      @default(0)
+  clicks       Int      @default(0)
+  spendBrl     Float    @default(0)
+  cpmBrl       Float?
+  cpcBrl       Float?
+  results      Int?
+  resultType   String?
+  createdAt    DateTime @default(now())
+
+  @@unique([date, campaignId, adsetId, adId])
+  @@index([date(sort: Desc)])
 }

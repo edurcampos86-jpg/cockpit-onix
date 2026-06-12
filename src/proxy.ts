@@ -14,6 +14,7 @@ const publicRoutes = [
   "/api/onix-corretora/ingest",
   "/api/onix-corretora/test-pipeline", // Diagnóstico do pipeline
   "/api/webhooks/btg",                 // Webhook BTG — autentica via x-webhook-secret se configurado
+  "/api/integracoes/meta/ingest",      // Ingest de eventos do MSP — Bearer META_INGEST_TOKEN (timing-safe; ausente = 503)
 ];
 const secretKey = process.env.SESSION_SECRET;
 const encodedKey = new TextEncoder().encode(secretKey);
