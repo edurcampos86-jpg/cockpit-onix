@@ -48,6 +48,7 @@ import {
   PiggyBank,
   Building,
   Network,
+  Cpu,
 } from "lucide-react";
 import { useState, useTransition, useEffect } from "react";
 import { cn } from "@/lib/utils";
@@ -222,6 +223,12 @@ const empresasModulesV2 = [
     icon: Network,
     items: [{ name: "Painel", href: "/empresas/corporate", icon: LayoutDashboard }],
   },
+  {
+    id: "onix-tech",
+    label: "Onix Tech",
+    icon: Cpu,
+    items: [{ name: "Painel", href: "/empresas/tech", icon: LayoutDashboard }],
+  },
 ];
 
 const transversalModulesV2 = [
@@ -243,6 +250,7 @@ function getActiveModuleIdV2(pathname: string): string {
   if (pathname.startsWith("/empresas/planejamento")) return "onix-planejamento";
   if (pathname.startsWith("/empresas/imobiliaria")) return "onix-imobiliaria";
   if (pathname.startsWith("/empresas/corporate")) return "onix-corporate";
+  if (pathname.startsWith("/empresas/tech")) return "onix-tech";
   if (pathname.startsWith("/time")) return "pessoas";
   if (
     ["/juridico", "/admin/auditoria", "/admin/juridico", "/admin/importacao"].some((p) =>
@@ -300,6 +308,7 @@ export function Sidebar() {
     if (href === "/empresas/planejamento") return pathname === "/empresas/planejamento";
     if (href === "/empresas/imobiliaria") return pathname === "/empresas/imobiliaria";
     if (href === "/empresas/corporate") return pathname === "/empresas/corporate";
+    if (href === "/empresas/tech") return pathname === "/empresas/tech";
     return pathname.startsWith(href);
   };
 

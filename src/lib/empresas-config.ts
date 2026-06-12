@@ -82,10 +82,16 @@ const corporate: EmpresaConfig = {
   abas: abasPadrao("corporate"),
 };
 
+const tech: EmpresaConfig = {
+  id: "tech",
+  nome: "Onix Tech",
+  abas: abasPadrao("tech"),
+};
+
 /* Com a flag desligada, EMPRESAS fica idêntico ao estado pré-F4 —
  * as empresas novas não aparecem nem no select de Implementações. */
 const NAV_V2 = process.env.NEXT_PUBLIC_NAV_V2 === "true";
 
 export const EMPRESAS: EmpresaConfig[] = NAV_V2
-  ? [investimentos, corretora, planejamento, imobiliaria, corporate]
+  ? [investimentos, corretora, planejamento, imobiliaria, corporate, tech]
   : [investimentos];
