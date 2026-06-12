@@ -153,6 +153,22 @@ const INTEGRATIONS: IntegrationConfig[] = [
       "Ranking de posts por engajamento",
     ],
   },
+  {
+    id: "meta_ads",
+    name: "Meta Ads — Pixel & Tráfego",
+    description:
+      "Piloto de tráfego pago — snapshots diários de campanha (Marketing API) e eventos do Pixel do MSP",
+    icon: <Zap className="h-6 w-6" />,
+    status: "disconnected",
+    envKey: "META_AD_ACCOUNT_ID",
+    docsUrl: "https://developers.facebook.com/docs/marketing-api/insights/",
+    features: [
+      "Sync diário de impressões, cliques e investimento (D-1)",
+      "Funil de conversão e matriz de CAC por sub-persona",
+      "Ingestão de eventos do Pixel via /api/integracoes/meta/ingest",
+      "Painel em /pixel-trafego (flag NEXT_PUBLIC_PIXEL_TRAFEGO)",
+    ],
+  },
 ];
 
 const STATUS_BADGE: Record<string, { label: string; class: string; icon: React.ReactNode }> = {

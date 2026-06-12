@@ -49,6 +49,7 @@ import {
   Building,
   Network,
   Cpu,
+  Radar,
 } from "lucide-react";
 import { useState, useTransition, useEffect } from "react";
 import { cn } from "@/lib/utils";
@@ -58,6 +59,10 @@ import { useTheme } from "@/components/theme-provider";
 
 /* ── Seções de cada empresa ─────────────────────────── */
 
+/* F5 Meta Ads (Fase 1) — item visível só com a flag ligada. Entrar em
+ * mktNavigation cobre as duas navs: marketingItemsV2 deriva daqui. */
+const PIXEL_TRAFEGO_ON = process.env.NEXT_PUBLIC_PIXEL_TRAFEGO === "true";
+
 const mktNavigation = [
   { name: "Painel", href: "/", icon: LayoutDashboard },
   { name: "Calendário", href: "/calendario", icon: CalendarDays },
@@ -65,6 +70,9 @@ const mktNavigation = [
   { name: "Planejamento", href: "/planejamento", icon: Wand2 },
   { name: "Tarefas", href: "/tarefas", icon: CheckSquare },
   { name: "Leads", href: "/leads", icon: Users },
+  ...(PIXEL_TRAFEGO_ON
+    ? [{ name: "Pixel & Tráfego", href: "/pixel-trafego", icon: Radar }]
+    : []),
   { name: "Relatório", href: "/relatorio", icon: BarChart3 },
   { name: "Analytics", href: "/analytics", icon: TrendingUp },
   { name: "KPIs", href: "/kpis", icon: Target },

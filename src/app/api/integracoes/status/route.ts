@@ -19,6 +19,7 @@ export async function GET() {
     metaToken,
     btgId,
     btgSecret,
+    metaAdAccount,
   ] = await Promise.all([
     isConfigured("MANYCHAT_API_TOKEN"),
     isConfigured("ANTHROPIC_API_KEY"),
@@ -30,6 +31,7 @@ export async function GET() {
     isConfigured("META_ACCESS_TOKEN"),
     isConfigured("BTG_CLIENT_ID"),
     isConfigured("BTG_CLIENT_SECRET"),
+    isConfigured("META_AD_ACCOUNT_ID"),
   ]);
 
   const session = await getSession();
@@ -91,6 +93,11 @@ export async function GET() {
     meta: {
       configured: metaToken,
       status: metaToken ? "connected" : "disconnected",
+    },
+    meta_ads: {
+      // Meta Ads (F5): precisa do token + ad account pra sincronizar
+      configured: metaToken && metaAdAccount,
+      status: metaToken && metaAdAccount ? "connected" : "disconnected",
     },
     btg_pactual: {
       configured: btgId && btgSecret,
