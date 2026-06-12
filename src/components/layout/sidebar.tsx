@@ -45,6 +45,9 @@ import {
   PackagePlus,
   Mail,
   Home,
+  PiggyBank,
+  Building,
+  Network,
 } from "lucide-react";
 import { useState, useTransition, useEffect } from "react";
 import { cn } from "@/lib/utils";
@@ -189,9 +192,36 @@ const operacoesItemsV2 = [
   { name: "Glossário", href: "/glossario", icon: BookMarked },
 ];
 
+// F4 — shells das demais empresas: um item "Painel" por empresa; as demais
+// abas vivem na barra do EmpresaShell, não na sidebar. A Corretora mantém
+// seus itens atuais (/onix-corretora) e ganha o painel da shell nova no topo;
+// a migração de namespacing dela é backlog próprio.
+const corretoraItemsV2 = [
+  { name: "Visão da Empresa (novo)", href: "/empresas/corretora", icon: Building2 },
+  ...onixCorretorNavigation,
+];
+
 const empresasModulesV2 = [
   { id: "onix-invest", label: "Onix Investimentos", icon: Building2, items: backofficeNavigation },
-  { id: "onix-corretora", label: "Onix Corretora", icon: Briefcase, items: onixCorretorNavigation },
+  { id: "onix-corretora", label: "Onix Corretora", icon: Briefcase, items: corretoraItemsV2 },
+  {
+    id: "onix-planejamento",
+    label: "Planejamento Patrimonial",
+    icon: PiggyBank,
+    items: [{ name: "Painel", href: "/empresas/planejamento", icon: LayoutDashboard }],
+  },
+  {
+    id: "onix-imobiliaria",
+    label: "Onix Imobiliária",
+    icon: Building,
+    items: [{ name: "Painel", href: "/empresas/imobiliaria", icon: LayoutDashboard }],
+  },
+  {
+    id: "onix-corporate",
+    label: "Onix Corporate",
+    icon: Network,
+    items: [{ name: "Painel", href: "/empresas/corporate", icon: LayoutDashboard }],
+  },
 ];
 
 const transversalModulesV2 = [
@@ -209,6 +239,10 @@ const configItemV2 = { name: "Configurações", href: "/configuracoes", icon: Se
 function getActiveModuleIdV2(pathname: string): string {
   if (pathname.startsWith("/onix-corretora")) return "onix-corretora";
   if (pathname.startsWith("/empresas/investimentos")) return "onix-invest";
+  if (pathname.startsWith("/empresas/corretora")) return "onix-corretora";
+  if (pathname.startsWith("/empresas/planejamento")) return "onix-planejamento";
+  if (pathname.startsWith("/empresas/imobiliaria")) return "onix-imobiliaria";
+  if (pathname.startsWith("/empresas/corporate")) return "onix-corporate";
   if (pathname.startsWith("/time")) return "pessoas";
   if (
     ["/juridico", "/admin/auditoria", "/admin/juridico", "/admin/importacao"].some((p) =>
@@ -262,6 +296,10 @@ export function Sidebar() {
     if (href === "/") return pathname === "/";
     if (href === "/onix-corretora") return pathname === "/onix-corretora";
     if (href === "/empresas/investimentos") return pathname === "/empresas/investimentos";
+    if (href === "/empresas/corretora") return pathname === "/empresas/corretora";
+    if (href === "/empresas/planejamento") return pathname === "/empresas/planejamento";
+    if (href === "/empresas/imobiliaria") return pathname === "/empresas/imobiliaria";
+    if (href === "/empresas/corporate") return pathname === "/empresas/corporate";
     return pathname.startsWith(href);
   };
 
