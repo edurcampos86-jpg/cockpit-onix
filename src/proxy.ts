@@ -14,6 +14,7 @@ const publicRoutes = [
   "/api/onix-corretora/ingest",
   "/api/onix-corretora/test-pipeline", // Diagnóstico do pipeline
   "/api/webhooks/btg",                 // Webhook BTG — autentica via x-webhook-secret se configurado
+  "/api/automation/import-saldo-cc",   // Import automático Saldo em CC — autentica via Bearer IMPORT_XLSX_TOKEN (sem env = 503)
 ];
 const secretKey = process.env.SESSION_SECRET;
 const encodedKey = new TextEncoder().encode(secretKey);
