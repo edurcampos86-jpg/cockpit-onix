@@ -139,7 +139,7 @@ jobs:
               -H "Authorization: Bearer ${CRON_SECRET}" \
               --max-time "$MAXT" \
               "$URL") || HTTP_CODE="000"
-            BODY=$(cat /tmp/resp.txt 2>/dev/null | head -c 2000)
+            BODY=$(head -c 2000 /tmp/resp.txt 2>/dev/null)
             echo "  → HTTP $HTTP_CODE"
             echo "  → body: $BODY"
             echo "$HTTP_CODE" > /tmp/last_code.txt

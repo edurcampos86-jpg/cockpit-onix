@@ -14,7 +14,7 @@ jobs:
       - name: Run actionlint
         run: |
           bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash) 1.7.7
-          # -shellcheck= desativa a integração shellcheck: há dívida de estilo
-          # pré-existente (SC2002/SC2129/SC2016) em workflows antigos; o objetivo
-          # deste check é sintaxe/schema dos workflows. Reativar é decisão à parte.
-          ./actionlint -color -shellcheck=
+          # Integração com shellcheck ativa (ubuntu-latest já traz o binário).
+          # A dívida de estilo pré-existente (SC2129 nos redirects; SC2016 no
+          # JMESPath) foi saneada, então validamos sintaxe/schema + scripts de run.
+          ./actionlint -color -shellcheck=shellcheck

@@ -88,10 +88,12 @@ jobs:
           PREFIXES="daily"
           [ "$DOW" = "1" ] && PREFIXES="$PREFIXES weekly"
           [ "$DOM" = "01" ] && PREFIXES="$PREFIXES monthly"
-          echo "filename=$FILE"      >> "$GITHUB_OUTPUT"
-          echo "plainfile=$PLAIN"    >> "$GITHUB_OUTPUT"
-          echo "prefixes=$PREFIXES"  >> "$GITHUB_OUTPUT"
-          echo "timestamp=$TS"       >> "$GITHUB_OUTPUT"
+          {
+            echo "filename=$FILE"
+            echo "plainfile=$PLAIN"
+            echo "prefixes=$PREFIXES"
+            echo "timestamp=$TS"
+          } >> "$GITHUB_OUTPUT"
           echo "Arquivo (cifrado): $FILE"
           echo "Prefixos: $PREFIXES"
 
