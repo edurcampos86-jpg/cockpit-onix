@@ -80,7 +80,7 @@ jobs:
           BASE: ${{ steps.base.outputs.url }}
         run: |
           CODE=$(curl -sS -o /tmp/health.json -w "%{http_code}" --max-time 30 "$BASE/api/health")
-          BODY=$(cat /tmp/health.json | head -c 1000)
+          BODY=$(head -c 1000 /tmp/health.json)
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
           echo "body=$BODY" >> "$GITHUB_OUTPUT"
           echo "GET /api/health → HTTP $CODE"
