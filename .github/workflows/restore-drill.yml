@@ -122,6 +122,10 @@ jobs:
             # com timestamp YYYYMMDD-HHMMSS funciona como sort cronológico).
             # contains(.dump.gz) casa tanto os .dump.gz antigos quanto os
             # .dump.gz.age novos — a transição é transparente.
+            # SC2016: o backtick em `.dump.gz` é sintaxe JMESPath de string
+            # literal e EXIGE aspas simples; aspas duplas fariam o bash tentar
+            # command-substitution e quebrariam a --query do AWS CLI.
+            # shellcheck disable=SC2016
             KEY=$(aws s3api list-objects-v2 \
               --bucket "$R2_BUCKET" \
               --prefix "daily/" \
@@ -222,14 +226,16 @@ jobs:
           FRESHNESS=$(grep -oE 'recent_7d=(yes|no)' /tmp/validate.out | head -1 | cut -d= -f2 || echo "unknown")
           FRESHNESS_SCANNED=$(grep -oE 'scanned_cols=[0-9]+' /tmp/validate.out | grep -oE '[0-9]+$' || echo "0")
 
-          echo "tables_count=$TABLES_COUNT"          >> "$GITHUB_OUTPUT"
-          echo "user_count=$USER_COUNT"              >> "$GITHUB_OUTPUT"
-          echo "cliente_count=$CLIENTE_COUNT"        >> "$GITHUB_OUTPUT"
-          echo "receita_count=$RECEITA_COUNT"        >> "$GITHUB_OUTPUT"
-          echo "mov_count=$MOV_COUNT"                >> "$GITHUB_OUTPUT"
-          echo "pessoa_count=$PESSOA_COUNT"          >> "$GITHUB_OUTPUT"
-          echo "freshness=$FRESHNESS"                >> "$GITHUB_OUTPUT"
-          echo "freshness_scanned=$FRESHNESS_SCANNED" >> "$GITHUB_OUTPUT"
+          {
+            echo "tables_count=$TABLES_COUNT"
+            echo "user_count=$USER_COUNT"
+            echo "cliente_count=$CLIENTE_COUNT"
+            echo "receita_count=$RECEITA_COUNT"
+            echo "mov_count=$MOV_COUNT"
+            echo "pessoa_count=$PESSOA_COUNT"
+            echo "freshness=$FRESHNESS"
+            echo "freshness_scanned=$FRESHNESS_SCANNED"
+          } >> "$GITHUB_OUTPUT"
 
           # Critérios duros — qualquer um falhando quebra o drill
           if [ "$TABLES_COUNT" -lt 5 ]; then
