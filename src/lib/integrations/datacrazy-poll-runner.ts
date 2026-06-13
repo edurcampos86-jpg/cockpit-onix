@@ -1,5 +1,7 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
+import { getConfig } from "@/lib/config-db";
+import { sendSlackMessage } from "@/lib/integrations/slack";
 import { fetchConversas, fetchMensagens, VENDEDORES_CONFIG } from "@/lib/datacrazy";
 import {
   ingestConversa,
@@ -205,4 +207,94 @@ export async function runDatacrazyPoll(opts: {
     mensagensNovas,
     erros,
   };
+}
+
+/**
+ * Wrapper logado do poll: resolve token (Config DB→env) + cutoff (override Config
+ * DB), envolve em BtgSyncLog e roda. Compartilhado pela rota /api/cron/datacrazy-poll
+ * e pelo scheduler in-process (instrumentation.ts) — comportamento idêntico, um só
+ * lugar pra montar o log. `trigger` distingue a origem no BtgSyncLog ("cron" | "in-process").
+ *
+ * `skipped` (sem token) preserva o comportamento antigo da rota (200 + mensagem).
+ */
+export async function runDatacrazyPollLogged(
+  trigger: string,
+): Promise<{ result: DatacrazyPollResult | null; skipped?: string }> {
+  const token = await getConfig("DATACRAZY_TOKEN");
+  if (!token) return { result: null, skipped: "DATACRAZY_TOKEN não configurado" };
+
+  const cutoffRaw = await getConfig("DATACRAZY_POLL_CUTOFF_MINUTES");
+  const cutoffParsed = cutoffRaw ? Number(cutoffRaw) : NaN;
+  const cutoffMinutes =
+    Number.isFinite(cutoffParsed) && cutoffParsed > 0
+      ? cutoffParsed
+      : DEFAULT_POLL_CUTOFF_MINUTES;
+
+  const log = await prisma.btgSyncLog.create({
+    data: { tipo: "datacrazy-poll", trigger },
+  });
+  const result = await runDatacrazyPoll({ token, cutoffMinutes });
+  await prisma.btgSyncLog.update({
+    where: { id: log.id },
+    data: {
+      finalizado: new Date(),
+      sucesso: result.erros.length === 0,
+      contasProcessadas: result.conversasComMudanca,
+      contasComErro: result.erros.length,
+      resumo: `${result.conversasVistas} conversas vistas · ${result.conversasComMudanca} c/ delta · ${result.mensagensNovas} msgs novas`,
+      erros: result.erros.length > 0 ? result.erros : undefined,
+    },
+  });
+  return { result };
+}
+
+/** Limiar default (minutos) de freshness do poll. 360min (6h) fica acima do
+ *  maior gap real do GHA (~302min), pra não dar falso-positivo enquanto o GHA
+ *  for a via (scheduler off). Após ligar o scheduler in-process (a cada 15min),
+ *  dá pra apertar via Config DB DATACRAZY_POLL_FRESHNESS_MAX_MIN. */
+export const DEFAULT_POLL_FRESHNESS_MAX_MIN = 360;
+
+export interface DatacrazyPollFreshness {
+  ok: boolean;
+  ultimaCorrida: string | null;
+  idadeMin: number | null;
+  limiarMin: number;
+  alertou: boolean;
+}
+
+/**
+ * Heartbeat: alerta no Slack se o último `BtgSyncLog tipo='datacrazy-poll'` for
+ * mais velho que o limiar. Roda DENTRO do btg-freshness (GHA, dias úteis 13h UTC)
+ * — INDEPENDENTE do scheduler in-process, então detecta o scheduler morto (um
+ * heartbeat no próprio tick não detectaria a própria morte). Limiar via Config DB.
+ */
+export async function checkDatacrazyPollFreshness(): Promise<DatacrazyPollFreshness> {
+  const raw = await getConfig("DATACRAZY_POLL_FRESHNESS_MAX_MIN");
+  const parsed = raw ? Number(raw) : NaN;
+  const limiarMin =
+    Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_POLL_FRESHNESS_MAX_MIN;
+
+  const ultimo = await prisma.btgSyncLog.findFirst({
+    where: { tipo: "datacrazy-poll" },
+    orderBy: { iniciado: "desc" },
+    select: { iniciado: true },
+  });
+
+  if (!ultimo) {
+    await sendSlackMessage(
+      '⚠️ *datacrazy-poll*: nenhuma execução registrada no BtgSyncLog — "Último contato" pode estar sem alimentação.',
+    );
+    return { ok: false, ultimaCorrida: null, idadeMin: null, limiarMin, alertou: true };
+  }
+
+  const idadeMin = Math.round((Date.now() - ultimo.iniciado.getTime()) / 60_000);
+  if (idadeMin > limiarMin) {
+    await sendSlackMessage(
+      `⚠️ *datacrazy-poll* parado há ${idadeMin}min (limiar ${limiarMin}min). ` +
+        `"Último contato" não está sendo alimentado. Última corrida: ${ultimo.iniciado.toISOString()}.`,
+    );
+    return { ok: false, ultimaCorrida: ultimo.iniciado.toISOString(), idadeMin, limiarMin, alertou: true };
+  }
+
+  return { ok: true, ultimaCorrida: ultimo.iniciado.toISOString(), idadeMin, limiarMin, alertou: false };
 }

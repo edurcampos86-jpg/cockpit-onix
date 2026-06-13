@@ -13,6 +13,12 @@ builder = "DOCKERFILE"
 
 [deploy]
 startCommand = "npm run start"
+# Fixado em 1 réplica: o scheduler in-process do poll DataCrazy
+# (src/instrumentation.ts) assume 1 instância. Com >1 réplica cada uma
+# registraria o cron → polls concorrentes (inócuo no dado por idempotência,
+# mas dobra chamadas à API). Se precisar escalar, trocar o scheduler por lock
+# (advisory lock Postgres) ou cron dedicado ANTES de subir numReplicas.
+numReplicas = 1
 # ────────────────────────────────────────────────────────────────────────
 # Sug 1 — Boot do Dia: gera sugestões de 3 prioridades
 #   Segunda a sexta, 07:30 Bahia = 10:30 UTC
