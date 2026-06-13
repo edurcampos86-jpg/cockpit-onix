@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getConfig } from "@/lib/config-db";
 import { guardCron } from "@/lib/painel-do-dia/cron-guard";
-import { runDatacrazyPoll } from "@/lib/integrations/datacrazy-poll-runner";
+import {
+  runDatacrazyPoll,
+  DEFAULT_POLL_CUTOFF_MINUTES,
+} from "@/lib/integrations/datacrazy-poll-runner";
 
 /**
  * GET /api/cron/datacrazy-poll
@@ -36,11 +39,21 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  // Janela de captura: cobre o intervalo entre rodadas pra não deixar ponto-cego
+  // (o GHA não honra o */5 — roda ~a cada 1-2h). Override via Config DB; default
+  // dimensionado pelo maior gap real medido. Ver DEFAULT_POLL_CUTOFF_MINUTES.
+  const cutoffRaw = await getConfig("DATACRAZY_POLL_CUTOFF_MINUTES");
+  const cutoffParsed = cutoffRaw ? Number(cutoffRaw) : NaN;
+  const cutoffMinutes =
+    Number.isFinite(cutoffParsed) && cutoffParsed > 0
+      ? cutoffParsed
+      : DEFAULT_POLL_CUTOFF_MINUTES;
+
   const log = await prisma.btgSyncLog.create({
     data: { tipo: "datacrazy-poll", trigger: "cron" },
   });
 
-  const result = await runDatacrazyPoll({ token });
+  const result = await runDatacrazyPoll({ token, cutoffMinutes });
 
   await prisma.btgSyncLog.update({
     where: { id: log.id },
