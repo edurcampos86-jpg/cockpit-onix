@@ -27,11 +27,27 @@ export interface DatacrazyPollResult {
   erros: Array<{ etapa: string; motivo: string }>;
 }
 
+/**
+ * Janela de captura padrão (minutos). O poll só processa conversas ativas nos
+ * últimos `cutoffMinutes`; pra não deixar ponto-cego, a janela tem que cobrir o
+ * intervalo entre rodadas consecutivas.
+ *
+ * O webhook DataCrazy nunca operou, então o poll é a única via — e o GHA NÃO
+ * honra o cron de 5 min do cron.yml: medição de 7 dias (BtgSyncLog) deu mediana
+ * ~133min e MÁXIMO ~302min (5h, overnight) entre rodadas. 30min antigo deixava
+ * ~77% do tempo cego. 720min (12h) ≈ 2,4× o pior gap → cobre overnight + folga
+ * pra stalls maiores do GHA. É barato: reprocessar é idempotente (guard `lt` em
+ * ultimoContatoAt + short-circuit por `conversaExistente`), não duplica nem regride.
+ *
+ * Override via Config DB `DATACRAZY_POLL_CUTOFF_MINUTES` (lido na rota cron).
+ */
+export const DEFAULT_POLL_CUTOFF_MINUTES = 720;
+
 export async function runDatacrazyPoll(opts: {
   token: string;
-  cutoffMinutes?: number; // default 30
+  cutoffMinutes?: number; // default DEFAULT_POLL_CUTOFF_MINUTES
 }): Promise<DatacrazyPollResult> {
-  const cutoffMs = (opts.cutoffMinutes ?? 30) * 60 * 1000;
+  const cutoffMs = (opts.cutoffMinutes ?? DEFAULT_POLL_CUTOFF_MINUTES) * 60 * 1000;
   const erros: Array<{ etapa: string; motivo: string }> = [];
   let conversasVistas = 0;
   let mensagensNovas = 0;
