@@ -100,7 +100,7 @@ export function classificarEstadoAtencao(e: EntradaAtencao): ResultadoAtencao {
   // efetivo → vale a cadência pura; tunável via Config DB depois.
   const tetoVacuo = Math.min(e.limiarVacuoDias, cadenciaDias);
   let estado: EstadoAtencao;
-  if (diasNoVacuo !== null && diasNoVacuo >= tetoVacuo) {
+  if (diasNoVacuo !== null && diasNoVacuo > tetoVacuo) {
     estado = "no-vacuo";
   } else if (diasDesdeQualquerContato > cadenciaDias) {
     estado = "esquecido";
