@@ -1,7 +1,7 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { getConfig } from "@/lib/config-db";
-import { sendSlackMessage } from "@/lib/integrations/slack";
+import { sendSlackAlertThrottled } from "@/lib/integrations/slack";
 import { fetchConversas, fetchMensagens, VENDEDORES_CONFIG } from "@/lib/datacrazy";
 import {
   ingestConversa,
@@ -281,19 +281,21 @@ export async function checkDatacrazyPollFreshness(): Promise<DatacrazyPollFreshn
   });
 
   if (!ultimo) {
-    await sendSlackMessage(
+    const alertou = await sendSlackAlertThrottled(
+      "datacrazy-poll",
       '⚠️ *datacrazy-poll*: nenhuma execução registrada no BtgSyncLog — "Último contato" pode estar sem alimentação.',
     );
-    return { ok: false, ultimaCorrida: null, idadeMin: null, limiarMin, alertou: true };
+    return { ok: false, ultimaCorrida: null, idadeMin: null, limiarMin, alertou };
   }
 
   const idadeMin = Math.round((Date.now() - ultimo.iniciado.getTime()) / 60_000);
   if (idadeMin > limiarMin) {
-    await sendSlackMessage(
+    const alertou = await sendSlackAlertThrottled(
+      "datacrazy-poll",
       `⚠️ *datacrazy-poll* parado há ${idadeMin}min (limiar ${limiarMin}min). ` +
         `"Último contato" não está sendo alimentado. Última corrida: ${ultimo.iniciado.toISOString()}.`,
     );
-    return { ok: false, ultimaCorrida: ultimo.iniciado.toISOString(), idadeMin, limiarMin, alertou: true };
+    return { ok: false, ultimaCorrida: ultimo.iniciado.toISOString(), idadeMin, limiarMin, alertou };
   }
 
   return { ok: true, ultimaCorrida: ultimo.iniciado.toISOString(), idadeMin, limiarMin, alertou: false };

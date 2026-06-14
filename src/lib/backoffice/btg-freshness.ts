@@ -1,7 +1,7 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { getConfig } from "@/lib/config-db";
-import { sendSlackMessage } from "@/lib/integrations/slack";
+import { sendSlackAlertThrottled } from "@/lib/integrations/slack";
 import type { FonteImport } from "./field-source-policy";
 
 /**
@@ -244,7 +244,8 @@ export async function verificarFreshnessBtg(): Promise<{
           ? `• *${i.label}*: último sync ${formatBahia(new Date(i.ultimoSync))} (Bahia) — ${i.horasUteisDesde}h úteis atrás (limiar ${i.limiarHorasUteis}h)`
           : `• *${i.label}*: NUNCA sincronizado (limiar ${i.limiarHorasUteis}h)`,
       );
-      alertaEnviado = await sendSlackMessage(
+      alertaEnviado = await sendSlackAlertThrottled(
+        "btg-data-stale",
         `🚨 *Dados BTG stale — heartbeat de freshness*\n${linhas.join("\n")}\n` +
           `Verificar imports/polls BTG no Cockpit (Backoffice → Importar do BTG / sync-logs).`,
       );
@@ -276,7 +277,8 @@ export async function verificarFreshnessBtg(): Promise<{
       const desde = fonteWarning.ultimaEscrita
         ? `última escrita ${formatBahia(new Date(fonteWarning.ultimaEscrita))} (Bahia) — ${fonteWarning.horasUteisDesde}h úteis atrás`
         : "NUNCA escreveu nenhum campo";
-      warningEnviado = await sendSlackMessage(
+      warningEnviado = await sendSlackAlertThrottled(
+        "btg-fonte-saldo-cc",
         `⚠️ [fonte] *${FONTE_WARNING.label} sem atualizações*\n` +
           `• ${desde} (limiar ${limiarFonte}h úteis)\n` +
           `O dado pode seguir fresco via Partner API; verificar o upload da planilha Saldo em CC (Backoffice → Importar do BTG).`,
