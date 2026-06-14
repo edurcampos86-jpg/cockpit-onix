@@ -248,11 +248,11 @@ export async function runDatacrazyPollLogged(
   return { result };
 }
 
-/** Limiar default (minutos) de freshness do poll. 360min (6h) fica acima do
- *  maior gap real do GHA (~302min), pra não dar falso-positivo enquanto o GHA
- *  for a via (scheduler off). Após ligar o scheduler in-process (a cada 15min),
- *  dá pra apertar via Config DB DATACRAZY_POLL_FRESHNESS_MAX_MIN. */
-export const DEFAULT_POLL_FRESHNESS_MAX_MIN = 360;
+/** Limiar default (minutos) de freshness do poll. Com o scheduler in-process
+ *  a cada 15min, 90min tolera ~6 ciclos perdidos antes de alertar. Antes, com
+ *  o poll via GHA (gap real de ~302min), o default precisava ser 360.
+ *  Ajustável via Config DB DATACRAZY_POLL_FRESHNESS_MAX_MIN. */
+export const DEFAULT_POLL_FRESHNESS_MAX_MIN = 90;
 
 export interface DatacrazyPollFreshness {
   ok: boolean;
