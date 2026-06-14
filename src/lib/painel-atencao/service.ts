@@ -20,9 +20,12 @@ import {
 
 /** Chave Config DB do gate do backend (default OFF). */
 export const PAINEL_ATENCAO_FLAG = "PAINEL_ATENCAO_BACKEND";
-/** Chave Config DB do limiar de vácuo (default 14 dias). */
+/** Chave Config DB do TETO de vácuo (default desligado — vale a cadência pura). */
 export const LIMIAR_VACUO_DIAS_KEY = "LIMIAR_VACUO_DIAS";
-const LIMIAR_VACUO_DIAS_PADRAO = 14;
+// Default alto o bastante pra NÃO limitar: o vácuo é tier-aware (gap >= cadência
+// A30/B90/C180) e o limiar só age como TETO opcional via min(limiar, cadência).
+// 3650 (10 anos) >> maior cadência (C=180), então por padrão a cadência manda.
+const LIMIAR_VACUO_DIAS_PADRAO = 3650;
 
 function parseBoolFlag(v: string | undefined): boolean {
   if (!v) return false;
@@ -34,7 +37,7 @@ export async function painelAtencaoBackendHabilitado(): Promise<boolean> {
   return parseBoolFlag(await getConfig(PAINEL_ATENCAO_FLAG));
 }
 
-/** Limiar de vácuo tunável sem deploy (Config DB). Default 14 dias. */
+/** Teto de vácuo (cap) tunável sem deploy (Config DB). Default desligado (cadência pura). */
 export async function resolverLimiarVacuoDias(): Promise<number> {
   const raw = await getConfig(LIMIAR_VACUO_DIAS_KEY);
   const n = raw == null ? NaN : Number(raw);
