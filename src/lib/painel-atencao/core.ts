@@ -23,7 +23,11 @@ export interface EntradaAtencao {
   ultimoClienteFalou: Date | null;
   /** Classe ABC (`ClienteBackoffice.classificacao`). Vazio cai em "C" no motor. */
   classificacao: string | null | undefined;
-  /** Limiar de vácuo em dias (tunável via Config DB `LIMIAR_VACUO_DIAS`). */
+  /**
+   * TETO opcional do vácuo em dias (cap): o limiar efetivo é
+   * `min(este, cadência do tier)`. Default alto (ver service) = sem teto →
+   * vale a cadência pura A30/B90/C180. Tunável via Config DB `LIMIAR_VACUO_DIAS`.
+   */
   limiarVacuoDias: number;
   /** Epoch ms de referência (default `Date.now()`). */
   now?: number;
@@ -48,8 +52,9 @@ function diasDesde(maisRecente: Date, now: number): number {
  *
  * Regras (PRIORIDADE no-vacuo > esquecido):
  *   sem-contato → 0 mensagem ingerida (ambas as datas null).
- *   no-vacuo    → a última msg foi NOSSA (fromMe) e está pendurada há > limiar
- *                 (o relógio conta da nossa última mensagem, a mais recente).
+ *   no-vacuo    → a última msg foi NOSSA (fromMe) e o gap atingiu a cadência
+ *                 do tier (teto opcional via limiar); o relógio conta da nossa
+ *                 última mensagem, a mais recente.
  *   esquecido   → dias desde QUALQUER contato > cadência da classe (motor).
  *   em-dia      → contato dentro da cadência e não no-vacuo.
  */
@@ -85,12 +90,17 @@ export function classificarEstadoAtencao(e: EntradaAtencao): ResultadoAtencao {
   );
   const diasDesdeQualquerContato = diasDesde(new Date(tMaisRecente), now);
 
-  // Vácuo: nós falamos por último e o cliente não respondeu há > limiar.
+  // Gap do vácuo: dias desde a nossa última mensagem, quando ela é a mais recente.
   const diasNoVacuo =
     ultimaFoiMinha && ultimoEuFalei ? diasDesde(ultimoEuFalei, now) : null;
 
+  // Vácuo TIER-AWARE: dispara só quando o gap atinge a cadência da classe
+  // (A30/B90/C180) — um toque dentro da régua NUNCA é vácuo. `limiarVacuoDias`
+  // age como TETO opcional (cap): min(limiar, cadência). Default alto = sem teto
+  // efetivo → vale a cadência pura; tunável via Config DB depois.
+  const tetoVacuo = Math.min(e.limiarVacuoDias, cadenciaDias);
   let estado: EstadoAtencao;
-  if (diasNoVacuo !== null && diasNoVacuo > e.limiarVacuoDias) {
+  if (diasNoVacuo !== null && diasNoVacuo > tetoVacuo) {
     estado = "no-vacuo";
   } else if (diasDesdeQualquerContato > cadenciaDias) {
     estado = "esquecido";
