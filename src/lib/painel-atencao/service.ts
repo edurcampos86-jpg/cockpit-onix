@@ -74,6 +74,59 @@ function totaisZerados(): Record<EstadoAtencao, number> {
 }
 
 /**
+ * Deriva as 2 datas direcionais (eu↔cliente) para um conjunto EXPLÍCITO de
+ * clientes: MAX(sentAt) por (conversa, fromMe), dobrado em (cliente, fromMe),
+ * via `Conversa.clienteId`. Sem raw SQL — groupBy tipado.
+ *
+ * Recebe os ids explicitamente (NÃO re-filtra por assessor): reutilizável tanto
+ * pelo painel por-assessor (`getPainelAtencao`) quanto pela futura fusão inline
+ * da página de clientes. `clienteIds` vazio → Map vazio, sem tocar o banco.
+ */
+export async function derivarDatasDirecionais(
+  clienteIds: string[],
+): Promise<Map<string, { eu: Date | null; cliente: Date | null }>> {
+  const out = new Map<string, { eu: Date | null; cliente: Date | null }>();
+  if (clienteIds.length === 0) return out;
+
+  // Conversas da carteira → mapa conversaId → clienteId.
+  const conversas = await prisma.conversa.findMany({
+    where: { clienteId: { in: clienteIds } },
+    select: { id: true, clienteId: true },
+  });
+  const conversaToCliente = new Map<string, string>();
+  for (const cv of conversas) {
+    if (cv.clienteId) conversaToCliente.set(cv.id, cv.clienteId);
+  }
+  if (conversas.length === 0) return out;
+
+  // Acumula em epoch ms (Math.max) — exatamente a lógica MAX(sentAt) por
+  // (cliente, fromMe) do bloco original — e converte pra Date no final.
+  const ms = new Map<string, { eu: number | null; cliente: number | null }>();
+  const grupos = await prisma.mensagem.groupBy({
+    by: ["conversaId", "fromMe"],
+    where: { conversaId: { in: conversas.map((c) => c.id) } },
+    _max: { sentAt: true },
+  });
+  for (const g of grupos) {
+    const clienteId = conversaToCliente.get(g.conversaId);
+    const t = g._max.sentAt ? g._max.sentAt.getTime() : null;
+    if (!clienteId || t == null) continue;
+    const acc = ms.get(clienteId) ?? { eu: null, cliente: null };
+    if (g.fromMe) acc.eu = Math.max(acc.eu ?? 0, t);
+    else acc.cliente = Math.max(acc.cliente ?? 0, t);
+    ms.set(clienteId, acc);
+  }
+
+  for (const [clienteId, acc] of ms) {
+    out.set(clienteId, {
+      eu: acc.eu != null ? new Date(acc.eu) : null,
+      cliente: acc.cliente != null ? new Date(acc.cliente) : null,
+    });
+  }
+  return out;
+}
+
+/**
  * Carteira do assessor (`assessorCge = assessorId`, campo indexado) com, por
  * cliente: as 2 datas direcionais, o tier ABC e o estado de atenção.
  */
@@ -101,43 +154,17 @@ export async function getPainelAtencao(
     };
   }
 
-  // 2. Conversas da carteira → mapa conversaId → clienteId.
+  // 2. As 2 datas direcionais (eu↔cliente) da carteira — derivação extraída
+  //    pra helper reutilizável (mesmos ids que o escopo por assessor computa).
   const ids = clientes.map((c) => c.id);
-  const conversas = await prisma.conversa.findMany({
-    where: { clienteId: { in: ids } },
-    select: { id: true, clienteId: true },
-  });
-  const conversaToCliente = new Map<string, string>();
-  for (const cv of conversas) {
-    if (cv.clienteId) conversaToCliente.set(cv.id, cv.clienteId);
-  }
+  const datas = await derivarDatasDirecionais(ids);
 
-  // 3. As 2 datas direcionais: MAX(sentAt) por (conversa, fromMe), dobrado
-  //    em (cliente, fromMe). Sem raw SQL — groupBy tipado.
-  const datas = new Map<string, { eu: number | null; cliente: number | null }>();
-  if (conversas.length > 0) {
-    const grupos = await prisma.mensagem.groupBy({
-      by: ["conversaId", "fromMe"],
-      where: { conversaId: { in: conversas.map((c) => c.id) } },
-      _max: { sentAt: true },
-    });
-    for (const g of grupos) {
-      const clienteId = conversaToCliente.get(g.conversaId);
-      const t = g._max.sentAt ? g._max.sentAt.getTime() : null;
-      if (!clienteId || t == null) continue;
-      const acc = datas.get(clienteId) ?? { eu: null, cliente: null };
-      if (g.fromMe) acc.eu = Math.max(acc.eu ?? 0, t);
-      else acc.cliente = Math.max(acc.cliente ?? 0, t);
-      datas.set(clienteId, acc);
-    }
-  }
-
-  // 4. Classifica cada cliente da carteira reusando o núcleo puro.
+  // 3. Classifica cada cliente da carteira reusando o núcleo puro.
   let comMensagem = 0;
   const out: ClienteAtencao[] = clientes.map((c) => {
     const d = datas.get(c.id);
-    const ultimoEuFalei = d?.eu != null ? new Date(d.eu) : null;
-    const ultimoClienteFalou = d?.cliente != null ? new Date(d.cliente) : null;
+    const ultimoEuFalei = d?.eu ?? null;
+    const ultimoClienteFalou = d?.cliente ?? null;
     if (ultimoEuFalei || ultimoClienteFalou) comMensagem++;
 
     const r = classificarEstadoAtencao({
