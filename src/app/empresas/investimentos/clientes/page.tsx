@@ -16,6 +16,15 @@ import { ReferenciaLivro } from "@/components/backoffice/referencia-livro";
 import { ComoFunciona } from "@/components/backoffice/como-funciona";
 import { BuscaInteligente } from "@/components/backoffice/busca-inteligente";
 import { REF_CLASSIFICACAO_ABC } from "@/lib/backoffice/referencias";
+import {
+  atencaoInlineHabilitado,
+  derivarDatasDirecionais,
+  resolverLimiarVacuoDias,
+} from "@/lib/painel-atencao/service";
+import {
+  classificarEstadoAtencao,
+  type EstadoAtencao,
+} from "@/lib/painel-atencao/core";
 
 export default async function ClientesPage() {
   noStore();
@@ -48,6 +57,11 @@ export default async function ClientesPage() {
     assessorEmail: string | null;
     pendenciaCadastral: string | null;
     aniversario: Date | null;
+    // Enriquecimento OPCIONAL da fusão inline de atenção (flag CLIENTES_ATENCAO_INLINE).
+    // Flag OFF → nunca preenchidos → undefined → render da coluna Presença idêntico.
+    ultimaMensagemMinhaEm?: Date | null;
+    ultimaMensagemClienteEm?: Date | null;
+    estado?: EstadoAtencao;
   }> = [];
 
   try {
@@ -81,6 +95,35 @@ export default async function ClientesPage() {
     }));
   } catch {
     // tabela pode não existir ainda
+  }
+
+  // Fusão inline do sinal direcional de atenção na coluna Presença, ATRÁS DE FLAG
+  // (default OFF). OFF → este bloco não roda → zero query extra, os 3 campos
+  // chegam undefined e o selo é byte-idêntico ao de hoje (invariante de
+  // `selarPresenca`). ON → enriquece em memória, sem coluna nova e sem migration.
+  if (await atencaoInlineHabilitado()) {
+    const datas = await derivarDatasDirecionais(clientes.map((c) => c.id));
+    const limiar = await resolverLimiarVacuoDias();
+    clientes = clientes.map((c) => {
+      const d = datas.get(c.id);
+      const eu = d?.eu ?? null;
+      const cli = d?.cliente ?? null;
+      // `now` omitido de propósito: classificarEstadoAtencao usa `?? Date.now()`
+      // internamente (lib, fora da regra react-hooks/purity); granularidade de
+      // dias torna a diferença sub-ms entre clientes irrelevante.
+      const { estado } = classificarEstadoAtencao({
+        ultimoEuFalei: eu,
+        ultimoClienteFalou: cli,
+        classificacao: c.classificacao,
+        limiarVacuoDias: limiar,
+      });
+      return {
+        ...c,
+        ultimaMensagemMinhaEm: eu,
+        ultimaMensagemClienteEm: cli,
+        estado,
+      };
+    });
   }
 
   return (
