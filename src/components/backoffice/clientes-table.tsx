@@ -27,7 +27,12 @@ import {
   CalendarPlus,
   Phone,
 } from "lucide-react";
-import { statusTermometro, type StatusTermometro } from "@/lib/cadencia-core";
+import { statusTermometro } from "@/lib/cadencia-core";
+import {
+  selarPresenca,
+  type SeloPresenca,
+} from "@/lib/painel-atencao/selo-presenca";
+import type { EstadoAtencao } from "@/lib/painel-atencao/core";
 import { getNomeRelacionamento } from "@/lib/backoffice/display-name";
 import { ApelidoEditButton } from "@/components/backoffice/apelido-edit-button";
 
@@ -241,6 +246,11 @@ interface Cliente {
   assessorEmail: string | null;
   pendenciaCadastral: string | null;
   aniversario: Date | string | null;
+  // Fusão inline de atenção (flag CLIENTES_ATENCAO_INLINE). OPCIONAIS: só vêm
+  // preenchidos com a flag ON; ausentes (undefined) → coluna Presença idêntica.
+  ultimaMensagemMinhaEm?: Date | string | null;
+  ultimaMensagemClienteEm?: Date | string | null;
+  estado?: EstadoAtencao;
 }
 
 type FaixaSaldo = "todos" | "0-10k" | "10k-50k" | "50k-100k" | "100k-500k" | "500k+";
@@ -279,10 +289,13 @@ const classLegenda: Record<string, string> = {
 
 // Termômetro de presença — cores vivas por status. A régua de cadência
 // (A=30/B=90/C=180) e o cálculo verde/amarelo/vermelho vivem em cadencia-core.ts.
-const SELO_TERMOMETRO: Record<StatusTermometro, { dot: string; texto: string; label: string }> = {
+const SELO_TERMOMETRO: Record<SeloPresenca, { dot: string; texto: string; label: string }> = {
   verde: { dot: "bg-emerald-500", texto: "text-emerald-700 dark:text-emerald-400", label: "Em dia" },
   amarelo: { dot: "bg-amber-400", texto: "text-amber-700 dark:text-amber-400", label: "Atenção" },
   vermelho: { dot: "bg-red-500", texto: "text-red-700 dark:text-red-400", label: "Atrasado" },
+  // Família vermelha, tom distinto (red-600) p/ diferenciar de "Atrasado" (red-500):
+  // nós falamos e o cliente não respondeu dentro da cadência → bola em campo dele.
+  "no-vacuo": { dot: "bg-red-600", texto: "text-red-700 dark:text-red-400", label: "No-vácuo" },
   "sem-historico": { dot: "bg-zinc-300 dark:bg-zinc-600", texto: "text-muted-foreground", label: "Sem histórico" },
 };
 
@@ -1134,8 +1147,24 @@ export function ClientesTable({
             <tbody className="divide-y divide-border">
               {ordenados.map((c) => {
                 const cadencia = statusCadencia(c);
+                // `term` é mantido: ainda alimenta o tooltip de recência (dias/cadência/%).
                 const term = statusTermometro(c.classificacao, c.ultimoContatoAt);
-                const selo = SELO_TERMOMETRO[term.status];
+                // Funde a recência com o sinal direcional `c.estado`. Flag OFF →
+                // c.estado === undefined → selarPresenca devolve term.status (invariante)
+                // → selo e tooltip byte-idênticos ao de hoje.
+                const selo = selarPresenca(term.status, c.estado);
+                const seloVisual = SELO_TERMOMETRO[selo];
+                // Aceso por mensagens? (recência sem histórico, mas estado direcional acendeu)
+                const seloViaMensagens =
+                  term.status === "sem-historico" &&
+                  (selo === "verde" || selo === "amarelo");
+                const tituloPresenca =
+                  selo === "no-vacuo"
+                    ? `Você falou em ${formatData(c.ultimaMensagemMinhaEm ?? null)} · cliente sem resposta há ${diasDesde(c.ultimaMensagemMinhaEm ?? null) ?? "—"}d`
+                    : (term.status === "sem-historico"
+                        ? "Nenhum contato registrado"
+                        : `${term.dias}d desde o último contato · cadência classe ${c.classificacao}: ${term.cadencia}d (${Math.round((term.pct ?? 0) * 100)}%)`) +
+                      (seloViaMensagens ? " (via mensagens)" : "");
                 const waLink = whatsappLink(c.telefone);
                 const diasContato = diasDesde(c.ultimoContatoAt);
                 const diasProxReuniao = diasAte(c.proximaReuniaoAt);
@@ -1303,14 +1332,10 @@ export function ClientesTable({
                     <td className="px-3 py-3">
                       <span
                         className="inline-flex items-center gap-1.5"
-                        title={
-                          term.status === "sem-historico"
-                            ? "Nenhum contato registrado"
-                            : `${term.dias}d desde o último contato · cadência classe ${c.classificacao}: ${term.cadencia}d (${Math.round((term.pct ?? 0) * 100)}%)`
-                        }
+                        title={tituloPresenca}
                       >
-                        <span className={`h-2.5 w-2.5 rounded-full ${selo.dot}`} />
-                        <span className={`text-xs ${selo.texto}`}>{selo.label}</span>
+                        <span className={`h-2.5 w-2.5 rounded-full ${seloVisual.dot}`} />
+                        <span className={`text-xs ${seloVisual.texto}`}>{seloVisual.label}</span>
                       </span>
                     </td>
 

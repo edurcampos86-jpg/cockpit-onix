@@ -37,6 +37,19 @@ export async function painelAtencaoBackendHabilitado(): Promise<boolean> {
   return parseBoolFlag(await getConfig(PAINEL_ATENCAO_FLAG));
 }
 
+/**
+ * Chave Config DB do gate da fusão inline de atenção na coluna Presença da
+ * página de clientes (default OFF). Flag PRÓPRIA — NÃO reutiliza
+ * `PAINEL_ATENCAO_BACKEND` (o backend por-assessor e a fusão inline ligam/desligam
+ * de forma independente).
+ */
+export const CLIENTES_ATENCAO_INLINE_FLAG = "CLIENTES_ATENCAO_INLINE";
+
+/** Fusão inline habilitada? Lê a flag do Config DB a cada chamada. Default OFF. */
+export async function atencaoInlineHabilitado(): Promise<boolean> {
+  return parseBoolFlag(await getConfig(CLIENTES_ATENCAO_INLINE_FLAG));
+}
+
 /** Teto de vácuo (cap) tunável sem deploy (Config DB). Default desligado (cadência pura). */
 export async function resolverLimiarVacuoDias(): Promise<number> {
   const raw = await getConfig(LIMIAR_VACUO_DIAS_KEY);
