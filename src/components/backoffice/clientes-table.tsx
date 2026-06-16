@@ -230,6 +230,9 @@ interface Cliente {
   numeroConta: string;
   saldo: number;
   saldoConta: number;
+  // Início do saldoConta atual (P2). OPCIONAL: usado só pela UI "parado há X
+  // dias" quando mostrarSaldoParado=true; ausente/null → célula idêntica.
+  saldoContaDesde?: Date | string | null;
   classificacao: string;
   classificacaoManual: boolean;
   email: string | null;
@@ -258,6 +261,7 @@ type SortKey =
   | "nome"
   | "saldo"
   | "saldoConta"
+  | "saldoContaDesde"
   | "receitaAnual"
   | "ultimoContatoAt"
   | "ultimaReuniaoAt"
@@ -304,9 +308,13 @@ const SALDO_PARADO_LIMITE = 50_000;
 export function ClientesTable({
   clientes: iniciais,
   isAdmin = false,
+  mostrarSaldoParado = false,
 }: {
   clientes: Cliente[];
   isAdmin?: boolean;
+  // Gate da UI "parado há X dias" (flag CLIENTES_SALDO_PARADO_DIAS). Default
+  // false → célula Saldo Conta e ordenação byte-idênticas a hoje (invariante OFF).
+  mostrarSaldoParado?: boolean;
 }) {
   const [clientes, setClientes] = useState(iniciais);
 
@@ -516,7 +524,10 @@ export function ClientesTable({
       setSortDir(sortDir === "asc" ? "desc" : "asc");
     } else {
       setSortKey(key);
-      setSortDir(key === "nome" || key === "assessorNome" ? "asc" : "desc");
+      // saldoContaDesde asc = data mais antiga primeiro = "parado há mais tempo".
+      setSortDir(
+        key === "nome" || key === "assessorNome" || key === "saldoContaDesde" ? "asc" : "desc",
+      );
     }
   };
 
@@ -1123,6 +1134,19 @@ export function ClientesTable({
                 </Th>
                 <Th align="right" onClick={() => toggleSort("saldoConta")}>
                   Saldo Conta <SortIcon k="saldoConta" />
+                  {mostrarSaldoParado && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleSort("saldoContaDesde");
+                      }}
+                      title="Ordenar por tempo parado em conta (mais antigo primeiro)"
+                      className="ml-1 inline-flex items-center gap-0.5 text-[10px] font-normal text-muted-foreground/70 hover:text-foreground"
+                    >
+                      parado há <SortIcon k="saldoContaDesde" />
+                    </button>
+                  )}
                 </Th>
                 <Th align="right" onClick={() => toggleSort("receitaAnual")}>
                   Receita/ano <SortIcon k="receitaAnual" />
@@ -1304,6 +1328,16 @@ export function ClientesTable({
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}
+                      {mostrarSaldoParado &&
+                        c.saldoConta >= SALDO_PARADO_LIMITE &&
+                        c.saldoContaDesde != null && (
+                          <div
+                            className="text-[10px] font-sans font-normal text-amber-700/70 dark:text-amber-400/70"
+                            title={`Saldo em conta há ${diasDesde(c.saldoContaDesde) ?? 0} dia(s) sem movimento relevante (desde ${formatData(c.saldoContaDesde)})`}
+                          >
+                            parado há {Math.max(0, diasDesde(c.saldoContaDesde) ?? 0)}d
+                          </div>
+                        )}
                     </td>
                     <td className="px-3 py-3 text-right font-mono text-muted-foreground">{moeda(c.receitaAnual)}</td>
 

@@ -21,6 +21,7 @@ import {
   derivarDatasDirecionais,
   resolverLimiarVacuoDias,
 } from "@/lib/painel-atencao/service";
+import { saldoParadoDiasHabilitado } from "@/lib/backoffice/saldo-parado-flag";
 import {
   classificarEstadoAtencao,
   type EstadoAtencao,
@@ -41,6 +42,7 @@ export default async function ClientesPage() {
     numeroConta: string;
     saldo: number;
     saldoConta: number;
+    saldoContaDesde: Date | null;
     classificacao: string;
     classificacaoManual: boolean;
     email: string | null;
@@ -76,6 +78,7 @@ export default async function ClientesPage() {
       numeroConta: c.numeroConta,
       saldo: c.saldo,
       saldoConta: c.saldoConta,
+      saldoContaDesde: c.saldoContaDesde,
       classificacao: c.classificacao,
       classificacaoManual: c.classificacaoManual,
       email: c.email,
@@ -126,6 +129,11 @@ export default async function ClientesPage() {
     });
   }
 
+  // Gate da UI "parado há X dias" (default OFF). Propagar saldoContaDesde acima
+  // é de graça (já vinha do findMany); a flag gateia só a exibição/ordenação.
+  // OFF → mostrarSaldoParado=false → coluna Saldo Conta byte-idêntica à de hoje.
+  const mostrarSaldoParado = await saldoParadoDiasHabilitado();
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -147,7 +155,7 @@ export default async function ClientesPage() {
           titulo="Por que classificar clientes em A, B e C?"
         />
 
-        <ClientesTable clientes={clientes} isAdmin={isAdmin} />
+        <ClientesTable clientes={clientes} isAdmin={isAdmin} mostrarSaldoParado={mostrarSaldoParado} />
       </div>
     </div>
   );
