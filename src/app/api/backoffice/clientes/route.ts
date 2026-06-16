@@ -462,7 +462,6 @@ export async function POST(request: NextRequest) {
       const gate = await gateSanidadeSaldoCc({
         recebidas: recebidos.length,
         validas: limpos.length,
-        baseAtual: await prisma.clienteBackoffice.count(),
       });
       if (!gate.ok) {
         console.warn("[POST /clientes] gate de sanidade rejeitou:", gate.erro);

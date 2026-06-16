@@ -14,11 +14,11 @@ import { getConfig } from "@/lib/config-db";
  * mesmo padrão do btg-freshness.
  */
 export const SANITY_SALDO_CC = {
-  // Linhas válidas ÷ tamanho da base atual. Base ~2.600 clientes: planilha
-  // truncada (ex.: 100 linhas) fica MUITO abaixo de 50% e é rejeitada.
-  minRatioBase: 0.5,
-  configKeyRatioBase: "IMPORT_SANITY_SALDO_CC_MIN_RATIO_BASE",
   // Linhas válidas ÷ linhas recebidas (proxy de cabeçalho, ver acima).
+  // NOTA: o gate por base-ratio (planilha vs base INTEIRA) foi REMOVIDO — o
+  // import é UPDATE-ONLY (clientes ausentes do arquivo preservam o saldoConta,
+  // nada é zerado) e o relatório é por natureza um SUBCONJUNTO (só clientes com
+  // saldo parado), então truncar não corrompe. Resta só a checagem de formato.
   minRatioValidas: 0.9,
   configKeyRatioValidas: "IMPORT_SANITY_SALDO_CC_MIN_RATIO_VALIDAS",
 };
@@ -32,13 +32,12 @@ async function lerRatio(configKey: string, fallback: number): Promise<number> {
 export async function gateSanidadeSaldoCc(args: {
   recebidas: number;
   validas: number;
-  baseAtual: number;
 }): Promise<{ ok: true } | { ok: false; erro: string }> {
-  const { recebidas, validas, baseAtual } = args;
-  const [minRatioBase, minRatioValidas] = await Promise.all([
-    lerRatio(SANITY_SALDO_CC.configKeyRatioBase, SANITY_SALDO_CC.minRatioBase),
-    lerRatio(SANITY_SALDO_CC.configKeyRatioValidas, SANITY_SALDO_CC.minRatioValidas),
-  ]);
+  const { recebidas, validas } = args;
+  const minRatioValidas = await lerRatio(
+    SANITY_SALDO_CC.configKeyRatioValidas,
+    SANITY_SALDO_CC.minRatioValidas,
+  );
 
   if (recebidas > 0 && validas / recebidas < minRatioValidas) {
     return {
@@ -47,17 +46,6 @@ export async function gateSanidadeSaldoCc(args: {
         `Gate de sanidade (Saldo em CC): só ${validas} de ${recebidas} linhas têm ` +
         `Conta/Nome reconhecíveis (mínimo ${Math.round(minRatioValidas * 100)}%). ` +
         `Cabeçalhos fora do padrão xlsx-mapping? Nada foi importado.`,
-    };
-  }
-
-  // Base vazia = primeiro uso/ambiente de dev: sem referência pra comparar.
-  if (baseAtual > 0 && validas < baseAtual * minRatioBase) {
-    return {
-      ok: false,
-      erro:
-        `Gate de sanidade (Saldo em CC): planilha com ${validas} linhas válidas vs ` +
-        `base de ${baseAtual} clientes (mínimo ${Math.round(minRatioBase * 100)}%). ` +
-        `Arquivo truncado/incompleto? Nada foi importado.`,
     };
   }
 
