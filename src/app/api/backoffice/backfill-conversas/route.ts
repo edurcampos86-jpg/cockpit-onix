@@ -16,32 +16,22 @@ import {
  * GET /api/backoffice/backfill-conversas?batchSize=150[&reset=1]
  *
  * Backfill de conversas DataCrazy → Conversa/Mensagem (cobertura). Reusa o
- * ingest compartilhado (ingestConversa) em CONTEXTO SERVER — o que o script tsx
- * não podia (server-only). Projeção do dry-run (PR #180): ~73,5% de cobertura.
- *
- * Por que LOTES + CHECKPOINT: o passe completo é rate-limited (429) e leva
- * horas; o Railway não roda horas num request. Cada chamada processa um lote
- * curto a partir do checkpoint e RETORNA — invocável repetidamente até terminar.
+ * ingest compartilhado (ingestConversa) em CONTEXTO SERVER. Lotes + checkpoint
+ * resumível; invocável repetidamente até `terminado`.
  *
  * Portões (espelha /api/painel-atencao):
- *   1. Flag Config DB `BACKFILL_CONVERSAS_ENABLED` (default OFF) → 404. Deploy
- *      fica INERTE: mesmo no ar, a rota não escreve nada até ligar a flag.
- *   2. getSession → 401 (precede getAuthContext p/ não virar redirect 307).
- *   3. getAuthContext + isAdmin → 403 (fail-closed admin-only).
+ *   1. Flag `BACKFILL_CONVERSAS_ENABLED` (default OFF) → 404 (deploy inerte).
+ *   2. getSession → 401.   3. getAuthContext + isAdmin → 403 (fail-closed).
  *
- * Estado (Config DB, não arquivo — Railway é efêmero/multi-instância):
- *   - BACKFILL_CONVERSAS_CHECKPOINT: { cursorSkip, terminado, acumulado{...} }
- *     → resumível: cada chamada retoma de onde parou.
- *   - BACKFILL_CONVERSAS_MANIFEST: string[] dos externalId CRIADOS pelo backfill
- *     → reversibilidade dirigida (rollback = deleteMany onde externalId IN manifest;
- *       cascata apaga Mensagem). Só entram conversas NOVAS (wasNew), não as que o
- *       poll já tinha. Marca DB-level (coluna `origemBackfill`) fica p/ futuro.
+ * 🔒 SINGLE-FLIGHT (corrige o clobber de concorrência observado quando o browser
+ * re-disparou um GET longo): lock ATÔMICO no Config DB via CAS (um único upsert
+ * com RETURNING). Dois requests concorrentes → só um adquire; o outro recebe
+ * 409 { ja_rodando } SEM processar. TTL libera lock de run morto (kill não roda
+ * o `finally`). Sem migration (lock é uma linha do Config).
  *
- * Idempotência: ingestConversa faz upsert por externalId → re-rodar um lote
- * (ou após timeout/429 mid-batch) nunca duplica.
- *
- * NÃO há paginação de /messages (só ~20 mais novas) — 1 fetch/conversa, aceito
- * pra cobertura (casa por telefone + datas recentes de direção).
+ * 🧱 CHECKPOINT DURÁVEL: persiste por PÁGINA (não só no fim) — run interrompido
+ * preserva o avanço. Idempotência (upsert por externalId) garante que reprocessar
+ * a última página não duplica.
  */
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -50,6 +40,11 @@ export const maxDuration = 300;
 const FLAG = "BACKFILL_CONVERSAS_ENABLED";
 const K_CHECKPOINT = "BACKFILL_CONVERSAS_CHECKPOINT";
 const K_MANIFEST = "BACKFILL_CONVERSAS_MANIFEST";
+const K_LOCK = "BACKFILL_CONVERSAS_LOCK";
+// TTL do lock. > maxDuration (300s) de propósito: um run legítimo nunca tem o
+// lock expirado no meio (não roda além de 300s), então NUNCA há double-run; só
+// um run MORTO (sem `finally`) libera o lock — após o TTL. Tunável via Config.
+const LOCK_TTL_MS_DEFAULT = 10 * 60 * 1000;
 // Espelha DATACRAZY_BASE_URL (não exportado em datacrazy.ts).
 const DC_BASE = "https://api.g1.datacrazy.io/api/v1";
 const TAKE = 100; // página da API de /conversations
@@ -73,6 +68,52 @@ interface Checkpoint {
 }
 const ACUM_ZERO: Acumulado = { processadas: 0, novas: 0, casadas: 0, comTelefone: 0, lid: 0 };
 
+// ── Single-flight: lock atômico via CAS no Config DB ────────────────────────
+async function resolverLockTtlMs(): Promise<number> {
+  const raw = await getConfig("BACKFILL_CONVERSAS_LOCK_TTL_MIN");
+  const n = raw ? Number(raw) : NaN;
+  const resolved = Number.isFinite(n) && n > 0 ? n * 60 * 1000 : LOCK_TTL_MS_DEFAULT;
+  // PISO > maxDuration: um run legítimo (≤300s) NUNCA pode ter o lock expirado
+  // no meio — senão um 2º request adquiriria e reabriria o double-run. Folga 60s.
+  // Protege a invariante por código, não por disciplina de quem configura.
+  return Math.max(resolved, maxDuration * 1000 + 60_000);
+}
+
+/**
+ * Acquire ATÔMICO: um único INSERT…ON CONFLICT DO UPDATE…WHERE…RETURNING.
+ *  - linha ausente → INSERT (adquire) → RETURNING devolve 1 linha.
+ *  - linha livre ('') ou STALE (updatedAt < now-TTL) → UPDATE casa → adquire.
+ *  - linha fresca de outro run → WHERE falha → 0 linhas → NÃO adquire (→ 409).
+ * Atômico (row-lock do upsert) → sem TOCTOU. A EXPIRAÇÃO usa a coluna
+ * `updatedAt` (timestamptz), NÃO o texto do `value`: o value é só o TOKEN
+ * (p/ o release casar o próprio lock) e poderia, em tese, ser sobrescrito fora
+ * do formato ISO — usar updatedAt remove esse acoplamento frágil.
+ */
+async function tryAcquireLock(ttlMs: number): Promise<string | null> {
+  const agora = new Date();
+  const nowIso = agora.toISOString();
+  const staleTs = new Date(agora.getTime() - ttlMs);
+  const rows = await prisma.$queryRaw<Array<{ value: string }>>`
+    INSERT INTO "Config" ("key", "value", "updatedAt")
+    VALUES (${K_LOCK}, ${nowIso}, ${agora})
+    ON CONFLICT ("key") DO UPDATE
+      SET "value" = ${nowIso}, "updatedAt" = ${agora}
+      WHERE "Config"."value" = '' OR "Config"."updatedAt" < ${staleTs}
+    RETURNING "value"
+  `;
+  return rows.length === 1 ? nowIso : null;
+}
+
+/** Libera SÓ se o lock ainda é o nosso (value === token) — não rouba o lock de
+ *  um run que adquiriu depois do nosso expirar por TTL. */
+async function releaseLock(token: string): Promise<void> {
+  await prisma.$executeRaw`
+    UPDATE "Config" SET "value" = '', "updatedAt" = ${new Date()}
+    WHERE "key" = ${K_LOCK} AND "value" = ${token}
+  `;
+}
+
+// ── Checkpoint + manifest (Config DB; não arquivo — Railway efêmero) ─────────
 async function lerCheckpoint(): Promise<Checkpoint> {
   const raw = await getConfig(K_CHECKPOINT);
   if (!raw) return { cursorSkip: 0, terminado: false, acumulado: { ...ACUM_ZERO } };
@@ -88,16 +129,16 @@ async function lerCheckpoint(): Promise<Checkpoint> {
   }
 }
 
-async function appendManifest(novos: string[]): Promise<number> {
-  if (novos.length === 0) {
-    const raw = await getConfig(K_MANIFEST);
-    return raw ? (JSON.parse(raw) as string[]).length : 0;
-  }
+async function appendManifest(novos: string[]): Promise<void> {
+  if (novos.length === 0) return;
   const raw = await getConfig(K_MANIFEST);
   const atual = raw ? (JSON.parse(raw) as string[]) : [];
-  const merged = atual.concat(novos);
-  await setConfig(K_MANIFEST, JSON.stringify(merged));
-  return merged.length;
+  await setConfig(K_MANIFEST, JSON.stringify(atual.concat(novos)));
+}
+
+async function contarManifest(): Promise<number> {
+  const raw = await getConfig(K_MANIFEST);
+  return raw ? (JSON.parse(raw) as string[]).length : 0;
 }
 
 // Telefone da conversa — espelha poll-runner/webhook: contactId com "@" = @lid.
@@ -114,8 +155,17 @@ function derivarTelefone(conv: Record<string, unknown>): string | null {
   );
 }
 
-// Uma página de /conversations a partir de `skip` (com backoff 429). instanceId
-// é ignorado pela API → 1 instância basta. rateLimited=true após 429 persistente.
+// Uma página de /conversations a partir de `skip` (backoff 429). instanceId é
+// ignorado pela API → 1 instância basta. rateLimited após 429 persistente.
+//
+// ⚠️ LIMITAÇÃO CONHECIDA (deferida — corrigir ANTES do run completo): o `skip`
+// é offset cru numa lista ordenada por recência (lastMessageDate). Se uma
+// conversa em offset < cursor recebe msg nova durante o sweep (o próprio ingest
+// ou o poll concorrente), ela sobe e as de baixo deslizam → uma conversa pode
+// ser PULADA (gap de cobertura). Dedup por externalId só evita reprocessar, NÃO
+// recupera quem nunca foi buscado. Mitigação: rodar com o poll quieto / fora de
+// pico, OU (fix próprio) snapshotar a lista de externalIds no início e iterar
+// por ID (não pela ordem viva da API).
 async function fetchPagina(
   instanceId: string,
   token: string,
@@ -170,123 +220,188 @@ export async function GET(req: NextRequest) {
   const batchSize = Math.min(Math.max(Number(req.nextUrl.searchParams.get("batchSize") ?? 150), 1), 300);
   const reset = parseBool(req.nextUrl.searchParams.get("reset") ?? undefined);
 
-  if (reset) {
-    await setConfig(K_CHECKPOINT, JSON.stringify({ cursorSkip: 0, terminado: false, acumulado: ACUM_ZERO }));
+  // 🔒 single-flight: adquire ANTES de QUALQUER escrita; 409 se outro run fresco
+  // segura. reset NÃO destrava o lock aqui fora — blankar K_LOCK fora do CAS
+  // reabriria o exato double-run que o lock corrige; o reset roda DENTRO da
+  // região protegida (abaixo). Lock de run MORTO é recuperado pelo TTL.
+  const ttlMs = await resolverLockTtlMs();
+  const lockToken = await tryAcquireLock(ttlMs);
+  if (!lockToken) {
+    return NextResponse.json(
+      { ok: false, ja_rodando: true, mensagem: "outro lote em execução (single-flight); aguarde terminar." },
+      { status: 409 },
+    );
   }
 
-  const cp = await lerCheckpoint();
-  if (cp.terminado && !reset) {
-    return NextResponse.json({ terminado: true, mensagem: "backfill já concluído (use reset=1 p/ refazer)", acumulado: cp.acumulado });
-  }
-
-  const instanceId = Object.values(VENDEDORES_CONFIG)[0].instanceIds[0];
-
-  // Coleta uma janela de até `batchSize` conversas ingeríveis a partir do cursor.
-  let cursor = cp.cursorSkip;
-  const janela: Record<string, unknown>[] = [];
-  let rateLimited = false;
-  let listaAcabou = false;
-  while (janela.length < batchSize) {
-    const { items, rateLimited: rl } = await fetchPagina(instanceId, token, cursor);
-    if (rl) { rateLimited = true; break; } // para limpo no cursor atual (re-tenta depois)
-    if (items.length === 0) { listaAcabou = true; break; }
-    cursor += items.length; // avança pelo bruto (cursor = offset cru de /conversations)
-    for (const c of items) if (ehIngerivel(c)) janela.push(c);
-    if (items.length < TAKE) { listaAcabou = true; break; }
-    await sleep(800);
-  }
-
-  // Processa a janela: ingere cada conversa (newest ~20 msgs) via ingestConversa.
-  const lote: Acumulado = { ...ACUM_ZERO };
-  const manifestNovos: string[] = [];
-  for (const conv of janela) {
-    const externalId = String(conv.id ?? conv._id ?? "");
-    if (!externalId) continue;
-    const tel = derivarTelefone(conv);
-
-    const existente = await prisma.conversa.findUnique({ where: { externalId }, select: { id: true } });
-    const wasNew = !existente;
-
-    let msgsRaw: Record<string, unknown>[] = [];
-    try {
-      msgsRaw = (await fetchMensagens(externalId, token, 1)) as Record<string, unknown>[];
-    } catch {
-      // 429/erro pontual numa conversa → para limpo; cursor NÃO inclui esta janela
-      // por completo, mas re-rodar é idempotente (upsert). Salva o que já processou.
-      rateLimited = true;
-      break;
+  try {
+    if (reset) {
+      // Reset SOB O LOCK: só o dono do lock zera o checkpoint → nunca compete
+      // com escritas de checkpoint de um run vivo (que teria recebido 409 acima).
+      await setConfig(K_CHECKPOINT, JSON.stringify({ cursorSkip: 0, terminado: false, acumulado: ACUM_ZERO }));
+    }
+    const cp = await lerCheckpoint();
+    if (cp.terminado && !reset) {
+      return NextResponse.json({
+        terminado: true,
+        mensagem: "backfill já concluído (use reset=1 p/ refazer)",
+        acumulado: cp.acumulado,
+      });
     }
 
-    const mensagens: MensagemCanonical[] = msgsRaw
-      .map((m): MensagemCanonical | null => {
-        const msgId = (m.id as string | undefined) ?? (m._id as string | undefined);
-        if (!msgId) return null;
-        return {
-          externalId: msgId,
-          conversaExternalId: externalId,
-          fromMe: m.fromMe === true || m.received === false,
-          tipo: normalizarTipoMensagem((m.type as string | undefined) ?? (m.messageType as string | undefined)),
-          body: extrairBody(m),
-          mediaUrl: (m.mediaUrl as string | undefined) ?? (m.media_url as string | undefined) ?? null,
-          sentAt: (m.createdAt as string | undefined) ?? (m.timestamp as string | undefined) ?? new Date().toISOString(),
-          rawPayload: m,
+    const instanceId = Object.values(VENDEDORES_CONFIG)[0].instanceIds[0];
+    let cursor = cp.cursorSkip;
+    const acumulado: Acumulado = { ...cp.acumulado }; // cumulativo (persistido)
+    const lote: Acumulado = { ...ACUM_ZERO }; // só desta invocação
+    let rateLimited = false;
+    let listaAcabou = false;
+
+    // Processa PÁGINA A PÁGINA, commitando checkpoint+manifest a cada página
+    // (durável). Para quando este lote atinge batchSize, a lista acaba, ou 429.
+    while (lote.processadas < batchSize) {
+      const pagina = await fetchPagina(instanceId, token, cursor);
+      if (pagina.rateLimited) {
+        rateLimited = true;
+        break; // para limpo: cursor NÃO avança nesta página → re-tenta depois
+      }
+      if (pagina.items.length === 0) {
+        listaAcabou = true;
+        break;
+      }
+      const individuais = pagina.items.filter(ehIngerivel);
+      const manifestPagina: string[] = [];
+
+      for (const conv of individuais) {
+        const externalId = String(conv.id ?? conv._id ?? "");
+        if (!externalId) continue;
+        const tel = derivarTelefone(conv);
+
+        const existente = await prisma.conversa.findUnique({ where: { externalId }, select: { id: true } });
+        const wasNew = !existente;
+
+        let msgsRaw: Record<string, unknown>[] = [];
+        try {
+          msgsRaw = (await fetchMensagens(externalId, token, 1)) as Record<string, unknown>[];
+        } catch {
+          rateLimited = true;
+          break; // erro pontual numa conversa → para; idempotente no retry
+        }
+
+        // Backfill: NÃO fabricar sentAt=NOW p/ msg histórica sem timestamp —
+        // empurraria lastMessageAt/ultimoContatoAt p/ a data do backfill e
+        // "rejuvenesceria" clientes inativos (corromperia o termômetro que esta
+        // feature serve). Cap na data real da conversa.
+        const fallbackSentAt =
+          (conv.lastMessageDate as string | undefined) ??
+          (conv.updatedAt as string | undefined) ??
+          new Date().toISOString();
+        const mensagens: MensagemCanonical[] = msgsRaw
+          .map((m): MensagemCanonical | null => {
+            const msgId = (m.id as string | undefined) ?? (m._id as string | undefined);
+            if (!msgId) return null;
+            return {
+              externalId: msgId,
+              conversaExternalId: externalId,
+              fromMe: m.fromMe === true || m.received === false,
+              tipo: normalizarTipoMensagem((m.type as string | undefined) ?? (m.messageType as string | undefined)),
+              body: extrairBody(m),
+              mediaUrl: (m.mediaUrl as string | undefined) ?? (m.media_url as string | undefined) ?? null,
+              sentAt: (m.createdAt as string | undefined) ?? (m.timestamp as string | undefined) ?? fallbackSentAt,
+              rawPayload: m,
+            };
+          })
+          .filter((x): x is MensagemCanonical => x !== null);
+
+        const contact = conv.contact as Record<string, unknown> | undefined;
+        const conversa: ConversaCanonical = {
+          externalId,
+          instanceId,
+          contactPhone: tel,
+          contactName:
+            (contact?.name as string | undefined) ??
+            (conv.contactName as string | undefined) ??
+            (conv.name as string | undefined) ??
+            null,
+          lastMessageAt:
+            (conv.lastMessageDate as string | undefined) ??
+            (conv.updatedAt as string | undefined) ??
+            ((conv.lastMessage as Record<string, unknown> | undefined)?.createdAt as string | undefined) ??
+            null,
         };
-      })
-      .filter((x): x is MensagemCanonical => x !== null);
 
-    const contact = conv.contact as Record<string, unknown> | undefined;
-    const conversa: ConversaCanonical = {
-      externalId,
-      instanceId,
-      contactPhone: tel,
-      contactName:
-        (contact?.name as string | undefined) ??
-        (conv.contactName as string | undefined) ??
-        (conv.name as string | undefined) ??
-        null,
-      lastMessageAt:
-        (conv.lastMessageDate as string | undefined) ??
-        (conv.updatedAt as string | undefined) ??
-        ((conv.lastMessage as Record<string, unknown> | undefined)?.createdAt as string | undefined) ??
-        null,
-    };
+        const res = await ingestConversa(conversa, mensagens);
+        acumulado.processadas++;
+        lote.processadas++;
+        if (tel) {
+          acumulado.comTelefone++;
+          lote.comTelefone++;
+        } else {
+          acumulado.lid++;
+          lote.lid++;
+        }
+        if (res.clienteId) {
+          acumulado.casadas++;
+          lote.casadas++;
+        }
+        if (wasNew) {
+          acumulado.novas++;
+          lote.novas++;
+          manifestPagina.push(externalId);
+        }
+        await sleep(DELAY_CONVERSA_MS);
+      }
 
-    const res = await ingestConversa(conversa, mensagens);
-    lote.processadas++;
-    if (tel) lote.comTelefone++;
-    else lote.lid++;
-    if (res.clienteId) lote.casadas++;
-    if (wasNew) {
-      lote.novas++;
-      manifestNovos.push(externalId);
+      // Persiste as linhas criadas nesta página (idempotente; seguro mesmo parcial).
+      await appendManifest(manifestPagina);
+
+      if (rateLimited) {
+        // 429 no MEIO da página: NÃO avança o cursor → a página inteira é
+        // reprocessada no próximo run (ingest idempotente: feitas → no-op).
+        // Evita gap de cobertura. (acumulado é progresso aproximado — pode
+        // recontar processadas/casadas no retry; a verdade de cobertura é o DB.)
+        await setConfig(K_CHECKPOINT, JSON.stringify({ cursorSkip: cursor, terminado: false, acumulado }));
+        break;
+      }
+
+      // 🧱 Página INTEIRA processada → avança o cursor e commita (durável por página).
+      cursor += pagina.items.length; // cursor = offset cru de /conversations
+      const fimDaLista = pagina.items.length < TAKE;
+      await setConfig(K_CHECKPOINT, JSON.stringify({ cursorSkip: cursor, terminado: fimDaLista, acumulado }));
+      if (fimDaLista) {
+        listaAcabou = true;
+        break;
+      }
+      await sleep(800);
     }
-    await sleep(DELAY_CONVERSA_MS);
+
+    const terminado = listaAcabou && !rateLimited;
+    // Checkpoint final: garante `terminado` correto mesmo saindo por batchSize.
+    await setConfig(K_CHECKPOINT, JSON.stringify({ cursorSkip: cursor, terminado, acumulado }));
+    const manifestTotal = await contarManifest();
+
+    const taxaMatch = lote.comTelefone > 0 ? +((100 * lote.casadas) / lote.comTelefone).toFixed(1) : null;
+    return NextResponse.json({
+      ok: true,
+      parou_por_429: rateLimited,
+      terminado,
+      lote: { ...lote, taxa_match_pct: taxaMatch },
+      proximo_cursor: cursor,
+      falta_estimada: terminado ? 0 : Math.max(0, 4345 - cursor),
+      // AUTORITATIVOS: proximo_cursor (avanço real) + manifest_total (linhas
+      // realmente criadas). acumulado é progresso APROXIMADO (pode recontar
+      // processadas/casadas no retry de 429). Cobertura real = query no DB
+      // (count distinct clienteId), não estes contadores.
+      acumulado_aprox: acumulado,
+      manifest_total: manifestTotal,
+      nota: "cobertura real = DB (distinct clienteId); acumulado_aprox é só progresso",
+    });
+  } finally {
+    // Libera SEMPRE no fim/erro. try/catch p/ que uma falha no release NÃO
+    // mascare a resposta já computada como 500 (o trabalho já foi commitado por
+    // página; se o release falhar, o TTL é o backstop). Kill duro não roda isto.
+    try {
+      await releaseLock(lockToken);
+    } catch (e) {
+      console.error("[backfill-conversas] releaseLock falhou (TTL cobre):", e);
+    }
   }
-
-  // Persiste checkpoint + manifest. terminado só quando a lista acabou de fato.
-  const terminado = listaAcabou && !rateLimited;
-  const acumulado: Acumulado = {
-    processadas: cp.acumulado.processadas + lote.processadas,
-    novas: cp.acumulado.novas + lote.novas,
-    casadas: cp.acumulado.casadas + lote.casadas,
-    comTelefone: cp.acumulado.comTelefone + lote.comTelefone,
-    lid: cp.acumulado.lid + lote.lid,
-  };
-  await setConfig(K_CHECKPOINT, JSON.stringify({ cursorSkip: cursor, terminado, acumulado }));
-  const manifestTotal = await appendManifest(manifestNovos);
-
-  // PARIDADE: taxa de match REAL do lote (via ingestConversa) p/ comparar com a
-  // projeção do dry-run (~73,5%). taxa sobre conversas COM telefone (exclui @lid).
-  const taxaMatch = lote.comTelefone > 0 ? +(100 * lote.casadas / lote.comTelefone).toFixed(1) : null;
-
-  return NextResponse.json({
-    ok: true,
-    parou_por_429: rateLimited,
-    terminado,
-    lote: { ...lote, taxa_match_pct: taxaMatch },
-    proximo_cursor: cursor,
-    falta_estimada: terminado ? 0 : Math.max(0, 4345 - cursor), // ~4.345 brutas no sizing
-    acumulado,
-    manifest_total: manifestTotal,
-  });
 }
