@@ -254,6 +254,11 @@ const allModulesV2 = [...empresasModulesV2, ...transversalModulesV2];
 const inicioItemV2 = { name: "Início", href: "/", icon: Home };
 const configItemV2 = { name: "Configurações", href: "/configuracoes", icon: Settings };
 
+// Hrefs visíveis só pra admin (gate COSMÉTICO do nav — a segurança real é o
+// redirect na própria página, ex.: /configuracoes/implementacoes). O isAdmin
+// COMPLETO (role OU teamRole) vem de /api/auth/is-admin.
+const ADMIN_ONLY_HREFS = ["/configuracoes/implementacoes"];
+
 function getActiveModuleIdV2(pathname: string): string {
   if (pathname.startsWith("/onix-corretora")) return "onix-corretora";
   if (pathname.startsWith("/empresas/investimentos")) return "onix-invest";
@@ -310,6 +315,26 @@ export function Sidebar() {
     setOpenSections((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
+  // Esconde itens admin-only do nav pra não-admin (cosmético; gate real é na
+  // página). Default false (fail-closed): não-admin nunca vê o link. isAdmin
+  // COMPLETO (role OU teamRole) — o role da sessão sozinho não cobre teamRole.
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/auth/is-admin")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!cancelled && d?.isAdmin) setIsAdmin(true);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const podeVerItem = (item: { href: string }) =>
+    isAdmin || !ADMIN_ONLY_HREFS.includes(item.href);
+
   /* ── Check if a nav item is active ── */
   const isItemActive = (href: string) => {
     if (href === "/") return pathname === "/";
@@ -361,11 +386,13 @@ export function Sidebar() {
     items: { name: string; href: string; icon: React.ComponentType<{ className?: string }> }[];
   }) => {
     const isOpen = openSections[mod.id];
-    const hasActiveChild = mod.items.some((item) => isItemActive(item.href));
+    const items = mod.items.filter(podeVerItem);
+    if (items.length === 0) return null; // módulo sem itens visíveis (ex.: todos admin-only)
+    const hasActiveChild = items.some((item) => isItemActive(item.href));
 
     if (collapsed) {
       // In collapsed mode, show only the module icon (links to its first page)
-      const firstHref = mod.items[0]?.href || "/";
+      const firstHref = items[0]?.href || "/";
       return (
         <Tooltip key={mod.id}>
           <TooltipTrigger className="w-full">
@@ -416,7 +443,7 @@ export function Sidebar() {
           )}
         >
           <div className="pl-3 space-y-0.5 pb-1">
-            {mod.items.map(renderNavLink)}
+            {items.map(renderNavLink)}
           </div>
         </div>
       </div>
@@ -485,7 +512,7 @@ export function Sidebar() {
             {/* ── GERAL ── */}
             {renderSectionLabel("Geral")}
             <div className="px-2 pb-2 space-y-0.5">
-              {sharedNavigation.map(renderNavLink)}
+              {sharedNavigation.filter(podeVerItem).map(renderNavLink)}
             </div>
 
             {/* ── EMPRESAS ── */}
