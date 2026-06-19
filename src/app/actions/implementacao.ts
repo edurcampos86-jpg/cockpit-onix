@@ -39,6 +39,8 @@ export async function criarImplementacao(
   const porQue = s(formData.get("porQue"));
   const oQue = s(formData.get("oQue"));
   const como = sOrNull(formData.get("como"));
+  const pagina = sOrNull(formData.get("pagina")); // rota de origem (FAB); null = não informada
+  const inline = s(formData.get("origem")) === "fab"; // FAB: fica na página (sem redirect)
   let tipo = s(formData.get("tipo"));
   if (!TIPOS.includes(tipo)) tipo = "melhoria";
 
@@ -69,11 +71,17 @@ export async function criarImplementacao(
       porQue,
       oQue,
       como,
+      pagina,
       printUrl,
     },
   });
 
   revalidatePath("/configuracoes/implementacoes");
+  // FAB (origem=fab): fica na página atual e o modal mostra sucesso.
+  // Form da página /nova: mantém o redirect pra central (comportamento original).
+  if (inline) {
+    return { ok: true };
+  }
   redirect("/configuracoes/implementacoes");
 }
 

@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation";
 import { Sidebar } from "@/components/layout/sidebar";
 import { FloatingChat } from "@/components/agents/floating-chat";
+import { FloatingImplementacoes } from "@/components/implementacoes/floating-implementacoes";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -22,6 +23,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <Sidebar />
       <main className="flex-1 overflow-y-auto">{children}</main>
       <FloatingChat />
+      <FloatingImplementacoes />
     </div>
   );
 }
