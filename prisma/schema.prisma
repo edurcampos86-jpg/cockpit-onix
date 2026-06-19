@@ -1865,6 +1865,7 @@ model Implementacao {
   userId       String
   empresaId    String // ex "investimentos" (casa com empresas-config)
   departamento String?
+  pagina       String? // rota de origem da sugestao, ex.: "/empresas/investimentos/clientes". null = nao informada
   tipo         String  @default("melhoria") // "melhoria" | "erro" | "ideia"
 
   // Golden Circle
