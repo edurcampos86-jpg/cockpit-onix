@@ -1,12 +1,15 @@
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { getAuthContext } from "@/lib/auth-helpers";
+import { getAuthContext, isAdmin } from "@/lib/auth-helpers";
 import { EMPRESAS } from "@/lib/empresas-config";
 import { ImplementacoesList, type ImplementacaoDTO } from "./implementacoes-list";
 
 export const dynamic = "force-dynamic";
 
 export default async function ImplementacoesPage() {
-  await getAuthContext(); // exige login
+  const ctx = await getAuthContext().catch(() => null);
+  if (!ctx) redirect("/login");
+  if (!isAdmin(ctx)) redirect("/");
 
   const itens = await prisma.implementacao.findMany({
     orderBy: [{ score: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],

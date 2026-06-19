@@ -24,6 +24,7 @@ import {
   Wand2,
   ClipboardList,
   ListChecks,
+  Lightbulb,
   BookOpen,
   UserCircle,
   Gauge,
@@ -124,6 +125,7 @@ const sharedNavigation = [
   { name: "Backups", href: "/admin/backups", icon: Database },
   { name: "Glossário", href: "/glossario", icon: BookMarked },
   { name: "Integrações", href: "/integracoes", icon: Plug },
+  { name: "Implementações", href: "/configuracoes/implementacoes", icon: Lightbulb },
 ];
 
 /* ── Definição dos módulos / empresas ───────────────── */
@@ -199,6 +201,7 @@ const operacoesItemsV2 = [
   { name: "Integrações", href: "/integracoes", icon: Plug },
   { name: "Método Onix", href: "/metodo", icon: Compass },
   { name: "Glossário", href: "/glossario", icon: BookMarked },
+  { name: "Implementações", href: "/configuracoes/implementacoes", icon: Lightbulb },
 ];
 
 // F4 — shells das demais empresas: um item "Painel" por empresa; as demais
@@ -267,7 +270,7 @@ function getActiveModuleIdV2(pathname: string): string {
   )
     return "juridico";
   if (
-    ["/admin/backups", "/integracoes", "/metodo", "/glossario"].some((p) =>
+    ["/admin/backups", "/integracoes", "/metodo", "/glossario", "/configuracoes/implementacoes"].some((p) =>
       pathname.startsWith(p),
     )
   )
