@@ -6,6 +6,7 @@ import { Plus, Paperclip } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { calcRiceScore } from "@/lib/rice";
 import { atualizarRice, atualizarStatus } from "@/app/actions/implementacao";
+import { RiceHelp } from "./rice-help";
 
 export type ImplementacaoDTO = {
   id: string;
@@ -145,8 +146,9 @@ export function ImplementacoesList({
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-foreground">Implementações</h1>
-          <p className="text-sm text-muted-foreground">
+          <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
             Central Golden Circle · priorização RICE
+            <RiceHelp />
           </p>
         </div>
         <Link
