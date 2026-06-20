@@ -708,6 +708,7 @@ model ClienteBackoffice {
   conversas        Conversa[]
   gruposWhatsApp   GrupoCliente[]
   reunioes         ReuniaoCliente[]
+  reunioesEstruturadas ReuniaoEstruturada[]
 
   @@index([numeroConta])
   @@index([classificacao])
@@ -757,12 +758,56 @@ model ReuniaoCliente {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Back-relation OBRIGATÓRIA do Prisma p/ a FK opcional em ReuniaoEstruturada.
+  // Campo virtual: NÃO altera a tabela ReuniaoCliente nem lib/reunioes.ts.
+  reunioesEstruturadas ReuniaoEstruturada[]
+
   // Dedupe escopado por usuario. NULL no userId vale para fontes globais
   // (Postgres permite múltiplos NULL no unique).
   @@unique([userId, source, externalId])
   @@index([clienteId, startAt])
   @@index([source, startAt])
   @@index([userId, source])
+}
+
+// ============================================
+// REUNIÃO ESTRUTURADA — Cockpit de Reunião (Fase 0)
+// ============================================
+// Reunião de cliente com conteúdo estruturado (pautas, pendências por lado,
+// próximos passos). DISTINTA de ReuniaoCliente (que é só cache de eventos de
+// calendário): liga-se OPCIONALMENTE a uma linha daquele cache via
+// reuniaoClienteId, mas não substitui nem altera lib/reunioes.ts.
+// "3 primeiras / 3 últimas" são derivadas por orderBy(data), não campos.
+model ReuniaoEstruturada {
+  id        String            @id @default(cuid())
+  clienteId String
+  cliente   ClienteBackoffice @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  // Quem conduziu (membro do time). SetNull preserva a reunião se a Pessoa sair.
+  pessoaId String?
+  pessoa   Pessoa? @relation(fields: [pessoaId], references: [id], onDelete: SetNull)
+
+  // Link opcional ao evento de calendário. SetNull: o re-sync em lib/reunioes.ts
+  // deleta/recria linhas de ReuniaoCliente — o conteúdo estruturado precisa
+  // sobreviver a isso.
+  reuniaoClienteId String?
+  reuniaoCliente   ReuniaoCliente? @relation(fields: [reuniaoClienteId], references: [id], onDelete: SetNull)
+
+  data         DateTime
+  tipoCadencia String? // ex.: "primeira" | "trimestral" | "revisao-anual"
+
+  // Conteúdo estruturado (Json — shapes validados na aplicação)
+  pautas         Json? // tópicos da pauta
+  pendencias     Json? // { assessor: [...], cliente: [...] }
+  proximosPassos Json? // [{ texto, concluido, concluidoEm }] — shape de ReuniaoTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  interacoes InteracaoCliente[]
+
+  @@index([clienteId, data])
+  @@index([data])
 }
 
 // ============================================
@@ -829,6 +874,19 @@ model InteracaoCliente {
 
   // Roteiro RCA (Rapid Client Assessment)
   rcaNotas String? @db.Text
+
+  // ── Fase 0 Cockpit de Reunião (aditivo; tudo opcional) ──
+  // Quem conduziu a interação (antes órfão). SetNull preserva o histórico.
+  pessoaId String?
+  pessoa   Pessoa? @relation(fields: [pessoaId], references: [id], onDelete: SetNull)
+
+  // Vínculo opcional à reunião estruturada que originou esta interação.
+  reuniaoEstruturadaId String?
+  reuniaoEstruturada   ReuniaoEstruturada? @relation(fields: [reuniaoEstruturadaId], references: [id], onDelete: SetNull)
+
+  // Dedup do rollup de WhatsApp (preenchido em PR futura).
+  source     String?
+  externalId String?
 
   criadoEm DateTime @default(now())
 
@@ -1310,6 +1368,10 @@ model Pessoa {
 
   // Jurídico — fase 1A (contratos no B2)
   contratosArquivos ContratoArquivo[]
+
+  // Fase 0 — Cockpit de Reunião (quem conduziu)
+  reunioesEstruturadasConduzidas ReuniaoEstruturada[]
+  interacoesConduzidas           InteracaoCliente[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
