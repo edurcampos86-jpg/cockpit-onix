@@ -13,7 +13,8 @@ async function main() {
     orderBy: { uploadedAt: "asc" },
   });
   for (const p of pats) {
-    const nome = p.pessoa.apelido || p.pessoa.nomeCompleto;
+    // Pat agora é polimórfico (pessoa OU cliente) — pessoa pode ser null.
+    const nome = p.pessoa?.apelido || p.pessoa?.nomeCompleto || "(cliente)";
     console.log(
       `  ${nome.padEnd(22)} | ${p.status.padEnd(10)} | persp=${p.perspectiva ?? "?"} | amb=${p.ambienteNome ?? "?"}`,
     );
