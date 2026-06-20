@@ -15,9 +15,11 @@ import {
   Sparkles,
   ClipboardList,
   IdCard,
+  Presentation,
 } from "lucide-react";
 import { ReferenciaLivro } from "./referencia-livro";
 import { ComoFunciona } from "./como-funciona";
+import { CockpitReuniaoTab } from "./cockpit-reuniao-tab";
 import {
   REF_DESCOBERTA_PROFUNDA,
   REF_ONE_PAGE_PLAN,
@@ -109,7 +111,7 @@ interface Cliente {
   codigoEscritorio: string | null;
 }
 
-type Tab = "descoberta" | "cadastro" | "plano" | "checklist" | "metas" | "eventos" | "perfil" | "rca";
+type Tab = "descoberta" | "cadastro" | "plano" | "checklist" | "metas" | "eventos" | "perfil" | "rca" | "cockpit-reuniao";
 
 const TABS: { id: Tab; label: string; icon: typeof Heart }[] = [
   { id: "descoberta", label: "Descoberta", icon: Heart },
@@ -122,15 +124,26 @@ const TABS: { id: Tab; label: string; icon: typeof Heart }[] = [
   { id: "rca", label: "RCA / Reuniões", icon: ClipboardList },
 ];
 
-export function ClienteDetalhe({ cliente: inicial }: { cliente: Cliente }) {
+export function ClienteDetalhe({
+  cliente: inicial,
+  cockpitReuniao = false,
+}: {
+  cliente: Cliente;
+  cockpitReuniao?: boolean;
+}) {
   const [tab, setTab] = useState<Tab>("descoberta");
   const [cliente, setCliente] = useState(inicial);
+
+  // Flag OFF → tabs === TABS (tela byte-idêntica à de hoje). ON → +1 aba ao lado da RCA.
+  const tabs = cockpitReuniao
+    ? [...TABS, { id: "cockpit-reuniao" as Tab, label: "Cockpit de Reunião", icon: Presentation }]
+    : TABS;
 
   return (
     <div className="space-y-4">
       {/* Tabs */}
       <div className="flex gap-2 border-b border-border overflow-x-auto">
-        {TABS.map((t) => {
+        {tabs.map((t) => {
           const Icon = t.icon;
           return (
             <button
@@ -201,6 +214,9 @@ export function ClienteDetalhe({ cliente: inicial }: { cliente: Cliente }) {
           interacoes={cliente.interacoes}
           onChange={(i) => setCliente({ ...cliente, interacoes: i })}
         />
+      )}
+      {tab === "cockpit-reuniao" && (
+        <CockpitReuniaoTab cliente={cliente} interacoes={cliente.interacoes} />
       )}
     </div>
   );
