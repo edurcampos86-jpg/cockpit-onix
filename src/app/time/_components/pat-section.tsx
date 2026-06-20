@@ -152,7 +152,7 @@ function UploadForm({ pessoaId }: { pessoaId: string }) {
 
 type PatRecord = {
   id: string;
-  pessoaId: string;
+  pessoaId: string | null; // Pat polimórfico (Fase 0 PR2): pessoa OU cliente
   dataPat: Date;
   status: string;
   erroMensagem: string | null;

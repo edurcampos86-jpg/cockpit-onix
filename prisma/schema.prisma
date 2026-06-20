@@ -709,6 +709,7 @@ model ClienteBackoffice {
   gruposWhatsApp   GrupoCliente[]
   reunioes         ReuniaoCliente[]
   reunioesEstruturadas ReuniaoEstruturada[]
+  pats                 Pat[]
 
   @@index([numeroConta])
   @@index([classificacao])
@@ -1506,8 +1507,13 @@ model ConviteOnboarding {
 model Pat {
   id String @id @default(cuid())
 
-  pessoaId String
-  pessoa   Pessoa @relation(fields: [pessoaId], references: [id], onDelete: Cascade)
+  // Polimórfico (Fase 0 PR2): serve Pessoa (time) OU ClienteBackoffice (cliente).
+  // Exatamente UM de pessoaId/clienteId preenchido — CHECK XOR aplicado na migration.
+  pessoaId String?
+  pessoa   Pessoa? @relation(fields: [pessoaId], references: [id], onDelete: Cascade)
+
+  clienteId String?
+  cliente   ClienteBackoffice? @relation(fields: [clienteId], references: [id], onDelete: Cascade)
 
   // PDF original
   filename  String?
@@ -1517,12 +1523,20 @@ model Pat {
   // Quando o PAT foi aplicado (informado pelo PDF)
   dataPat DateTime
 
+  // Vigência: no máx. 1 PAT vigente por sujeito — índices parciais únicos na migration.
+  vigente Boolean @default(false)
+
   // ── Campos resumo (extraídos pra busca/filtro/UI rápida) ──
   perspectiva    String? // "Baixa" | "Média" | "Alta"
   ambienteCelula Int? // 1-25 (posição na matriz)
   ambienteNome   String? // "Crescimento" | "Estabilidade" | "Sustentação" | etc
   orientacao     String? // "Social" | "Técnico" (lado predominante)
   aproveitamento String? // "Subaproveitado" | "Bem Aproveitado" | "Sobreaproveitado"
+
+  // ── Arquétipo PRINCIPAL: código+nome do cabeçalho do PAT (ex.: 76 = "Promocional
+  //    de Ação Livre"). DISTINTO do Ambiente 1-25 (ambienteCelula/ambienteNome). ──
+  arquetipoCodigo Int?
+  arquetipo       Arquetipo? @relation(fields: [arquetipoCodigo], references: [codigo])
 
   // Top 3 competências estratégicas (em ordem de relevância)
   principaisCompetencias String[] @default([])
@@ -1558,6 +1572,22 @@ model Pat {
 
   @@index([pessoaId, dataPat])
   @@index([pessoaId, uploadedAt])
+  @@index([clienteId, dataPat])
+}
+
+// ============================================
+// ARQUÉTIPO PAT — catálogo (Fase 0 PR2)
+// ============================================
+// Arquétipo PRINCIPAL do PAT (código grande do cabeçalho, ex.: 76 = "Promocional
+// de Ação Livre"). DISTINTO do Ambiente 1-25. `descricao` guarda diretrizes-base
+// (preenchidas no futuro). Tabela extensível: novos códigos entram ao importar
+// mais PATs. Seed inicial aplicado na migration.
+model Arquetipo {
+  codigo    Int     @id
+  nome      String
+  descricao String?
+
+  pats Pat[]
 }
 
 // ============================================
