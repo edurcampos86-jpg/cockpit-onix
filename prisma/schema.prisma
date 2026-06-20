@@ -1374,12 +1374,88 @@ model Pessoa {
   reunioesEstruturadasConduzidas ReuniaoEstruturada[]
   interacoesConduzidas           InteracaoCliente[]
 
+  // RBAC — Fase 1 (fundação; aditivo, sem enforcement ainda). papelId NULLABLE:
+  // Pessoas existentes ficam sem papel até o seed de uma fase futura.
+  papelId           String?
+  papel             Papel?           @relation(fields: [papelId], references: [id])
+  carteirasComoDono Carteira[]       @relation("CarteiraDono")
+  acessosCarteira   AcessoCarteira[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([status])
   @@index([filialId, departamentoId])
   @@index([teamRole])
+  @@index([papelId])
+}
+
+// ============================================
+// RBAC — FASE 1 (fundação de dados; sem enforcement/UI/seed)
+// ============================================
+// Carteira = conjunto de CGEs. CarteiraCge.cge casa por VALOR com
+// ClienteBackoffice.assessorCge (NÃO há FK nova no cliente). AcessoCarteira liga
+// Pessoa↔Carteira (dono/apoia). Papel define escopo operacional + nível por área.
+// Tudo aditivo; Pessoas existentes seguem com papelId NULL.
+
+model Carteira {
+  id        String           @id @default(cuid())
+  nome      String
+  donoId    String
+  dono      Pessoa           @relation("CarteiraDono", fields: [donoId], references: [id])
+  cges      CarteiraCge[]
+  acessos   AcessoCarteira[]
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  @@index([donoId])
+}
+
+model CarteiraCge {
+  id         String   @id @default(cuid())
+  carteiraId String
+  carteira   Carteira @relation(fields: [carteiraId], references: [id])
+  cge        String   @unique // casa por valor com ClienteBackoffice.assessorCge
+  createdAt  DateTime @default(now())
+
+  @@index([carteiraId])
+}
+
+model AcessoCarteira {
+  id         String   @id @default(cuid())
+  pessoaId   String
+  pessoa     Pessoa   @relation(fields: [pessoaId], references: [id])
+  carteiraId String
+  carteira   Carteira @relation(fields: [carteiraId], references: [id])
+  tipo       String // "dono" | "apoia"
+  createdAt  DateTime @default(now())
+
+  @@unique([pessoaId, carteiraId])
+  @@index([pessoaId])
+  @@index([carteiraId])
+}
+
+model Papel {
+  id                String           @id @default(cuid())
+  nome              String           @unique
+  isSistema         Boolean          @default(false)
+  escopoOperacional String           @default("propria") // "propria" | "propria_mais_apoio" | "todas"
+  adminGlobal       Boolean          @default(false)
+  permissoes        PapelPermissao[]
+  pessoas           Pessoa[]
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+}
+
+model PapelPermissao {
+  id      String @id @default(cuid())
+  papelId String
+  papel   Papel  @relation(fields: [papelId], references: [id])
+  area    String // "investimentos"|"corretora"|"imobiliaria"|"qualidade"|"backoffice"|"juridico"|"pat"|"acordo_comercial"|"configuracoes"
+  nivel   String @default("nenhum") // "nenhum" | "membro" | "admin"
+
+  @@unique([papelId, area])
+  @@index([papelId])
 }
 
 // ============================================
