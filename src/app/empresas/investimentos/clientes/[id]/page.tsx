@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/layout/page-header";
 import { ClienteDetalhe } from "@/components/backoffice/cliente-detalhe";
 import { ClienteBtgSection } from "@/components/backoffice/cliente-btg-section";
+import { cockpitReuniaoHabilitado } from "@/lib/cockpit-reuniao/flag";
 
 export default async function ClienteDetalhePage({
   params,
@@ -36,6 +37,8 @@ export default async function ClienteDetalhePage({
 
   if (!cliente) notFound();
 
+  const cockpitReuniao = await cockpitReuniaoHabilitado();
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -53,7 +56,10 @@ export default async function ClienteDetalhePage({
           cliente={JSON.parse(JSON.stringify(cliente))}
           movimentacoes={JSON.parse(JSON.stringify(movimentacoes))}
         />
-        <ClienteDetalhe cliente={JSON.parse(JSON.stringify(cliente))} />
+        <ClienteDetalhe
+          cliente={JSON.parse(JSON.stringify(cliente))}
+          cockpitReuniao={cockpitReuniao}
+        />
       </div>
     </div>
   );
