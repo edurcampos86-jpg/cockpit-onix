@@ -216,7 +216,14 @@ export function ClienteDetalhe({
         />
       )}
       {tab === "cockpit-reuniao" && (
-        <CockpitReuniaoTab cliente={cliente} interacoes={cliente.interacoes} />
+        <CockpitReuniaoTab
+          cliente={cliente}
+          interacoes={cliente.interacoes}
+          metas={cliente.metas}
+          eventos={cliente.eventosVida}
+          perfilDescoberta={cliente.perfilDescoberta}
+          planoUmaPagina={cliente.planoUmaPagina}
+        />
       )}
     </div>
   );
