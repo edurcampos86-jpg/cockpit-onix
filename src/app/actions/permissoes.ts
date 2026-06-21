@@ -62,3 +62,106 @@ export async function salvarPapel(input: SalvarPapelInput): Promise<SalvarPapelS
   revalidatePath("/configuracoes/permissoes");
   return { ok: true };
 }
+
+// ============================================================================
+// CARTEIRAS (RBAC Fase 3 UI — aba Carteiras). Cada action gateia admin DENTRO.
+// Toca SOMENTE Carteira / CarteiraCge / AcessoCarteira. NÃO toca ClienteBackoffice
+// (a contagem de clientes é leitura na page). Sem enforcement.
+// ============================================================================
+
+export type CarteiraResult = { ok: boolean; error?: string; id?: string };
+
+async function gateAdmin(): Promise<{ ok: true } | { ok: false; error: string }> {
+  const ctx = await getAuthContext().catch(() => null);
+  if (!ctx || !isAdmin(ctx)) {
+    return { ok: false, error: "Apenas administradores podem gerir carteiras." };
+  }
+  return { ok: true };
+}
+
+export async function criarCarteira(input: { nome: string; donoId: string }): Promise<CarteiraResult> {
+  const g = await gateAdmin();
+  if (!g.ok) return g;
+  const nome = input.nome?.trim();
+  if (!nome) return { ok: false, error: "Informe o nome da carteira." };
+  if (!input.donoId) return { ok: false, error: "Selecione o dono da carteira." };
+  const dono = await prisma.pessoa.findUnique({ where: { id: input.donoId }, select: { id: true } });
+  if (!dono) return { ok: false, error: "Pessoa (dono) não encontrada." };
+
+  const c = await prisma.carteira.create({ data: { nome, donoId: input.donoId } });
+  revalidatePath("/configuracoes/permissoes");
+  return { ok: true, id: c.id };
+}
+
+export async function atualizarCarteira(input: {
+  carteiraId: string;
+  nome: string;
+  donoId: string;
+}): Promise<CarteiraResult> {
+  const g = await gateAdmin();
+  if (!g.ok) return g;
+  const nome = input.nome?.trim();
+  if (!nome) return { ok: false, error: "Informe o nome da carteira." };
+  if (!input.donoId) return { ok: false, error: "Selecione o dono da carteira." };
+  const dono = await prisma.pessoa.findUnique({ where: { id: input.donoId }, select: { id: true } });
+  if (!dono) return { ok: false, error: "Pessoa (dono) não encontrada." };
+
+  await prisma.carteira.update({
+    where: { id: input.carteiraId },
+    data: { nome, donoId: input.donoId },
+  });
+  revalidatePath("/configuracoes/permissoes");
+  return { ok: true };
+}
+
+export async function excluirCarteira(input: { carteiraId: string }): Promise<CarteiraResult> {
+  const g = await gateAdmin();
+  if (!g.ok) return g;
+  // Bloqueia se houver acessos vinculados (FK RESTRICT; aba Pessoas vem depois).
+  const acessos = await prisma.acessoCarteira.count({ where: { carteiraId: input.carteiraId } });
+  if (acessos > 0) {
+    return {
+      ok: false,
+      error: `Carteira tem ${acessos} acesso(s) de pessoa vinculado(s). Remova-os antes de excluir.`,
+    };
+  }
+  // Remove os CGEs antes (FK RESTRICT) e então a carteira, atomicamente.
+  await prisma.$transaction([
+    prisma.carteiraCge.deleteMany({ where: { carteiraId: input.carteiraId } }),
+    prisma.carteira.delete({ where: { id: input.carteiraId } }),
+  ]);
+  revalidatePath("/configuracoes/permissoes");
+  return { ok: true };
+}
+
+export async function adicionarCge(input: { carteiraId: string; cge: string }): Promise<CarteiraResult> {
+  const g = await gateAdmin();
+  if (!g.ok) return g;
+  const cge = input.cge?.trim();
+  if (!cge) return { ok: false, error: "Informe o CGE." };
+  // cge é @unique — se já existe, erro claro (mesma carteira ou outra).
+  const existente = await prisma.carteiraCge.findUnique({
+    where: { cge },
+    select: { carteiraId: true },
+  });
+  if (existente) {
+    return {
+      ok: false,
+      error:
+        existente.carteiraId === input.carteiraId
+          ? "CGE já está nesta carteira."
+          : "CGE já pertence a outra carteira.",
+    };
+  }
+  await prisma.carteiraCge.create({ data: { carteiraId: input.carteiraId, cge } });
+  revalidatePath("/configuracoes/permissoes");
+  return { ok: true };
+}
+
+export async function removerCge(input: { cgeId: string }): Promise<CarteiraResult> {
+  const g = await gateAdmin();
+  if (!g.ok) return g;
+  await prisma.carteiraCge.delete({ where: { id: input.cgeId } });
+  revalidatePath("/configuracoes/permissoes");
+  return { ok: true };
+}
