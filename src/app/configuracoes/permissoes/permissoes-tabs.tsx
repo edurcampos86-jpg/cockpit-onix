@@ -11,6 +11,9 @@ import {
   excluirCarteira,
   adicionarCge,
   removerCge,
+  atribuirPapel,
+  adicionarApoio,
+  removerApoio,
 } from "@/app/actions/permissoes";
 
 export type PapelDTO = {
@@ -32,7 +35,9 @@ export type CarteiraDTO = {
   numAcessos: number;
 };
 
-export type PessoaDTO = { id: string; nome: string };
+export type PessoaDTO = { id: string; nome: string; papelId: string | null };
+
+export type ApoioDTO = { id: string; pessoaId: string; carteiraId: string };
 
 const ESCOPOS = [
   { value: "propria", label: "Própria" },
@@ -282,28 +287,6 @@ function PapeisTab({ papeis }: { papeis: PapelDTO[] }) {
       <div className="rounded-xl border border-border bg-card p-6">
         <PapelForm key={selected.id} papel={selected} />
       </div>
-    </div>
-  );
-}
-
-/* ── Placeholder das abas futuras ── */
-function EmBreve({
-  Icon,
-  titulo,
-  texto,
-}: {
-  Icon: typeof Wallet;
-  titulo: string;
-  texto: string;
-}) {
-  return (
-    <div className="rounded-xl border border-dashed border-border bg-muted/20 px-6 py-12 text-center">
-      <Icon className="mx-auto mb-2 h-6 w-6 text-muted-foreground/70" />
-      <p className="text-sm font-medium text-foreground">{titulo}</p>
-      <p className="mt-1 text-xs text-muted-foreground">{texto}</p>
-      <p className="mt-2 text-[10px] uppercase tracking-wider text-muted-foreground/70">
-        em breve
-      </p>
     </div>
   );
 }
@@ -662,14 +645,197 @@ function CarteiraEditor({
   );
 }
 
+/* ── Aba Pessoas & Acessos: papel + apoios por pessoa ── */
+const ESCOPO_HINT: Record<string, string> = {
+  propria: "vê a própria carteira",
+  propria_mais_apoio: "própria + carteiras que apoia",
+  todas: "vê todas as carteiras",
+};
+
+function PessoaRow({
+  pessoa,
+  papeis,
+  carteiras,
+  proprias,
+  apoiosDaPessoa,
+}: {
+  pessoa: PessoaDTO;
+  papeis: PapelDTO[];
+  carteiras: CarteiraDTO[];
+  proprias: CarteiraDTO[];
+  apoiosDaPessoa: ApoioDTO[];
+}) {
+  const router = useRouter();
+  const [papelId, setPapelId] = useState<string>(pessoa.papelId ?? "");
+  const [novoApoio, setNovoApoio] = useState("");
+  const [pending, startTransition] = useTransition();
+  const [erro, setErro] = useState<string | null>(null);
+
+  const papelAtual = papeis.find((p) => p.id === papelId);
+  const hint = papelAtual
+    ? papelAtual.adminGlobal
+      ? "admin global · vê tudo"
+      : ESCOPO_HINT[papelAtual.escopoOperacional] ?? ""
+    : "";
+
+  const mudarPapel = (id: string) => {
+    setErro(null);
+    setPapelId(id);
+    startTransition(async () => {
+      const res = await atribuirPapel({ pessoaId: pessoa.id, papelId: id || null });
+      if (res.ok) router.refresh();
+      else setErro(res.error ?? "Erro ao atribuir papel.");
+    });
+  };
+
+  const addApoio = (carteiraId: string) => {
+    if (!carteiraId) return;
+    setErro(null);
+    setNovoApoio("");
+    startTransition(async () => {
+      const res = await adicionarApoio({ pessoaId: pessoa.id, carteiraId });
+      if (res.ok) router.refresh();
+      else setErro(res.error ?? "Erro ao adicionar apoio.");
+    });
+  };
+
+  const delApoio = (acessoId: string) => {
+    setErro(null);
+    startTransition(async () => {
+      const res = await removerApoio({ acessoId });
+      if (res.ok) router.refresh();
+      else setErro(res.error ?? "Erro ao remover apoio.");
+    });
+  };
+
+  const apoiadasIds = new Set(apoiosDaPessoa.map((a) => a.carteiraId));
+  const propriasIds = new Set(proprias.map((c) => c.id));
+  const disponiveis = carteiras.filter((c) => !apoiadasIds.has(c.id) && !propriasIds.has(c.id));
+  const nomeCarteira = (id: string) => carteiras.find((c) => c.id === id)?.nome ?? id;
+
+  return (
+    <tr className="border-b border-border align-top last:border-0">
+      <td className="px-4 py-3 font-medium text-foreground">{pessoa.nome}</td>
+      <td className="px-4 py-3">
+        <select
+          className="rounded-lg border border-input bg-transparent px-2.5 py-1.5 text-sm text-foreground focus-visible:border-ring focus-visible:outline-none disabled:opacity-50"
+          value={papelId}
+          onChange={(e) => mudarPapel(e.target.value)}
+          disabled={pending}
+        >
+          <option value="">Sem papel</option>
+          {papeis.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.nome}
+            </option>
+          ))}
+        </select>
+        {hint && <div className="mt-1 text-[11px] text-muted-foreground">{hint}</div>}
+        {erro && <div className="mt-1 text-[11px] text-destructive">{erro}</div>}
+      </td>
+      <td className="px-4 py-3 text-muted-foreground">
+        {proprias.length === 0 ? "—" : proprias.map((c) => c.nome).join(", ")}
+      </td>
+      <td className="px-4 py-3">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {apoiosDaPessoa.length === 0 && (
+            <span className="text-xs text-muted-foreground">—</span>
+          )}
+          {apoiosDaPessoa.map((a) => (
+            <span
+              key={a.id}
+              className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs text-foreground"
+            >
+              {nomeCarteira(a.carteiraId)}
+              <button
+                type="button"
+                onClick={() => delApoio(a.id)}
+                disabled={pending}
+                className="text-muted-foreground hover:text-destructive disabled:opacity-50"
+                aria-label="Remover apoio"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          ))}
+          {disponiveis.length > 0 && (
+            <select
+              className="rounded-md border border-dashed border-border bg-transparent px-2 py-0.5 text-xs text-muted-foreground focus-visible:outline-none disabled:opacity-50"
+              value={novoApoio}
+              onChange={(e) => addApoio(e.target.value)}
+              disabled={pending}
+            >
+              <option value="">+ Apoiar…</option>
+              {disponiveis.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.nome}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+function PessoasTab({
+  pessoas,
+  papeis,
+  carteiras,
+  apoios,
+}: {
+  pessoas: PessoaDTO[];
+  papeis: PapelDTO[];
+  carteiras: CarteiraDTO[];
+  apoios: ApoioDTO[];
+}) {
+  if (pessoas.length === 0) {
+    return (
+      <div className="rounded-xl border border-dashed border-border bg-muted/20 px-6 py-12 text-center">
+        <UsersRound className="mx-auto mb-2 h-6 w-6 text-muted-foreground/70" />
+        <p className="text-sm text-muted-foreground">Nenhuma pessoa ativa.</p>
+      </div>
+    );
+  }
+  return (
+    <div className="overflow-x-auto rounded-xl border border-border">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-border bg-muted/50 text-left text-xs uppercase tracking-wider text-muted-foreground">
+            <th className="px-4 py-2.5 font-medium">Pessoa</th>
+            <th className="px-4 py-2.5 font-medium">Papel</th>
+            <th className="px-4 py-2.5 font-medium">Carteira própria</th>
+            <th className="px-4 py-2.5 font-medium">Apoia</th>
+          </tr>
+        </thead>
+        <tbody>
+          {pessoas.map((p) => (
+            <PessoaRow
+              key={p.id}
+              pessoa={p}
+              papeis={papeis}
+              carteiras={carteiras}
+              proprias={carteiras.filter((c) => c.donoId === p.id)}
+              apoiosDaPessoa={apoios.filter((a) => a.pessoaId === p.id)}
+            />
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export function PermissoesTabs({
   papeis,
   carteiras,
   pessoas,
+  apoios,
 }: {
   papeis: PapelDTO[];
   carteiras: CarteiraDTO[];
   pessoas: PessoaDTO[];
+  apoios: ApoioDTO[];
 }) {
   const [tab, setTab] = useState<TabId>("papeis");
 
@@ -697,11 +863,7 @@ export function PermissoesTabs({
       {tab === "papeis" && <PapeisTab papeis={papeis} />}
       {tab === "carteiras" && <CarteirasTab carteiras={carteiras} pessoas={pessoas} />}
       {tab === "pessoas" && (
-        <EmBreve
-          Icon={UsersRound}
-          titulo="Pessoas & Acessos"
-          texto="Atribuição de papel e acesso a carteiras por pessoa."
-        />
+        <PessoasTab papeis={papeis} carteiras={carteiras} pessoas={pessoas} apoios={apoios} />
       )}
     </div>
   );

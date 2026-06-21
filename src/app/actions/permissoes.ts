@@ -165,3 +165,57 @@ export async function removerCge(input: { cgeId: string }): Promise<CarteiraResu
   revalidatePath("/configuracoes/permissoes");
   return { ok: true };
 }
+
+// ============================================================================
+// PESSOAS & ACESSOS (RBAC Fase 3 UI). Atribui papel à Pessoa e gere os APOIOS
+// (AcessoCarteira tipo="apoia"). O DONO da carteira vem de Carteira.donoId (aba
+// Carteiras), NÃO daqui. Gate admin DENTRO de cada action. Sem enforcement.
+// ============================================================================
+
+export async function atribuirPapel(input: {
+  pessoaId: string;
+  papelId: string | null;
+}): Promise<CarteiraResult> {
+  const g = await gateAdmin();
+  if (!g.ok) return g;
+  if (input.papelId) {
+    const papel = await prisma.papel.findUnique({
+      where: { id: input.papelId },
+      select: { id: true },
+    });
+    if (!papel) return { ok: false, error: "Papel não encontrado." };
+  }
+  await prisma.pessoa.update({
+    where: { id: input.pessoaId },
+    data: { papelId: input.papelId },
+  });
+  revalidatePath("/configuracoes/permissoes");
+  return { ok: true };
+}
+
+export async function adicionarApoio(input: {
+  pessoaId: string;
+  carteiraId: string;
+}): Promise<CarteiraResult> {
+  const g = await gateAdmin();
+  if (!g.ok) return g;
+  // @@unique([pessoaId, carteiraId]): no máx. 1 vínculo pessoa↔carteira.
+  const existente = await prisma.acessoCarteira.findUnique({
+    where: { pessoaId_carteiraId: { pessoaId: input.pessoaId, carteiraId: input.carteiraId } },
+    select: { id: true },
+  });
+  if (existente) return { ok: false, error: "Pessoa já tem acesso a esta carteira." };
+  await prisma.acessoCarteira.create({
+    data: { pessoaId: input.pessoaId, carteiraId: input.carteiraId, tipo: "apoia" },
+  });
+  revalidatePath("/configuracoes/permissoes");
+  return { ok: true };
+}
+
+export async function removerApoio(input: { acessoId: string }): Promise<CarteiraResult> {
+  const g = await gateAdmin();
+  if (!g.ok) return g;
+  await prisma.acessoCarteira.delete({ where: { id: input.acessoId } });
+  revalidatePath("/configuracoes/permissoes");
+  return { ok: true };
+}

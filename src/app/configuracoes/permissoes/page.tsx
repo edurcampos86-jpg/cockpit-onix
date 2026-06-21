@@ -3,7 +3,13 @@ import { prisma } from "@/lib/prisma";
 import { getAuthContext, isAdmin } from "@/lib/auth-helpers";
 import { permissoesUiHabilitado } from "@/lib/permissoes/flag";
 import { PageHeader } from "@/components/layout/page-header";
-import { PermissoesTabs, type PapelDTO, type CarteiraDTO, type PessoaDTO } from "./permissoes-tabs";
+import {
+  PermissoesTabs,
+  type PapelDTO,
+  type CarteiraDTO,
+  type PessoaDTO,
+  type ApoioDTO,
+} from "./permissoes-tabs";
 
 export const dynamic = "force-dynamic";
 
@@ -43,9 +49,16 @@ export default async function PermissoesPage() {
     prisma.pessoa.findMany({
       where: { status: "ativo" },
       orderBy: { nomeCompleto: "asc" },
-      select: { id: true, nomeCompleto: true, apelido: true },
+      select: { id: true, nomeCompleto: true, apelido: true, papelId: true },
     }),
   ]);
+
+  // Apoios existentes (AcessoCarteira tipo="apoia"). O DONO vem de Carteira.donoId
+  // (aba Carteiras), NÃO daqui — esta aba edita só papel + apoios.
+  const apoiosRaw = await prisma.acessoCarteira.findMany({
+    where: { tipo: "apoia" },
+    select: { id: true, pessoaId: true, carteiraId: true },
+  });
 
   // Contagem read-only de clientes por carteira: ClienteBackoffice.assessorCge ∈ CGEs.
   const numClientes = await Promise.all(
@@ -71,7 +84,17 @@ export default async function PermissoesPage() {
     numAcessos: c._count.acessos,
   }));
 
-  const pessoasDTO: PessoaDTO[] = pessoasRaw.map((p) => ({ id: p.id, nome: nomePessoa(p) }));
+  const pessoasDTO: PessoaDTO[] = pessoasRaw.map((p) => ({
+    id: p.id,
+    nome: nomePessoa(p),
+    papelId: p.papelId,
+  }));
+
+  const apoiosDTO: ApoioDTO[] = apoiosRaw.map((a) => ({
+    id: a.id,
+    pessoaId: a.pessoaId,
+    carteiraId: a.carteiraId,
+  }));
 
   return (
     <div className="space-y-6">
@@ -80,7 +103,12 @@ export default async function PermissoesPage() {
         description="Papéis do sistema, escopo operacional e permissões por área. Leitura e edição de papéis (sem enforcement ainda)."
       />
       <div className="px-8 pb-8">
-        <PermissoesTabs papeis={dto} carteiras={carteirasDTO} pessoas={pessoasDTO} />
+        <PermissoesTabs
+          papeis={dto}
+          carteiras={carteirasDTO}
+          pessoas={pessoasDTO}
+          apoios={apoiosDTO}
+        />
       </div>
     </div>
   );
