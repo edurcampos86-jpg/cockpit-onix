@@ -202,6 +202,7 @@ const operacoesItemsV2 = [
   { name: "Método Onix", href: "/metodo", icon: Compass },
   { name: "Glossário", href: "/glossario", icon: BookMarked },
   { name: "Implementações", href: "/configuracoes/implementacoes", icon: Lightbulb },
+  { name: "Permissões", href: "/configuracoes/permissoes", icon: Shield },
 ];
 
 // F4 — shells das demais empresas: um item "Painel" por empresa; as demais
@@ -257,7 +258,7 @@ const configItemV2 = { name: "Configurações", href: "/configuracoes", icon: Se
 // Hrefs visíveis só pra admin (gate COSMÉTICO do nav — a segurança real é o
 // redirect na própria página, ex.: /configuracoes/implementacoes). O isAdmin
 // COMPLETO (role OU teamRole) vem de /api/auth/is-admin.
-const ADMIN_ONLY_HREFS = ["/configuracoes/implementacoes"];
+const ADMIN_ONLY_HREFS = ["/configuracoes/implementacoes", "/configuracoes/permissoes"];
 
 function getActiveModuleIdV2(pathname: string): string {
   if (pathname.startsWith("/onix-corretora")) return "onix-corretora";
@@ -275,7 +276,7 @@ function getActiveModuleIdV2(pathname: string): string {
   )
     return "juridico";
   if (
-    ["/admin/backups", "/integracoes", "/metodo", "/glossario", "/configuracoes/implementacoes"].some((p) =>
+    ["/admin/backups", "/integracoes", "/metodo", "/glossario", "/configuracoes/implementacoes", "/configuracoes/permissoes"].some((p) =>
       pathname.startsWith(p),
     )
   )
@@ -319,6 +320,7 @@ export function Sidebar() {
   // página). Default false (fail-closed): não-admin nunca vê o link. isAdmin
   // COMPLETO (role OU teamRole) — o role da sessão sozinho não cobre teamRole.
   const [isAdmin, setIsAdmin] = useState(false);
+  const [permissoesUiOn, setPermissoesUiOn] = useState(false);
   useEffect(() => {
     let cancelled = false;
     fetch("/api/auth/is-admin")
@@ -327,13 +329,23 @@ export function Sidebar() {
         if (!cancelled && d?.isAdmin) setIsAdmin(true);
       })
       .catch(() => {});
+    // Link "Permissões" também depende da flag PERMISSOES_UI (default OFF).
+    fetch("/api/configuracoes/permissoes/flag")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!cancelled && d?.enabled) setPermissoesUiOn(true);
+      })
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const podeVerItem = (item: { href: string }) =>
-    isAdmin || !ADMIN_ONLY_HREFS.includes(item.href);
+  const podeVerItem = (item: { href: string }) => {
+    // /configuracoes/permissoes: admin-only E atrás da flag PERMISSOES_UI.
+    if (item.href === "/configuracoes/permissoes" && !permissoesUiOn) return false;
+    return isAdmin || !ADMIN_ONLY_HREFS.includes(item.href);
+  };
 
   /* ── Check if a nav item is active ── */
   const isItemActive = (href: string) => {
