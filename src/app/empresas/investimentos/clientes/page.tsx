@@ -26,6 +26,8 @@ import {
   classificarEstadoAtencao,
   type EstadoAtencao,
 } from "@/lib/painel-atencao/core";
+import { rbacEnforcementHabilitado, resolverCgesVisiveis } from "@/lib/rbac";
+import { getAuthContext } from "@/lib/auth-helpers";
 
 export default async function ClientesPage() {
   noStore();
@@ -33,6 +35,17 @@ export default async function ClientesPage() {
   await headers();
   const session = await getSession();
   const isAdmin = session?.role === "admin";
+
+  // RBAC — Camada 1 (escopo). Flag RBAC_ENFORCEMENT (default OFF). OFF => where
+  // vazio (comportamento atual). ON => filtra pela carteira do usuário, exceto
+  // quando resolverCgesVisiveis devolve null (sem filtro: admin, sem papel,
+  // escopo "todas", ou config incompleta — postura não-disruptiva).
+  const where: { assessorCge?: { in: string[] } } = {};
+  if (await rbacEnforcementHabilitado()) {
+    const ctx = await getAuthContext();
+    const cges = await resolverCgesVisiveis(ctx);
+    if (cges) where.assessorCge = { in: cges };
+  }
 
   let clientes: Array<{
     id: string;
@@ -68,6 +81,7 @@ export default async function ClientesPage() {
 
   try {
     const raw = await prisma.clienteBackoffice.findMany({
+      where,
       orderBy: [{ classificacao: "asc" }, { saldo: "desc" }],
     });
     clientes = raw.map((c) => ({
