@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getSession } from "@/lib/session";
 
 // ── Tipos de alerta e limiares ───────────────────────────────────────────────
 
@@ -18,6 +19,10 @@ function classificarPrioridade(valor: number, horasParado: number): Prioridade {
 // ── GET: lista alertas computados ────────────────────────────────────────────
 
 export async function GET(req: NextRequest) {
+  const session = await getSession();
+  if (!session) {
+    return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+  }
   const { searchParams } = new URL(req.url);
   const tipo = searchParams.get("tipo"); // "parados" | "adormecidos" | "todos"
   const prioridadeFiltro = searchParams.get("prioridade"); // "alta" | "media" | "baixa"

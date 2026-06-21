@@ -313,6 +313,10 @@ async function findExisting(c: ClienteLimpo) {
 }
 
 export async function GET() {
+  const session = await getSession();
+  if (!session) {
+    return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+  }
   try {
     const clientes = await prisma.clienteBackoffice.findMany({
       orderBy: [{ classificacao: "asc" }, { saldo: "desc" }],

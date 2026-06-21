@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { getSession } from "@/lib/session";
 import { NextResponse } from "next/server";
 
 // Limite de "órfão" (sem contato) por classe
@@ -16,6 +17,10 @@ const META_TOQUES_ANUAL: Record<string, number> = {
 };
 
 export async function GET() {
+  const session = await getSession();
+  if (!session) {
+    return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+  }
   try {
     const clientes = await prisma.clienteBackoffice.findMany();
     const agora = Date.now();
