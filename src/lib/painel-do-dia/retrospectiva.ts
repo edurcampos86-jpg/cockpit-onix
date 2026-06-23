@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
 import { claudeChat } from "./claude-helpers";
 import { getNomeRelacionamento } from "@/lib/backoffice/display-name";
+import { rbacEnforcementHabilitado, resolverCgesVisiveisPorPessoa } from "@/lib/rbac";
 
 /**
  * Sug 5 — Retrospectiva semanal.
@@ -61,6 +62,24 @@ export async function coletarMetricas(userId: string): Promise<{
 }> {
   const { inicio, fim } = segundaFimDeSemanaPassada();
 
+  // RBAC — Camada 1 (escopo) SÓ na query A/B abaixo. Cron NÃO tem sessão: resolve
+  // por pessoaId (via userId @unique). Flag OFF => null => where inalterado
+  // (idêntico a hoje). DEFENSIVO: a resolução jamais pode abortar a retrospectiva
+  // (o cron itera vários usuários best-effort) — qualquer erro/flag/sem-Pessoa
+  // cai pra null (sem filtro, não-disruptivo). NÃO usa sessão (puro por pessoaId).
+  let cgesVisiveis: string[] | null = null;
+  try {
+    if (await rbacEnforcementHabilitado()) {
+      const pessoa = await prisma.pessoa.findUnique({
+        where: { userId },
+        select: { id: true },
+      });
+      if (pessoa) cgesVisiveis = await resolverCgesVisiveisPorPessoa(pessoa.id);
+    }
+  } catch {
+    cgesVisiveis = null; // erro de flag/Pessoa/resolução => sem filtro (não-disruptivo)
+  }
+
   const [encerradas, clientes, abertas, emails, eventosSugeridosTotal, eventosPendentes] =
     await Promise.all([
       prisma.acaoPainel.findMany({
@@ -72,7 +91,11 @@ export async function coletarMetricas(userId: string): Promise<{
         include: { clienteVinculado: { select: { id: true, nome: true, nomeCompleto: true, apelido: true } } },
       }),
       prisma.clienteBackoffice.findMany({
-        where: { OR: [{ classificacao: "A" }, { classificacao: "B" }] },
+        where: {
+          OR: [{ classificacao: "A" }, { classificacao: "B" }],
+          // RBAC: null => sem filtro (hoje); array => AND (sibling) com o OR de classe.
+          ...(cgesVisiveis ? { assessorCge: { in: cgesVisiveis } } : {}),
+        },
         select: {
           id: true,
           nome: true,
