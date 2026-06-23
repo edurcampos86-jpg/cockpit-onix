@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
+import { rbacEnforcementHabilitado, clienteVisivelPorAssessorCge } from "@/lib/rbac";
+import { getAuthContext } from "@/lib/auth-helpers";
 
 /**
  * PATCH /api/backoffice/clientes/[id]/apelido
@@ -48,10 +50,20 @@ export async function PATCH(
   try {
     const anterior = await prisma.clienteBackoffice.findUnique({
       where: { id },
-      select: { apelido: true },
+      select: { apelido: true, assessorCge: true },
     });
     if (!anterior) {
       return NextResponse.json({ error: "Cliente não encontrado" }, { status: 404 });
+    }
+
+    // RBAC — Camada 2 (escopo). Editar apelido fora do escopo = 404 (não pode
+    // ver ⇒ não pode editar). Reusa o assessorCge já carregado — sem 2ª query.
+    // Checagem ANTES do update. Flag RBAC_ENFORCEMENT (default OFF) → idêntico a hoje.
+    if (await rbacEnforcementHabilitado()) {
+      const ctx = await getAuthContext();
+      if (!(await clienteVisivelPorAssessorCge(anterior.assessorCge, ctx))) {
+        return NextResponse.json({ error: "Cliente não encontrado" }, { status: 404 });
+      }
     }
 
     const atualizado = await prisma.clienteBackoffice.update({

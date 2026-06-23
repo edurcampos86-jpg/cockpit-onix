@@ -33,6 +33,18 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
+
+    // RBAC — Camada 2 (escopo). Registrar interação fora do escopo = 404 (não
+    // pode ver ⇒ não pode editar). Checagem ANTES de tocar o banco. Flag
+    // RBAC_ENFORCEMENT (default OFF) → idêntico a hoje.
+    if (await rbacEnforcementHabilitado()) {
+      const ctx = await getAuthContext();
+      const { visivel } = await assertClienteVisivel(id, ctx);
+      if (!visivel) {
+        return NextResponse.json({ error: "Cliente não encontrado" }, { status: 404 });
+      }
+    }
+
     const body = await req.json();
 
     const cliente = await prisma.clienteBackoffice.findUnique({ where: { id } });
