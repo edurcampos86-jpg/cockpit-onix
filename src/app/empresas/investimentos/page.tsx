@@ -7,13 +7,25 @@ import { DashboardSupernova } from "@/components/backoffice/dashboard-supernova"
 import { ReferenciaLivro } from "@/components/backoffice/referencia-livro";
 import { ComoFunciona } from "@/components/layout/como-funciona";
 import { REF_PROMESSA_SERVICO, REF_CLIENTES_ORFAOS } from "@/lib/backoffice/referencias";
+import { rbacEnforcementHabilitado, resolverCgesVisiveis } from "@/lib/rbac";
+import { getAuthContext } from "@/lib/auth-helpers";
 
 export default async function BackofficePage() {
   let clientes: { id: string; nome: string; numeroConta: string; saldo: number }[] = [];
   let total = 0;
 
+  // RBAC — Camada 1 (escopo). Flag RBAC_ENFORCEMENT (default OFF) => where vazio
+  // (comportamento atual). cges null (admin/sem papel/"todas"/0 CGEs) => sem filtro.
+  const where: { assessorCge?: { in: string[] } } = {};
+  if (await rbacEnforcementHabilitado()) {
+    const ctx = await getAuthContext();
+    const cges = await resolverCgesVisiveis(ctx);
+    if (cges) where.assessorCge = { in: cges };
+  }
+
   try {
     const raw = await prisma.clienteBackoffice.findMany({
+      where,
       orderBy: { nome: "asc" },
       select: { id: true, nome: true, numeroConta: true, saldo: true },
     });

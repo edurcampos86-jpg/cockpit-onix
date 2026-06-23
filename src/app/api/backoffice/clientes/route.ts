@@ -4,6 +4,8 @@ import { type FonteImport } from "@/lib/backoffice/field-source-policy";
 import { upsertPorPolitica } from "@/lib/backoffice/upsert-cliente";
 import { gateSanidadeSaldoCc } from "@/lib/backoffice/import-sanity";
 import { NextRequest, NextResponse } from "next/server";
+import { rbacEnforcementHabilitado, resolverCgesVisiveis } from "@/lib/rbac";
+import { getAuthContext } from "@/lib/auth-helpers";
 
 
 function calcularCortesABC(saldos: number[]): { corteA: number; corteB: number } {
@@ -314,7 +316,16 @@ async function findExisting(c: ClienteLimpo) {
 
 export async function GET() {
   try {
+    // RBAC — Camada 1 (escopo). Flag RBAC_ENFORCEMENT (default OFF) => where vazio
+    // (comportamento atual). cges null (admin/sem papel/"todas"/0 CGEs) => sem filtro.
+    const where: { assessorCge?: { in: string[] } } = {};
+    if (await rbacEnforcementHabilitado()) {
+      const ctx = await getAuthContext();
+      const cges = await resolverCgesVisiveis(ctx);
+      if (cges) where.assessorCge = { in: cges };
+    }
     const clientes = await prisma.clienteBackoffice.findMany({
+      where,
       orderBy: [{ classificacao: "asc" }, { saldo: "desc" }],
     });
     return NextResponse.json({ clientes, total: clientes.length });

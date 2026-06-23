@@ -6,6 +6,8 @@ import { ReferenciaLivro } from "@/components/backoffice/referencia-livro";
 import { ComoFunciona } from "@/components/backoffice/como-funciona";
 import { PerformanceDashboard } from "@/components/backoffice/performance-dashboard";
 import { REF_KPI_EXCELENCIA } from "@/lib/backoffice/referencias";
+import { rbacEnforcementHabilitado, resolverCgesVisiveis } from "@/lib/rbac";
+import { getAuthContext } from "@/lib/auth-helpers";
 
 interface PerfData {
   kpis: {
@@ -61,8 +63,19 @@ export default async function PerformancePage() {
     const inicioAno = new Date(agora.getFullYear(), 0, 1);
     const inicio30d = new Date(agora.getTime() - 30 * 24 * 60 * 60 * 1000);
 
+    // RBAC — Camada 1 (escopo). Flag RBAC_ENFORCEMENT (default OFF) => where vazio
+    // (comportamento atual). cges null (admin/sem papel/"todas"/0 CGEs) => sem filtro.
+    // Sob enforcement, KPIs e topClientes refletem a carteira do usuário (desejado).
+    const where: { assessorCge?: { in: string[] } } = {};
+    if (await rbacEnforcementHabilitado()) {
+      const ctx = await getAuthContext();
+      const cges = await resolverCgesVisiveis(ctx);
+      if (cges) where.assessorCge = { in: cges };
+    }
+
     const [clientes, interacoesAno, indicacoesAno, metas] = await Promise.all([
       prisma.clienteBackoffice.findMany({
+        where,
         select: {
           id: true,
           nome: true,

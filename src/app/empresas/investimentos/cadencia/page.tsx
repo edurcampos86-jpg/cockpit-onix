@@ -6,6 +6,8 @@ import { CadenciaBoard } from "@/components/backoffice/cadencia-board";
 import { ReferenciaLivro } from "@/components/backoffice/referencia-livro";
 import { ComoFunciona } from "@/components/backoffice/como-funciona";
 import { REF_CADENCIA_12_4_2 } from "@/lib/backoffice/referencias";
+import { rbacEnforcementHabilitado, resolverCgesVisiveis } from "@/lib/rbac";
+import { getAuthContext } from "@/lib/auth-helpers";
 
 export default async function CadenciaPage() {
   interface ClienteCadencia {
@@ -23,8 +25,18 @@ export default async function CadenciaPage() {
 
   let clientes: ClienteCadencia[] = [];
 
+  // RBAC — Camada 1 (escopo). Flag RBAC_ENFORCEMENT (default OFF) => where vazio
+  // (comportamento atual). cges null (admin/sem papel/"todas"/0 CGEs) => sem filtro.
+  const where: { assessorCge?: { in: string[] } } = {};
+  if (await rbacEnforcementHabilitado()) {
+    const ctx = await getAuthContext();
+    const cges = await resolverCgesVisiveis(ctx);
+    if (cges) where.assessorCge = { in: cges };
+  }
+
   try {
     const raw = await prisma.clienteBackoffice.findMany({
+      where,
       orderBy: [{ proximoContatoAt: "asc" }, { classificacao: "asc" }],
     });
     const agora = Date.now();
