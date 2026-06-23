@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server";
 import { getSession } from "@/lib/session";
 import { subscribe, type SseEvent } from "@/lib/sse-bus";
+import { rbacEnforcementHabilitado, assertClienteVisivel } from "@/lib/rbac";
+import { getAuthContext } from "@/lib/auth-helpers";
 
 /**
  * GET /api/backoffice/clientes/[id]/conversas/stream
@@ -29,6 +31,17 @@ export async function GET(
     return new Response("unauthorized", { status: 401 });
   }
   const { id } = await params;
+
+  // RBAC — Camada 2 (escopo). Flag RBAC_ENFORCEMENT (default OFF) → idêntico a
+  // hoje. ON → cliente fora do escopo responde 404 ANTES de abrir o SSE — não
+  // entrega updates de conversa em tempo real de cliente fora do escopo.
+  if (await rbacEnforcementHabilitado()) {
+    const ctx = await getAuthContext();
+    const { visivel } = await assertClienteVisivel(id, ctx);
+    if (!visivel) {
+      return new Response("not found", { status: 404 });
+    }
+  }
 
   const encoder = new TextEncoder();
 

@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import * as btg from "@/lib/integrations/btg";
+import { rbacEnforcementHabilitado, clienteVisivelPorAssessorCge } from "@/lib/rbac";
+import { getAuthContext } from "@/lib/auth-helpers";
 
 /**
  * POST /api/backoffice/clientes/[id]/btg-cadastrais
@@ -19,10 +21,20 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
 
   const cliente = await prisma.clienteBackoffice.findUnique({
     where: { id },
-    select: { id: true, nome: true, numeroConta: true, cpfCnpj: true, email: true, telefone: true, coHolders: true, usuariosBtg: true },
+    select: { id: true, nome: true, numeroConta: true, cpfCnpj: true, email: true, telefone: true, coHolders: true, usuariosBtg: true, assessorCge: true },
   });
   if (!cliente) {
     return NextResponse.json({ success: false, message: "Cliente não encontrado" }, { status: 404 });
+  }
+
+  // RBAC — Camada 2 (escopo). Flag RBAC_ENFORCEMENT (default OFF) → idêntico a
+  // hoje. ON → cliente fora do escopo responde o MESMO 404 do "não existe",
+  // ANTES da chamada ao BTG. Reusa o assessorCge já carregado — sem 2ª query.
+  if (await rbacEnforcementHabilitado()) {
+    const ctx = await getAuthContext();
+    if (!(await clienteVisivelPorAssessorCge(cliente.assessorCge, ctx))) {
+      return NextResponse.json({ success: false, message: "Cliente não encontrado" }, { status: 404 });
+    }
   }
 
   const numeroConta = cliente.numeroConta.replace(/^0+/, "").trim();
