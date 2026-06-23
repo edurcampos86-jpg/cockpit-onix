@@ -1,6 +1,8 @@
 export const dynamic = "force-dynamic";
 
 import { prisma } from "@/lib/prisma";
+import { getSession } from "@/lib/session";
+import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/layout/page-header";
 import { IndicacoesBoard } from "@/components/backoffice/indicacoes-board";
 import { ReferenciaLivro } from "@/components/backoffice/referencia-livro";
@@ -10,6 +12,13 @@ import { rbacEnforcementHabilitado, resolverCgesVisiveis } from "@/lib/rbac";
 import { getAuthContext } from "@/lib/auth-helpers";
 
 export default async function IndicacoesPage() {
+  // Admin-only (espelha grupos/page.tsx). O proxy global só checa autenticação,
+  // não papel — sem isto, qualquer logado abriria a tela e veria todos os clientes
+  // no dropdown de "quem indicou". Independente do RBAC (que filtra LINHAS sob flag).
+  const session = await getSession();
+  if (!session) redirect("/login");
+  if (session.role !== "admin") redirect("/empresas/investimentos");
+
   type IndicacaoView = {
     id: string;
     nomeIndicado: string;
