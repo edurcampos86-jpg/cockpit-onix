@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
+import { rbacEnforcementHabilitado, assertClienteVisivel } from "@/lib/rbac";
+import { getAuthContext } from "@/lib/auth-helpers";
 
 /**
  * GET /api/backoffice/clientes/[id]/conversas
@@ -23,6 +25,18 @@ export async function GET(
   }
 
   const { id } = await params;
+
+  // RBAC — Camada 2 (escopo). Flag RBAC_ENFORCEMENT (default OFF) → idêntico a
+  // hoje. ON → cliente fora do escopo responde 404 ANTES do findMany — não
+  // entrega histórico de WhatsApp nem disfarça com lista vazia.
+  if (await rbacEnforcementHabilitado()) {
+    const ctx = await getAuthContext();
+    const { visivel } = await assertClienteVisivel(id, ctx);
+    if (!visivel) {
+      return NextResponse.json({ ok: false, message: "Cliente não encontrado" }, { status: 404 });
+    }
+  }
+
   const limit = Math.min(
     Number(req.nextUrl.searchParams.get("limit") ?? "50"),
     200,

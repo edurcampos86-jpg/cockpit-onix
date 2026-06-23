@@ -1,10 +1,24 @@
 import { prisma } from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
 import { proximoContatoPor } from "@/lib/cadencia";
+import { rbacEnforcementHabilitado, assertClienteVisivel } from "@/lib/rbac";
+import { getAuthContext } from "@/lib/auth-helpers";
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
+
+    // RBAC — Camada 2 (escopo). Flag RBAC_ENFORCEMENT (default OFF) → idêntico a
+    // hoje. ON → cliente fora do escopo responde 404 (NÃO lista vazia, que
+    // disfarçaria como "cliente sem interações" e ainda vazaria a existência).
+    if (await rbacEnforcementHabilitado()) {
+      const ctx = await getAuthContext();
+      const { visivel } = await assertClienteVisivel(id, ctx);
+      if (!visivel) {
+        return NextResponse.json({ error: "Cliente não encontrado" }, { status: 404 });
+      }
+    }
+
     const interacoes = await prisma.interacaoCliente.findMany({
       where: { clienteId: id },
       orderBy: { data: "desc" },
