@@ -6,6 +6,8 @@ import { IndicacoesBoard } from "@/components/backoffice/indicacoes-board";
 import { ReferenciaLivro } from "@/components/backoffice/referencia-livro";
 import { ComoFunciona } from "@/components/backoffice/como-funciona";
 import { REF_INDICACOES } from "@/lib/backoffice/referencias";
+import { rbacEnforcementHabilitado, resolverCgesVisiveis } from "@/lib/rbac";
+import { getAuthContext } from "@/lib/auth-helpers";
 
 export default async function IndicacoesPage() {
   type IndicacaoView = {
@@ -41,7 +43,19 @@ export default async function IndicacoesPage() {
       criadoEm: i.criadoEm.toISOString(),
       indicador: i.indicador,
     }));
+    // RBAC — Camada 1 (escopo). Flag RBAC_ENFORCEMENT (default OFF) => where vazio
+    // (comportamento atual). cges null (admin/sem papel/"todas"/0 CGEs) => sem filtro.
+    // Filtra SÓ o dropdown de "quem indicou" (nova indicação); o histórico já
+    // renderiza o indicador via include separado (indicacao.indicador, acima),
+    // não depende desta lista — então não é afetado.
+    const where: { assessorCge?: { in: string[] } } = {};
+    if (await rbacEnforcementHabilitado()) {
+      const ctx = await getAuthContext();
+      const cges = await resolverCgesVisiveis(ctx);
+      if (cges) where.assessorCge = { in: cges };
+    }
     clientes = await prisma.clienteBackoffice.findMany({
+      where,
       orderBy: { nome: "asc" },
       select: { id: true, nome: true, classificacao: true },
     });

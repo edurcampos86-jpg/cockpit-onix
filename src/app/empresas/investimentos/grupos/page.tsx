@@ -6,6 +6,8 @@ import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/layout/page-header";
 import { ComoFunciona } from "@/components/backoffice/como-funciona";
 import { GruposClientesPanel } from "@/components/backoffice/grupos-clientes-panel";
+import { rbacEnforcementHabilitado, resolverCgesVisiveis } from "@/lib/rbac";
+import { getAuthContext } from "@/lib/auth-helpers";
 
 export default async function GruposPage() {
   const session = await getSession();
@@ -13,7 +15,18 @@ export default async function GruposPage() {
   if (session.role !== "admin") redirect("/empresas/investimentos");
 
   // Carrega TODOS clientes pro dropdown (lado client filtra por busca textual).
+  // RBAC — Camada 1 (escopo). Flag RBAC_ENFORCEMENT (default OFF) => where vazio
+  // (comportamento atual). Tela é admin-only (guarda acima) e admin resolve para
+  // null no resolverCgesVisiveis => sem filtro: trio inócuo aqui, aplicado por
+  // COERÊNCIA (toda leitura de cliente passa pelo mesmo padrão).
+  const where: { assessorCge?: { in: string[] } } = {};
+  if (await rbacEnforcementHabilitado()) {
+    const ctx = await getAuthContext();
+    const cges = await resolverCgesVisiveis(ctx);
+    if (cges) where.assessorCge = { in: cges };
+  }
   const clientes = await prisma.clienteBackoffice.findMany({
+    where,
     select: { id: true, nome: true, numeroConta: true, assessorNome: true },
     orderBy: { nome: "asc" },
   });
