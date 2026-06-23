@@ -41,8 +41,12 @@ export type ClienteEsquecido = {
 
 export async function carregarClientesEsquecidos(opts?: {
   limit?: number;
+  // RBAC — escopo resolvido pelo CALLER (lib pura, sem sessão). null => sem
+  // filtro (comportamento de hoje). Array => AND com o where de ativação.
+  cgesVisiveis?: string[] | null;
 }): Promise<ClienteEsquecido[]> {
   const limit = opts?.limit ?? 20;
+  const cgesVisiveis = opts?.cgesVisiveis ?? null;
   const agora = Date.now();
 
   // Query bruta: contas ativas, qualquer classificacao. Filtragem por
@@ -51,6 +55,8 @@ export async function carregarClientesEsquecidos(opts?: {
   const todos = await prisma.clienteBackoffice.findMany({
     where: {
       OR: [{ ativacaoConta: "Ativa" }, { ativacaoConta: null }],
+      // null => sem filtro; array => AND (sibling key) com o OR de ativação.
+      ...(cgesVisiveis ? { assessorCge: { in: cgesVisiveis } } : {}),
     },
     select: {
       id: true,

@@ -25,6 +25,8 @@ import {
   hojeBahia,
 } from "@/lib/painel-do-dia/agregador";
 import { carregarClientesEsquecidos } from "@/lib/painel-do-dia/clientes-esquecidos";
+import { rbacEnforcementHabilitado, resolverCgesVisiveis } from "@/lib/rbac";
+import { getAuthContext } from "@/lib/auth-helpers";
 import type { EventoSugerido } from "@/lib/painel-do-dia/types";
 
 export default async function PainelDoDiaPage() {
@@ -32,9 +34,14 @@ export default async function PainelDoDiaPage() {
   if (!session) redirect("/login");
 
   const data = hojeBahia();
+  // RBAC — Camada 1 (escopo). Flag OFF => null => lista esquecidos idêntica a hoje.
+  // ON => resolve a carteira aqui (caller tem sessão) e passa pra lib pura.
+  const cgesVisiveis = (await rbacEnforcementHabilitado())
+    ? await resolverCgesVisiveis(await getAuthContext())
+    : null;
   const [payload, clientesEsquecidos] = await Promise.all([
     carregarPainelDoDia(session.userId, data),
-    carregarClientesEsquecidos({ limit: 20 }),
+    carregarClientesEsquecidos({ limit: 20, cgesVisiveis }),
   ]);
 
   // Sugestões de evento extraídas pela triagem AI — exibidas no bloco

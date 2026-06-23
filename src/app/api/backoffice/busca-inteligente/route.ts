@@ -6,6 +6,8 @@ import {
   validarFiltros,
 } from "@/lib/backoffice/busca-inteligente-schema";
 import { buscarClientes } from "@/lib/backoffice/busca-inteligente-executor";
+import { rbacEnforcementHabilitado, resolverCgesVisiveis } from "@/lib/rbac";
+import { getAuthContext } from "@/lib/auth-helpers";
 
 // Rota: POST /api/backoffice/busca-inteligente
 //
@@ -128,9 +130,16 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // RBAC — Camada 1 (escopo). Flag OFF => null => busca idêntica a hoje. Rota é
+  // admin-only (requireAdmin); admin resolve null => inócuo na prática, aplicado
+  // por COERÊNCIA (resolução no caller, lib pura).
+  const cgesVisiveis = (await rbacEnforcementHabilitado())
+    ? await resolverCgesVisiveis(await getAuthContext())
+    : null;
+
   let execucao;
   try {
-    execucao = await buscarClientes(validacao.filtros);
+    execucao = await buscarClientes(validacao.filtros, cgesVisiveis);
   } catch (err) {
     console.error("[busca-inteligente] prisma error", err);
     return NextResponse.json(

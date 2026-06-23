@@ -81,8 +81,12 @@ function montarOrderBy(filtros: FiltrosBusca) {
 
 export async function buscarClientes(
   filtros: FiltrosBusca,
+  // RBAC — escopo resolvido pelo CALLER (lib pura). null => sem filtro (hoje).
+  // Array => AND com os filtros de busca (count usa o mesmo where).
+  cgesVisiveis: string[] | null = null,
 ): Promise<{ resultados: ClienteResultado[]; total: number }> {
   const where = montarWhere(filtros);
+  if (cgesVisiveis) where.assessorCge = { in: cgesVisiveis };
   const orderBy = montarOrderBy(filtros);
   const take = filtros.limite ?? 20;
 
