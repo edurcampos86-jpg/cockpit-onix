@@ -5,9 +5,14 @@ import type { AuthContext } from "@/lib/auth-helpers";
 /**
  * RBAC — Camada 1 (escopo de leitura de clientes).
  *
- * `resolverCgesVisiveis(ctx)` decide QUAIS CGEs (CarteiraCge.cge, que casam por
- * VALOR com ClienteBackoffice.assessorCge) o usuário logado pode ver. Devolve
- * `string[]` (filtrar por esses CGEs) ou `null` = SEM FILTRO (vê tudo).
+ * Duas funções:
+ *   - `resolverCgesVisiveisPorPessoa(pessoaId)` — núcleo, INDEPENDENTE de sessão
+ *     (serve cron/libs que rodam sem cookie).
+ *   - `resolverCgesVisiveis(ctx)` — wrapper fino sobre a anterior, a partir do
+ *     AuthContext (telas/rotas com sessão).
+ * Ambas decidem QUAIS CGEs (CarteiraCge.cge, que casam por VALOR com
+ * ClienteBackoffice.assessorCge) o usuário pode ver. Devolvem `string[]`
+ * (filtrar por esses CGEs) ou `null` = SEM FILTRO (vê tudo).
  *
  * Postura NÃO-DISRUPTIVA — na dúvida/sem config, NÃO restringe (retorna null);
  * nunca devolve `[]` que zeraria a lista:
@@ -33,14 +38,13 @@ export async function rbacEnforcementHabilitado(): Promise<boolean> {
 }
 
 /**
- * CGEs visíveis para o usuário logado, ou `null` = sem filtro (vê tudo).
- * Ver a regra não-disruptiva no topo do arquivo.
+ * NÚCLEO — CGEs visíveis a partir do ID da Pessoa, ou `null` = sem filtro.
+ * INDEPENDENTE de sessão (serve cron/libs sem cookie). Ver regra não-disruptiva
+ * no topo do arquivo. Mesma resolução de sempre (extraída do wrapper).
  */
-export async function resolverCgesVisiveis(ctx: AuthContext): Promise<string[] | null> {
-  if (!ctx.pessoa) return null;
-
+export async function resolverCgesVisiveisPorPessoa(pessoaId: string): Promise<string[] | null> {
   const pessoa = await prisma.pessoa.findUnique({
-    where: { id: ctx.pessoa.id },
+    where: { id: pessoaId },
     select: {
       papel: { select: { adminGlobal: true, escopoOperacional: true } },
       carteirasComoDono: { select: { cges: { select: { cge: true } } } },
@@ -69,4 +73,14 @@ export async function resolverCgesVisiveis(ctx: AuthContext): Promise<string[] |
   // Não-disruptivo: config incompleta (0 CGEs) -> sem filtro (vê tudo até configurar).
   if (cges.size === 0) return null;
   return [...cges];
+}
+
+/**
+ * CGEs visíveis para o usuário logado — wrapper fino sobre
+ * `resolverCgesVisiveisPorPessoa`. Sem Pessoa no ctx => null (sem filtro).
+ * Comportamento observável IDÊNTICO ao baseline (clientes/page.tsx).
+ */
+export async function resolverCgesVisiveis(ctx: AuthContext): Promise<string[] | null> {
+  if (!ctx.pessoa) return null;
+  return resolverCgesVisiveisPorPessoa(ctx.pessoa.id);
 }
