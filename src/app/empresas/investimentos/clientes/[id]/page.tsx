@@ -8,6 +8,8 @@ import { PageHeader } from "@/components/layout/page-header";
 import { ClienteDetalhe } from "@/components/backoffice/cliente-detalhe";
 import { ClienteBtgSection } from "@/components/backoffice/cliente-btg-section";
 import { cockpitReuniaoHabilitado } from "@/lib/cockpit-reuniao/flag";
+import { rbacEnforcementHabilitado, clienteVisivelPorAssessorCge } from "@/lib/rbac";
+import { getAuthContext } from "@/lib/auth-helpers";
 
 export default async function ClienteDetalhePage({
   params,
@@ -36,6 +38,18 @@ export default async function ClienteDetalhePage({
   ]);
 
   if (!cliente) notFound();
+
+  // RBAC — Camada 2 (escopo de acesso à ficha). Flag RBAC_ENFORCEMENT (default
+  // OFF) → sem checagem, idêntico a hoje. ON → cliente fora do escopo do usuário
+  // vira notFound() (MESMO 404 do "não existe" acima — não vaza a existência).
+  // Reusa o assessorCge que a page já carregou (findUnique com include) — sem
+  // segunda query.
+  if (await rbacEnforcementHabilitado()) {
+    const ctx = await getAuthContext();
+    if (!(await clienteVisivelPorAssessorCge(cliente.assessorCge, ctx))) {
+      notFound();
+    }
+  }
 
   const cockpitReuniao = await cockpitReuniaoHabilitado();
 

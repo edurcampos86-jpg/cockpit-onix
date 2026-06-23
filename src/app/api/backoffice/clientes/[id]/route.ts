@@ -1,6 +1,12 @@
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { NextRequest, NextResponse } from "next/server";
+import {
+  rbacEnforcementHabilitado,
+  clienteVisivelPorAssessorCge,
+  assertClienteVisivel,
+} from "@/lib/rbac";
+import { getAuthContext } from "@/lib/auth-helpers";
 
 // Mesmo padrão de guarda admin das demais rotas de clientes (clientes/route.ts,
 // cleanup-leading-zeros). Sessão obrigatória + role admin.
@@ -34,6 +40,17 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       },
     });
     if (!cliente) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
+
+    // RBAC — Camada 2 (escopo). Flag RBAC_ENFORCEMENT (default OFF) → idêntico a
+    // hoje. ON → cliente fora do escopo responde o MESMO 404 do "não existe"
+    // (não vaza existência). Reusa o assessorCge já carregado — sem 2ª query.
+    if (await rbacEnforcementHabilitado()) {
+      const ctx = await getAuthContext();
+      if (!(await clienteVisivelPorAssessorCge(cliente.assessorCge, ctx))) {
+        return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
+      }
+    }
+
     return NextResponse.json(cliente);
   } catch (error) {
     console.error("Erro ao buscar cliente:", error);
@@ -44,6 +61,17 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
+
+    // RBAC — Camada 2 (escopo). Editar fora do escopo = 404 (não pode ver ⇒ não
+    // pode editar). Flag RBAC_ENFORCEMENT (default OFF) → idêntico a hoje. O
+    // PATCH não carrega o cliente, então usa a variante com query mínima
+    // (assertClienteVisivel), que trata inexistente como não-visível (mesmo 404).
+    if (await rbacEnforcementHabilitado()) {
+      const ctx = await getAuthContext();
+      const { visivel } = await assertClienteVisivel(id, ctx);
+      if (!visivel) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
+    }
+
     const body = await req.json();
 
     // Campos permitidos para atualização
