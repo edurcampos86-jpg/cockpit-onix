@@ -28,6 +28,10 @@ export default async function ClienteDetalhePage({
         metas: { orderBy: { criadoEm: "desc" } },
         eventosVida: { orderBy: { data: "asc" } },
         interacoes: { orderBy: { data: "desc" }, take: 50 },
+        reunioesEstruturadas: {
+          orderBy: { data: "desc" },
+          include: { pessoa: { select: { nomeCompleto: true, apelido: true } } },
+        },
       },
     }),
     prisma.movimentacaoBtg.findMany({
@@ -53,6 +57,17 @@ export default async function ClienteDetalhePage({
 
   const cockpitReuniao = await cockpitReuniaoHabilitado();
 
+  // Opções de "quem conduziu" (time ativo) — só carrega quando a aba está ligada.
+  const pessoas = cockpitReuniao
+    ? (
+        await prisma.pessoa.findMany({
+          where: { status: "ativo" },
+          select: { id: true, nomeCompleto: true, apelido: true },
+          orderBy: { nomeCompleto: "asc" },
+        })
+      ).map((p) => ({ id: p.id, nome: p.apelido?.trim() || p.nomeCompleto }))
+    : [];
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -73,6 +88,10 @@ export default async function ClienteDetalhePage({
         <ClienteDetalhe
           cliente={JSON.parse(JSON.stringify(cliente))}
           cockpitReuniao={cockpitReuniao}
+          reunioesEstruturadas={JSON.parse(
+            JSON.stringify(cliente.reunioesEstruturadas),
+          )}
+          pessoas={pessoas}
         />
       </div>
     </div>
