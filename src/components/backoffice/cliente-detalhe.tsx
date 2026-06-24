@@ -19,7 +19,10 @@ import {
 } from "lucide-react";
 import { ReferenciaLivro } from "./referencia-livro";
 import { ComoFunciona } from "./como-funciona";
-import { CockpitReuniaoTab } from "./cockpit-reuniao-tab";
+import {
+  CockpitReuniaoTab,
+  type ReuniaoEstruturadaView,
+} from "./cockpit-reuniao-tab";
 import {
   REF_DESCOBERTA_PROFUNDA,
   REF_ONE_PAGE_PLAN,
@@ -127,9 +130,13 @@ const TABS: { id: Tab; label: string; icon: typeof Heart }[] = [
 export function ClienteDetalhe({
   cliente: inicial,
   cockpitReuniao = false,
+  reunioesEstruturadas = [],
+  pessoas = [],
 }: {
   cliente: Cliente;
   cockpitReuniao?: boolean;
+  reunioesEstruturadas?: ReuniaoEstruturadaView[];
+  pessoas?: { id: string; nome: string }[];
 }) {
   const [tab, setTab] = useState<Tab>("descoberta");
   const [cliente, setCliente] = useState(inicial);
@@ -217,12 +224,15 @@ export function ClienteDetalhe({
       )}
       {tab === "cockpit-reuniao" && (
         <CockpitReuniaoTab
+          clienteId={cliente.id}
           cliente={cliente}
           interacoes={cliente.interacoes}
           metas={cliente.metas}
           eventos={cliente.eventosVida}
           perfilDescoberta={cliente.perfilDescoberta}
           planoUmaPagina={cliente.planoUmaPagina}
+          reunioesEstruturadas={reunioesEstruturadas}
+          pessoas={pessoas}
         />
       )}
     </div>

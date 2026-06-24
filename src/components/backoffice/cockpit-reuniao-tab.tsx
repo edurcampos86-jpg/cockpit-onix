@@ -20,6 +20,8 @@ import {
   ClipboardCheck,
 } from "lucide-react";
 import { getNomeRelacionamento } from "@/lib/backoffice/display-name";
+import { ReuniaoEstruturadaForm } from "./reuniao-estruturada-form";
+import { rotuloCadencia } from "@/lib/cockpit-reuniao/tipos";
 
 /**
  * Cockpit de Reunião — Fase 1 (display read-only, atrás da flag COCKPIT_REUNIAO).
@@ -43,6 +45,20 @@ interface InteracaoRegua {
   resumo: string | null;
   data: string;
   rcaNotas: string | null;
+}
+
+/**
+ * Reunião estruturada já gravada, como a page do cliente entrega (após
+ * serialização). Os campos Json chegam como `unknown` — contamos defensivamente.
+ */
+export interface ReuniaoEstruturadaView {
+  id: string;
+  data: string;
+  tipoCadencia: string | null;
+  pessoa: { nomeCompleto: string; apelido: string | null } | null;
+  pautas: unknown;
+  pendencias: unknown;
+  proximosPassos: unknown;
 }
 
 interface MetaContexto {
@@ -85,6 +101,17 @@ const moeda = (v: number) =>
 
 const limpo = (v: unknown): string | null =>
   typeof v === "string" && v.trim() ? v.trim() : null;
+
+// Contagem defensiva dos campos Json (vêm como `unknown` pós-serialização).
+const len = (v: unknown): number => (Array.isArray(v) ? v.length : 0);
+function contarPendencias(p: unknown): number {
+  if (!p || typeof p !== "object") return 0;
+  const o = p as { assessor?: unknown; cliente?: unknown };
+  return len(o.assessor) + len(o.cliente);
+}
+
+const nomePessoa = (p: ReuniaoEstruturadaView["pessoa"]): string | null =>
+  p ? p.apelido?.trim() || p.nomeCompleto.trim() || null : null;
 
 // ── Metadados por tipo de interação (régua) ──
 const TIPO_META: Record<string, { label: string; Icon: ComponentType<{ className?: string }> }> = {
@@ -185,19 +212,25 @@ function MetaCard({ m }: { m: MetaContexto }) {
 }
 
 export function CockpitReuniaoTab({
+  clienteId,
   cliente,
   interacoes,
   metas,
   eventos,
   perfilDescoberta,
   planoUmaPagina,
+  reunioesEstruturadas,
+  pessoas,
 }: {
+  clienteId: string;
   cliente: ClienteContexto;
   interacoes: InteracaoRegua[];
   metas: MetaContexto[];
   eventos: EventoContexto[];
   perfilDescoberta: Record<string, string | null> | null;
   planoUmaPagina: Record<string, string | number | null> | null;
+  reunioesEstruturadas: ReuniaoEstruturadaView[];
+  pessoas: { id: string; nome: string }[];
 }) {
   const nome = getNomeRelacionamento(cliente);
 
@@ -251,12 +284,53 @@ export function CockpitReuniaoTab({
             <span className="inline-flex items-center rounded-md border border-dashed border-border px-2.5 py-1 text-xs text-muted-foreground">
               Próxima reunião · em breve
             </span>
-            <span className="inline-flex items-center rounded-md border border-dashed border-border px-2.5 py-1 text-xs text-muted-foreground">
-              Perfil · em breve
-            </span>
+            <ReuniaoEstruturadaForm clienteId={clienteId} pessoas={pessoas} />
           </div>
         </div>
       </section>
+
+      {/* ── REUNIÕES REGISTRADAS (lista cronológica simples — PR-A) ── */}
+      <Bloco
+        titulo="Reuniões registradas"
+        Icon={CalendarClock}
+        subtitulo={`${reunioesEstruturadas.length}`}
+      >
+        {reunioesEstruturadas.length === 0 ? (
+          <EmBreve texto="Nenhuma reunião estruturada registrada. Use “Registrar reunião” acima." />
+        ) : (
+          <ul className="divide-y divide-border">
+            {reunioesEstruturadas.map((r) => {
+              const condutor = nomePessoa(r.pessoa);
+              const cadencia = rotuloCadencia(r.tipoCadencia);
+              const nPautas = len(r.pautas);
+              const nPend = contarPendencias(r.pendencias);
+              const nPassos = len(r.proximosPassos);
+              return (
+                <li key={r.id} className="flex flex-wrap items-center justify-between gap-2 py-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-foreground">
+                      {fmtData(r.data)}
+                      {cadencia && (
+                        <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+                          {cadencia}
+                        </span>
+                      )}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {condutor ? `Conduziu: ${condutor}` : "Condutor não informado"}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-3 text-xs text-muted-foreground">
+                    <span>{nPautas} pauta{nPautas === 1 ? "" : "s"}</span>
+                    <span>{nPend} pendência{nPend === 1 ? "" : "s"}</span>
+                    <span>{nPassos} próximo{nPassos === 1 ? "" : "s"} passo{nPassos === 1 ? "" : "s"}</span>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </Bloco>
 
       {/* ── CAMADA ESTÁVEL ── */}
       <div className="grid gap-4 md:grid-cols-3">
