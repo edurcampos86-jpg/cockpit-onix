@@ -3,9 +3,16 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { getAuthContext } from "@/lib/auth-helpers";
-import { uploadContrato } from "@/lib/b2/upload";
+import { getAuthContext, isAdmin } from "@/lib/auth-helpers";
+import { uploadContrato, deleteContrato } from "@/lib/b2/upload";
 import { calcRiceScore } from "@/lib/rice";
+import {
+  MAX_ANEXOS,
+  MAX_ANEXO_BYTES,
+  tipoAnexoPermitido,
+  extFromContentType,
+  sanitizeNomeArquivo,
+} from "@/lib/implementacoes/anexos";
 
 const TIPOS = ["melhoria", "erro", "ideia"];
 const STATUSES = ["triagem", "aprovada", "em-andamento", "concluida", "recusada"];
@@ -26,7 +33,9 @@ export type CriarState = { ok: boolean; error?: string };
 
 /**
  * Cria uma Implementação (Golden Circle). Obrigatórios: porQue, oQue, empresaId.
- * Print é opcional e vai pro Backblaze B2 (guardamos a key em printUrl).
+ * Anexos (até 5, imagem ou PDF, 10 MB cada) são opcionais e vão pro Backblaze B2;
+ * cada um vira uma linha ImplementacaoAnexo. O legado printUrl fica intacto, mas
+ * não é mais alimentado por aqui (novos anexos vão pra ImplementacaoAnexo).
  * Assinatura compatível com useActionState (prevState, formData).
  */
 export async function criarImplementacao(
@@ -48,33 +57,76 @@ export async function criarImplementacao(
     return { ok: false, error: "Preencha Por quê, O quê e a empresa." };
   }
 
-  let printUrl: string | null = null;
-  const file = formData.get("print");
-  if (file && typeof file !== "string" && file.size > 0) {
-    const buf = Buffer.from(await file.arrayBuffer());
-    const ext = file.name.includes(".") ? file.name.split(".").pop() : "png";
-    const key = `implementacoes/${empresaId}/${ctx.userId}-${Date.now()}.${ext}`;
-    await uploadContrato({
-      key,
-      body: buf,
-      contentType: file.type || "image/png",
-    });
-    printUrl = key;
+  // Anexos: lê o conjunto (name="anexos"), descartando entradas vazias.
+  const arquivos = formData
+    .getAll("anexos")
+    .filter((f): f is File => typeof f !== "string" && f.size > 0);
+
+  // Validação server-side (fonte da verdade). Falha aqui = nada sobe pro B2.
+  if (arquivos.length > MAX_ANEXOS) {
+    return { ok: false, error: `No máximo ${MAX_ANEXOS} anexos por sugestão.` };
+  }
+  for (const f of arquivos) {
+    if (!tipoAnexoPermitido(f.type)) {
+      return {
+        ok: false,
+        error: `"${f.name || "arquivo"}" não é imagem nem PDF.`,
+      };
+    }
+    if (f.size > MAX_ANEXO_BYTES) {
+      return { ok: false, error: `"${f.name || "arquivo"}" passa de 10 MB.` };
+    }
   }
 
-  await prisma.implementacao.create({
-    data: {
-      userId: ctx.userId,
-      empresaId,
-      departamento: ctx.pessoa?.departamentoId ?? null,
-      tipo,
-      porQue,
-      oQue,
-      como,
-      pagina,
-      printUrl,
-    },
-  });
+  // Sobe tudo pro B2 ANTES de criar a sugestão. Se algum upload falhar, limpa o
+  // que já subiu e aborta — não deixa órfão no bucket nem sugestão sem anexo.
+  const uploadedKeys: string[] = [];
+  const anexosData: {
+    b2Key: string;
+    nomeArquivo: string;
+    contentType: string;
+    tamanhoBytes: number;
+    ordem: number;
+  }[] = [];
+  try {
+    for (let i = 0; i < arquivos.length; i++) {
+      const f = arquivos[i];
+      const buf = Buffer.from(await f.arrayBuffer());
+      const ext = extFromContentType(f.type);
+      const key = `implementacoes/${empresaId}/${ctx.userId}-${Date.now()}-${i}.${ext}`;
+      await uploadContrato({ key, body: buf, contentType: f.type });
+      uploadedKeys.push(key);
+      anexosData.push({
+        b2Key: key,
+        nomeArquivo: sanitizeNomeArquivo(f.name || `anexo-${i + 1}.${ext}`),
+        contentType: f.type,
+        tamanhoBytes: f.size,
+        ordem: i,
+      });
+    }
+
+    // create + anexos numa única operação (nested create é atômico no Prisma).
+    await prisma.implementacao.create({
+      data: {
+        userId: ctx.userId,
+        empresaId,
+        departamento: ctx.pessoa?.departamentoId ?? null,
+        tipo,
+        porQue,
+        oQue,
+        como,
+        pagina,
+        anexos: anexosData.length ? { create: anexosData } : undefined,
+      },
+    });
+  } catch {
+    // Falhou upload ou persistência: remove do B2 o que tiver subido.
+    await Promise.allSettled(uploadedKeys.map((k) => deleteContrato(k)));
+    return {
+      ok: false,
+      error: "Não consegui salvar os anexos. Tente novamente.",
+    };
+  }
 
   revalidatePath("/configuracoes/implementacoes");
   // FAB (origem=fab): fica na página atual e o modal mostra sucesso.
@@ -83,6 +135,34 @@ export async function criarImplementacao(
     return { ok: true };
   }
   redirect("/configuracoes/implementacoes");
+}
+
+/**
+ * Remove UM anexo salvo: apaga o objeto no B2 e, só então, a linha. Ordem
+ * proposital — se o B2 falhar, mantém a linha e aborta (sem deixar objeto órfão
+ * no bucket nem linha apontando pra arquivo inexistente). Gate admin: a central
+ * é admin-only. deleteContrato é idempotente (S3 delete não falha se já sumiu).
+ */
+export async function removerAnexo(
+  anexoId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const ctx = await getAuthContext();
+  if (!isAdmin(ctx)) return { ok: false, error: "Sem permissão." };
+
+  const anexo = await prisma.implementacaoAnexo.findUnique({
+    where: { id: anexoId },
+    select: { b2Key: true },
+  });
+  if (!anexo) return { ok: true }; // já não existe — idempotente
+
+  try {
+    await deleteContrato(anexo.b2Key);
+  } catch {
+    return { ok: false, error: "Falha ao remover o arquivo do storage." };
+  }
+  await prisma.implementacaoAnexo.delete({ where: { id: anexoId } });
+  revalidatePath("/configuracoes/implementacoes");
+  return { ok: true };
 }
 
 /** Atualiza os 4 fatores RICE e recalcula o score. Cliente envia o conjunto completo. */

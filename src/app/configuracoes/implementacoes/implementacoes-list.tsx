@@ -2,11 +2,21 @@
 
 import Link from "next/link";
 import { useMemo, useRef, useState, useTransition } from "react";
-import { Plus, Paperclip } from "lucide-react";
+import { Plus, Paperclip, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { calcRiceScore } from "@/lib/rice";
-import { atualizarRice, atualizarStatus } from "@/app/actions/implementacao";
+import {
+  atualizarRice,
+  atualizarStatus,
+  removerAnexo,
+} from "@/app/actions/implementacao";
 import { RiceHelp } from "./rice-help";
+
+export type AnexoDTO = {
+  id: string;
+  nomeArquivo: string;
+  contentType: string;
+};
 
 export type ImplementacaoDTO = {
   id: string;
@@ -16,6 +26,7 @@ export type ImplementacaoDTO = {
   como: string | null;
   oQue: string;
   printUrl: string | null;
+  anexos: AnexoDTO[];
   reach: number | null;
   impact: number | null;
   confidence: number | null;
@@ -141,6 +152,23 @@ export function ImplementacoesList({
     startTransition(() => atualizarStatus(id, status));
   }
 
+  // Remove um anexo salvo: otimista na UI, server apaga linha + objeto no B2.
+  function removerAnexoRow(implId: string, anexoId: string) {
+    if (!confirm("Remover este anexo? Isso apaga o arquivo definitivamente.")) {
+      return;
+    }
+    const next = rowsRef.current.map((r) =>
+      r.id === implId
+        ? { ...r, anexos: r.anexos.filter((a) => a.id !== anexoId) }
+        : r,
+    );
+    rowsRef.current = next;
+    setRows(next);
+    startTransition(async () => {
+      await removerAnexo(anexoId);
+    });
+  }
+
   return (
     <div className="mx-auto max-w-6xl p-6">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
@@ -215,16 +243,52 @@ export function ImplementacoesList({
                     <p className="line-clamp-2 text-xs text-muted-foreground">
                       <span className="font-semibold">Por quê:</span> {r.porQue}
                     </p>
-                    {r.printUrl && (
-                      <a
-                        href={`/api/configuracoes/implementacoes/${r.id}/print`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline"
-                      >
-                        <Paperclip className="h-3 w-3" />
-                        Ver print
-                      </a>
+                    {r.anexos.length > 0 ? (
+                      <div className="mt-1.5">
+                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary">
+                          <Paperclip className="h-3 w-3" />
+                          {r.anexos.length}{" "}
+                          {r.anexos.length === 1 ? "anexo" : "anexos"}
+                        </span>
+                        <ul className="mt-1 flex flex-wrap gap-1">
+                          {r.anexos.map((a) => (
+                            <li
+                              key={a.id}
+                              className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-1.5 py-0.5 text-[10px]"
+                            >
+                              <a
+                                href={`/api/configuracoes/implementacoes/anexos/${a.id}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title={a.nomeArquivo}
+                                className="max-w-[110px] truncate font-medium text-foreground hover:text-primary hover:underline"
+                              >
+                                {a.nomeArquivo}
+                              </a>
+                              <button
+                                type="button"
+                                onClick={() => removerAnexoRow(r.id, a.id)}
+                                aria-label={`Remover ${a.nomeArquivo}`}
+                                className="text-muted-foreground transition-colors hover:text-destructive"
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : (
+                      r.printUrl && (
+                        <a
+                          href={`/api/configuracoes/implementacoes/${r.id}/print`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline"
+                        >
+                          <Paperclip className="h-3 w-3" />
+                          Ver print
+                        </a>
+                      )
                     )}
                   </td>
                   <td className="px-3 py-2 text-xs text-muted-foreground">

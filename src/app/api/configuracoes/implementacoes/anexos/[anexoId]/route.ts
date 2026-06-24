@@ -1,10 +1,10 @@
 /**
- * GET /api/configuracoes/implementacoes/[id]/print
+ * GET /api/configuracoes/implementacoes/anexos/[anexoId]
  *
- * Stream do print (imagem) de uma Implementação a partir do Backblaze B2.
- * `printUrl` guarda a KEY do objeto no bucket privado de contratos — não há URL
- * pública, então o acesso passa por aqui (sessão autenticada). Espelha o molde
- * de src/app/api/juridico/contratos/[id]/pdf/route.ts (sem watermark/2FA).
+ * Stream de um anexo (imagem/PDF) de uma sugestão de Implementação a partir do
+ * Backblaze B2. A linha ImplementacaoAnexo guarda a KEY (b2Key) e o contentType;
+ * o bucket é privado, então o acesso passa por aqui (sessão autenticada).
+ * Espelha o molde da rota legada de print (sem watermark/2FA).
  *
  * A key e as credenciais B2 nunca são expostas na resposta nem no log.
  */
@@ -19,36 +19,36 @@ export const maxDuration = 60;
 
 export async function GET(
   _req: Request,
-  ctxParams: { params: Promise<{ id: string }> },
+  ctxParams: { params: Promise<{ anexoId: string }> },
 ) {
   const ctx = await getAuthContext().catch(() => null);
   if (!ctx) return new Response("forbidden", { status: 403 });
 
-  const { id } = await ctxParams.params;
+  const { anexoId } = await ctxParams.params;
 
-  const impl = await prisma.implementacao.findUnique({
-    where: { id },
-    select: { printUrl: true },
+  const anexo = await prisma.implementacaoAnexo.findUnique({
+    where: { id: anexoId },
+    select: { b2Key: true, contentType: true, nomeArquivo: true },
   });
-  if (!impl || !impl.printUrl) {
+  if (!anexo) {
     return new Response("Não encontrado", { status: 404 });
   }
 
   let buffer: Buffer;
   try {
-    buffer = await downloadContrato(impl.printUrl);
+    buffer = await downloadContrato(anexo.b2Key);
   } catch {
     // Não vaza a key nem detalhe do B2 na resposta.
-    return new Response("Falha ao baixar o print", { status: 502 });
+    return new Response("Falha ao baixar o anexo", { status: 502 });
   }
 
-  const contentType = mimeFromKey(impl.printUrl);
-  const filename = `print-${id}.${impl.printUrl.split(".").pop() || "img"}`;
+  // Preferimos o contentType salvo na linha; mimeFromKey é fallback.
+  const contentType = anexo.contentType || mimeFromKey(anexo.b2Key);
 
   return new Response(new Uint8Array(buffer), {
     headers: {
       "Content-Type": contentType,
-      "Content-Disposition": `inline; filename="${encodeURIComponent(filename)}"`,
+      "Content-Disposition": `inline; filename="${encodeURIComponent(anexo.nomeArquivo)}"`,
       "Cache-Control": "private, no-store, no-cache, must-revalidate",
       "X-Content-Type-Options": "nosniff",
       "X-Frame-Options": "SAMEORIGIN",

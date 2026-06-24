@@ -7,6 +7,7 @@ import {
   criarImplementacao,
   type CriarState,
 } from "@/app/actions/implementacao";
+import { AnexosInput } from "@/components/implementacoes/anexos-input";
 
 const initial: CriarState = { ok: false };
 
@@ -115,17 +116,7 @@ export function ImplementacaoForm({
           />
         </div>
 
-        <div>
-          <label className="mb-1.5 block text-sm font-semibold text-foreground">
-            Print (opcional)
-          </label>
-          <input
-            type="file"
-            name="print"
-            accept="image/*"
-            className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-full file:border-0 file:bg-secondary file:px-4 file:py-1.5 file:text-sm file:font-semibold file:text-secondary-foreground hover:file:bg-secondary/80"
-          />
-        </div>
+        <AnexosInput />
 
         {state.error && (
           <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">

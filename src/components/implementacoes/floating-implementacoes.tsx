@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { Lightbulb, X, HelpCircle, Cog, Target, CheckCircle2 } from "lucide-react";
 import { criarImplementacao, type CriarState } from "@/app/actions/implementacao";
 import { EMPRESAS } from "@/lib/empresas-config";
+import { AnexosInput } from "@/components/implementacoes/anexos-input";
 
 const initial: CriarState = { ok: false };
 
@@ -132,6 +133,8 @@ function SugestaoForm({
           placeholder="O problema / a motivação por trás do pedido."
         />
       </div>
+
+      <AnexosInput />
 
       {/* Página de origem: default = rota atual; toggle revela input pra outra. */}
       <div className="rounded-lg border border-border bg-background/50 px-3 py-2.5">

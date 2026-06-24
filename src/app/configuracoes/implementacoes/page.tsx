@@ -13,6 +13,12 @@ export default async function ImplementacoesPage() {
 
   const itens = await prisma.implementacao.findMany({
     orderBy: [{ score: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
+    include: {
+      anexos: {
+        select: { id: true, nomeArquivo: true, contentType: true },
+        orderBy: { ordem: "asc" },
+      },
+    },
   });
 
   const dto: ImplementacaoDTO[] = itens.map((i) => ({
@@ -23,6 +29,7 @@ export default async function ImplementacoesPage() {
     como: i.como,
     oQue: i.oQue,
     printUrl: i.printUrl,
+    anexos: i.anexos,
     reach: i.reach,
     impact: i.impact,
     confidence: i.confidence,
