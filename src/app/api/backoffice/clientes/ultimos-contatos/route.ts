@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getConfig } from "@/lib/config-db";
+import { rbacEnforcementHabilitado, resolverCgesVisiveis } from "@/lib/rbac";
+import { getAuthContext } from "@/lib/auth-helpers";
 import {
   fetchConversas,
   fetchMensagens,
@@ -30,11 +32,21 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => ({}));
     const clienteIds: string[] | undefined = body.clienteIds;
 
-    // Busca clientes com telefone para matching
+    // Busca clientes com telefone para matching.
+    // RBAC — Camada 1 (escopo). Flag RBAC_ENFORCEMENT (default OFF) => where sem
+    // assessorCge (comportamento atual). cges null (admin/sem papel/"todas"/0
+    // CGEs) => sem filtro. Sob enforcement com escopo restrito, o filtro entra
+    // como sibling (AND) do { id: { in: clienteIds } }; cliente fora-de-escopo
+    // some do Record contatos (= "id inexistente", o "esconder" desejado).
+    const where: { id?: { in: string[] }; assessorCge?: { in: string[] } } = {};
+    if (clienteIds?.length) where.id = { in: clienteIds };
+    if (await rbacEnforcementHabilitado()) {
+      const ctx = await getAuthContext();
+      const cges = await resolverCgesVisiveis(ctx);
+      if (cges) where.assessorCge = { in: cges };
+    }
     const clientes = await prisma.clienteBackoffice.findMany({
-      where: clienteIds?.length
-        ? { id: { in: clienteIds } }
-        : {},
+      where,
       select: { id: true, nome: true, telefone: true },
     });
 
