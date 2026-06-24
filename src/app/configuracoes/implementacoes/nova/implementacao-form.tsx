@@ -67,18 +67,18 @@ export function ImplementacaoForm({
 
         <div>
           <label className="mb-1.5 flex items-center gap-1.5 text-sm font-semibold text-foreground">
-            <HelpCircle className="h-4 w-4 text-primary" />
-            Por quê? <span className="text-destructive">*</span>
+            <Target className="h-4 w-4 text-primary" />
+            O quê? <span className="text-destructive">*</span>
           </label>
           <p className="mb-1.5 text-xs text-muted-foreground">
-            A motivação / o problema por trás do pedido.
+            O pedido concreto, em uma frase.
           </p>
           <textarea
-            name="porQue"
+            name="oQue"
             required
-            rows={3}
+            rows={2}
             className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none"
-            placeholder="Ex.: hoje perdemos tempo consolidando relatórios na mão…"
+            placeholder="Ex.: criar dashboard único de receita por assessor"
           />
         </div>
 
@@ -100,18 +100,18 @@ export function ImplementacaoForm({
 
         <div>
           <label className="mb-1.5 flex items-center gap-1.5 text-sm font-semibold text-foreground">
-            <Target className="h-4 w-4 text-primary" />
-            O quê? <span className="text-destructive">*</span>
+            <HelpCircle className="h-4 w-4 text-primary" />
+            Por quê? <span className="text-destructive">*</span>
           </label>
           <p className="mb-1.5 text-xs text-muted-foreground">
-            O pedido concreto, em uma frase.
+            A motivação / o problema por trás do pedido.
           </p>
           <textarea
-            name="oQue"
+            name="porQue"
             required
-            rows={2}
+            rows={3}
             className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none"
-            placeholder="Ex.: criar dashboard único de receita por assessor"
+            placeholder="Ex.: hoje perdemos tempo consolidando relatórios na mão…"
           />
         </div>
 
