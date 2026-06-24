@@ -94,15 +94,15 @@ function SugestaoForm({
 
       <div>
         <label className="mb-1.5 flex items-center gap-1.5 text-sm font-semibold text-foreground">
-          <HelpCircle className="h-4 w-4 text-primary" />
-          Por quê? <span className="text-destructive">*</span>
+          <Target className="h-4 w-4 text-primary" />
+          O quê? <span className="text-destructive">*</span>
         </label>
         <textarea
-          name="porQue"
+          name="oQue"
           required
           rows={2}
           className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none"
-          placeholder="O problema / a motivação por trás do pedido."
+          placeholder="O pedido concreto, em uma frase."
         />
       </div>
 
@@ -121,15 +121,15 @@ function SugestaoForm({
 
       <div>
         <label className="mb-1.5 flex items-center gap-1.5 text-sm font-semibold text-foreground">
-          <Target className="h-4 w-4 text-primary" />
-          O quê? <span className="text-destructive">*</span>
+          <HelpCircle className="h-4 w-4 text-primary" />
+          Por quê? <span className="text-destructive">*</span>
         </label>
         <textarea
-          name="oQue"
+          name="porQue"
           required
           rows={2}
           className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none"
-          placeholder="O pedido concreto, em uma frase."
+          placeholder="O problema / a motivação por trás do pedido."
         />
       </div>
 
