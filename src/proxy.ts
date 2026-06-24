@@ -9,10 +9,7 @@ const publicRoutes = [
   "/api/cron/",                        // Crons do Painel do Dia — autenticam via Bearer CRON_SECRET
   "/api/health",                       // Health check do smoke pós-deploy — sem dados sensíveis
   "/api/integracoes/zapier/webhook",
-  "/api/onix-corretora/analisar",      // GET diagnóstico (apenas lê flags, não expõe tokens)
-  "/api/onix-corretora/coletivo",      // Geração de relatório coletivo
   "/api/onix-corretora/ingest",
-  "/api/onix-corretora/test-pipeline", // Diagnóstico do pipeline
   "/api/webhooks/btg",                 // Webhook BTG — autentica via x-webhook-secret se configurado
   "/api/integracoes/meta/ingest",      // Ingest de eventos do MSP — Bearer META_INGEST_TOKEN (timing-safe; ausente = 503)
 ];
