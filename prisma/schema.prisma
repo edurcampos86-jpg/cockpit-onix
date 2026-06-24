@@ -2054,10 +2054,27 @@ model Implementacao {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user   User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  anexos ImplementacaoAnexo[]
 
   @@index([empresaId, status])
   @@index([userId])
+}
+
+// Anexos (imagens/PDF) de uma sugestão de Implementacao. Relação 1→N aditiva;
+// o campo legado printUrl em Implementacao permanece para retrocompat.
+model ImplementacaoAnexo {
+  id              String        @id @default(cuid())
+  implementacaoId String
+  implementacao   Implementacao @relation(fields: [implementacaoId], references: [id], onDelete: Cascade)
+  b2Key           String // key do objeto no B2, mesmo padrão de printUrl
+  nomeArquivo     String
+  contentType     String // ex: image/png, application/pdf
+  tamanhoBytes    Int
+  ordem           Int           @default(0)
+  criadoEm        DateTime      @default(now())
+
+  @@index([implementacaoId])
 }
 
 // ============================================
