@@ -8,6 +8,12 @@
  * Módulo puro (sem imports server-only): pode ser importado por client e server.
  */
 
+// Limpeza de anexos no B2:
+// - removerAnexo() já apaga o objeto no B2 antes da linha.
+// - Delete de Implementacao (quando existir uma action de delete): buscar as b2Key
+//   dos anexos e apagar no B2 via deleteContrato() ANTES do delete. O CASCADE do
+//   banco limpa as linhas, não o bucket.
+
 export const MAX_ANEXOS = 5;
 export const MAX_ANEXO_BYTES = 10 * 1024 * 1024; // 10 MB
 export const ANEXO_ACCEPT = "image/*,application/pdf";

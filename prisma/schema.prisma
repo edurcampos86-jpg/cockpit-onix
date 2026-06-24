@@ -2063,6 +2063,9 @@ model Implementacao {
 
 // Anexos (imagens/PDF) de uma sugestão de Implementacao. Relação 1→N aditiva;
 // o campo legado printUrl em Implementacao permanece para retrocompat.
+// ATENÇÃO: ao deletar uma Implementacao, apague antes os objetos no B2 (b2Key
+// de cada anexo) via deleteContrato() em src/lib/b2/upload.ts. O onDelete: Cascade
+// remove as linhas desta tabela, mas NÃO apaga os arquivos no bucket → senão vira órfão.
 model ImplementacaoAnexo {
   id              String        @id @default(cuid())
   implementacaoId String
