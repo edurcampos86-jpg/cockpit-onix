@@ -22,6 +22,13 @@ import {
 import { getNomeRelacionamento } from "@/lib/backoffice/display-name";
 import { ReuniaoEstruturadaForm } from "./reuniao-estruturada-form";
 import { rotuloCadencia } from "@/lib/cockpit-reuniao/tipos";
+import {
+  derivarColunas,
+  derivarTopPautas,
+  derivarPendenciasAbertas,
+  type ReuniaoView,
+  type ItemView,
+} from "@/lib/cockpit-reuniao/derivar";
 
 /**
  * Cockpit de Reunião — Fase 1 (display read-only, atrás da flag COCKPIT_REUNIAO).
@@ -211,6 +218,75 @@ function MetaCard({ m }: { m: MetaContexto }) {
   );
 }
 
+/** Card compacto de uma reunião nas colunas entrada/agora do retrato. */
+function ReuniaoMiniCard({ r }: { r: ReuniaoView }) {
+  const cadencia = rotuloCadencia(r.tipoCadencia);
+  return (
+    <div className="rounded-lg border bg-background p-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-sm font-medium text-foreground">{fmtData(r.data)}</span>
+        {cadencia && (
+          <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+            {cadencia}
+          </span>
+        )}
+      </div>
+      <p className="mt-0.5 text-xs text-muted-foreground">
+        {r.conduzidoPor ? `Conduziu: ${r.conduzidoPor}` : "Condutor não informado"}
+      </p>
+      {r.pautas.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1">
+          {r.pautas.slice(0, 4).map((p, idx) => (
+            <span
+              key={`${idx}-${p}`}
+              className="max-w-full truncate rounded-full bg-primary/10 px-2 py-0.5 text-[10px] text-primary"
+            >
+              {p}
+            </span>
+          ))}
+          {r.pautas.length > 4 && (
+            <span className="text-[10px] text-muted-foreground">+{r.pautas.length - 4}</span>
+          )}
+        </div>
+      )}
+      <p className="mt-2 text-[11px] text-muted-foreground">
+        {r.totalPendencias} pendência{r.totalPendencias === 1 ? "" : "s"}
+      </p>
+    </div>
+  );
+}
+
+/** Coluna de pendências abertas de um lado (assessor/cliente). Read-only. */
+function LadoPendencias({ titulo, itens }: { titulo: string; itens: ItemView[] }) {
+  return (
+    <div>
+      <p className="mb-2 text-xs font-medium text-muted-foreground">
+        {titulo} <span className="text-muted-foreground/60">· {itens.length}</span>
+      </p>
+      {itens.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-border/60 px-3 py-4 text-center text-xs text-muted-foreground/70">
+          Sem pendências em aberto
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {itens.map((it, idx) => (
+            <li
+              key={`${idx}-${it.texto}`}
+              className="flex items-start gap-2 rounded-lg border bg-background p-2.5"
+            >
+              <span aria-hidden className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+              <div className="min-w-0">
+                <p className="whitespace-pre-wrap text-sm text-foreground">{it.texto}</p>
+                <p className="text-[10px] text-muted-foreground">{fmtData(it.reuniaoData)}</p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export function CockpitReuniaoTab({
   clienteId,
   cliente,
@@ -262,6 +338,15 @@ export function CockpitReuniaoTab({
   const regua = [...interacoes].sort(
     (a, b) => new Date(b.data).getTime() - new Date(a.data).getTime(),
   );
+
+  // ── Leitura rica das reuniões estruturadas (PR-B, derivação pura) ──
+  const totalReunioes = reunioesEstruturadas.length;
+  const { entrada, agora } = derivarColunas(reunioesEstruturadas);
+  const topPautas = derivarTopPautas(reunioesEstruturadas);
+  const pendAbertas = derivarPendenciasAbertas(reunioesEstruturadas);
+  // Espinha do retrato: data mais antiga (1ª de `entrada`) e mais recente (1ª de `agora`).
+  const retratoInicio = entrada[0]?.data ?? null;
+  const retratoFim = agora[0]?.data ?? null;
 
   return (
     <div className="space-y-4">
@@ -396,37 +481,82 @@ export function CockpitReuniaoTab({
         </Bloco>
       </div>
 
-      {/* ── LINHA DO TEMPO DE REUNIÕES (sem dado ainda) ── */}
-      <Bloco titulo="Linha do tempo de reuniões" Icon={CalendarClock} subtitulo="3 primeiras vs 3 últimas">
-        <div className="grid gap-4 md:grid-cols-2">
-          <div>
-            <p className="mb-2 text-xs font-medium text-muted-foreground">3 primeiras</p>
-            <EmBreve texto="Reuniões estruturadas mais antigas." />
+      {/* ── RETRATO DE ENTRADA → RETRATO ATUAL (dados reais) ── */}
+      <Bloco titulo="Retrato de entrada → retrato atual" Icon={CalendarClock} subtitulo="entrada vs agora">
+        {totalReunioes === 0 ? (
+          <EmBreve texto="Nenhuma reunião estruturada registrada. Registre a primeira para montar o retrato." />
+        ) : (
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-border/70 bg-muted/20 px-4 py-2 text-xs text-muted-foreground">
+              <span>{retratoInicio ? fmtData(retratoInicio) : "—"}</span>
+              <span aria-hidden className="h-px min-w-[2rem] flex-1 bg-border" />
+              <span className="shrink-0 font-medium">
+                {totalReunioes} reuni{totalReunioes === 1 ? "ão" : "ões"}
+              </span>
+              <span aria-hidden className="h-px min-w-[2rem] flex-1 bg-border" />
+              <span>{retratoFim ? fmtData(retratoFim) : "—"}</span>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <p className="mb-2 text-xs font-medium text-muted-foreground">Entrada · primeiras</p>
+                <div className="space-y-2">
+                  {entrada.map((r) => (
+                    <ReuniaoMiniCard key={r.id} r={r} />
+                  ))}
+                </div>
+              </div>
+              <div>
+                <p className="mb-2 text-xs font-medium text-muted-foreground">Agora · recentes</p>
+                <div className="space-y-2">
+                  {agora.map((r) => (
+                    <ReuniaoMiniCard key={r.id} r={r} />
+                  ))}
+                </div>
+              </div>
+            </div>
           </div>
-          <div>
-            <p className="mb-2 text-xs font-medium text-muted-foreground">3 últimas</p>
-            <EmBreve texto="Reuniões estruturadas mais recentes." />
-          </div>
-        </div>
+        )}
       </Bloco>
 
-      {/* ── TOP PAUTAS (sem dado ainda) ── */}
-      <Bloco titulo="Top pautas" Icon={ListChecks}>
-        <EmBreve texto="Pautas recorrentes das reuniões estruturadas." />
+      {/* ── TOP 5 PAUTAS (3 últimas reuniões) ── */}
+      <Bloco titulo="Top 5 pautas" Icon={ListChecks} subtitulo="3 últimas reuniões">
+        {topPautas.length === 0 ? (
+          <EmBreve texto="Sem pautas nas reuniões mais recentes." />
+        ) : (
+          <ol className="space-y-2.5">
+            {topPautas.map((p, idx) => (
+              <li key={`${idx}-${p.texto}`} className="space-y-1">
+                <div className="flex items-center gap-3">
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-semibold text-primary">
+                    {idx + 1}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-sm text-foreground">{p.texto}</span>
+                  <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                    {p.freq}×
+                  </span>
+                </div>
+                <div className="ml-8 h-1 rounded-full bg-muted">
+                  <div
+                    className="h-1 rounded-full bg-primary/60"
+                    style={{ width: `${(p.freq / topPautas[0].freq) * 100}%` }}
+                  />
+                </div>
+              </li>
+            ))}
+          </ol>
+        )}
       </Bloco>
 
-      {/* ── PENDÊNCIAS POR LADO (sem dado ainda) ── */}
-      <Bloco titulo="Pendências por lado" Icon={Scale}>
-        <div className="grid gap-4 md:grid-cols-2">
-          <div>
-            <p className="mb-2 text-xs font-medium text-muted-foreground">Assessor</p>
-            <EmBreve texto="Pendências do lado do assessor." />
+      {/* ── PENDÊNCIAS POR LADO (abertas, read-only) ── */}
+      <Bloco titulo="Pendências por lado" Icon={Scale} subtitulo="em aberto">
+        {pendAbertas.assessor.length === 0 && pendAbertas.cliente.length === 0 ? (
+          <EmBreve texto="Nenhuma pendência em aberto nas reuniões registradas." />
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2">
+            <LadoPendencias titulo="Assessor" itens={pendAbertas.assessor} />
+            <LadoPendencias titulo="Cliente" itens={pendAbertas.cliente} />
           </div>
-          <div>
-            <p className="mb-2 text-xs font-medium text-muted-foreground">Cliente</p>
-            <EmBreve texto="Pendências do lado do cliente." />
-          </div>
-        </div>
+        )}
       </Bloco>
 
       {/* ── PROJETOS (MetaCliente, por horizonte) ── */}
