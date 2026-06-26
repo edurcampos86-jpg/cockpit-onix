@@ -802,6 +802,10 @@ model ReuniaoEstruturada {
   pendencias     Json? // { assessor: [...], cliente: [...] }
   proximosPassos Json? // [{ texto, concluido, concluidoEm }] — shape de ReuniaoTime
 
+  // Captura via IA (import do Plaud). Ambos opcionais e aditivos.
+  textoBruto         String? @db.Text // resumo original colado (Plaud) — fonte para re-extração futura
+  patrimonioSnapshot Json? // foto do patrimônio declarado na reunião — shape PatrimonioSnapshot (tipos.ts)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
