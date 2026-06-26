@@ -57,16 +57,21 @@ export default async function ClienteDetalhePage({
 
   const cockpitReuniao = await cockpitReuniaoHabilitado();
 
-  // Opções de "quem conduziu" (time ativo) — só carrega quando a aba está ligada.
-  const pessoas = cockpitReuniao
-    ? (
-        await prisma.pessoa.findMany({
-          where: { status: "ativo" },
-          select: { id: true, nomeCompleto: true, apelido: true },
-          orderBy: { nomeCompleto: "asc" },
-        })
-      ).map((p) => ({ id: p.id, nome: p.apelido?.trim() || p.nomeCompleto }))
+  // Time ativo (só quando a aba está ligada). Uma query, duas listas:
+  //  - `pessoas`            → "quem conduziu" no form (todas as ativas)
+  //  - `pessoasComLogin`    → destinatários de roteamento (só com userId, pois
+  //                           AcaoPainel.userId é FK de User, não de Pessoa)
+  const timeAtivo = cockpitReuniao
+    ? await prisma.pessoa.findMany({
+        where: { status: "ativo" },
+        select: { id: true, nomeCompleto: true, apelido: true, userId: true },
+        orderBy: { nomeCompleto: "asc" },
+      })
     : [];
+  const pessoas = timeAtivo.map((p) => ({ id: p.id, nome: p.apelido?.trim() || p.nomeCompleto }));
+  const pessoasComLogin = timeAtivo
+    .filter((p) => p.userId)
+    .map((p) => ({ id: p.id, nome: p.apelido?.trim() || p.nomeCompleto }));
 
   return (
     <div className="space-y-6">
@@ -92,6 +97,7 @@ export default async function ClienteDetalhePage({
             JSON.stringify(cliente.reunioesEstruturadas),
           )}
           pessoas={pessoas}
+          pessoasComLogin={pessoasComLogin}
         />
       </div>
     </div>
