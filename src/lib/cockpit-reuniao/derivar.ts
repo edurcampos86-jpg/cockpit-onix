@@ -40,8 +40,16 @@ export interface ReuniaoView {
   proximosPassos: string[];
 }
 
-/** Item de pendência aberta, com a data da reunião de origem. */
+/**
+ * Item de pendência aberta. Carrega as CHAVES de identificação (reuniaoId +
+ * lado + indice) para a UI poder acionar (marcar realizada / delegar). O
+ * `indice` é a posição no array CANÔNICO de `parsePendencias` — a Server Action
+ * usa a MESMA função, então os índices casam.
+ */
 export interface ItemView {
+  reuniaoId: string;
+  lado: "assessor" | "cliente";
+  indice: number;
   texto: string;
   reuniaoData: string;
 }
@@ -83,8 +91,13 @@ function parseItens(v: unknown): ItemAcionavel[] {
   return out;
 }
 
-/** Pendências por lado. Shape inválido → ambos vazios. */
-function parsePendencias(v: unknown): { assessor: ItemAcionavel[]; cliente: ItemAcionavel[] } {
+/**
+ * Pendências por lado, em forma CANÔNICA (arrays de ItemAcionavel limpos).
+ * Shape inválido → ambos vazios. Exportada para a Server Action de toggle/rote-
+ * amento reusar EXATAMENTE o mesmo parsing — garante que o `indice` da UI casa
+ * com a posição no array re-gravado.
+ */
+export function parsePendencias(v: unknown): { assessor: ItemAcionavel[]; cliente: ItemAcionavel[] } {
   if (!v || typeof v !== "object") return { assessor: [], cliente: [] };
   const o = v as { assessor?: unknown; cliente?: unknown };
   return { assessor: parseItens(o.assessor), cliente: parseItens(o.cliente) };
@@ -173,12 +186,16 @@ export function derivarPendenciasAbertas(reunioes: ReuniaoEstruturadaInput[]): {
   const cliente: ItemView[] = [];
   for (const r of reunioes) {
     const pend = parsePendencias(r.pendencias);
-    for (const it of pend.assessor) {
-      if (!it.concluido) assessor.push({ texto: it.texto, reuniaoData: r.data });
-    }
-    for (const it of pend.cliente) {
-      if (!it.concluido) cliente.push({ texto: it.texto, reuniaoData: r.data });
-    }
+    pend.assessor.forEach((it, indice) => {
+      if (!it.concluido) {
+        assessor.push({ reuniaoId: r.id, lado: "assessor", indice, texto: it.texto, reuniaoData: r.data });
+      }
+    });
+    pend.cliente.forEach((it, indice) => {
+      if (!it.concluido) {
+        cliente.push({ reuniaoId: r.id, lado: "cliente", indice, texto: it.texto, reuniaoData: r.data });
+      }
+    });
   }
   const recentesPrimeiro = (a: ItemView, b: ItemView) => ts(b.reuniaoData) - ts(a.reuniaoData);
   return { assessor: assessor.sort(recentesPrimeiro), cliente: cliente.sort(recentesPrimeiro) };

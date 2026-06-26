@@ -1,6 +1,7 @@
 "use client";
 
-import type { ComponentType } from "react";
+import { type ComponentType, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import {
   Presentation,
   Users,
@@ -18,9 +19,18 @@ import {
   MessageCircle,
   CalendarDays,
   ClipboardCheck,
+  Check,
+  Send,
+  Loader2,
 } from "lucide-react";
 import { getNomeRelacionamento } from "@/lib/backoffice/display-name";
 import { ReuniaoEstruturadaForm } from "./reuniao-estruturada-form";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+} from "@/components/ui/select";
 import { rotuloCadencia } from "@/lib/cockpit-reuniao/tipos";
 import {
   derivarColunas,
@@ -29,6 +39,12 @@ import {
   type ReuniaoView,
   type ItemView,
 } from "@/lib/cockpit-reuniao/derivar";
+import {
+  marcarPendenciaRealizada,
+  rotearPendenciaParaPainel,
+} from "@/app/actions/reuniao-pendencia";
+
+type PessoaOpcao = { id: string; nome: string };
 
 /**
  * Cockpit de Reunião — Fase 1 (display read-only, atrás da flag COCKPIT_REUNIAO).
@@ -256,8 +272,109 @@ function ReuniaoMiniCard({ r }: { r: ReuniaoView }) {
   );
 }
 
-/** Coluna de pendências abertas de um lado (assessor/cliente). Read-only. */
-function LadoPendencias({ titulo, itens }: { titulo: string; itens: ItemView[] }) {
+/**
+ * Linha de uma pendência ABERTA, acionável: "marcar realizada" (toggle) +
+ * "delegar" (roteia como AcaoPainel pro painel de alguém com login). Feedback
+ * inline (o app não tem toast); erro da action nunca vira exception.
+ */
+function PendenciaItemRow({
+  item,
+  pessoasComLogin,
+}: {
+  item: ItemView;
+  pessoasComLogin: PessoaOpcao[];
+}) {
+  const router = useRouter();
+  const [isPending, start] = useTransition();
+  const [erro, setErro] = useState<string | null>(null);
+  const [sucesso, setSucesso] = useState<string | null>(null);
+
+  const chave = { reuniaoId: item.reuniaoId, lado: item.lado, indice: item.indice };
+
+  function concluir() {
+    setErro(null);
+    setSucesso(null);
+    start(async () => {
+      const r = await marcarPendenciaRealizada(chave);
+      if (!r.ok) {
+        setErro(r.error ?? "Não foi possível marcar como realizada.");
+        return;
+      }
+      router.refresh(); // o item sai da lista (a leitura filtra !concluido)
+    });
+  }
+
+  function delegar(pessoaId: string | null) {
+    if (!pessoaId) return;
+    setErro(null);
+    setSucesso(null);
+    const nome = pessoasComLogin.find((p) => p.id === pessoaId)?.nome ?? "destinatário";
+    start(async () => {
+      const r = await rotearPendenciaParaPainel({ ...chave, destinatarioPessoaId: pessoaId });
+      if (!r.ok) {
+        setErro(r.error ?? "Não foi possível delegar.");
+        return;
+      }
+      setSucesso(`Enviado para o painel de ${nome}`);
+    });
+  }
+
+  return (
+    <li className="rounded-lg border bg-background p-2.5">
+      <div className="flex items-start gap-2">
+        <button
+          type="button"
+          onClick={concluir}
+          disabled={isPending}
+          aria-label="Marcar realizada"
+          title="Marcar realizada"
+          className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border border-border text-transparent transition-colors hover:border-primary hover:text-primary disabled:opacity-50"
+        >
+          {isPending ? <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" /> : <Check className="h-3 w-3" />}
+        </button>
+        <div className="min-w-0 flex-1">
+          <p className="whitespace-pre-wrap text-sm text-foreground">{item.texto}</p>
+          <p className="text-[10px] text-muted-foreground">{fmtData(item.reuniaoData)}</p>
+        </div>
+        {pessoasComLogin.length > 0 ? (
+          <Select value="" onValueChange={delegar} disabled={isPending}>
+            <SelectTrigger
+              size="sm"
+              className="w-auto gap-1 px-2 text-[11px]"
+              aria-label="Delegar para"
+            >
+              <Send className="h-3 w-3" />
+              <span className="hidden sm:inline">Delegar</span>
+            </SelectTrigger>
+            <SelectContent>
+              {pessoasComLogin.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                  {p.nome}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : null}
+      </div>
+      {(erro || sucesso) && (
+        <p className={`mt-1.5 pl-6 text-[10px] ${erro ? "text-destructive" : "text-primary"}`}>
+          {erro ?? sucesso}
+        </p>
+      )}
+    </li>
+  );
+}
+
+/** Coluna de pendências abertas de um lado (assessor/cliente), acionável. */
+function LadoPendencias({
+  titulo,
+  itens,
+  pessoasComLogin,
+}: {
+  titulo: string;
+  itens: ItemView[];
+  pessoasComLogin: PessoaOpcao[];
+}) {
   return (
     <div>
       <p className="mb-2 text-xs font-medium text-muted-foreground">
@@ -269,17 +386,12 @@ function LadoPendencias({ titulo, itens }: { titulo: string; itens: ItemView[] }
         </p>
       ) : (
         <ul className="space-y-2">
-          {itens.map((it, idx) => (
-            <li
-              key={`${idx}-${it.texto}`}
-              className="flex items-start gap-2 rounded-lg border bg-background p-2.5"
-            >
-              <span aria-hidden className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
-              <div className="min-w-0">
-                <p className="whitespace-pre-wrap text-sm text-foreground">{it.texto}</p>
-                <p className="text-[10px] text-muted-foreground">{fmtData(it.reuniaoData)}</p>
-              </div>
-            </li>
+          {itens.map((it) => (
+            <PendenciaItemRow
+              key={`${it.reuniaoId}-${it.lado}-${it.indice}`}
+              item={it}
+              pessoasComLogin={pessoasComLogin}
+            />
           ))}
         </ul>
       )}
@@ -297,6 +409,7 @@ export function CockpitReuniaoTab({
   planoUmaPagina,
   reunioesEstruturadas,
   pessoas,
+  pessoasComLogin,
 }: {
   clienteId: string;
   cliente: ClienteContexto;
@@ -307,6 +420,7 @@ export function CockpitReuniaoTab({
   planoUmaPagina: Record<string, string | number | null> | null;
   reunioesEstruturadas: ReuniaoEstruturadaView[];
   pessoas: { id: string; nome: string }[];
+  pessoasComLogin: PessoaOpcao[];
 }) {
   const nome = getNomeRelacionamento(cliente);
 
@@ -547,15 +661,30 @@ export function CockpitReuniaoTab({
         )}
       </Bloco>
 
-      {/* ── PENDÊNCIAS POR LADO (abertas, read-only) ── */}
+      {/* ── PENDÊNCIAS POR LADO (abertas, acionáveis) ── */}
       <Bloco titulo="Pendências por lado" Icon={Scale} subtitulo="em aberto">
         {pendAbertas.assessor.length === 0 && pendAbertas.cliente.length === 0 ? (
           <EmBreve texto="Nenhuma pendência em aberto nas reuniões registradas." />
         ) : (
-          <div className="grid gap-4 md:grid-cols-2">
-            <LadoPendencias titulo="Assessor" itens={pendAbertas.assessor} />
-            <LadoPendencias titulo="Cliente" itens={pendAbertas.cliente} />
-          </div>
+          <>
+            {pessoasComLogin.length === 0 && (
+              <p className="mb-3 rounded-md border border-dashed border-border/70 bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground">
+                Ninguém do time tem login para receber delegação ainda. Você pode marcar como realizada.
+              </p>
+            )}
+            <div className="grid gap-4 md:grid-cols-2">
+              <LadoPendencias
+                titulo="Assessor"
+                itens={pendAbertas.assessor}
+                pessoasComLogin={pessoasComLogin}
+              />
+              <LadoPendencias
+                titulo="Cliente"
+                itens={pendAbertas.cliente}
+                pessoasComLogin={pessoasComLogin}
+              />
+            </div>
+          </>
         )}
       </Bloco>
 

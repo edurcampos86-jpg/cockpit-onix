@@ -132,11 +132,13 @@ export function ClienteDetalhe({
   cockpitReuniao = false,
   reunioesEstruturadas = [],
   pessoas = [],
+  pessoasComLogin = [],
 }: {
   cliente: Cliente;
   cockpitReuniao?: boolean;
   reunioesEstruturadas?: ReuniaoEstruturadaView[];
   pessoas?: { id: string; nome: string }[];
+  pessoasComLogin?: { id: string; nome: string }[];
 }) {
   const [tab, setTab] = useState<Tab>("descoberta");
   const [cliente, setCliente] = useState(inicial);
@@ -233,6 +235,7 @@ export function ClienteDetalhe({
           planoUmaPagina={cliente.planoUmaPagina}
           reunioesEstruturadas={reunioesEstruturadas}
           pessoas={pessoas}
+          pessoasComLogin={pessoasComLogin}
         />
       )}
     </div>
