@@ -81,12 +81,33 @@ function fromYmd(s: string | null): Date | undefined {
   return Number.isNaN(dt.getTime()) ? undefined : dt;
 }
 
-/** Número em string (input controlado) → number | undefined. */
-function parseNum(v: string): number | undefined {
-  const t = v.trim().replace(",", ".");
-  if (!t) return undefined;
-  const n = Number(t);
+/**
+ * Valor de patrimônio (input controlado) → inteiro de reais cheios | undefined.
+ * Tolerante a separadores: "4.000.000" e "4000000" viram 4000000.
+ */
+function parseReais(v: string): number | undefined {
+  const digitos = v.replace(/\D/g, "");
+  if (!digitos) return undefined;
+  const n = Number(digitos);
   return Number.isFinite(n) ? n : undefined;
+}
+
+/** Formata em BRL com separador de milhar (sem centavos). "" se vazio. */
+function fmtBRL(v: string): string {
+  const n = parseReais(v);
+  if (n === undefined) return "";
+  return n.toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    maximumFractionDigits: 0,
+  });
+}
+
+/** Sanity: valor preenchido porém abaixo de R$ 10 mil → provável erro de unidade. */
+const SANITY_MIN_REAIS = 10_000;
+function pareceUnidadeErrada(v: string): boolean {
+  const n = parseReais(v);
+  return n !== undefined && n < SANITY_MIN_REAIS;
 }
 
 /**
@@ -134,6 +155,39 @@ function ListaEditavel({
       >
         <Plus /> Adicionar
       </Button>
+    </div>
+  );
+}
+
+/** Campo de patrimônio em reais cheios: input + valor formatado + sanity hint. */
+function CampoReais({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const formatado = fmtBRL(value);
+  const alertaUnidade = pareceUnidadeErrada(value);
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-xs">{label}</Label>
+      <Input
+        inputMode="numeric"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="0"
+      />
+      {formatado && (
+        <p className="text-xs text-muted-foreground tabular-nums">{formatado}</p>
+      )}
+      {alertaUnidade && (
+        <p className="text-xs text-amber-600 dark:text-amber-500">
+          Parece estar em milhares/milhões, confira a unidade.
+        </p>
+      )}
     </div>
   );
 }
@@ -239,9 +293,9 @@ export function ImportarReuniaoForm({
         textoBruto: texto,
         patrimonioSnapshot: {
           moeda: "BRL",
-          totalBtg: parseNum(totalBtg),
-          totalForaBtg: parseNum(totalForaBtg),
-          totalGeral: parseNum(totalGeral),
+          totalBtg: parseReais(totalBtg),
+          totalForaBtg: parseReais(totalForaBtg),
+          totalGeral: parseReais(totalGeral),
           observacao: obsPatrimonio.trim() || undefined,
         },
       });
@@ -432,40 +486,26 @@ export function ImportarReuniaoForm({
                   />
                 </div>
 
-                {/* Patrimônio (em milhões de R$) */}
+                {/* Patrimônio (em reais cheios) */}
                 <div className="space-y-3 rounded-lg border border-dashed border-border/70 p-3">
                   <p className="text-xs font-medium text-muted-foreground">
-                    Patrimônio declarado (em milhões de R$)
+                    Patrimônio declarado (em reais)
                   </p>
-                  <div className="grid grid-cols-3 gap-2">
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">BTG</Label>
-                      <Input
-                        inputMode="decimal"
-                        value={totalBtg}
-                        onChange={(e) => setTotalBtg(e.target.value)}
-                        placeholder="0"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">Fora BTG</Label>
-                      <Input
-                        inputMode="decimal"
-                        value={totalForaBtg}
-                        onChange={(e) => setTotalForaBtg(e.target.value)}
-                        placeholder="0"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">Total</Label>
-                      <Input
-                        inputMode="decimal"
-                        value={totalGeral}
-                        onChange={(e) => setTotalGeral(e.target.value)}
-                        placeholder="0"
-                      />
-                    </div>
-                  </div>
+                  <CampoReais
+                    label="Total no BTG (R$)"
+                    value={totalBtg}
+                    onChange={setTotalBtg}
+                  />
+                  <CampoReais
+                    label="Total fora do BTG (R$)"
+                    value={totalForaBtg}
+                    onChange={setTotalForaBtg}
+                  />
+                  <CampoReais
+                    label="Total geral (R$)"
+                    value={totalGeral}
+                    onChange={setTotalGeral}
+                  />
                   <div className="space-y-1.5">
                     <Label className="text-xs">Observação</Label>
                     <Input

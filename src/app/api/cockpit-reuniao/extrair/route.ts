@@ -65,16 +65,19 @@ const EXTRAIR_TOOL_SCHEMA = {
       type: "object",
       properties: {
         totalBtg: {
-          type: "number",
-          description: "Patrimônio no BTG, em MILHÕES de reais (ex.: 5 = R$ 5 mi).",
+          type: "integer",
+          minimum: 0,
+          description: "Patrimônio no BTG, em reais cheios (ex.: 4000000 = R$ 4 mi).",
         },
         totalForaBtg: {
-          type: "number",
-          description: "Patrimônio fora do BTG, em MILHÕES de reais.",
+          type: "integer",
+          minimum: 0,
+          description: "Patrimônio fora do BTG, em reais cheios.",
         },
         totalGeral: {
-          type: "number",
-          description: "Patrimônio total declarado, em MILHÕES de reais.",
+          type: "integer",
+          minimum: 0,
+          description: "Patrimônio total declarado, em reais cheios.",
         },
         observacao: {
           type: "string",
@@ -104,7 +107,7 @@ Regras de fidelidade (CRÍTICAS):
 - Extraia FIELMENTE o que está no texto. NÃO invente, não complete e não deduza nada que não esteja escrito.
 - Deixe VAZIO ('', [] ou campo omitido) tudo que o resumo não trouxer explicitamente.
 - Separe pendências por lado: o que o ASSESSOR ficou de fazer vs. o que o CLIENTE ficou de fazer.
-- Patrimônio: sempre em MILHÕES de reais (ex.: "cinco milhões" → 5; "R$ 800 mil" → 0.8). Só preencha um total se o resumo o declarar.
+- Patrimônio: sempre em REAIS CHEIOS, número INTEIRO, convertendo o que o texto disser ("4 milhões" → 4000000; "9 milhões" → 9000000; "R$ 560 mil" → 560000). NUNCA use decimais de milhão (não devolva 4 nem 4.0 para "4 milhões"). Só preencha um total se houver número no texto; omita o campo se não houver.
 - Data: formato ISO yyyy-mm-dd. Se o resumo não disser a data, devolva string vazia.
 
 Responda SEMPRE chamando a tool 'extrair_reuniao'.`;
@@ -134,10 +137,10 @@ function listaTextos(v: unknown): string[] {
   return out;
 }
 
-/** Número finito ou undefined (descarta NaN/Infinity/lixo). */
-function numOrUndef(v: unknown): number | undefined {
+/** Inteiro de reais >= 0, ou undefined (descarta NaN/Infinity/lixo/negativo). */
+function reaisInteiroOrUndef(v: unknown): number | undefined {
   if (typeof v !== "number" || !Number.isFinite(v)) return undefined;
-  return v;
+  return Math.max(0, Math.trunc(v));
 }
 
 export async function POST(req: NextRequest) {
@@ -236,9 +239,9 @@ export async function POST(req: NextRequest) {
       ? (raw.patrimonioSnapshot as Record<string, unknown>)
       : {};
   const patrimonioSnapshot = {
-    totalBtg: numOrUndef(patRaw.totalBtg),
-    totalForaBtg: numOrUndef(patRaw.totalForaBtg),
-    totalGeral: numOrUndef(patRaw.totalGeral),
+    totalBtg: reaisInteiroOrUndef(patRaw.totalBtg),
+    totalForaBtg: reaisInteiroOrUndef(patRaw.totalForaBtg),
+    totalGeral: reaisInteiroOrUndef(patRaw.totalGeral),
     observacao:
       typeof patRaw.observacao === "string" && patRaw.observacao.trim()
         ? patRaw.observacao.trim()

@@ -35,14 +35,14 @@ export type ReuniaoProximosPassos = ItemAcionavel[];
 
 /**
  * Foto do patrimônio declarado na reunião (campo `patrimonioSnapshot` Json?).
- * Totais em MILHÕES de reais (ex.: 5 = R$ 5 mi) — mesma unidade que a extração
- * pede à IA. Todos opcionais: a IA preenche só o que o resumo trouxer; `moeda` é
- * fixa em "BRL" no contexto Onix.
+ * Totais em REAIS CHEIOS, inteiro (ex.: 4000000 = R$ 4 mi) — mesma unidade que a
+ * extração pede à IA. Todos opcionais: a IA preenche só o que o resumo trouxer;
+ * `moeda` é fixa em "BRL" no contexto Onix.
  */
 export type PatrimonioSnapshot = {
-  totalBtg?: number;
-  totalForaBtg?: number;
-  totalGeral?: number;
+  totalBtg?: number; // em reais cheios, inteiro (ex.: 4000000)
+  totalForaBtg?: number; // em reais cheios, inteiro (ex.: 4000000)
+  totalGeral?: number; // em reais cheios, inteiro (ex.: 4000000)
   moeda: "BRL";
   observacao?: string;
 };
