@@ -709,6 +709,7 @@ model ClienteBackoffice {
   gruposWhatsApp   GrupoCliente[]
   reunioes         ReuniaoCliente[]
   reunioesEstruturadas ReuniaoEstruturada[]
+  reuniaoImports       ReuniaoImport[]
   pats                 Pat[]
 
   @@index([numeroConta])
@@ -810,9 +811,36 @@ model ReuniaoEstruturada {
   updatedAt DateTime @updatedAt
 
   interacoes InteracaoCliente[]
+  imports    ReuniaoImport[]
 
   @@index([clienteId, data])
   @@index([data])
+}
+
+// Histórico de importações de reunião (texto colado ou PDF do Plaud).
+// Registra TUDO que foi importado e quando — independe da ReuniaoEstruturada
+// criada sobreviver (SetNull). O binário do PDF, quando armazenado, fica no B2
+// (b2Key, mesmo bucket de contratos); em ambiente sem B2 o registro existe sem
+// o arquivo (b2Key null).
+model ReuniaoImport {
+  id        String            @id @default(cuid())
+  clienteId String
+  cliente   ClienteBackoffice @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  reuniaoEstruturadaId String?
+  reuniaoEstruturada   ReuniaoEstruturada? @relation(fields: [reuniaoEstruturadaId], references: [id], onDelete: SetNull)
+
+  fonte        String // "texto" | "pdf"
+  textoBruto   String? @db.Text // texto colado, ou texto-fonte do PDF se houver
+  nomeArquivo  String? // nome do PDF importado
+  b2Key        String? // key do PDF no B2 (null quando fonte=texto ou B2 indisponível)
+  contentType  String? // ex.: application/pdf
+  tamanhoBytes Int? // tamanho do PDF
+
+  importadoPor String? // userId de quem importou (sessão)
+  importadoEm  DateTime @default(now())
+
+  @@index([clienteId, importadoEm])
 }
 
 // ============================================

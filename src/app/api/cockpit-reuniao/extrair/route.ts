@@ -24,6 +24,8 @@ export const maxDuration = 60;
 
 const MODEL = "claude-sonnet-4-6";
 const MAX_TOKENS = 1500;
+const PDF_BETA = "pdfs-2024-09-25";
+const MAX_PDF_BYTES = 25 * 1024 * 1024; // 25 MB — teto defensivo do upload
 
 const CADENCIA_VALUES = CADENCIAS_REUNIAO.map((c) => c.value);
 
@@ -160,24 +162,82 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  let body: unknown;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Body inválido." }, { status: 400 });
+  // Aceita 2 formatos: JSON { texto } (colar) OU multipart com um PDF (campo
+  // "file"). Em ambos os casos a rota SÓ extrai — não armazena nada.
+  const contentType = req.headers.get("content-type") ?? "";
+  let texto = "";
+  let hasPdf = false;
+  const userContent: Anthropic.Messages.ContentBlockParam[] = [];
+
+  if (contentType.includes("multipart/form-data")) {
+    let form: FormData;
+    try {
+      form = await req.formData();
+    } catch {
+      return NextResponse.json({ error: "Form inválido." }, { status: 400 });
+    }
+    const file = form.get("file");
+    const textoForm = form.get("texto");
+    if (typeof textoForm === "string") texto = textoForm;
+
+    if (file && typeof file === "object" && "arrayBuffer" in file) {
+      const f = file as File;
+      if (f.type !== "application/pdf") {
+        return NextResponse.json(
+          { error: "Só PDF é aceito no upload." },
+          { status: 400 },
+        );
+      }
+      const buf = Buffer.from(await f.arrayBuffer());
+      if (buf.length === 0 || buf.length > MAX_PDF_BYTES) {
+        return NextResponse.json(
+          { error: "PDF vazio ou maior que 25 MB." },
+          { status: 400 },
+        );
+      }
+      userContent.push({
+        type: "document",
+        source: {
+          type: "base64",
+          media_type: "application/pdf",
+          data: buf.toString("base64"),
+        },
+      });
+      hasPdf = true;
+    }
+  } else {
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: "Body inválido." }, { status: 400 });
+    }
+    if (body && typeof body === "object" && "texto" in body) {
+      const t = (body as { texto: unknown }).texto;
+      if (typeof t === "string") texto = t;
+    }
   }
-  const texto =
-    body && typeof body === "object" && "texto" in body
-      ? (body as { texto: unknown }).texto
-      : null;
-  if (typeof texto !== "string" || texto.trim().length === 0) {
+
+  if (!hasPdf && texto.trim().length === 0) {
     return NextResponse.json(
-      { error: "Cole o resumo da reunião no campo de texto." },
+      { error: "Cole o resumo da reunião ou anexe um PDF." },
       { status: 400 },
     );
   }
 
-  const client = new Anthropic({ apiKey, timeout: 55_000, maxRetries: 1 });
+  userContent.push({
+    type: "text",
+    text: hasPdf
+      ? `Extraia os campos da reunião a partir do PDF anexo${texto.trim() ? `, complementando com este texto:\n\n---\n${texto.trim()}\n---` : "."}`
+      : `Extraia os campos do resumo de reunião abaixo.\n\n---\n${texto.trim()}\n---`,
+  });
+
+  const client = new Anthropic({
+    apiKey,
+    timeout: 55_000,
+    maxRetries: 1,
+    ...(hasPdf ? { defaultHeaders: { "anthropic-beta": PDF_BETA } } : {}),
+  });
 
   let response: Anthropic.Messages.Message;
   try {
@@ -194,12 +254,7 @@ export async function POST(req: NextRequest) {
         },
       ],
       tool_choice: { type: "tool", name: "extrair_reuniao" },
-      messages: [
-        {
-          role: "user",
-          content: `Extraia os campos do resumo de reunião abaixo.\n\n---\n${texto.trim()}\n---`,
-        },
-      ],
+      messages: [{ role: "user", content: userContent }],
     });
   } catch (err) {
     console.error("[cockpit-reuniao/extrair] anthropic error", err);
