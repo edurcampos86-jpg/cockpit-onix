@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthContext } from "@/lib/auth-helpers";
+import { getConfig } from "@/lib/config-db";
 import { cockpitReuniaoHabilitado } from "@/lib/cockpit-reuniao/flag";
 import { CADENCIAS_REUNIAO } from "@/lib/cockpit-reuniao/tipos";
 
@@ -154,10 +155,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  // Lê a chave do Config DB (onde a integração "Claude AI" salva), com fallback
+  // de env — mesmo padrão de claude-analisar/claude-coletivo/painel-do-dia.
+  const apiKey = await getConfig("ANTHROPIC_API_KEY");
   if (!apiKey) {
     return NextResponse.json(
-      { error: "ANTHROPIC_API_KEY ausente" },
+      { error: "ANTHROPIC_API_KEY não configurada (Integrações › Claude AI)." },
       { status: 500 },
     );
   }
