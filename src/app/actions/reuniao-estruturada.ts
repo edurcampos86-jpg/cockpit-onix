@@ -6,6 +6,7 @@ import { getAuthContext } from "@/lib/auth-helpers";
 import {
   CADENCIAS_REUNIAO,
   type ItemAcionavel,
+  type PatrimonioSnapshot,
   type ReuniaoPautas,
   type ReuniaoPendencias,
   type ReuniaoProximosPassos,
@@ -133,6 +134,140 @@ export async function criarReuniaoEstruturada(
       pautas,
       pendencias,
       proximosPassos,
+    },
+  });
+
+  revalidatePath(`/empresas/investimentos/clientes/${clienteId}`);
+  return { ok: true };
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Import via IA (Plaud) — action-irmã que recebe OBJETO já extraído/editado no
+   preview, em vez de FormData. NÃO altera `criarReuniaoEstruturada` (o fluxo
+   manual segue intacto). Persiste também `textoBruto` e `patrimonioSnapshot`.
+   ────────────────────────────────────────────────────────────────────────── */
+
+export type ImportarReuniaoInput = {
+  clienteId: string;
+  pessoaId?: string | null;
+  data: string | null; // ISO yyyy-mm-dd (ou null se a IA não achou)
+  tipoCadencia?: string | null;
+  pautas: string[];
+  pendenciasAssessor: string[];
+  pendenciasCliente: string[];
+  proximosPassos: string[];
+  textoBruto?: string | null;
+  patrimonioSnapshot?: Partial<PatrimonioSnapshot> | null;
+};
+
+/** Mantém só strings não-vazias (trim) de uma lista possivelmente suja. */
+function limparLista(v: string[] | undefined | null): string[] {
+  if (!Array.isArray(v)) return [];
+  return v.map((t) => (typeof t === "string" ? t.trim() : "")).filter(Boolean);
+}
+
+/** Número finito ou undefined (descarta NaN/Infinity/lixo). */
+function numFinito(v: unknown): number | undefined {
+  return typeof v === "number" && Number.isFinite(v) ? v : undefined;
+}
+
+/**
+ * Normaliza o snapshot de patrimônio. Devolve `null` quando não há NENHUM dado
+ * útil (todos os totais vazios e sem observação) — evita gravar `{ moeda }` solto.
+ */
+function normalizarPatrimonio(
+  p: Partial<PatrimonioSnapshot> | null | undefined,
+): PatrimonioSnapshot | null {
+  if (!p || typeof p !== "object") return null;
+  const totalBtg = numFinito(p.totalBtg);
+  const totalForaBtg = numFinito(p.totalForaBtg);
+  const totalGeral = numFinito(p.totalGeral);
+  const observacao =
+    typeof p.observacao === "string" && p.observacao.trim()
+      ? p.observacao.trim()
+      : undefined;
+  if (
+    totalBtg === undefined &&
+    totalForaBtg === undefined &&
+    totalGeral === undefined &&
+    !observacao
+  ) {
+    return null;
+  }
+  return {
+    moeda: "BRL",
+    ...(totalBtg !== undefined ? { totalBtg } : {}),
+    ...(totalForaBtg !== undefined ? { totalForaBtg } : {}),
+    ...(totalGeral !== undefined ? { totalGeral } : {}),
+    ...(observacao ? { observacao } : {}),
+  };
+}
+
+/**
+ * Cria uma `ReuniaoEstruturada` a partir do preview do import via IA.
+ * Mesmas validações de FK e mesmo shape de conteúdo de `criarReuniaoEstruturada`,
+ * só que recebendo um objeto. Cadência fora do whitelist é descartada (null).
+ */
+export async function importarReuniaoEstruturada(
+  input: ImportarReuniaoInput,
+): Promise<CriarReuniaoState> {
+  await getAuthContext();
+
+  const clienteId = typeof input.clienteId === "string" ? input.clienteId.trim() : "";
+  if (!clienteId) return { ok: false, error: "Cliente não informado." };
+
+  const data = dateOrNull(input.data ?? null);
+  if (!data) return { ok: false, error: "Informe a data da reunião." };
+
+  const tipoCadenciaRaw =
+    typeof input.tipoCadencia === "string" ? input.tipoCadencia.trim() : "";
+  const tipoCadencia =
+    tipoCadenciaRaw && isCadencia(tipoCadenciaRaw) ? tipoCadenciaRaw : null;
+
+  const pessoaId =
+    typeof input.pessoaId === "string" && input.pessoaId.trim()
+      ? input.pessoaId.trim()
+      : null;
+
+  const cliente = await prisma.clienteBackoffice.findUnique({
+    where: { id: clienteId },
+    select: { id: true },
+  });
+  if (!cliente) return { ok: false, error: "Cliente não encontrado." };
+
+  if (pessoaId) {
+    const pessoa = await prisma.pessoa.findUnique({
+      where: { id: pessoaId },
+      select: { id: true },
+    });
+    if (!pessoa) return { ok: false, error: "Pessoa (quem conduziu) não encontrada." };
+  }
+
+  const pautas: ReuniaoPautas = limparLista(input.pautas).map((texto) => ({ texto }));
+  const pendencias: ReuniaoPendencias = {
+    assessor: limparLista(input.pendenciasAssessor).map(novoItemAcionavel),
+    cliente: limparLista(input.pendenciasCliente).map(novoItemAcionavel),
+  };
+  const proximosPassos: ReuniaoProximosPassos =
+    limparLista(input.proximosPassos).map(novoItemAcionavel);
+
+  const textoBruto =
+    typeof input.textoBruto === "string" && input.textoBruto.trim()
+      ? input.textoBruto
+      : null;
+  const patrimonioSnapshot = normalizarPatrimonio(input.patrimonioSnapshot);
+
+  await prisma.reuniaoEstruturada.create({
+    data: {
+      clienteId,
+      data,
+      tipoCadencia,
+      pessoaId,
+      pautas,
+      pendencias,
+      proximosPassos,
+      textoBruto,
+      patrimonioSnapshot: patrimonioSnapshot ?? undefined,
     },
   });
 

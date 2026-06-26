@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { getNomeRelacionamento } from "@/lib/backoffice/display-name";
 import { ReuniaoEstruturadaForm } from "./reuniao-estruturada-form";
+import { ImportarReuniaoForm } from "./importar-reuniao-form";
 import {
   Select,
   SelectContent,
@@ -483,6 +484,7 @@ export function CockpitReuniaoTab({
             <span className="inline-flex items-center rounded-md border border-dashed border-border px-2.5 py-1 text-xs text-muted-foreground">
               Próxima reunião · em breve
             </span>
+            <ImportarReuniaoForm clienteId={clienteId} pessoas={pessoas} />
             <ReuniaoEstruturadaForm clienteId={clienteId} pessoas={pessoas} />
           </div>
         </div>
