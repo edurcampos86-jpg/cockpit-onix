@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAuthContext } from "@/lib/auth-helpers";
 import { cockpitReuniaoHabilitado } from "@/lib/cockpit-reuniao/flag";
+import { rbacEnforcementHabilitado, assertClienteVisivel } from "@/lib/rbac";
 import { downloadContrato } from "@/lib/b2/upload";
 
 /**
@@ -28,10 +29,21 @@ export async function GET(
   const { id } = await ctxParams.params;
   const imp = await prisma.reuniaoImport.findUnique({
     where: { id },
-    select: { b2Key: true, nomeArquivo: true, contentType: true },
+    select: { clienteId: true, b2Key: true, nomeArquivo: true, contentType: true },
   });
   if (!imp || !imp.b2Key) {
     return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
+  }
+
+  // RBAC — Camada 2 (escopo). PDF de cliente fora do escopo = 404, a MESMA
+  // resposta de "não existe / sem arquivo" acima, pra não vazar a existência.
+  // Checagem ANTES do download do B2. Flag RBAC_ENFORCEMENT (default OFF) →
+  // idêntico a hoje.
+  if (await rbacEnforcementHabilitado()) {
+    const { visivel } = await assertClienteVisivel(imp.clienteId, ctx);
+    if (!visivel) {
+      return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
+    }
   }
 
   let buf: Buffer;

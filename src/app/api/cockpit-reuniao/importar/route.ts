@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthContext } from "@/lib/auth-helpers";
 import { cockpitReuniaoHabilitado } from "@/lib/cockpit-reuniao/flag";
+import { rbacEnforcementHabilitado, assertClienteVisivel } from "@/lib/rbac";
 import {
   importarReuniaoEstruturada,
   type ImportarReuniaoInput,
@@ -56,6 +57,16 @@ export async function POST(req: NextRequest) {
   }
   if (!campos || typeof campos.clienteId !== "string" || !campos.clienteId) {
     return NextResponse.json({ error: "Cliente não informado." }, { status: 400 });
+  }
+
+  // RBAC — Camada 2 (escopo). Importar reunião de cliente fora do escopo = 404
+  // (não pode ver ⇒ não pode gravar). Checagem ANTES do upload ao B2 e ANTES de
+  // gravar. Flag RBAC_ENFORCEMENT (default OFF) → idêntico a hoje.
+  if (await rbacEnforcementHabilitado()) {
+    const { visivel } = await assertClienteVisivel(campos.clienteId, ctx);
+    if (!visivel) {
+      return NextResponse.json({ error: "Cliente não encontrado" }, { status: 404 });
+    }
   }
 
   // PDF opcional → upload best-effort.

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAuthContext } from "@/lib/auth-helpers";
 import { cockpitReuniaoHabilitado } from "@/lib/cockpit-reuniao/flag";
+import { rbacEnforcementHabilitado, assertClienteVisivel } from "@/lib/rbac";
 
 /**
  * GET /api/cockpit-reuniao/importacoes?clienteId=...
@@ -24,6 +25,16 @@ export async function GET(req: NextRequest) {
   const clienteId = req.nextUrl.searchParams.get("clienteId");
   if (!clienteId) {
     return NextResponse.json({ error: "clienteId ausente." }, { status: 400 });
+  }
+
+  // RBAC — Camada 2 (escopo). Cliente fora do escopo = 404 (NÃO lista vazia, que
+  // disfarçaria como "sem importações" e vazaria a existência). Checagem ANTES do
+  // findMany. Flag RBAC_ENFORCEMENT (default OFF) → idêntico a hoje.
+  if (await rbacEnforcementHabilitado()) {
+    const { visivel } = await assertClienteVisivel(clienteId, ctx);
+    if (!visivel) {
+      return NextResponse.json({ error: "Cliente não encontrado" }, { status: 404 });
+    }
   }
 
   const imports = await prisma.reuniaoImport.findMany({
