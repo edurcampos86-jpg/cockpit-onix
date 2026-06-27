@@ -5,9 +5,11 @@ import { useRouter } from "next/navigation";
 import {
   CalendarIcon,
   CheckCircle2,
+  FileText,
   Plus,
   Sparkles,
   Trash2,
+  Upload,
 } from "lucide-react";
 import {
   Sheet,
@@ -31,8 +33,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { importarReuniaoEstruturada } from "@/app/actions/reuniao-estruturada";
 import { CADENCIAS_REUNIAO } from "@/lib/cockpit-reuniao/tipos";
+import { EVENTO_REUNIAO_IMPORTADA } from "./historico-importacoes-reuniao";
 
 // Mesma sentinela do form manual: Base UI não lida bem com value "" como item.
 const PESSOA_NENHUMA = "__nenhuma__";
@@ -203,10 +205,13 @@ export function ImportarReuniaoForm({
   const [open, setOpen] = useState(false);
   const [sucesso, setSucesso] = useState(false);
 
-  // Etapa 1 — texto bruto + extração.
+  // Etapa 1 — fonte (texto colado ou PDF) + extração.
+  const [modo, setModo] = useState<"texto" | "pdf">("texto");
   const [texto, setTexto] = useState("");
+  const [arquivo, setArquivo] = useState<File | null>(null);
   const [extraindo, setExtraindo] = useState(false);
   const [extraido, setExtraido] = useState(false);
+  const [aviso, setAviso] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
 
   // Etapa 2 — campos do preview (editáveis).
@@ -226,8 +231,11 @@ export function ImportarReuniaoForm({
   const [salvando, startSalvar] = useTransition();
 
   function resetTudo() {
+    setModo("texto");
     setTexto("");
+    setArquivo(null);
     setExtraido(false);
+    setAviso(null);
     setErro(null);
     setData(undefined);
     setCadencia("");
@@ -242,16 +250,26 @@ export function ImportarReuniaoForm({
     setObsPatrimonio("");
   }
 
+  const podeExtrair = modo === "pdf" ? !!arquivo : !!texto.trim();
+
   async function extrair() {
-    if (!texto.trim() || extraindo) return;
+    if (!podeExtrair || extraindo) return;
     setErro(null);
     setExtraindo(true);
     try {
-      const res = await fetch("/api/cockpit-reuniao/extrair", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ texto }),
-      });
+      let res: Response;
+      if (modo === "pdf" && arquivo) {
+        const fd = new FormData();
+        fd.append("file", arquivo);
+        if (texto.trim()) fd.append("texto", texto);
+        res = await fetch("/api/cockpit-reuniao/extrair", { method: "POST", body: fd });
+      } else {
+        res = await fetch("/api/cockpit-reuniao/extrair", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ texto }),
+        });
+      }
       const json = await res.json();
       if (!res.ok) {
         setErro(json?.error ?? "Não consegui extrair. Tente novamente.");
@@ -281,7 +299,7 @@ export function ImportarReuniaoForm({
     if (!data) return;
     setErro(null);
     startSalvar(async () => {
-      const r = await importarReuniaoEstruturada({
+      const payload = {
         clienteId,
         pessoaId: pessoaId === PESSOA_NENHUMA ? null : pessoaId,
         data: toYmd(data),
@@ -292,20 +310,44 @@ export function ImportarReuniaoForm({
         proximosPassos,
         textoBruto: texto,
         patrimonioSnapshot: {
-          moeda: "BRL",
+          moeda: "BRL" as const,
           totalBtg: parseReais(totalBtg),
           totalForaBtg: parseReais(totalForaBtg),
           totalGeral: parseReais(totalGeral),
           observacao: obsPatrimonio.trim() || undefined,
         },
-      });
-      if (!r.ok) {
-        setErro(r.error ?? "Não consegui salvar. Tente novamente.");
+      };
+      const fd = new FormData();
+      fd.append("payload", JSON.stringify(payload));
+      if (modo === "pdf" && arquivo) fd.append("file", arquivo);
+
+      let json: { ok?: boolean; error?: string; pdfNaoArmazenado?: boolean };
+      try {
+        const res = await fetch("/api/cockpit-reuniao/importar", {
+          method: "POST",
+          body: fd,
+        });
+        json = await res.json();
+        if (!res.ok || !json.ok) {
+          setErro(json?.error ?? "Não consegui salvar. Tente novamente.");
+          return;
+        }
+      } catch {
+        setErro("Falha de rede ao salvar.");
         return;
       }
+      const semPdf = Boolean(json.pdfNaoArmazenado);
       setOpen(false);
       resetTudo();
+      setAviso(
+        semPdf
+          ? "Reunião salva, mas o PDF não foi armazenado (storage indisponível neste ambiente)."
+          : null,
+      );
       setSucesso(true);
+      window.dispatchEvent(
+        new CustomEvent(EVENTO_REUNIAO_IMPORTADA, { detail: { clienteId } }),
+      );
       router.refresh();
     });
   }
@@ -318,7 +360,10 @@ export function ImportarReuniaoForm({
 
   useEffect(() => {
     if (!sucesso) return;
-    const t = setTimeout(() => setSucesso(false), 4000);
+    const t = setTimeout(() => {
+      setSucesso(false);
+      setAviso(null);
+    }, 6000);
     return () => clearTimeout(t);
   }, [sucesso]);
 
@@ -338,25 +383,67 @@ export function ImportarReuniaoForm({
             <SheetDescription>
               {extraido
                 ? "Revise os campos extraídos pela IA antes de salvar. Nada é gravado até você clicar em “Salvar reunião”."
-                : "Cole o resumo do Plaud e deixe a IA extrair os campos."}
+                : "Cole o resumo do Plaud ou anexe o PDF e deixe a IA extrair os campos."}
             </SheetDescription>
           </SheetHeader>
 
           <div className="flex flex-1 flex-col gap-5 px-4">
             {!extraido ? (
-              /* ── Etapa 1 — texto bruto ── */
-              <div className="space-y-1.5">
-                <Label>Resumo da reunião (Plaud)</Label>
-                <Textarea
-                  value={texto}
-                  onChange={(e) => setTexto(e.target.value)}
-                  placeholder="Cole aqui o resumo completo da reunião…"
-                  className="min-h-60"
-                />
+              /* ── Etapa 1 — fonte: texto colado ou PDF ── */
+              <div className="space-y-3">
+                {/* Toggle de fonte */}
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    type="button"
+                    variant={modo === "texto" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setModo("texto")}
+                  >
+                    <FileText /> Colar texto
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={modo === "pdf" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setModo("pdf")}
+                  >
+                    <Upload /> Importar PDF
+                  </Button>
+                </div>
+
+                {modo === "texto" ? (
+                  <div className="space-y-1.5">
+                    <Label>Resumo da reunião (Plaud)</Label>
+                    <Textarea
+                      value={texto}
+                      onChange={(e) => setTexto(e.target.value)}
+                      placeholder="Cole aqui o resumo completo da reunião…"
+                      className="min-h-60"
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    <Label>PDF da reunião (Plaud)</Label>
+                    <Input
+                      type="file"
+                      accept="application/pdf"
+                      onChange={(e) => setArquivo(e.target.files?.[0] ?? null)}
+                    />
+                    {arquivo && (
+                      <p className="text-xs text-muted-foreground">
+                        {arquivo.name} · {(arquivo.size / 1024 / 1024).toFixed(1)} MB
+                      </p>
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      O PDF original fica registrado no histórico de importações.
+                    </p>
+                  </div>
+                )}
+
                 <Button
                   type="button"
                   className="w-full"
-                  disabled={!texto.trim() || extraindo}
+                  disabled={!podeExtrair || extraindo}
                   onClick={extrair}
                 >
                   <Sparkles /> {extraindo ? "Extraindo…" : "Extrair com IA"}
@@ -547,6 +634,9 @@ export function ImportarReuniaoForm({
         <span className="inline-flex items-center gap-1.5 text-sm text-primary">
           <CheckCircle2 className="h-4 w-4" /> Reunião importada
         </span>
+      )}
+      {sucesso && aviso && (
+        <span className="text-xs text-amber-600 dark:text-amber-500">{aviso}</span>
       )}
     </div>
   );

@@ -22,10 +22,12 @@ import {
   Check,
   Send,
   Loader2,
+  History,
 } from "lucide-react";
 import { getNomeRelacionamento } from "@/lib/backoffice/display-name";
 import { ReuniaoEstruturadaForm } from "./reuniao-estruturada-form";
 import { ImportarReuniaoForm } from "./importar-reuniao-form";
+import { HistoricoImportacoesReuniao } from "./historico-importacoes-reuniao";
 import {
   Select,
   SelectContent,
@@ -531,6 +533,11 @@ export function CockpitReuniaoTab({
             })}
           </ul>
         )}
+      </Bloco>
+
+      {/* ── HISTÓRICO DE IMPORTAÇÕES (texto/PDF + quando + quem) ── */}
+      <Bloco titulo="Histórico de importações" Icon={History}>
+        <HistoricoImportacoesReuniao clienteId={clienteId} />
       </Bloco>
 
       {/* ── CAMADA ESTÁVEL ── */}

@@ -158,6 +158,12 @@ export type ImportarReuniaoInput = {
   proximosPassos: string[];
   textoBruto?: string | null;
   patrimonioSnapshot?: Partial<PatrimonioSnapshot> | null;
+  // Metadados do histórico de import (registrados em ReuniaoImport).
+  fonte?: "texto" | "pdf";
+  nomeArquivo?: string | null; // nome do PDF, quando fonte=pdf
+  b2Key?: string | null; // key do PDF no B2 (null se sem storage)
+  contentType?: string | null;
+  tamanhoBytes?: number | null;
 };
 
 /** Mantém só strings não-vazias (trim) de uma lista possivelmente suja. */
@@ -211,7 +217,7 @@ function normalizarPatrimonio(
 export async function importarReuniaoEstruturada(
   input: ImportarReuniaoInput,
 ): Promise<CriarReuniaoState> {
-  await getAuthContext();
+  const ctx = await getAuthContext();
 
   const clienteId = typeof input.clienteId === "string" ? input.clienteId.trim() : "";
   if (!clienteId) return { ok: false, error: "Cliente não informado." };
@@ -257,18 +263,42 @@ export async function importarReuniaoEstruturada(
       : null;
   const patrimonioSnapshot = normalizarPatrimonio(input.patrimonioSnapshot);
 
-  await prisma.reuniaoEstruturada.create({
-    data: {
-      clienteId,
-      data,
-      tipoCadencia,
-      pessoaId,
-      pautas,
-      pendencias,
-      proximosPassos,
-      textoBruto,
-      patrimonioSnapshot: patrimonioSnapshot ?? undefined,
-    },
+  const fonte = input.fonte === "pdf" ? "pdf" : "texto";
+  const tamanhoBytes =
+    typeof input.tamanhoBytes === "number" && Number.isFinite(input.tamanhoBytes)
+      ? Math.max(0, Math.trunc(input.tamanhoBytes))
+      : null;
+
+  // Reunião + registro de histórico atômicos: se um falha, nada grava.
+  await prisma.$transaction(async (tx) => {
+    const reuniao = await tx.reuniaoEstruturada.create({
+      data: {
+        clienteId,
+        data,
+        tipoCadencia,
+        pessoaId,
+        pautas,
+        pendencias,
+        proximosPassos,
+        textoBruto,
+        patrimonioSnapshot: patrimonioSnapshot ?? undefined,
+      },
+      select: { id: true },
+    });
+
+    await tx.reuniaoImport.create({
+      data: {
+        clienteId,
+        reuniaoEstruturadaId: reuniao.id,
+        fonte,
+        textoBruto,
+        nomeArquivo: input.nomeArquivo?.trim() || null,
+        b2Key: input.b2Key?.trim() || null,
+        contentType: input.contentType?.trim() || null,
+        tamanhoBytes,
+        importadoPor: ctx.userId,
+      },
+    });
   });
 
   revalidatePath(`/empresas/investimentos/clientes/${clienteId}`);
