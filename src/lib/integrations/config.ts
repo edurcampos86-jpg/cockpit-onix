@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { getConfig } from "@/lib/config-db";
 
 const CONFIG_PATH = path.resolve(process.cwd(), ".integrations.json");
 
@@ -34,6 +35,13 @@ export async function getIntegrationConfig(): Promise<Record<string, string>> {
       Object.assign(config, fileConfig);
     }
   } catch { /* ignore */ }
+
+  // ANTHROPIC_API_KEY é padronizada no Config DB (escrita pela UI via setConfig,
+  // lida por getConfig/extrair, persistente entre deploys). DB tem prioridade; o
+  // .integrations.json segue como fallback legado pra chaves salvas antes desta
+  // unificação. Mantém display "Chave configurada" e testConnection coerentes.
+  const anthropicDb = await getConfig("ANTHROPIC_API_KEY");
+  if (anthropicDb) config["ANTHROPIC_API_KEY"] = anthropicDb;
 
   return config;
 }
