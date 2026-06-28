@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getAuthContext } from "@/lib/auth-helpers";
+import { getConfig } from "@/lib/config-db";
+import { gravarFatosPatrimonio } from "@/lib/cockpit-reuniao/fatos-patrimonio";
 import {
   CADENCIAS_REUNIAO,
   type ItemAcionavel,
@@ -269,6 +271,12 @@ export async function importarReuniaoEstruturada(
       ? Math.max(0, Math.trunc(input.tamanhoBytes))
       : null;
 
+  // Gate da escrita de fatos de perfil (Fase 1a). Default OFF. Lido ANTES da
+  // transação; idioma idêntico aos schedulers in-process. OFF => comportamento
+  // idêntico a hoje (zero fato escrito).
+  const f = (await getConfig("PERFIL_FATO_WRITE"))?.trim().toLowerCase();
+  const ligadoFatos = f === "on" || f === "true" || f === "1";
+
   // Reunião + registro de histórico atômicos: se um falha, nada grava.
   await prisma.$transaction(async (tx) => {
     const reuniao = await tx.reuniaoEstruturada.create({
@@ -285,6 +293,16 @@ export async function importarReuniaoEstruturada(
       },
       select: { id: true },
     });
+
+    // Fatos de patrimônio (Fase 1a) — no MESMO tx (atômico com a reunião).
+    // Flag OFF ou sem patrimônio => no-op. Grava só os totais que mudaram.
+    if (ligadoFatos && patrimonioSnapshot) {
+      await gravarFatosPatrimonio(tx, {
+        clienteId,
+        reuniaoId: reuniao.id,
+        patrimonio: patrimonioSnapshot,
+      });
+    }
 
     await tx.reuniaoImport.create({
       data: {
