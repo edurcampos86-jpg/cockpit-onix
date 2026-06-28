@@ -711,6 +711,7 @@ model ClienteBackoffice {
   reunioesEstruturadas ReuniaoEstruturada[]
   reuniaoImports       ReuniaoImport[]
   pats                 Pat[]
+  fatos                ClienteFato[]
 
   @@index([numeroConta])
   @@index([classificacao])
@@ -812,6 +813,7 @@ model ReuniaoEstruturada {
 
   interacoes InteracaoCliente[]
   imports    ReuniaoImport[]
+  fatos      ClienteFato[]
 
   @@index([clienteId, data])
   @@index([data])
@@ -841,6 +843,43 @@ model ReuniaoImport {
   importadoEm  DateTime @default(now())
 
   @@index([clienteId, importadoEm])
+}
+
+// ============================================
+// PERFIL VERSIONADO — extrato append-only de fatos do cliente
+// ============================================
+// Tabela-histórico: cada linha é UMA mudança de atributo do cliente
+// (valor novo + valor anterior + fonte + reunião + data). O valor de
+// "hoje" continua em ClienteBackoffice; esta tabela é o extrato.
+// Nasce vazia e sem uso (sem UI, sem consolidação) — Fase 0.
+model ClienteFato {
+  id        String            @id @default(cuid())
+  clienteId String
+  cliente   ClienteBackoffice @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  // Reunião de origem (quando o fato veio de uma reunião). SetNull: o fato
+  // sobrevive se a ReuniaoEstruturada for removida.
+  reuniaoId String?
+  reuniao   ReuniaoEstruturada? @relation(fields: [reuniaoId], references: [id], onDelete: SetNull)
+
+  categoria String // "IDENTIDADE" | "METRICA" | "FAMILIA" | "PROJETO" | "MEMORAVEL" | "SAUDE" | "OUTRO"
+  campo     String // ex.: "patrimonioTotal", "parentesco:Jorge"
+
+  valor         String? // valor novo
+  valorAnterior String? // valor antes (null na 1ª vez) -> alimenta o badge
+  dados         Json? // payload estruturado opcional
+
+  fonte      String  // "base_btg" | "informacoes" | "saldo_em_cc" | "api" | "manual" | "reuniao" | "ia"
+  sensivel   Boolean @default(false) // marcado pela IA, pronto pra trancar depois
+  confirmado Boolean @default(false) // vira true na aprovação do diff (workflow é fase futura)
+
+  vence    DateTime? // memoráveis com prazo (null = não vence)
+  criadoEm DateTime  @default(now())
+
+  @@index([clienteId])
+  @@index([clienteId, campo])
+  @@index([clienteId, categoria])
+  @@index([vence])
 }
 
 // ============================================
