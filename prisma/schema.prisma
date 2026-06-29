@@ -799,6 +799,10 @@ model ReuniaoEstruturada {
   data         DateTime
   tipoCadencia String? // ex.: "primeira" | "trimestral" | "revisao-anual"
 
+  // Próxima data de retorno / próxima reunião acordada (a mais próxima). Campo
+  // próprio e consultável — datas de retorno NÃO ficam mais em proximosPassos.
+  dataRetorno DateTime?
+
   // Conteúdo estruturado (Json — shapes validados na aplicação)
   pautas         Json? // tópicos da pauta
   pendencias     Json? // { assessor: [...], cliente: [...] }

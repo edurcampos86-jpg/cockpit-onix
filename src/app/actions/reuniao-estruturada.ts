@@ -153,6 +153,7 @@ export type ImportarReuniaoInput = {
   clienteId: string;
   pessoaId?: string | null;
   data: string | null; // ISO yyyy-mm-dd (ou null se a IA não achou)
+  dataRetorno?: string | null; // ISO yyyy-mm-dd — próxima data de retorno (opcional)
   tipoCadencia?: string | null;
   pautas: string[];
   pendenciasAssessor: string[];
@@ -227,6 +228,9 @@ export async function importarReuniaoEstruturada(
   const data = dateOrNull(input.data ?? null);
   if (!data) return { ok: false, error: "Informe a data da reunião." };
 
+  // Próxima data de retorno (opcional) — mesma coerção do campo data; null se ausente.
+  const dataRetorno = dateOrNull(input.dataRetorno ?? null);
+
   const tipoCadenciaRaw =
     typeof input.tipoCadencia === "string" ? input.tipoCadencia.trim() : "";
   const tipoCadencia =
@@ -283,6 +287,7 @@ export async function importarReuniaoEstruturada(
       data: {
         clienteId,
         data,
+        dataRetorno,
         tipoCadencia,
         pessoaId,
         pautas,
