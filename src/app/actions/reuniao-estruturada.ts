@@ -6,7 +6,12 @@ import { getAuthContext } from "@/lib/auth-helpers";
 import { getConfig } from "@/lib/config-db";
 import { gravarFatosPatrimonio } from "@/lib/cockpit-reuniao/fatos-patrimonio";
 import {
+  gravarFatosRicos,
+  normalizarExtracaoRica,
+} from "@/lib/cockpit-reuniao/fatos-ricos";
+import {
   CADENCIAS_REUNIAO,
+  type ExtracaoRica,
   type ItemAcionavel,
   type PatrimonioSnapshot,
   type ReuniaoPautas,
@@ -161,6 +166,7 @@ export type ImportarReuniaoInput = {
   proximosPassos: string[];
   textoBruto?: string | null;
   patrimonioSnapshot?: Partial<PatrimonioSnapshot> | null;
+  extracaoRica?: ExtracaoRica | null; // blocos ricos (1b-2a) → fatos em ClienteFato (1b-2b)
   // Metadados do histórico de import (registrados em ReuniaoImport).
   fonte?: "texto" | "pdf";
   nomeArquivo?: string | null; // nome do PDF, quando fonte=pdf
@@ -268,6 +274,7 @@ export async function importarReuniaoEstruturada(
       ? input.textoBruto
       : null;
   const patrimonioSnapshot = normalizarPatrimonio(input.patrimonioSnapshot);
+  const extracaoRica = normalizarExtracaoRica(input.extracaoRica ?? null);
 
   const fonte = input.fonte === "pdf" ? "pdf" : "texto";
   const tamanhoBytes =
@@ -280,6 +287,11 @@ export async function importarReuniaoEstruturada(
   // idêntico a hoje (zero fato escrito).
   const f = (await getConfig("PERFIL_FATO_WRITE"))?.trim().toLowerCase();
   const ligadoFatos = f === "on" || f === "true" || f === "1";
+
+  // Gate da escrita dos fatos RICOS (Fase 1b-2b) — FLAG PRÓPRIA, default OFF.
+  // Independente da 1a (patrimônio). Mesmo idioma on|true|1.
+  const fr = (await getConfig("PERFIL_FATO_RICO_WRITE"))?.trim().toLowerCase();
+  const ligadoFatosRicos = fr === "on" || fr === "true" || fr === "1";
 
   // Reunião + registro de histórico atômicos: se um falha, nada grava.
   await prisma.$transaction(async (tx) => {
@@ -306,6 +318,17 @@ export async function importarReuniaoEstruturada(
         clienteId,
         reuniaoId: reuniao.id,
         patrimonio: patrimonioSnapshot,
+      });
+    }
+
+    // Fatos RICOS (Fase 1b-2b) — no MESMO tx, flag PRÓPRIA. Grava só o que
+    // mudou (change-detection por campo); ausência não apaga. Patrimônio não
+    // passa por aqui (segue na 1a acima).
+    if (ligadoFatosRicos) {
+      await gravarFatosRicos(tx, {
+        clienteId,
+        reuniaoId: reuniao.id,
+        extracao: extracaoRica,
       });
     }
 
