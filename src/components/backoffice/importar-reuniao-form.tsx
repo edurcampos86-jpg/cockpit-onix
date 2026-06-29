@@ -44,6 +44,7 @@ type PessoaOpcao = { id: string; nome: string };
 /** Shape devolvido por POST /api/cockpit-reuniao/extrair. */
 type Extracao = {
   data: string | null;
+  dataRetorno: string | null;
   tipoCadencia: string;
   pautas: string[];
   pendenciasAssessor: string[];
@@ -217,6 +218,8 @@ export function ImportarReuniaoForm({
   // Etapa 2 — campos do preview (editáveis).
   const [data, setData] = useState<Date | undefined>(undefined);
   const [calendarioAberto, setCalendarioAberto] = useState(false);
+  const [dataRetorno, setDataRetorno] = useState<Date | undefined>(undefined);
+  const [calRetornoAberto, setCalRetornoAberto] = useState(false);
   const [cadencia, setCadencia] = useState<string>("");
   const [pessoaId, setPessoaId] = useState<string>(PESSOA_NENHUMA);
   const [pautas, setPautas] = useState<string[]>([]);
@@ -238,6 +241,7 @@ export function ImportarReuniaoForm({
     setAviso(null);
     setErro(null);
     setData(undefined);
+    setDataRetorno(undefined);
     setCadencia("");
     setPessoaId(PESSOA_NENHUMA);
     setPautas([]);
@@ -277,6 +281,7 @@ export function ImportarReuniaoForm({
       }
       const e = json as Extracao;
       setData(fromYmd(e.data));
+      setDataRetorno(fromYmd(e.dataRetorno));
       setCadencia(e.tipoCadencia ?? "");
       setPautas(e.pautas ?? []);
       setPendAssessor(e.pendenciasAssessor ?? []);
@@ -303,6 +308,7 @@ export function ImportarReuniaoForm({
         clienteId,
         pessoaId: pessoaId === PESSOA_NENHUMA ? null : pessoaId,
         data: toYmd(data),
+        dataRetorno: dataRetorno ? toYmd(dataRetorno) : null,
         tipoCadencia: cadencia || null,
         pautas,
         pendenciasAssessor: pendAssessor,
@@ -571,6 +577,61 @@ export function ImportarReuniaoForm({
                     setItens={setProximosPassos}
                     placeholder="Próximo passo acordado"
                   />
+                </div>
+
+                {/* Próxima data de retorno — slot próprio (datas saem de "próximos passos") */}
+                <div className="space-y-1.5">
+                  <Label>Próxima data de retorno</Label>
+                  <div className="flex items-center gap-2">
+                    <Popover
+                      open={calRetornoAberto}
+                      onOpenChange={setCalRetornoAberto}
+                    >
+                      <PopoverTrigger
+                        render={
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="w-full justify-start font-normal"
+                          >
+                            <CalendarIcon className="text-muted-foreground" />
+                            {dataRetorno ? (
+                              fmtData(dataRetorno)
+                            ) : (
+                              <span className="text-muted-foreground">
+                                Selecione (opcional)
+                              </span>
+                            )}
+                          </Button>
+                        }
+                      />
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={dataRetorno}
+                          onSelect={(d) => {
+                            setDataRetorno(d);
+                            setCalRetornoAberto(false);
+                          }}
+                        />
+                      </PopoverContent>
+                    </Popover>
+                    {dataRetorno && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label="Limpar data de retorno"
+                        onClick={() => setDataRetorno(undefined)}
+                      >
+                        <Trash2 className="text-muted-foreground" />
+                      </Button>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Próxima reunião acordada. Datas de retorno ficam aqui — não em
+                    “Próximos passos”.
+                  </p>
                 </div>
 
                 {/* Patrimônio (em reais cheios) */}

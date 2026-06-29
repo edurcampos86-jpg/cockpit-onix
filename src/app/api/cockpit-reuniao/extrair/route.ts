@@ -38,6 +38,11 @@ const EXTRAIR_TOOL_SCHEMA = {
       description:
         "Data da reunião no formato ISO yyyy-mm-dd. String vazia se o resumo não disser a data.",
     },
+    dataRetorno: {
+      type: "string",
+      description:
+        "Próxima data de retorno / próxima reunião acordada (a MAIS PRÓXIMA), no formato ISO yyyy-mm-dd. String vazia se o resumo não disser. NÃO é a data desta reunião.",
+    },
     tipoCadencia: {
       type: "string",
       enum: [...CADENCIA_VALUES],
@@ -94,6 +99,7 @@ const EXTRAIR_TOOL_SCHEMA = {
   },
   required: [
     "data",
+    "dataRetorno",
     "tipoCadencia",
     "pautas",
     "pendenciasAssessor",
@@ -112,6 +118,7 @@ Regras de fidelidade (CRÍTICAS):
 - Separe pendências por lado: o que o ASSESSOR ficou de fazer vs. o que o CLIENTE ficou de fazer.
 - Patrimônio: sempre em REAIS CHEIOS, número INTEIRO, convertendo o que o texto disser ("4 milhões" → 4000000; "9 milhões" → 9000000; "R$ 560 mil" → 560000). NUNCA use decimais de milhão (não devolva 4 nem 4.0 para "4 milhões"). Só preencha um total se houver número no texto; omita o campo se não houver.
 - Data: formato ISO yyyy-mm-dd. Se o resumo não disser a data, devolva string vazia.
+- Datas de retorno / próxima reunião vão em 'dataRetorno' (a MAIS PRÓXIMA, ISO yyyy-mm-dd; string vazia se não houver). 'proximosPassos' é SÓ para AÇÕES acordadas — NUNCA coloque datas de retorno nem "próxima reunião" ali.
 
 Responda SEMPRE chamando a tool 'extrair_reuniao'.`;
 
@@ -252,7 +259,7 @@ export async function POST(req: NextRequest) {
         {
           name: "extrair_reuniao",
           description:
-            "Devolve os campos operacionais da reunião (data, cadência, pautas, pendências dos dois lados, próximos passos) + snapshot de patrimônio. Extraídos fielmente do resumo.",
+            "Devolve os campos operacionais da reunião (data, data de retorno, cadência, pautas, pendências dos dois lados, próximos passos) + snapshot de patrimônio. Extraídos fielmente do resumo.",
           input_schema: EXTRAIR_TOOL_SCHEMA,
         },
       ],
@@ -309,6 +316,7 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     data: dataIsoOrNull(raw.data),
+    dataRetorno: dataIsoOrNull(raw.dataRetorno),
     tipoCadencia,
     pautas: listaTextos(raw.pautas),
     pendenciasAssessor: listaTextos(raw.pendenciasAssessor),
