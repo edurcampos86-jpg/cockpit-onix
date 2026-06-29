@@ -3,7 +3,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthContext } from "@/lib/auth-helpers";
 import { getConfig } from "@/lib/config-db";
 import { cockpitReuniaoHabilitado } from "@/lib/cockpit-reuniao/flag";
-import { CADENCIAS_REUNIAO } from "@/lib/cockpit-reuniao/tipos";
+import {
+  CADENCIAS_REUNIAO,
+  HORIZONTES_PROJETO,
+  type FamiliaEntidade,
+  type HorizonteProjeto,
+  type IdentidadeExtraida,
+  type MemoravelEntidade,
+  type MetricaEntidade,
+  type ProjetoEntidade,
+  type SucessaoEntidade,
+} from "@/lib/cockpit-reuniao/tipos";
 
 /**
  * POST /api/cockpit-reuniao/extrair
@@ -96,6 +106,172 @@ const EXTRAIR_TOOL_SCHEMA = {
       description:
         "Snapshot do patrimônio declarado. Omita os campos que o resumo não trouxer.",
     },
+    identidade: {
+      type: "object",
+      properties: {
+        idade: {
+          type: "integer",
+          minimum: 0,
+          description: "Idade do cliente em anos, se o texto disser um número.",
+        },
+        profissao: {
+          type: "string",
+          description: "Profissão / ocupação atual do cliente.",
+        },
+        origem: {
+          type: "string",
+          description: "Origem / cidade-natal / de onde veio, se mencionado.",
+        },
+        estadoCivil: {
+          type: "string",
+          description: "Estado civil (ex.: casado, solteiro, divorciado, viúvo).",
+        },
+      },
+      additionalProperties: false,
+      description:
+        "Identidade do PRÓPRIO cliente. Omita os campos que o resumo não trouxer.",
+    },
+    familia: {
+      type: "array",
+      description:
+        "Pessoas do círculo do cliente citadas (cônjuge, filhos, pais, sócios pessoais). UMA entrada por pessoa. Vazio se não houver.",
+      items: {
+        type: "object",
+        properties: {
+          chave: {
+            type: "string",
+            description:
+              "Chave estável da pessoa, minúscula e sem acento, ex.: 'familia:gustavo', 'familia:esposa-marina'.",
+          },
+          nome: {
+            type: "string",
+            description: "Nome da pessoa (ou o papel, ex.: 'esposa', se não houver nome).",
+          },
+          resumo: {
+            type: "string",
+            description: "Resumo curto de quem é / relação com o cliente.",
+          },
+          detalhe: {
+            type: "string",
+            description:
+              "Detalhes adicionais (idade, profissão, estudos, saúde, etc.), se houver.",
+          },
+          sensivel: {
+            type: "boolean",
+            description:
+              "true se contiver dado sensível (ex.: saúde/doença de terceiro). Saúde de FAMILIAR entra AQUI com sensivel=true, NUNCA em 'saude'.",
+          },
+        },
+        required: ["chave", "nome", "resumo"],
+        additionalProperties: false,
+      },
+    },
+    projetos: {
+      type: "array",
+      description:
+        "Projetos / objetivos de vida do cliente (comprar/vender bem, viagem, aposentadoria, abrir negócio). Vazio se não houver.",
+      items: {
+        type: "object",
+        properties: {
+          chave: {
+            type: "string",
+            description:
+              "Chave estável, ex.: 'projeto:vender-itacimirim', 'projeto:aposentadoria'.",
+          },
+          descricao: {
+            type: "string",
+            description: "Descrição do projeto / objetivo.",
+          },
+          horizonte: {
+            type: "string",
+            enum: ["curto", "medio", "longo"],
+            description:
+              "Horizonte temporal: curto (até 1 ano), medio (1–5 anos), longo (5+ anos). Use o que o texto indicar.",
+          },
+        },
+        required: ["chave", "descricao", "horizonte"],
+        additionalProperties: false,
+      },
+    },
+    metricas: {
+      type: "array",
+      description:
+        "Métricas de FLUXO declaradas (despesa, renda, capacidade de poupança). NÃO inclua patrimônio (isso vai no patrimonioSnapshot). Vazio se não houver.",
+      items: {
+        type: "object",
+        properties: {
+          chave: {
+            type: "string",
+            description:
+              "Chave da métrica, ex.: 'despesaMensal', 'rendaMensal', 'capacidadePoupanca'.",
+          },
+          valorNumerico: {
+            type: "integer",
+            minimum: 0,
+            description:
+              "Valor em REAIS CHEIOS inteiro, quando o texto der número ('R$ 30 mil' → 30000). Omita se for só qualitativo.",
+          },
+          valorTexto: {
+            type: "string",
+            description:
+              "Valor qualitativo quando NÃO houver número (ex.: 'muito alta', 'baixa'). Omita se houver valorNumerico.",
+          },
+        },
+        required: ["chave"],
+        additionalProperties: false,
+      },
+    },
+    memoraveis: {
+      type: "array",
+      description:
+        "Fatos memoráveis / pessoais (aniversários, hobbies, time, datas marcantes, preferências). Vazio se não houver.",
+      items: {
+        type: "object",
+        properties: {
+          chave: {
+            type: "string",
+            description: "Chave estável, ex.: 'memoravel:aniversario', 'memoravel:hobby-vela'.",
+          },
+          descricao: {
+            type: "string",
+            description: "Descrição do fato memorável.",
+          },
+          vence: {
+            type: "string",
+            description:
+              "Data ISO yyyy-mm-dd quando o fato tem prazo (ex.: aniversário, vencimento). String vazia se não tiver prazo.",
+          },
+        },
+        required: ["chave", "descricao"],
+        additionalProperties: false,
+      },
+    },
+    saude: {
+      type: "string",
+      description:
+        "Saúde do PRÓPRIO cliente (condições, restrições, preocupações). String vazia se não houver. Saúde de TERCEIROS (familiares) NÃO entra aqui — vai na pessoa em 'familia' com sensivel=true.",
+    },
+    sucessao: {
+      type: "array",
+      description:
+        "Sinais de sucessão / proteção patrimonial e oportunidades de cross-sell (seguro de vida, previdência, testamento, holding, inventário, doação). Vazio se não houver.",
+      items: {
+        type: "object",
+        properties: {
+          chave: {
+            type: "string",
+            description:
+              "Chave estável, ex.: 'produto:seguro-vida', 'produto:previdencia', 'risco:inventario', 'estrutura:holding'.",
+          },
+          descricao: {
+            type: "string",
+            description: "O que foi dito / a necessidade ou oportunidade identificada.",
+          },
+        },
+        required: ["chave", "descricao"],
+        additionalProperties: false,
+      },
+    },
   },
   required: [
     "data",
@@ -106,6 +282,13 @@ const EXTRAIR_TOOL_SCHEMA = {
     "pendenciasCliente",
     "proximosPassos",
     "patrimonioSnapshot",
+    "identidade",
+    "familia",
+    "projetos",
+    "metricas",
+    "memoraveis",
+    "saude",
+    "sucessao",
   ],
   additionalProperties: false,
 };
@@ -119,6 +302,16 @@ Regras de fidelidade (CRÍTICAS):
 - Patrimônio: sempre em REAIS CHEIOS, número INTEIRO, convertendo o que o texto disser ("4 milhões" → 4000000; "9 milhões" → 9000000; "R$ 560 mil" → 560000). NUNCA use decimais de milhão (não devolva 4 nem 4.0 para "4 milhões"). Só preencha um total se houver número no texto; omita o campo se não houver.
 - Data: formato ISO yyyy-mm-dd. Se o resumo não disser a data, devolva string vazia.
 - Datas de retorno / próxima reunião vão em 'dataRetorno' (a MAIS PRÓXIMA, ISO yyyy-mm-dd; string vazia se não houver). 'proximosPassos' é SÓ para AÇÕES acordadas — NUNCA coloque datas de retorno nem "próxima reunião" ali.
+
+Perfil rico (mapeie as seções do resumo para as categorias certas):
+- 'identidade': idade, profissão, origem e estado civil do PRÓPRIO cliente.
+- 'familia': cada pessoa citada (cônjuge, filhos, pais, sócios pessoais) vira UMA entrada, com chave estável (ex.: 'familia:gustavo'), nome, resumo e detalhe.
+- 'projetos': objetivos/planos de vida, com horizonte (curto/medio/longo) conforme o texto.
+- 'metricas': fluxo financeiro (despesa, renda, capacidade de poupança). Use 'valorNumerico' (reais cheios, inteiro) QUANDO houver número; senão use 'valorTexto' (qualitativo, ex.: "muito alta"). NUNCA os dois ao mesmo tempo. Patrimônio NÃO é métrica — vai em patrimonioSnapshot.
+- 'memoraveis': aniversários, hobbies, time, datas marcantes, preferências. Se tiver prazo/data, preencha 'vence' (ISO yyyy-mm-dd).
+- 'saude': SOMENTE a saúde do próprio cliente. Saúde de TERCEIROS (familiares) vai na pessoa correspondente em 'familia' com sensivel=true — NUNCA em 'saude'.
+- 'sucessao': sucessão / proteção patrimonial / cross-sell (seguro de vida, previdência, testamento, holding, inventário), com chave (ex.: 'produto:seguro-vida').
+- IGNORE seções de "treinamento do assessor" e "mídias sociais" do resumo — não são dados do cliente.
 
 Responda SEMPRE chamando a tool 'extrair_reuniao'.`;
 
@@ -151,6 +344,117 @@ function listaTextos(v: unknown): string[] {
 function reaisInteiroOrUndef(v: unknown): number | undefined {
   if (typeof v !== "number" || !Number.isFinite(v)) return undefined;
   return Math.max(0, Math.trunc(v));
+}
+
+/** String não-vazia (trim) ou undefined. */
+function strOuUndef(v: unknown): string | undefined {
+  if (typeof v !== "string") return undefined;
+  const t = v.trim();
+  return t ? t : undefined;
+}
+
+const HORIZONTES_VALIDOS = HORIZONTES_PROJETO.map((h) => h.value);
+
+// --- Coerções defensivas dos blocos ricos (1b-2a). Não confiar só no schema:
+// descartam entidades vazias, normalizam tipos e impõem a régua num/qualitativo. ---
+
+function coerceIdentidade(v: unknown): IdentidadeExtraida {
+  const o = v && typeof v === "object" ? (v as Record<string, unknown>) : {};
+  return {
+    idade: reaisInteiroOrUndef(o.idade), // inteiro >= 0
+    profissao: strOuUndef(o.profissao),
+    origem: strOuUndef(o.origem),
+    estadoCivil: strOuUndef(o.estadoCivil),
+  };
+}
+
+function coerceFamilia(v: unknown): FamiliaEntidade[] {
+  if (!Array.isArray(v)) return [];
+  const out: FamiliaEntidade[] = [];
+  for (const it of v) {
+    if (!it || typeof it !== "object") continue;
+    const o = it as Record<string, unknown>;
+    const chave = strOuUndef(o.chave);
+    const nome = strOuUndef(o.nome);
+    const resumo = strOuUndef(o.resumo);
+    if (!chave && !nome && !resumo) continue; // pessoa vazia: descarta
+    out.push({
+      chave: chave ?? "",
+      nome: nome ?? "",
+      resumo: resumo ?? "",
+      detalhe: strOuUndef(o.detalhe),
+      sensivel: o.sensivel === true,
+    });
+  }
+  return out;
+}
+
+function coerceProjetos(v: unknown): ProjetoEntidade[] {
+  if (!Array.isArray(v)) return [];
+  const out: ProjetoEntidade[] = [];
+  for (const it of v) {
+    if (!it || typeof it !== "object") continue;
+    const o = it as Record<string, unknown>;
+    const descricao = strOuUndef(o.descricao);
+    if (!descricao) continue;
+    const hRaw = typeof o.horizonte === "string" ? o.horizonte.trim() : "";
+    const horizonte: HorizonteProjeto = HORIZONTES_VALIDOS.includes(
+      hRaw as HorizonteProjeto,
+    )
+      ? (hRaw as HorizonteProjeto)
+      : "medio";
+    out.push({ chave: strOuUndef(o.chave) ?? "", descricao, horizonte });
+  }
+  return out;
+}
+
+function coerceMetricas(v: unknown): MetricaEntidade[] {
+  if (!Array.isArray(v)) return [];
+  const out: MetricaEntidade[] = [];
+  for (const it of v) {
+    if (!it || typeof it !== "object") continue;
+    const o = it as Record<string, unknown>;
+    const chave = strOuUndef(o.chave);
+    if (!chave) continue;
+    // Decisão 16: número tem prioridade; só usa texto se não houver número.
+    const valorNumerico = reaisInteiroOrUndef(o.valorNumerico);
+    const valorTexto =
+      valorNumerico === undefined ? strOuUndef(o.valorTexto) : undefined;
+    if (valorNumerico === undefined && !valorTexto) continue; // métrica sem valor: descarta
+    out.push({ chave, valorNumerico, valorTexto });
+  }
+  return out;
+}
+
+function coerceMemoraveis(v: unknown): MemoravelEntidade[] {
+  if (!Array.isArray(v)) return [];
+  const out: MemoravelEntidade[] = [];
+  for (const it of v) {
+    if (!it || typeof it !== "object") continue;
+    const o = it as Record<string, unknown>;
+    const descricao = strOuUndef(o.descricao);
+    if (!descricao) continue;
+    out.push({
+      chave: strOuUndef(o.chave) ?? "",
+      descricao,
+      vence: dataIsoOrNull(o.vence),
+    });
+  }
+  return out;
+}
+
+function coerceSucessao(v: unknown): SucessaoEntidade[] {
+  if (!Array.isArray(v)) return [];
+  const out: SucessaoEntidade[] = [];
+  for (const it of v) {
+    if (!it || typeof it !== "object") continue;
+    const o = it as Record<string, unknown>;
+    const chave = strOuUndef(o.chave);
+    const descricao = strOuUndef(o.descricao);
+    if (!chave && !descricao) continue; // sinal vazio: descarta
+    out.push({ chave: chave ?? "", descricao: descricao ?? "" });
+  }
+  return out;
 }
 
 export async function POST(req: NextRequest) {
@@ -323,6 +627,14 @@ export async function POST(req: NextRequest) {
     pendenciasCliente: listaTextos(raw.pendenciasCliente),
     proximosPassos: listaTextos(raw.proximosPassos),
     patrimonioSnapshot,
+    // Blocos ricos (1b-2a) — só extração + preview; nada grava em ClienteFato aqui.
+    identidade: coerceIdentidade(raw.identidade),
+    familia: coerceFamilia(raw.familia),
+    projetos: coerceProjetos(raw.projetos),
+    metricas: coerceMetricas(raw.metricas),
+    memoraveis: coerceMemoraveis(raw.memoraveis),
+    saude: typeof raw.saude === "string" ? raw.saude.trim() : "",
+    sucessao: coerceSucessao(raw.sucessao),
     usage: {
       inputTokens: response.usage.input_tokens,
       outputTokens: response.usage.output_tokens,

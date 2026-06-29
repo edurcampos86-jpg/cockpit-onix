@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { type ReactNode, useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   CalendarIcon,
@@ -33,7 +33,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { CADENCIAS_REUNIAO } from "@/lib/cockpit-reuniao/tipos";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  CADENCIAS_REUNIAO,
+  HORIZONTES_PROJETO,
+  type IdentidadeExtraida,
+  type FamiliaEntidade,
+  type ProjetoEntidade,
+  type MetricaEntidade,
+  type MemoravelEntidade,
+  type SucessaoEntidade,
+} from "@/lib/cockpit-reuniao/tipos";
 import { EVENTO_REUNIAO_IMPORTADA } from "./historico-importacoes-reuniao";
 
 // Mesma sentinela do form manual: Base UI não lida bem com value "" como item.
@@ -57,7 +67,45 @@ type Extracao = {
     observacao?: string;
     moeda: "BRL";
   };
+  // Blocos ricos (1b-2a) — revisados no preview; nesta fase NÃO são gravados.
+  identidade: IdentidadeExtraida;
+  familia: FamiliaEntidade[];
+  projetos: ProjetoEntidade[];
+  metricas: MetricaEntidade[];
+  memoraveis: MemoravelEntidade[];
+  saude: string;
+  sucessao: SucessaoEntidade[];
 };
+
+// Formas de EDIÇÃO no preview (string-friendly p/ inputs controlados). Idade e
+// valores de métrica viram string; a conversão canônica só importará na 1b-2b.
+type IdentidadeForm = {
+  idade: string;
+  profissao: string;
+  origem: string;
+  estadoCivil: string;
+};
+type FamiliaForm = {
+  chave: string;
+  nome: string;
+  resumo: string;
+  detalhe: string;
+  sensivel: boolean;
+};
+type ProjetoForm = { chave: string; descricao: string; horizonte: string };
+type MetricaForm = {
+  chave: string;
+  modo: "num" | "texto";
+  valorNumerico: string;
+  valorTexto: string;
+};
+type MemoravelForm = { chave: string; descricao: string; vence: string };
+type SucessaoForm = { chave: string; descricao: string };
+
+/** Atualização imutável de um item de lista por índice. */
+function patchAt<T>(arr: T[], i: number, patch: Partial<T>): T[] {
+  return arr.map((it, j) => (j === i ? { ...it, ...patch } : it));
+}
 
 /** yyyy-mm-dd a partir dos componentes LOCAIS (evita shift de timezone do ISO). */
 function toYmd(d: Date): string {
@@ -195,6 +243,403 @@ function CampoReais({
   );
 }
 
+/** Cartão de uma entidade (família/projeto/etc.) com botão remover no topo. */
+function CartaoEntidade({
+  children,
+  onRemover,
+}: {
+  children: ReactNode;
+  onRemover: () => void;
+}) {
+  return (
+    <div className="space-y-2 rounded-lg border border-dashed border-border/70 p-3">
+      <div className="flex justify-end">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Remover"
+          onClick={onRemover}
+        >
+          <Trash2 className="text-muted-foreground" />
+        </Button>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/** Botão "Adicionar" padronizado dos blocos de entidade. */
+function BotaoAdicionar({
+  onClick,
+  children,
+}: {
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <Button type="button" variant="outline" size="sm" onClick={onClick}>
+      <Plus /> {children}
+    </Button>
+  );
+}
+
+/** Input pequeno e secundário para a "chave" estável da entidade. */
+function CampoChave({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+}) {
+  return (
+    <div className="space-y-1">
+      <Label className="text-xs text-muted-foreground">chave</Label>
+      <Input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="text-xs"
+      />
+    </div>
+  );
+}
+
+/** Identidade do cliente: idade / profissão / origem / estado civil. */
+function CampoIdentidade({
+  value,
+  setValue,
+}: {
+  value: IdentidadeForm;
+  setValue: (next: IdentidadeForm) => void;
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      <div className="space-y-1.5">
+        <Label className="text-xs">Idade</Label>
+        <Input
+          inputMode="numeric"
+          value={value.idade}
+          onChange={(e) => setValue({ ...value, idade: e.target.value })}
+          placeholder="—"
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label className="text-xs">Estado civil</Label>
+        <Input
+          value={value.estadoCivil}
+          onChange={(e) => setValue({ ...value, estadoCivil: e.target.value })}
+          placeholder="—"
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label className="text-xs">Profissão</Label>
+        <Input
+          value={value.profissao}
+          onChange={(e) => setValue({ ...value, profissao: e.target.value })}
+          placeholder="—"
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label className="text-xs">Origem</Label>
+        <Input
+          value={value.origem}
+          onChange={(e) => setValue({ ...value, origem: e.target.value })}
+          placeholder="—"
+        />
+      </div>
+    </div>
+  );
+}
+
+/** Lista de pessoas da família (nome + resumo + detalhe + sensível). */
+function EditorFamilia({
+  itens,
+  setItens,
+}: {
+  itens: FamiliaForm[];
+  setItens: (next: FamiliaForm[]) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      {itens.map((f, i) => (
+        <CartaoEntidade
+          key={i}
+          onRemover={() => setItens(itens.filter((_, j) => j !== i))}
+        >
+          <Input
+            value={f.nome}
+            onChange={(e) => setItens(patchAt(itens, i, { nome: e.target.value }))}
+            placeholder="Nome (ou papel, ex.: esposa)"
+          />
+          <Input
+            value={f.resumo}
+            onChange={(e) => setItens(patchAt(itens, i, { resumo: e.target.value }))}
+            placeholder="Resumo — quem é / relação"
+          />
+          <Textarea
+            value={f.detalhe}
+            onChange={(e) => setItens(patchAt(itens, i, { detalhe: e.target.value }))}
+            placeholder="Detalhe (idade, profissão, saúde, estudos…)"
+            className="min-h-16"
+          />
+          <CampoChave
+            value={f.chave}
+            onChange={(v) => setItens(patchAt(itens, i, { chave: v }))}
+            placeholder="familia:gustavo"
+          />
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Checkbox
+              checked={f.sensivel}
+              onCheckedChange={(v) =>
+                setItens(patchAt(itens, i, { sensivel: v === true }))
+              }
+            />
+            Dado sensível (ex.: saúde de terceiro)
+          </label>
+        </CartaoEntidade>
+      ))}
+      <BotaoAdicionar
+        onClick={() =>
+          setItens([
+            ...itens,
+            { chave: "", nome: "", resumo: "", detalhe: "", sensivel: false },
+          ])
+        }
+      >
+        Adicionar pessoa
+      </BotaoAdicionar>
+    </div>
+  );
+}
+
+/** Lista de projetos (descrição + horizonte). */
+function EditorProjetos({
+  itens,
+  setItens,
+}: {
+  itens: ProjetoForm[];
+  setItens: (next: ProjetoForm[]) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      {itens.map((p, i) => (
+        <CartaoEntidade
+          key={i}
+          onRemover={() => setItens(itens.filter((_, j) => j !== i))}
+        >
+          <Input
+            value={p.descricao}
+            onChange={(e) =>
+              setItens(patchAt(itens, i, { descricao: e.target.value }))
+            }
+            placeholder="Descrição do projeto / objetivo"
+          />
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Horizonte</Label>
+            <Select
+              value={p.horizonte}
+              onValueChange={(v) =>
+                setItens(patchAt(itens, i, { horizonte: v ?? "medio" }))
+              }
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Selecione" />
+              </SelectTrigger>
+              <SelectContent>
+                {HORIZONTES_PROJETO.map((h) => (
+                  <SelectItem key={h.value} value={h.value}>
+                    {h.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <CampoChave
+            value={p.chave}
+            onChange={(v) => setItens(patchAt(itens, i, { chave: v }))}
+            placeholder="projeto:vender-itacimirim"
+          />
+        </CartaoEntidade>
+      ))}
+      <BotaoAdicionar
+        onClick={() =>
+          setItens([...itens, { chave: "", descricao: "", horizonte: "medio" }])
+        }
+      >
+        Adicionar projeto
+      </BotaoAdicionar>
+    </div>
+  );
+}
+
+/** Lista de métricas de fluxo — toggle número (R$) ou texto qualitativo. */
+function EditorMetricas({
+  itens,
+  setItens,
+}: {
+  itens: MetricaForm[];
+  setItens: (next: MetricaForm[]) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      {itens.map((m, i) => (
+        <CartaoEntidade
+          key={i}
+          onRemover={() => setItens(itens.filter((_, j) => j !== i))}
+        >
+          <Input
+            value={m.chave}
+            onChange={(e) => setItens(patchAt(itens, i, { chave: e.target.value }))}
+            placeholder="Chave (ex.: despesaMensal, rendaMensal)"
+          />
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant={m.modo === "num" ? "default" : "outline"}
+              onClick={() => setItens(patchAt(itens, i, { modo: "num" }))}
+            >
+              Número (R$)
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={m.modo === "texto" ? "default" : "outline"}
+              onClick={() => setItens(patchAt(itens, i, { modo: "texto" }))}
+            >
+              Qualitativo
+            </Button>
+          </div>
+          {m.modo === "num" ? (
+            <div className="space-y-1">
+              <Input
+                inputMode="numeric"
+                value={m.valorNumerico}
+                onChange={(e) =>
+                  setItens(patchAt(itens, i, { valorNumerico: e.target.value }))
+                }
+                placeholder="0"
+              />
+              {fmtBRL(m.valorNumerico) && (
+                <p className="text-xs text-muted-foreground tabular-nums">
+                  {fmtBRL(m.valorNumerico)}
+                </p>
+              )}
+            </div>
+          ) : (
+            <Input
+              value={m.valorTexto}
+              onChange={(e) =>
+                setItens(patchAt(itens, i, { valorTexto: e.target.value }))
+              }
+              placeholder="Qualitativo (ex.: muito alta)"
+            />
+          )}
+        </CartaoEntidade>
+      ))}
+      <BotaoAdicionar
+        onClick={() =>
+          setItens([
+            ...itens,
+            { chave: "", modo: "num", valorNumerico: "", valorTexto: "" },
+          ])
+        }
+      >
+        Adicionar métrica
+      </BotaoAdicionar>
+    </div>
+  );
+}
+
+/** Lista de memoráveis (descrição + data opcional de vencimento). */
+function EditorMemoraveis({
+  itens,
+  setItens,
+}: {
+  itens: MemoravelForm[];
+  setItens: (next: MemoravelForm[]) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      {itens.map((m, i) => (
+        <CartaoEntidade
+          key={i}
+          onRemover={() => setItens(itens.filter((_, j) => j !== i))}
+        >
+          <Input
+            value={m.descricao}
+            onChange={(e) =>
+              setItens(patchAt(itens, i, { descricao: e.target.value }))
+            }
+            placeholder="Fato memorável (aniversário, hobby, time…)"
+          />
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">
+              Vence (opcional)
+            </Label>
+            <Input
+              type="date"
+              value={m.vence}
+              onChange={(e) => setItens(patchAt(itens, i, { vence: e.target.value }))}
+            />
+          </div>
+          <CampoChave
+            value={m.chave}
+            onChange={(v) => setItens(patchAt(itens, i, { chave: v }))}
+            placeholder="memoravel:aniversario"
+          />
+        </CartaoEntidade>
+      ))}
+      <BotaoAdicionar
+        onClick={() => setItens([...itens, { chave: "", descricao: "", vence: "" }])}
+      >
+        Adicionar memorável
+      </BotaoAdicionar>
+    </div>
+  );
+}
+
+/** Lista de sinais de sucessão / cross-sell (chave + descrição). */
+function EditorSucessao({
+  itens,
+  setItens,
+}: {
+  itens: SucessaoForm[];
+  setItens: (next: SucessaoForm[]) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      {itens.map((s, i) => (
+        <CartaoEntidade
+          key={i}
+          onRemover={() => setItens(itens.filter((_, j) => j !== i))}
+        >
+          <Input
+            value={s.descricao}
+            onChange={(e) =>
+              setItens(patchAt(itens, i, { descricao: e.target.value }))
+            }
+            placeholder="Necessidade / oportunidade (ex.: contratar seguro de vida)"
+          />
+          <CampoChave
+            value={s.chave}
+            onChange={(v) => setItens(patchAt(itens, i, { chave: v }))}
+            placeholder="produto:seguro-vida"
+          />
+        </CartaoEntidade>
+      ))}
+      <BotaoAdicionar
+        onClick={() => setItens([...itens, { chave: "", descricao: "" }])}
+      >
+        Adicionar sinal
+      </BotaoAdicionar>
+    </div>
+  );
+}
+
 export function ImportarReuniaoForm({
   clienteId,
   pessoas,
@@ -231,6 +676,21 @@ export function ImportarReuniaoForm({
   const [totalGeral, setTotalGeral] = useState("");
   const [obsPatrimonio, setObsPatrimonio] = useState("");
 
+  // Blocos ricos (1b-2a) — revisáveis no preview; NÃO entram no payload de save.
+  const IDENTIDADE_VAZIA: IdentidadeForm = {
+    idade: "",
+    profissao: "",
+    origem: "",
+    estadoCivil: "",
+  };
+  const [identidade, setIdentidade] = useState<IdentidadeForm>(IDENTIDADE_VAZIA);
+  const [familia, setFamilia] = useState<FamiliaForm[]>([]);
+  const [projetos, setProjetos] = useState<ProjetoForm[]>([]);
+  const [metricas, setMetricas] = useState<MetricaForm[]>([]);
+  const [memoraveis, setMemoraveis] = useState<MemoravelForm[]>([]);
+  const [saude, setSaude] = useState("");
+  const [sucessao, setSucessao] = useState<SucessaoForm[]>([]);
+
   const [salvando, startSalvar] = useTransition();
 
   function resetTudo() {
@@ -252,6 +712,13 @@ export function ImportarReuniaoForm({
     setTotalForaBtg("");
     setTotalGeral("");
     setObsPatrimonio("");
+    setIdentidade(IDENTIDADE_VAZIA);
+    setFamilia([]);
+    setProjetos([]);
+    setMetricas([]);
+    setMemoraveis([]);
+    setSaude("");
+    setSucessao([]);
   }
 
   const podeExtrair = modo === "pdf" ? !!arquivo : !!texto.trim();
@@ -292,6 +759,52 @@ export function ImportarReuniaoForm({
       setTotalForaBtg(p.totalForaBtg != null ? String(p.totalForaBtg) : "");
       setTotalGeral(p.totalGeral != null ? String(p.totalGeral) : "");
       setObsPatrimonio(p.observacao ?? "");
+      // Blocos ricos → formas de edição (string-friendly).
+      const id = e.identidade ?? {};
+      setIdentidade({
+        idade: id.idade != null ? String(id.idade) : "",
+        profissao: id.profissao ?? "",
+        origem: id.origem ?? "",
+        estadoCivil: id.estadoCivil ?? "",
+      });
+      setFamilia(
+        (e.familia ?? []).map((f) => ({
+          chave: f.chave ?? "",
+          nome: f.nome ?? "",
+          resumo: f.resumo ?? "",
+          detalhe: f.detalhe ?? "",
+          sensivel: f.sensivel === true,
+        })),
+      );
+      setProjetos(
+        (e.projetos ?? []).map((p2) => ({
+          chave: p2.chave ?? "",
+          descricao: p2.descricao ?? "",
+          horizonte: p2.horizonte ?? "medio",
+        })),
+      );
+      setMetricas(
+        (e.metricas ?? []).map((m) => ({
+          chave: m.chave ?? "",
+          modo: m.valorNumerico != null ? "num" : "texto",
+          valorNumerico: m.valorNumerico != null ? String(m.valorNumerico) : "",
+          valorTexto: m.valorTexto ?? "",
+        })),
+      );
+      setMemoraveis(
+        (e.memoraveis ?? []).map((m) => ({
+          chave: m.chave ?? "",
+          descricao: m.descricao ?? "",
+          vence: m.vence ?? "",
+        })),
+      );
+      setSaude(e.saude ?? "");
+      setSucessao(
+        (e.sucessao ?? []).map((s) => ({
+          chave: s.chave ?? "",
+          descricao: s.descricao ?? "",
+        })),
+      );
       setExtraido(true);
     } catch {
       setErro("Falha de rede ao chamar a extração.");
@@ -662,6 +1175,61 @@ export function ImportarReuniaoForm({
                       placeholder="Observação sobre o patrimônio"
                     />
                   </div>
+                </div>
+
+                {/* ── Perfil enriquecido (revisão) — blocos ricos da extração ── */}
+                <div className="border-t border-border/60 pt-4">
+                  <p className="text-sm font-semibold">Perfil enriquecido</p>
+                  <p className="text-xs text-muted-foreground">
+                    Capturado da reunião para revisão. Edite o que precisar.
+                  </p>
+                </div>
+
+                {/* Identidade */}
+                <div className="space-y-1.5">
+                  <Label>Identidade do cliente</Label>
+                  <CampoIdentidade value={identidade} setValue={setIdentidade} />
+                </div>
+
+                {/* Família */}
+                <div className="space-y-1.5">
+                  <Label>Família / círculo próximo</Label>
+                  <EditorFamilia itens={familia} setItens={setFamilia} />
+                </div>
+
+                {/* Projetos */}
+                <div className="space-y-1.5">
+                  <Label>Projetos / objetivos</Label>
+                  <EditorProjetos itens={projetos} setItens={setProjetos} />
+                </div>
+
+                {/* Métricas de fluxo */}
+                <div className="space-y-1.5">
+                  <Label>Métricas de fluxo</Label>
+                  <EditorMetricas itens={metricas} setItens={setMetricas} />
+                </div>
+
+                {/* Memoráveis */}
+                <div className="space-y-1.5">
+                  <Label>Memoráveis</Label>
+                  <EditorMemoraveis itens={memoraveis} setItens={setMemoraveis} />
+                </div>
+
+                {/* Saúde do cliente */}
+                <div className="space-y-1.5">
+                  <Label>Saúde do cliente</Label>
+                  <Textarea
+                    value={saude}
+                    onChange={(e) => setSaude(e.target.value)}
+                    placeholder="Saúde do PRÓPRIO cliente (saúde de familiar vai no card da pessoa, marcado como sensível)"
+                    className="min-h-16"
+                  />
+                </div>
+
+                {/* Sucessão / cross-sell */}
+                <div className="space-y-1.5">
+                  <Label>Sucessão / cross-sell</Label>
+                  <EditorSucessao itens={sucessao} setItens={setSucessao} />
                 </div>
               </>
             )}
