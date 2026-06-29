@@ -37,6 +37,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   CADENCIAS_REUNIAO,
   HORIZONTES_PROJETO,
+  type ExtracaoRica,
+  type HorizonteProjeto,
   type IdentidadeExtraida,
   type FamiliaEntidade,
   type ProjetoEntidade,
@@ -817,6 +819,44 @@ export function ImportarReuniaoForm({
     if (!data) return;
     setErro(null);
     startSalvar(async () => {
+      // Estado de edição (formas string-friendly) → shape canônico ExtracaoRica.
+      // A action revalida defensivamente; aqui só convertemos tipos.
+      const idadeNum = parseReais(identidade.idade); // dígitos → inteiro
+      const extracaoRica: ExtracaoRica = {
+        identidade: {
+          idade: idadeNum,
+          profissao: identidade.profissao.trim() || undefined,
+          origem: identidade.origem.trim() || undefined,
+          estadoCivil: identidade.estadoCivil.trim() || undefined,
+        },
+        familia: familia.map((f) => ({
+          chave: f.chave.trim(),
+          nome: f.nome.trim(),
+          resumo: f.resumo.trim(),
+          detalhe: f.detalhe.trim() || undefined,
+          sensivel: f.sensivel,
+        })),
+        projetos: projetos.map((p) => ({
+          chave: p.chave.trim(),
+          descricao: p.descricao.trim(),
+          horizonte: p.horizonte as HorizonteProjeto,
+        })),
+        metricas: metricas.map((m) =>
+          m.modo === "num"
+            ? { chave: m.chave.trim(), valorNumerico: parseReais(m.valorNumerico) }
+            : { chave: m.chave.trim(), valorTexto: m.valorTexto.trim() || undefined },
+        ),
+        memoraveis: memoraveis.map((m) => ({
+          chave: m.chave.trim(),
+          descricao: m.descricao.trim(),
+          vence: m.vence || null,
+        })),
+        saude: saude.trim(),
+        sucessao: sucessao.map((s) => ({
+          chave: s.chave.trim(),
+          descricao: s.descricao.trim(),
+        })),
+      };
       const payload = {
         clienteId,
         pessoaId: pessoaId === PESSOA_NENHUMA ? null : pessoaId,
@@ -835,6 +875,7 @@ export function ImportarReuniaoForm({
           totalGeral: parseReais(totalGeral),
           observacao: obsPatrimonio.trim() || undefined,
         },
+        extracaoRica,
       };
       const fd = new FormData();
       fd.append("payload", JSON.stringify(payload));

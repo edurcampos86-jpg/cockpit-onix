@@ -866,7 +866,7 @@ model ClienteFato {
   reuniaoId String?
   reuniao   ReuniaoEstruturada? @relation(fields: [reuniaoId], references: [id], onDelete: SetNull)
 
-  categoria String // "IDENTIDADE" | "METRICA" | "FAMILIA" | "PROJETO" | "MEMORAVEL" | "SAUDE" | "OUTRO"
+  categoria String // "IDENTIDADE" | "METRICA" | "FAMILIA" | "PROJETO" | "MEMORAVEL" | "SAUDE" | "SUCESSAO" | "OUTRO"
   campo     String // ex.: "patrimonioTotal", "parentesco:Jorge"
 
   valor         String? // valor novo

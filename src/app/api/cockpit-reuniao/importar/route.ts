@@ -113,6 +113,7 @@ export async function POST(req: NextRequest) {
     clienteId: campos.clienteId,
     pessoaId: campos.pessoaId ?? null,
     data: campos.data ?? null,
+    dataRetorno: campos.dataRetorno ?? null,
     tipoCadencia: campos.tipoCadencia ?? null,
     pautas: Array.isArray(campos.pautas) ? campos.pautas : [],
     pendenciasAssessor: Array.isArray(campos.pendenciasAssessor)
@@ -124,6 +125,7 @@ export async function POST(req: NextRequest) {
     proximosPassos: Array.isArray(campos.proximosPassos) ? campos.proximosPassos : [],
     textoBruto: campos.textoBruto ?? null,
     patrimonioSnapshot: campos.patrimonioSnapshot ?? null,
+    extracaoRica: campos.extracaoRica ?? null,
     fonte,
     nomeArquivo,
     contentType,
