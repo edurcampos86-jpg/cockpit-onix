@@ -12,12 +12,21 @@ import type {
 import { HORIZONTES_PROJETO } from "@/lib/cockpit-reuniao/tipos";
 
 /**
- * Writer dos FATOS RICOS da reunião → `ClienteFato` (Fase 1b-2b).
+ * Writer dos FATOS RICOS da reunião → `ClienteFato` (Fase 1b-2b/1b-2c).
  *
- * Espelha `gravarFatosPatrimonio` (1a): roda no MESMO `$transaction` da
- * importação e usa a MESMA salvaguarda de change-detection por (clienteId,
- * campo) — só grava quando o `valor` MUDA vs. o último fato daquele campo
- * (idempotente no reprocessamento + anti-ruído). `valorAnterior` = o último.
+ * Roda no MESMO `$transaction` da importação. Dois regimes por tipo de campo:
+ *
+ *   - TEXTO LIVRE (familia/projeto/metrica-qualitativa/memoravel/saude/sucessao/
+ *     identidade-prosa): UPSERT por (clienteId, campo) — UMA linha viva por
+ *     campo. Se já existe e o texto MUDOU, atualiza in-place (valorAnterior = o
+ *     que estava, reuniaoId/dados/sensivel/vence/criadoEm = os novos); se não
+ *     existe, cria. Dedup DETERMINÍSTICA: paráfrase do LLM no reimport não gera
+ *     duplicata (1b-2c, substitui a normalização lexical reprovada).
+ *   - NUMÉRICO/DETERMINÍSTICO (idade, métrica numérica): APPEND-ONLY — cada
+ *     mudança é uma NOVA linha (timeline real), igual ao patrimônio (1a).
+ *
+ * Em ambos: só escreve se o valor MUDOU (comparação LITERAL vs. a linha mais
+ * recente do campo); valor igual = no-op.
  *
  * Convenções travadas:
  *   - fonte = "reuniao" em todos.
@@ -46,6 +55,9 @@ type EntradaFato = {
   dados?: Prisma.InputJsonValue;
   sensivel?: boolean;
   vence?: Date | null;
+  // true = NUMÉRICO/determinístico → APPEND-ONLY (nova linha por mudança,
+  // timeline). Ausente/false = TEXTO LIVRE → UPSERT in-place por campo.
+  appendOnly?: boolean;
 };
 
 function strOuUndef(v: unknown): string | undefined {
@@ -182,7 +194,7 @@ function montarEntradas(e: ExtracaoRica): EntradaFato[] {
 
   // IDENTIDADE — um fato por campo presente.
   const { idade, profissao, origem, estadoCivil } = e.identidade;
-  if (idade != null) out.push({ categoria: "IDENTIDADE", campo: "idade", valor: String(idade) });
+  if (idade != null) out.push({ categoria: "IDENTIDADE", campo: "idade", valor: String(idade), appendOnly: true });
   if (profissao) out.push({ categoria: "IDENTIDADE", campo: "profissao", valor: profissao });
   if (origem) out.push({ categoria: "IDENTIDADE", campo: "origem", valor: origem });
   if (estadoCivil) out.push({ categoria: "IDENTIDADE", campo: "estadoCivil", valor: estadoCivil });
@@ -212,6 +224,7 @@ function montarEntradas(e: ExtracaoRica): EntradaFato[] {
         campo: m.chave,
         valor: String(m.valorNumerico),
         dados: { tipo: "numerico" },
+        appendOnly: true, // métrica numérica = timeline determinística
       });
     } else if (m.valorTexto) {
       out.push({
@@ -253,27 +266,48 @@ export async function gravarFatosRicos(
   const { clienteId, reuniaoId, extracao } = args;
 
   for (const e of montarEntradas(extracao)) {
-    // Change-detection por (clienteId, campo), exato no valor (igual 1a).
+    // Linha mais recente do campo (find-then-update no MESMO tx → sem @@unique,
+    // sem migration). `id` é necessário p/ o update in-place do texto livre.
     const ultimo = await tx.clienteFato.findFirst({
       where: { clienteId, campo: e.campo },
       orderBy: { criadoEm: "desc" },
-      select: { valor: true },
+      select: { id: true, valor: true },
     });
-    if (ultimo?.valor === e.valor) continue; // sem mudança → não grava
 
-    await tx.clienteFato.create({
-      data: {
-        clienteId,
-        reuniaoId,
-        categoria: e.categoria,
-        campo: e.campo,
-        valor: e.valor,
-        valorAnterior: ultimo?.valor ?? null,
-        dados: e.dados,
-        fonte: "reuniao",
-        sensivel: e.sensivel ?? false,
-        vence: e.vence ?? null,
-      },
-    });
+    // Comparação LITERAL: valor igual ao mais recente → no-op (vale p/ os 2 regimes).
+    if (ultimo && ultimo.valor === e.valor) continue;
+
+    if (e.appendOnly || !ultimo) {
+      // Numérico (timeline) OU 1ª vez de um texto livre → CRIA nova linha.
+      await tx.clienteFato.create({
+        data: {
+          clienteId,
+          reuniaoId,
+          categoria: e.categoria,
+          campo: e.campo,
+          valor: e.valor,
+          valorAnterior: ultimo?.valor ?? null,
+          dados: e.dados,
+          fonte: "reuniao",
+          sensivel: e.sensivel ?? false,
+          vence: e.vence ?? null,
+        },
+      });
+    } else {
+      // Texto livre que já existe → UPSERT in-place (uma linha viva por campo).
+      // valorAnterior = o que estava; reuniaoId aponta p/ a reunião ATUAL (A1).
+      await tx.clienteFato.update({
+        where: { id: ultimo.id },
+        data: {
+          reuniaoId,
+          valor: e.valor,
+          valorAnterior: ultimo.valor,
+          dados: e.dados,
+          sensivel: e.sensivel ?? false,
+          vence: e.vence ?? null,
+          criadoEm: new Date(),
+        },
+      });
+    }
   }
 }
