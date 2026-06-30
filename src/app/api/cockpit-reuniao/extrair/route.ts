@@ -34,7 +34,7 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const MODEL = "claude-sonnet-4-6";
-const MAX_TOKENS = 1500;
+const MAX_TOKENS = 8192;
 const PDF_BETA = "pdfs-2024-09-25";
 const MAX_PDF_BYTES = 25 * 1024 * 1024; // 25 MB — teto defensivo do upload
 
