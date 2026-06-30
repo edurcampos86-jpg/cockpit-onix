@@ -141,7 +141,7 @@ const EXTRAIR_TOOL_SCHEMA = {
           chave: {
             type: "string",
             description:
-              "Chave estável da pessoa, minúscula e sem acento, ex.: 'familia:gustavo', 'familia:esposa-marina'.",
+              "Chave CANÔNICA e estável da pessoa (mesmo conceito → mesma chave entre reimportações): minúscula, sem acento, sem datas/adjetivos. Ex.: 'familia:gustavo', 'familia:esposa-marina'.",
           },
           nome: {
             type: "string",
@@ -176,7 +176,7 @@ const EXTRAIR_TOOL_SCHEMA = {
           chave: {
             type: "string",
             description:
-              "Chave estável, ex.: 'projeto:vender-itacimirim', 'projeto:aposentadoria'.",
+              "Chave CANÔNICA e estável do projeto (mesmo conceito → mesma chave; sem datas/adjetivos/verbos-sinônimos). Ex.: 'projeto:vender-itacimirim', 'projeto:aposentadoria', 'projeto:onco3'.",
           },
           descricao: {
             type: "string",
@@ -230,7 +230,8 @@ const EXTRAIR_TOOL_SCHEMA = {
         properties: {
           chave: {
             type: "string",
-            description: "Chave estável, ex.: 'memoravel:aniversario', 'memoravel:hobby-vela'.",
+            description:
+              "Chave CANÔNICA e estável (mesmo conceito → mesma chave; sem datas/anos/qualificadores). Ex.: 'memoravel:aniversario', 'memoravel:conexao-bahia', 'memoravel:seguro-vida'.",
           },
           descricao: {
             type: "string",
@@ -261,7 +262,7 @@ const EXTRAIR_TOOL_SCHEMA = {
           chave: {
             type: "string",
             description:
-              "Chave estável, ex.: 'produto:seguro-vida', 'produto:previdencia', 'risco:inventario', 'estrutura:holding'.",
+              "Chave CANÔNICA e estável (mesmo conceito → mesma chave; sem datas/anos/adjetivos). Ex.: 'produto:seguro-vida', 'produto:previdencia', 'risco:inventario', 'risco:onco3', 'estrutura:holding'.",
           },
           descricao: {
             type: "string",
@@ -312,6 +313,7 @@ Perfil rico (mapeie as seções do resumo para as categorias certas):
 - 'saude': SOMENTE a saúde do próprio cliente. Saúde de TERCEIROS (familiares) vai na pessoa correspondente em 'familia' com sensivel=true — NUNCA em 'saude'.
 - 'sucessao': sucessão / proteção patrimonial / cross-sell (seguro de vida, previdência, testamento, holding, inventário), com chave (ex.: 'produto:seguro-vida').
 - IGNORE seções de "treinamento do assessor" e "mídias sociais" do resumo — não são dados do cliente.
+- CHAVES ESTÁVEIS (crítico p/ não duplicar entre reimportações): a 'chave' identifica o CONCEITO, não a frase. Use o substantivo-núcleo MÍNIMO e CANÔNICO, minúsculo e sem acento. NÃO inclua datas/anos, adjetivos, qualificadores nem verbos-sinônimos na chave — o MESMO conceito deve gerar SEMPRE a MESMA chave. Ex.: use 'produto:seguro-vida' (NUNCA 'produto:seguro-vida-inicio-2024'); 'memoravel:conexao-bahia' (NUNCA acrescente '-salvador'); para a posição em ONCO3 use sempre a mesma raiz (ex.: 'projeto:onco3' — não alterne 'desconcentrar-onco3'/'desinvestimento-onco3'). Os detalhes que variam vão no resumo/descricao/valor, NUNCA na chave.
 
 Responda SEMPRE chamando a tool 'extrair_reuniao'.`;
 
