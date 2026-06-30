@@ -312,6 +312,7 @@ Perfil rico (mapeie as seções do resumo para as categorias certas):
 - 'saude': SOMENTE a saúde do próprio cliente. Saúde de TERCEIROS (familiares) vai na pessoa correspondente em 'familia' com sensivel=true — NUNCA em 'saude'.
 - 'sucessao': sucessão / proteção patrimonial / cross-sell (seguro de vida, previdência, testamento, holding, inventário), com chave (ex.: 'produto:seguro-vida').
 - IGNORE seções de "treinamento do assessor" e "mídias sociais" do resumo — não são dados do cliente.
+- ESTABILIDADE (importante): escreva cada 'resumo'/'valor'/'descricao' de forma CONCISA, FACTUAL e ESTÁVEL — estilo nota seca, sem floreio nem reformulação. O MESMO fato, se a reunião for reimportada, deve gerar o MESMO texto. Não troque artigos/conectivos ("do"↔"de"), não reordene nem reescreva o que não mudou: só o conteúdo factual importa.
 
 Responda SEMPRE chamando a tool 'extrair_reuniao'.`;
 

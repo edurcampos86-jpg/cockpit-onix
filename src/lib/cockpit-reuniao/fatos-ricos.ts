@@ -46,7 +46,30 @@ type EntradaFato = {
   dados?: Prisma.InputJsonValue;
   sensivel?: boolean;
   vence?: Date | null;
+  // true = comparar o valor LITERAL na change-detection (determinístico:
+  // números/idade). Ausente/false = texto livre → comparar NORMALIZADO
+  // (colapsa paráfrase trivial de casing/espaço/pontuação entre extrações).
+  exato?: boolean;
 };
+
+/**
+ * Normaliza um texto APENAS para COMPARAÇÃO de mudança — NUNCA altera o valor
+ * gravado (que continua o texto original da extração, legível na ficha).
+ *
+ * Colapsa o ruído de paráfrase trivial do LLM (caixa, espaços múltiplos e
+ * pontuação de borda/redundante) para que reextrações da MESMA informação não
+ * gerem fatos duplicados. NÃO faz stemming, troca de palavras nem remove
+ * acento: diferença REAL de conteúdo (ex.: "5 cuidadoras" vs "6 cuidadoras")
+ * normaliza diferente → continua gravando (com valorAnterior).
+ */
+export function normalizarParaComparacao(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[.,;:!?]/g, " ") // pontuação redundante → espaço
+    .replace(/[–—-]/g, " ") // traços (en/em/hífen soltos) → espaço
+    .replace(/\s+/g, " ") // colapsa espaços múltiplos
+    .trim();
+}
 
 function strOuUndef(v: unknown): string | undefined {
   if (typeof v !== "string") return undefined;
@@ -182,7 +205,7 @@ function montarEntradas(e: ExtracaoRica): EntradaFato[] {
 
   // IDENTIDADE — um fato por campo presente.
   const { idade, profissao, origem, estadoCivil } = e.identidade;
-  if (idade != null) out.push({ categoria: "IDENTIDADE", campo: "idade", valor: String(idade) });
+  if (idade != null) out.push({ categoria: "IDENTIDADE", campo: "idade", valor: String(idade), exato: true });
   if (profissao) out.push({ categoria: "IDENTIDADE", campo: "profissao", valor: profissao });
   if (origem) out.push({ categoria: "IDENTIDADE", campo: "origem", valor: origem });
   if (estadoCivil) out.push({ categoria: "IDENTIDADE", campo: "estadoCivil", valor: estadoCivil });
@@ -212,6 +235,7 @@ function montarEntradas(e: ExtracaoRica): EntradaFato[] {
         campo: m.chave,
         valor: String(m.valorNumerico),
         dados: { tipo: "numerico" },
+        exato: true, // métrica numérica = determinística → match exato
       });
     } else if (m.valorTexto) {
       out.push({
@@ -253,13 +277,21 @@ export async function gravarFatosRicos(
   const { clienteId, reuniaoId, extracao } = args;
 
   for (const e of montarEntradas(extracao)) {
-    // Change-detection por (clienteId, campo), exato no valor (igual 1a).
+    // Change-detection por (clienteId, campo): literal p/ determinístico (exato),
+    // NORMALIZADO p/ texto livre (colapsa paráfrase trivial do LLM).
     const ultimo = await tx.clienteFato.findFirst({
       where: { clienteId, campo: e.campo },
       orderBy: { criadoEm: "desc" },
       select: { valor: true },
     });
-    if (ultimo?.valor === e.valor) continue; // sem mudança → não grava
+    const ultimoValor = ultimo?.valor ?? null;
+    const semMudanca =
+      ultimoValor !== null &&
+      (e.exato
+        ? ultimoValor === e.valor
+        : normalizarParaComparacao(ultimoValor) ===
+          normalizarParaComparacao(e.valor));
+    if (semMudanca) continue; // sem mudança real → não grava
 
     await tx.clienteFato.create({
       data: {
