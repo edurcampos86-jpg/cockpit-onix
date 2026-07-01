@@ -303,7 +303,7 @@ const SELO_TERMOMETRO: Record<SeloPresenca, { dot: string; texto: string; label:
   "sem-historico": { dot: "bg-zinc-300 dark:bg-zinc-600", texto: "text-muted-foreground", label: "Sem histórico" },
 };
 
-const SALDO_PARADO_LIMITE = 50_000;
+const SALDO_PARADO_LIMITE = 10_000;
 
 export function ClientesTable({
   clientes: iniciais,
