@@ -111,9 +111,13 @@ export async function runDatacrazyPoll(opts: {
           const externalId = String(conv.id ?? conv._id ?? "");
           if (!externalId) continue;
 
-          const lastMsgRemote = new Date(
-            conv.lastMessageDate ?? conv.updatedAt ?? conv.lastMessage?.createdAt,
-          );
+          // `ativas` (a montante) já filtrou por timestamp truthy, então este
+          // guard é no-op em runtime; existe só pra narrowing de tipo agora que
+          // fetchConversas devolve DatacrazyConversa (campos de data são string?).
+          const lastMsgTs =
+            conv.lastMessageDate ?? conv.updatedAt ?? conv.lastMessage?.createdAt;
+          if (!lastMsgTs) continue;
+          const lastMsgRemote = new Date(lastMsgTs);
           const conversaExistente = await prisma.conversa.findUnique({
             where: { externalId },
             select: { lastMessageAt: true },
