@@ -92,7 +92,7 @@ const EXTRAIR_TOOL_SCHEMA = {
           type: "integer",
           minimum: 0,
           description:
-            "Patrimônio fora do BTG, em reais cheios. APENAS total LITERAL declarado no texto; NUNCA soma/estimativa de componentes.",
+            "Patrimônio fora do BTG, em reais cheios. APENAS total LITERAL declarado no texto fora do BTG; NUNCA soma/estimativa de componentes, NUNCA a avaliação de um ativo isolado (imóvel/carro/posição) nem faixa de preço. Na dúvida, OMITA e cite na 'observacao'.",
         },
         totalGeral: {
           type: "integer",
@@ -305,6 +305,7 @@ Regras de fidelidade (CRÍTICAS):
 - Separe pendências por lado: o que o ASSESSOR ficou de fazer vs. o que o CLIENTE ficou de fazer.
 - Patrimônio: sempre em REAIS CHEIOS, número INTEIRO, convertendo o que o texto disser ("4 milhões" → 4000000; "9 milhões" → 9000000; "R$ 560 mil" → 560000). NUNCA use decimais de milhão (não devolva 4 nem 4.0 para "4 milhões").
 - Totais de patrimônio (totalBtg/totalForaBtg/totalGeral): preencha SOMENTE se o número aparecer LITERALMENTE no texto como um TOTAL declarado (ex.: "tenho R$ 4 milhões no BTG"). NUNCA some, calcule ou estime um total a partir de componentes citados (ações + renda fixa + previdência etc.). Se o texto só citar componentes, OMITA os totais e liste os componentes na 'observacao'. Na dúvida entre extrair e calcular: OMITA.
+- totalForaBtg (caso específico do ativo isolado): preencha SOMENTE se o texto declarar LITERALMENTE um total de patrimônio fora do BTG. O valor/avaliação de UM ativo isolado (um imóvel, um carro, uma posição) NÃO é um total fora do BTG — nem faixa de preço ("entre R$ 1,5M e R$ 2,2M"). Nesses casos, OMITA totalForaBtg e registre o ativo/valor na 'observacao'. NUNCA some componentes nem promova a avaliação de um bem a total.
 - Data: formato ISO yyyy-mm-dd. Se o resumo não disser a data, devolva string vazia.
 - Datas de retorno / próxima reunião vão em 'dataRetorno' (a MAIS PRÓXIMA, ISO yyyy-mm-dd; string vazia se não houver). 'proximosPassos' é SÓ para AÇÕES acordadas — NUNCA coloque datas de retorno nem "próxima reunião" ali.
 
