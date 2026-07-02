@@ -85,17 +85,20 @@ const EXTRAIR_TOOL_SCHEMA = {
         totalBtg: {
           type: "integer",
           minimum: 0,
-          description: "Patrimônio no BTG, em reais cheios (ex.: 4000000 = R$ 4 mi).",
+          description:
+            "Patrimônio no BTG, em reais cheios (ex.: 4000000 = R$ 4 mi). APENAS total LITERAL declarado no texto; NUNCA soma/estimativa de componentes.",
         },
         totalForaBtg: {
           type: "integer",
           minimum: 0,
-          description: "Patrimônio fora do BTG, em reais cheios.",
+          description:
+            "Patrimônio fora do BTG, em reais cheios. APENAS total LITERAL declarado no texto; NUNCA soma/estimativa de componentes.",
         },
         totalGeral: {
           type: "integer",
           minimum: 0,
-          description: "Patrimônio total declarado, em reais cheios.",
+          description:
+            "Patrimônio total declarado, em reais cheios. APENAS total LITERAL declarado no texto; NUNCA soma/estimativa de componentes.",
         },
         observacao: {
           type: "string",
@@ -300,7 +303,8 @@ Regras de fidelidade (CRÍTICAS):
 - Extraia FIELMENTE o que está no texto. NÃO invente, não complete e não deduza nada que não esteja escrito.
 - Deixe VAZIO ('', [] ou campo omitido) tudo que o resumo não trouxer explicitamente.
 - Separe pendências por lado: o que o ASSESSOR ficou de fazer vs. o que o CLIENTE ficou de fazer.
-- Patrimônio: sempre em REAIS CHEIOS, número INTEIRO, convertendo o que o texto disser ("4 milhões" → 4000000; "9 milhões" → 9000000; "R$ 560 mil" → 560000). NUNCA use decimais de milhão (não devolva 4 nem 4.0 para "4 milhões"). Só preencha um total se houver número no texto; omita o campo se não houver.
+- Patrimônio: sempre em REAIS CHEIOS, número INTEIRO, convertendo o que o texto disser ("4 milhões" → 4000000; "9 milhões" → 9000000; "R$ 560 mil" → 560000). NUNCA use decimais de milhão (não devolva 4 nem 4.0 para "4 milhões").
+- Totais de patrimônio (totalBtg/totalForaBtg/totalGeral): preencha SOMENTE se o número aparecer LITERALMENTE no texto como um TOTAL declarado (ex.: "tenho R$ 4 milhões no BTG"). NUNCA some, calcule ou estime um total a partir de componentes citados (ações + renda fixa + previdência etc.). Se o texto só citar componentes, OMITA os totais e liste os componentes na 'observacao'. Na dúvida entre extrair e calcular: OMITA.
 - Data: formato ISO yyyy-mm-dd. Se o resumo não disser a data, devolva string vazia.
 - Datas de retorno / próxima reunião vão em 'dataRetorno' (a MAIS PRÓXIMA, ISO yyyy-mm-dd; string vazia se não houver). 'proximosPassos' é SÓ para AÇÕES acordadas — NUNCA coloque datas de retorno nem "próxima reunião" ali.
 
