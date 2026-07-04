@@ -27,6 +27,30 @@ async function verifySession(token: string) {
   }
 }
 
+/**
+ * Drena (lê e descarta) o corpo da request antes de responder cedo.
+ *
+ * Necessário para métodos com corpo (POST/PUT/PATCH): responder — mesmo com
+ * um 401 JSON — sem consumir o corpo de um upload em curso (ex.: multipart de
+ * vários MB no /api/juridico/contratos/upload) faz o Next/Node resetar a
+ * conexão. O cliente vê "Failed to fetch" (sem conseguir ler a resposta) e o
+ * servidor loga "aborted"/ECONNRESET. Drenando primeiro, o upload termina e o
+ * fetch recebe o 401 normalmente. Só entra aqui quando vamos curto-circuitar
+ * a request (nunca em NextResponse.next()), então consumir o corpo é seguro.
+ */
+async function drenarCorpoRequest(request: NextRequest) {
+  if (!request.body) return;
+  try {
+    const reader = request.body.getReader();
+    // Lê chunk a chunk e descarta — evita bufferizar os 20 MB em memória.
+    while (!(await reader.read()).done) {
+      /* descarta */
+    }
+  } catch {
+    // Cliente já abortou ou corpo indisponível — nada a drenar.
+  }
+}
+
 export async function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;
 
@@ -80,6 +104,9 @@ export async function proxy(request: NextRequest) {
     const tem2FA = request.cookies.has("2fa-verified");
     if (!tem2FA) {
       if (path.startsWith("/api/")) {
+        // Drena o corpo antes do 401 — senão o upload em curso é cortado no
+        // meio e o cliente recebe "aborted"/ECONNRESET em vez deste 401 JSON.
+        await drenarCorpoRequest(request);
         return NextResponse.json(
           {
             error: "2FA required",
