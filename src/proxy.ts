@@ -74,6 +74,9 @@ export async function proxy(request: NextRequest) {
   if (!sessionCookie) {
     // Para rotas de API, retornar 401 em vez de redirect
     if (path.startsWith("/api/")) {
+      // Drena o corpo antes do 401 — senão o upload em curso é cortado no
+      // meio e o cliente recebe "aborted"/ECONNRESET em vez deste 401 JSON.
+      await drenarCorpoRequest(request);
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
     return NextResponse.redirect(new URL("/login", request.url));
@@ -84,6 +87,8 @@ export async function proxy(request: NextRequest) {
   if (!session) {
     const isApi = path.startsWith("/api/");
     if (isApi) {
+      // Drena o corpo antes do 401 — mesmo motivo do branch de sessão ausente.
+      await drenarCorpoRequest(request);
       const response = NextResponse.json({ error: "Session expired" }, { status: 401 });
       response.cookies.delete("session");
       return response;
