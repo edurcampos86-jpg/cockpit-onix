@@ -1,6 +1,15 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  experimental: {
+    serverActions: {
+      // Anexos da sugestão: até 5 arquivos de 10 MB cada (ver
+      // src/lib/implementacoes/anexos.ts → MAX_ANEXOS × MAX_ANEXO_BYTES).
+      // O default do Next é 1 MB — sem isto, qualquer anexo acima de ~1 MB
+      // falha ANTES da action rodar, com a mesma mensagem genérica.
+      bodySizeLimit: "55mb",
+    },
+  },
   // Fase 4 (piloto) — namespacing de rotas por empresa.
   // /backoffice/* → /empresas/investimentos/* (Onix Investimentos).
   // permanent:false (307) DE PROPÓSITO durante o rollout: redirect temporário,

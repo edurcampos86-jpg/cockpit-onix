@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getAuthContext, isAdmin } from "@/lib/auth-helpers";
 import { uploadContrato, deleteContrato } from "@/lib/b2/upload";
+import { b2ContratosConfigurado } from "@/lib/b2/client";
 import { calcRiceScore } from "@/lib/rice";
 import {
   MAX_ANEXOS,
@@ -78,6 +79,17 @@ export async function criarImplementacao(
     }
   }
 
+  // Gate de storage: se há anexos mas o B2 (bucket contratos) não está
+  // configurado no ambiente, falha com motivo CLARO em vez de estourar lá no
+  // upload e cair no catch genérico. Mesma proteção que a rota do Jurídico.
+  if (arquivos.length > 0 && !b2ContratosConfigurado()) {
+    return {
+      ok: false,
+      error:
+        "Não foi possível salvar os anexos: o armazenamento de arquivos não está configurado no servidor (falta a chave B2 de contratos). Avise o administrador — a sugestão sem anexo funciona normalmente.",
+    };
+  }
+
   // Sobe tudo pro B2 ANTES de criar a sugestão. Se algum upload falhar, limpa o
   // que já subiu e aborta — não deixa órfão no bucket nem sugestão sem anexo.
   const uploadedKeys: string[] = [];
@@ -119,7 +131,13 @@ export async function criarImplementacao(
         anexos: anexosData.length ? { create: anexosData } : undefined,
       },
     });
-  } catch {
+  } catch (err) {
+    // Loga a causa REAL no servidor (antes o catch engolia tudo → o erro ficava
+    // invisível em produção e o bug parecia um fantasma).
+    console.error(
+      "[criarImplementacao] falha ao salvar anexos/sugestão:",
+      err,
+    );
     // Falhou upload ou persistência: remove do B2 o que tiver subido.
     await Promise.allSettled(uploadedKeys.map((k) => deleteContrato(k)));
     return {
