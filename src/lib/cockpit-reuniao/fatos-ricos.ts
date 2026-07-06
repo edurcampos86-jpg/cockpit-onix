@@ -10,6 +10,11 @@ import type {
   SucessaoEntidade,
 } from "@/lib/cockpit-reuniao/tipos";
 import { HORIZONTES_PROJETO } from "@/lib/cockpit-reuniao/tipos";
+import {
+  CATEGORIAS_TOPICO,
+  campoFamilia,
+  reconciliarChave,
+} from "@/lib/cockpit-reuniao/reconciliar-chave";
 
 /**
  * Writer dos FATOS RICOS da reunião → `ClienteFato` (Fase 1b-2b/1b-2c).
@@ -199,11 +204,18 @@ function montarEntradas(e: ExtracaoRica): EntradaFato[] {
   if (origem) out.push({ categoria: "IDENTIDADE", campo: "origem", valor: origem });
   if (estadoCivil) out.push({ categoria: "IDENTIDADE", campo: "estadoCivil", valor: estadoCivil });
 
-  // FAMILIA — campo=chave, valor=resumo, dados={nome, detalhe}, sensivel da extração.
+  // FAMILIA — campo DERIVADO do nome (familia:<slug>), não a chave do LLM
+  // (1b-2f); sem nome → fallback na chave do LLM. valor=resumo, dados={nome, detalhe}.
   for (const f of e.familia) {
     const dados: Record<string, string> = { nome: f.nome };
     if (f.detalhe) dados.detalhe = f.detalhe;
-    out.push({ categoria: "FAMILIA", campo: f.chave, valor: f.resumo, dados, sensivel: f.sensivel });
+    out.push({
+      categoria: "FAMILIA",
+      campo: campoFamilia(f.nome, f.chave),
+      valor: f.resumo,
+      dados,
+      sensivel: f.sensivel,
+    });
   }
 
   // PROJETO — campo=chave, valor=descricao, dados={horizonte}.
@@ -265,7 +277,67 @@ export async function gravarFatosRicos(
 ): Promise<void> {
   const { clienteId, reuniaoId, extracao } = args;
 
+  const CATS_TOPICO = CATEGORIAS_TOPICO as readonly string[];
+
   for (const e of montarEntradas(extracao)) {
+    // TÓPICO de texto livre (PROJETO/MEMORAVEL/SUCESSAO): reconciliação
+    // determinística de chave (1b-2f) ANTES do upsert por campo exato. Corrige
+    // o drift de reimport em que o mesmo conceito volta com chave diferente.
+    if (CATS_TOPICO.includes(e.categoria) && !e.appendOnly) {
+      // Campos de tópico vivos do cliente, último por campo (desc → 1º é o mais
+      // recente). Re-consultado por entrada: escritas anteriores DESTE tx já são
+      // visíveis, então a reconciliação enxerga o que acabou de gravar.
+      const existentesTopico = await tx.clienteFato.findMany({
+        where: { clienteId, categoria: { in: [...CATEGORIAS_TOPICO] } },
+        orderBy: { criadoEm: "desc" },
+        select: { id: true, campo: true, valor: true },
+      });
+      const vistos = new Set<string>();
+      const latest: { id: string; campo: string; valor: string | null }[] = [];
+      for (const r of existentesTopico) {
+        if (vistos.has(r.campo)) continue;
+        vistos.add(r.campo);
+        latest.push(r);
+      }
+
+      const decisao = reconciliarChave(
+        e.campo,
+        latest.map((l) => ({ campo: l.campo })),
+      );
+
+      if (decisao.acao === "reusar" && decisao.campoExistente) {
+        const alvo = latest.find((l) => l.campo === decisao.campoExistente);
+        if (alvo) {
+          // No-op só se já está na chave canônica E o valor não mudou.
+          if (alvo.campo === decisao.campoCanonico && alvo.valor === e.valor) continue;
+          // Reusa a linha existente: colapsa a chave p/ a canônica (a curta) e
+          // atualiza in-place. Categoria da linha existente PREVALECE (não
+          // recategorizar) — por isso `categoria` fica de fora do update.
+          await tx.clienteFato.update({
+            where: { id: alvo.id },
+            data: {
+              reuniaoId,
+              campo: decisao.campoCanonico,
+              valor: e.valor,
+              valorAnterior: alvo.valor,
+              dados: e.dados,
+              sensivel: e.sensivel ?? false,
+              vence: e.vence ?? null,
+              criadoEm: new Date(),
+            },
+          });
+          continue;
+        }
+      }
+      if (decisao.motivo.startsWith("empate")) {
+        // Empate real: dup raro é melhor que fusão errada. Cai no create normal.
+        console.warn(
+          `[1b-2f] reconciliação ambígua p/ "${e.campo}" (${decisao.motivo}); criando fato normal.`,
+        );
+      }
+      // Demais 'criar' (sem-match / campo-idêntico / núcleo-vazio) → fluxo padrão.
+    }
+
     // Linha mais recente do campo (find-then-update no MESMO tx → sem @@unique,
     // sem migration). `id` é necessário p/ o update in-place do texto livre.
     const ultimo = await tx.clienteFato.findFirst({
