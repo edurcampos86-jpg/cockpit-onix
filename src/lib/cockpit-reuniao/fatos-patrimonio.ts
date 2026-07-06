@@ -25,6 +25,17 @@ const MAPA_PATRIMONIO = [
   { chave: "totalGeral", campo: "patrimonioTotal" },
 ] as const satisfies ReadonlyArray<{ chave: keyof PatrimonioSnapshot; campo: string }>;
 
+/**
+ * Um total só é GRAVÁVEL como fato de patrimônio se for número finito e > 0
+ * (Fase 1b-2i). O #232/#233 mandam o prompt OMITIR totais não-declarados, mas o
+ * modelo às vezes emite `0` (sentinela de "não declarado") em vez de ausência —
+ * e R$0 (ou negativo) de patrimônio nunca é fato útil. Tratamos 0/negativo/
+ * NaN/undefined/null exatamente como um campo ausente: não grava.
+ */
+export function totalPatrimonioGravavel(total: unknown): total is number {
+  return typeof total === "number" && Number.isFinite(total) && total > 0;
+}
+
 export async function gravarFatosPatrimonio(
   tx: Prisma.TransactionClient,
   args: { clienteId: string; reuniaoId: string; patrimonio: PatrimonioSnapshot },
@@ -33,9 +44,9 @@ export async function gravarFatosPatrimonio(
 
   for (const { chave, campo } of MAPA_PATRIMONIO) {
     const total = patrimonio[chave];
-    // Só totais presentes/finitos viram fato (o snapshot normalizado já descarta
-    // NaN/Infinity, mas cada total é opcional — pode vir undefined).
-    if (typeof total !== "number" || !Number.isFinite(total)) continue;
+    // Só total gravável (número finito > 0) vira fato. 0/negativo = sentinela de
+    // "não declarado" → pulado igual a campo ausente (1b-2i).
+    if (!totalPatrimonioGravavel(total)) continue;
 
     const novoValor = String(Math.round(total));
 
