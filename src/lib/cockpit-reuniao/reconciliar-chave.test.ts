@@ -57,3 +57,23 @@ test("familia — dados.nome 'Ana Cristina' → familia:ana-cristina", () => {
   // Sem nome → cai no fallback (chave do LLM), como hoje.
   assert.equal(campoFamilia("", "familia:filho-1"), "familia:filho-1");
 });
+
+// ── 1b-2h: slug remove apelido em parênteses (senão gustavo-guga ≠ gustavo).
+test("slug-hardening — 'Gustavo (Guga)' → familia:gustavo", () => {
+  assert.equal(campoFamilia("Gustavo (Guga)", "familia:gustavo-guga"), "familia:gustavo");
+  // Sanidade: nome simples inalterado.
+  assert.equal(campoFamilia("Juliana", "familia:x"), "familia:juliana");
+});
+
+// ── 1b-2h: alias de sinônimo casa vocabulário disjunto (trabalho↔aposentadoria).
+test("alias — plano-trabalho reconcilia com projeto:aposentadoria", () => {
+  const d = reconciliarChave("memoravel:plano-trabalho", [{ campo: "projeto:aposentadoria" }]);
+  assert.equal(d.acao, "reusar");
+  assert.equal(d.campoCanonico, "projeto:aposentadoria");
+});
+
+// ── 1b-2h: alias é cirúrgico — token diferente (holding) não é afetado.
+test("alias — não funde conceito não-relacionado", () => {
+  const d = reconciliarChave("projeto:holding", [{ campo: "projeto:aposentadoria" }]);
+  assert.equal(d.acao, "criar");
+});

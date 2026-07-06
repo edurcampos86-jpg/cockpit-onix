@@ -53,6 +53,20 @@ export const STOPWORDS_QUALIFICADOR: ReadonlySet<string> = new Set([
   "para",
 ]);
 
+/**
+ * Aliases de SINÔNIMO de núcleo (1b-2h): mapeiam token→token-canônico ANTES do
+ * casamento. Necessário porque o token-overlap não faz ponte de vocabulário
+ * disjunto: o mesmo conceito "aposentar-se aos 74-75" saiu ora como
+ * `aposentadoria`, ora como `trabalho` (núcleos sem interseção → não casavam).
+ *
+ * ⚠️ ESPECÍFICO DE DOMÍNIO, não generaliza sozinho: cada alias é uma decisão
+ * (canonicaliza QUALQUER ocorrência do token). Estender com parcimônia e só p/
+ * pares comprovadamente sinônimos no contexto Onix — o risco é fusão falsa.
+ */
+export const ALIASES_NUCLEO: ReadonlyMap<string, string> = new Map([
+  ["trabalho", "aposentadoria"],
+]);
+
 /** Remove acentos (NFD + strip diacríticos). */
 function removerAcento(s: string): string {
   return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -71,9 +85,17 @@ export function tokensBrutos(campo: string): string[] {
     .filter(Boolean);
 }
 
-/** Núcleo conceitual: tokens brutos MENOS as stopwords de qualificador. */
+/**
+ * Núcleo conceitual: tokens brutos MENOS as stopwords de qualificador, com os
+ * sinônimos canonicalizados via `ALIASES_NUCLEO` (aplicado a kNovo e existentes
+ * simetricamente, já que ambos passam por aqui).
+ */
 export function nucleo(campo: string): Set<string> {
-  return new Set(tokensBrutos(campo).filter((t) => !STOPWORDS_QUALIFICADOR.has(t)));
+  return new Set(
+    tokensBrutos(campo)
+      .filter((t) => !STOPWORDS_QUALIFICADOR.has(t))
+      .map((t) => ALIASES_NUCLEO.get(t) ?? t),
+  );
 }
 
 function subconjunto(a: Set<string>, b: Set<string>): boolean {
@@ -175,12 +197,21 @@ export function reconciliarChave(
   };
 }
 
-/** Slug estável: lowercase, sem acento, espaços→hífen, só [a-z0-9-]. */
+/**
+ * Slug estável: lowercase, sem acento, espaços→hífen, só [a-z0-9-].
+ * Remove apelido/papel em parênteses ANTES de slugificar (1b-2h): o nome
+ * "Gustavo (Guga)" vira `gustavo`, não `gustavo-guga` — senão a chave derivada
+ * diverge da chave legada do LLM e a linha duplica (FAMILIA é upsert por campo
+ * exato, sem reconciliação de núcleo).
+ */
 export function slug(s: string): string {
   return removerAcento(s.toLowerCase())
+    .replace(/\([^)]*\)/g, " ")
     .trim()
     .replace(/\s+/g, "-")
-    .replace(/[^a-z0-9-]/g, "");
+    .replace(/[^a-z0-9-]/g, "")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 /**
