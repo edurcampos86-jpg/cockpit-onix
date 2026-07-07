@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { ClienteDetalhe } from "@/components/backoffice/cliente-detalhe";
 import { ClienteBtgSection } from "@/components/backoffice/cliente-btg-section";
 import { cockpitReuniaoHabilitado } from "@/lib/cockpit-reuniao/flag";
+import { perfilFatoLeituraHabilitado } from "@/lib/cockpit-reuniao/perfil-leitura-flag";
 import { rbacEnforcementHabilitado, clienteVisivelPorAssessorCge } from "@/lib/rbac";
 import { getAuthContext } from "@/lib/auth-helpers";
 
@@ -32,6 +33,9 @@ export default async function ClienteDetalhePage({
           orderBy: { data: "desc" },
           include: { pessoa: { select: { nomeCompleto: true, apelido: true } } },
         },
+        // Perfil·Leitura L1: fatos versionados (read-only), ordenados p/ o
+        // agrupamento "último por campo" no client. Índice [clienteId] existente.
+        fatos: { orderBy: { criadoEm: "desc" } },
       },
     }),
     prisma.movimentacaoBtg.findMany({
@@ -56,6 +60,7 @@ export default async function ClienteDetalhePage({
   }
 
   const cockpitReuniao = await cockpitReuniaoHabilitado();
+  const perfilLeitura = await perfilFatoLeituraHabilitado();
 
   // Time ativo (só quando a aba está ligada). Uma query, duas listas:
   //  - `pessoas`            → "quem conduziu" no form (todas as ativas)
@@ -93,9 +98,11 @@ export default async function ClienteDetalhePage({
         <ClienteDetalhe
           cliente={JSON.parse(JSON.stringify(cliente))}
           cockpitReuniao={cockpitReuniao}
+          perfilLeitura={perfilLeitura}
           reunioesEstruturadas={JSON.parse(
             JSON.stringify(cliente.reunioesEstruturadas),
           )}
+          clienteFatos={JSON.parse(JSON.stringify(cliente.fatos))}
           pessoas={pessoas}
           pessoasComLogin={pessoasComLogin}
         />
