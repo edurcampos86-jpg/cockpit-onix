@@ -1,8 +1,9 @@
-import { Lock } from "lucide-react";
+import { CalendarClock, History, Lock } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
   agruparFatosLeitura,
+  formatarValorFato,
   rotuloCampo,
   type FatoView,
 } from "@/lib/cockpit-reuniao/fatos-leitura";
@@ -13,11 +14,22 @@ function formatarData(iso: string): string {
   return y && m && d ? `${d}/${m}/${y}` : iso;
 }
 
+/** Houve revisão? valorAnterior presente e diferente do atual. */
+function temRevisao(f: FatoView): boolean {
+  const ant = (f.valorAnterior ?? "").trim();
+  return ant !== "" && ant !== (f.valor ?? "").trim();
+}
+
+function truncar(s: string, max = 140): string {
+  return s.length > max ? s.slice(0, max) + "…" : s;
+}
+
 /**
- * Aba "Perfil" (Perfil·Leitura L1) — leitura read-only dos `ClienteFato`
- * agrupados por categoria, mostrando o valor atual de cada campo. Sem edição.
- * Fatos `sensivel` ganham badge (o detalhe protegido fica em `dados`, não no
- * `valor`, então não é exibido aqui). Histórico/versão ficam para o L2.
+ * Aba "Perfil" (Perfil·Leitura) — leitura read-only dos `ClienteFato` agrupados
+ * por categoria, valor atual por campo. L2 acrescenta: rótulos ricos, moeda nas
+ * métricas, badge "Revisado" (com o valor anterior), chip de `vence` e a reunião
+ * de origem no rodapé. Fatos `sensivel` ganham badge; o detalhe protegido fica
+ * em `dados` e não é exibido. Sem edição.
  */
 export function ClienteFatosTab({ fatos = [] }: { fatos?: FatoView[] }) {
   const grupos = agruparFatosLeitura(fatos);
@@ -62,10 +74,34 @@ export function ClienteFatosTab({ fatos = [] }: { fatos?: FatoView[] }) {
                       <Lock className="h-3 w-3" /> Sensível
                     </Badge>
                   )}
+                  {temRevisao(f) && (
+                    <Badge variant="outline" className="gap-1">
+                      <History className="h-3 w-3" /> Revisado
+                    </Badge>
+                  )}
+                  {f.vence && (
+                    <Badge variant="secondary" className="gap-1">
+                      <CalendarClock className="h-3 w-3" /> Vence em{" "}
+                      {formatarData(f.vence)}
+                    </Badge>
+                  )}
                 </div>
-                <p className="mt-1 text-sm text-muted-foreground">{f.valor}</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {formatarValorFato(f)}
+                </p>
+                {temRevisao(f) && (
+                  <p className="mt-1 text-xs text-muted-foreground/60">
+                    Antes:{" "}
+                    <span className="line-through">
+                      {truncar(f.valorAnterior ?? "")}
+                    </span>
+                  </p>
+                )}
                 <p className="mt-1 text-xs text-muted-foreground/70">
                   {formatarData(f.criadoEm)} · {f.fonte}
+                  {f.reuniao?.data
+                    ? ` · reunião de ${formatarData(f.reuniao.data)}`
+                    : ""}
                 </p>
               </div>
             ))}

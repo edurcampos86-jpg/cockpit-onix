@@ -20,6 +20,8 @@ export type FatoView = {
   vence: string | null;
   criadoEm: string;
   reuniaoId: string | null;
+  // Reunião de origem (L2): data do encontro p/ a proveniência no rodapé.
+  reuniao?: { data: string | null } | null;
 };
 
 /** Um grupo de fatos de uma categoria, pronto para render. */
@@ -86,12 +88,49 @@ export function agruparFatosLeitura(fatos: FatoView[]): GrupoFatos[] {
 }
 
 /**
- * Rótulo leve do campo para leitura (L1): remove o prefixo-tipo (até o 1º ':') e
- * troca hífen por espaço, capitalizando. Rótulos ricos por campo ficam para o L2.
+ * Rótulos amigáveis por campo (L2) — só onde o fallback erra acento ou sigla.
+ * Chave = base do campo (sem prefixo-tipo). O resto sai do fallback.
+ */
+const ROTULOS_CAMPO: Record<string, string> = {
+  estadoCivil: "Estado civil",
+  profissao: "Profissão",
+  capacidadePoupanca: "Capacidade de poupança",
+  despesaMensal: "Despesa mensal",
+  rendaMensal: "Renda mensal",
+  patrimonioBtg: "Patrimônio BTG",
+  patrimonioForaBtg: "Patrimônio fora do BTG",
+  patrimonioTotal: "Patrimônio total",
+};
+
+/**
+ * Rótulo do campo para leitura (L2): mapa amigável primeiro; senão remove o
+ * prefixo-tipo (até o 1º ':'), separa hífen e camelCase, e capitaliza.
  */
 export function rotuloCampo(campo: string): string {
   const i = campo.indexOf(":");
   const base = i >= 0 ? campo.slice(i + 1) : campo;
-  const s = base.replace(/-/g, " ").trim();
+  const amigavel = ROTULOS_CAMPO[base] ?? ROTULOS_CAMPO[campo];
+  if (amigavel) return amigavel;
+  const s = base
+    .replace(/-/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .trim()
+    .toLowerCase();
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : campo;
+}
+
+/**
+ * Valor formatado para leitura (L2): métricas de dinheiro e patrimônio (string
+ * só-dígitos) viram BRL com separador de milhar; o resto sai como texto.
+ * `idade` (numérica mas não-moeda) e qualitativos ficam intactos. Sem Intl —
+ * agrupamento manual = determinístico (sem mismatch de hidratação).
+ */
+export function formatarValorFato(f: FatoView): string {
+  const valor = (f.valor ?? "").trim();
+  const soDigitos = /^\d+$/.test(valor);
+  const ehDinheiro =
+    soDigitos &&
+    (f.campo.startsWith("patrimonio") || (f.categoria === "METRICA" && f.campo !== "idade"));
+  if (!ehDinheiro) return f.valor ?? "";
+  return "R$ " + valor.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 }

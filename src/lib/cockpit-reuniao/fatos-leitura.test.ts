@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { agruparFatosLeitura, rotuloCampo, type FatoView } from "./fatos-leitura.ts";
+import {
+  agruparFatosLeitura,
+  formatarValorFato,
+  rotuloCampo,
+  type FatoView,
+} from "./fatos-leitura.ts";
 
 function fato(p: Partial<FatoView> & Pick<FatoView, "categoria" | "campo" | "criadoEm">): FatoView {
   return {
@@ -70,4 +75,34 @@ test("rotuloCampo — tira prefixo-tipo e humaniza", () => {
   assert.equal(rotuloCampo("familia:gustavo"), "Gustavo");
   assert.equal(rotuloCampo("memoravel:seguro-vida"), "Seguro vida");
   assert.equal(rotuloCampo("idade"), "Idade");
+});
+
+test("rotuloCampo L2 — mapa amigável (acento/sigla) e split camelCase", () => {
+  assert.equal(rotuloCampo("estadoCivil"), "Estado civil");
+  assert.equal(rotuloCampo("capacidadePoupanca"), "Capacidade de poupança");
+  assert.equal(rotuloCampo("patrimonioBtg"), "Patrimônio BTG");
+  // sem mapa → fallback split camelCase
+  assert.equal(rotuloCampo("dataRetorno"), "Data retorno");
+});
+
+test("formatarValorFato L2 — dinheiro vira BRL; idade/texto intactos", () => {
+  const base = { valorAnterior: null, dados: null, fonte: "reuniao", sensivel: false, confirmado: false, vence: null, reuniaoId: null } as const;
+  assert.equal(
+    formatarValorFato({ ...base, id: "1", categoria: "METRICA", campo: "capacidadePoupanca", valor: "10000", criadoEm: "x" }),
+    "R$ 10.000",
+  );
+  assert.equal(
+    formatarValorFato({ ...base, id: "2", categoria: "METRICA", campo: "patrimonioBtg", valor: "3460342", criadoEm: "x" }),
+    "R$ 3.460.342",
+  );
+  // idade é numérica mas NÃO é moeda
+  assert.equal(
+    formatarValorFato({ ...base, id: "3", categoria: "IDENTIDADE", campo: "idade", valor: "60", criadoEm: "x" }),
+    "60",
+  );
+  // métrica qualitativa (texto) fica intacta
+  assert.equal(
+    formatarValorFato({ ...base, id: "4", categoria: "METRICA", campo: "despesaMensal", valor: "Muito alta", criadoEm: "x" }),
+    "Muito alta",
+  );
 });
