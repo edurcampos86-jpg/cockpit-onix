@@ -89,14 +89,22 @@ export function ClienteFatosTab({ fatos = [] }: { fatos?: FatoView[] }) {
                 <p className="mt-1 text-sm text-muted-foreground">
                   {formatarValorFato(f)}
                 </p>
-                {temRevisao(f) && (
-                  <p className="mt-1 text-xs text-muted-foreground/60">
-                    Antes:{" "}
-                    <span className="line-through">
-                      {truncar(f.valorAnterior ?? "")}
-                    </span>
-                  </p>
-                )}
+                {temRevisao(f) &&
+                  (f.sensivel ? (
+                    // Fato sensível: NÃO expor o valor anterior — ele pode conter
+                    // o detalhe protegido que foi retirado do valor atual. Mostra
+                    // só que houve revisão.
+                    <p className="mt-1 text-xs italic text-muted-foreground/50">
+                      Valor anterior oculto (sensível)
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-xs text-muted-foreground/60">
+                      Antes:{" "}
+                      <span className="line-through">
+                        {truncar(f.valorAnterior ?? "")}
+                      </span>
+                    </p>
+                  ))}
                 <p className="mt-1 text-xs text-muted-foreground/70">
                   {formatarData(f.criadoEm)} · {f.fonte}
                   {f.reuniao?.data
