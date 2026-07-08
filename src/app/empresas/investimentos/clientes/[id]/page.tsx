@@ -33,9 +33,13 @@ export default async function ClienteDetalhePage({
           orderBy: { data: "desc" },
           include: { pessoa: { select: { nomeCompleto: true, apelido: true } } },
         },
-        // Perfil·Leitura L1: fatos versionados (read-only), ordenados p/ o
+        // Perfil·Leitura: fatos versionados (read-only), ordenados p/ o
         // agrupamento "último por campo" no client. Índice [clienteId] existente.
-        fatos: { orderBy: { criadoEm: "desc" } },
+        // L2: data da reunião de origem p/ a proveniência no rodapé.
+        fatos: {
+          orderBy: { criadoEm: "desc" },
+          include: { reuniao: { select: { data: true } } },
+        },
       },
     }),
     prisma.movimentacaoBtg.findMany({
