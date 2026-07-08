@@ -16,7 +16,10 @@ import {
   ClipboardList,
   IdCard,
   Presentation,
+  UserRound,
 } from "lucide-react";
+import { ClienteFatosTab } from "./cliente-fatos-tab";
+import type { FatoView } from "@/lib/cockpit-reuniao/fatos-leitura";
 import { ReferenciaLivro } from "./referencia-livro";
 import { ComoFunciona } from "./como-funciona";
 import {
@@ -114,7 +117,7 @@ interface Cliente {
   codigoEscritorio: string | null;
 }
 
-type Tab = "descoberta" | "cadastro" | "plano" | "checklist" | "metas" | "eventos" | "perfil" | "rca" | "cockpit-reuniao";
+type Tab = "descoberta" | "cadastro" | "plano" | "checklist" | "metas" | "eventos" | "perfil" | "rca" | "cockpit-reuniao" | "fatos";
 
 const TABS: { id: Tab; label: string; icon: typeof Heart }[] = [
   { id: "descoberta", label: "Descoberta", icon: Heart },
@@ -130,23 +133,28 @@ const TABS: { id: Tab; label: string; icon: typeof Heart }[] = [
 export function ClienteDetalhe({
   cliente: inicial,
   cockpitReuniao = false,
+  perfilLeitura = false,
   reunioesEstruturadas = [],
+  clienteFatos = [],
   pessoas = [],
   pessoasComLogin = [],
 }: {
   cliente: Cliente;
   cockpitReuniao?: boolean;
+  perfilLeitura?: boolean;
   reunioesEstruturadas?: ReuniaoEstruturadaView[];
+  clienteFatos?: FatoView[];
   pessoas?: { id: string; nome: string }[];
   pessoasComLogin?: { id: string; nome: string }[];
 }) {
   const [tab, setTab] = useState<Tab>("descoberta");
   const [cliente, setCliente] = useState(inicial);
 
-  // Flag OFF → tabs === TABS (tela byte-idêntica à de hoje). ON → +1 aba ao lado da RCA.
-  const tabs = cockpitReuniao
-    ? [...TABS, { id: "cockpit-reuniao" as Tab, label: "Cockpit de Reunião", icon: Presentation }]
-    : TABS;
+  // Cada flag OFF → aba correspondente some (tela byte-idêntica à de hoje).
+  const tabs = [...TABS];
+  if (perfilLeitura) tabs.push({ id: "fatos" as Tab, label: "Perfil", icon: UserRound });
+  if (cockpitReuniao)
+    tabs.push({ id: "cockpit-reuniao" as Tab, label: "Cockpit de Reunião", icon: Presentation });
 
   return (
     <div className="space-y-4">
@@ -224,6 +232,7 @@ export function ClienteDetalhe({
           onChange={(i) => setCliente({ ...cliente, interacoes: i })}
         />
       )}
+      {tab === "fatos" && <ClienteFatosTab fatos={clienteFatos} />}
       {tab === "cockpit-reuniao" && (
         <CockpitReuniaoTab
           clienteId={cliente.id}
