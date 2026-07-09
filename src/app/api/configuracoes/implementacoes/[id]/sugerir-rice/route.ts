@@ -6,6 +6,7 @@ import { getConfig } from "@/lib/config-db";
 import { downloadContrato } from "@/lib/b2/upload";
 import { calcRiceScore } from "@/lib/rice";
 import { EMPRESAS } from "@/lib/empresas-config";
+import { logSugestaoRiceSugerida } from "@/lib/implementacoes/rice-audit";
 
 /**
  * POST /api/configuracoes/implementacoes/[id]/sugerir-rice
@@ -300,6 +301,18 @@ export async function POST(
   }
 
   const scorePrevisto = calcRiceScore(reach, impact, confidence, effort);
+  const confiancaGeral =
+    typeof out.confiancaGeral === "string" ? out.confiancaGeral : null;
+
+  // Log append-only do evento "sugerida" (fire-and-forget — nunca quebra a
+  // resposta). Devolve o id pro front correlacionar a confirmação/descarte.
+  const sugestaoLogId = await logSugestaoRiceSugerida({
+    implementacaoId: id,
+    usuarioId: ctx.userId,
+    usuarioNome: ctx.name,
+    valores: { reach, impact, confidence, effort, score: scorePrevisto, confiancaGeral },
+    metadata: anexosIgnorados.length ? { anexosIgnorados } : undefined,
+  });
 
   return NextResponse.json({
     reach,
@@ -308,7 +321,8 @@ export async function POST(
     effort,
     scorePrevisto,
     justificativas: out.justificativas ?? null,
-    confiancaGeral: out.confiancaGeral ?? null,
+    confiancaGeral,
+    sugestaoLogId,
     anexosIgnorados: anexosIgnorados.length ? anexosIgnorados : undefined,
     usage: {
       inputTokens: response.usage.input_tokens,

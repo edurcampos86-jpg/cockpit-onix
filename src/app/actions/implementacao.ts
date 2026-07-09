@@ -14,6 +14,7 @@ import {
   extFromContentType,
   sanitizeNomeArquivo,
 } from "@/lib/implementacoes/anexos";
+import { logResultadoSugestaoRice } from "@/lib/implementacoes/rice-audit";
 
 const TIPOS = ["melhoria", "erro", "ideia"];
 const STATUSES = ["triagem", "aprovada", "em-andamento", "concluida", "recusada"];
@@ -220,4 +221,51 @@ export async function atualizarStatus(id: string, status: string): Promise<void>
     data: { status },
   });
   revalidatePath("/configuracoes/implementacoes");
+}
+
+/**
+ * Loga o RESULTADO de uma sugestão de RICE da IA ("confirmada" | "descartada"),
+ * correlacionado à sugestão original via sugestaoLogId. Admin-only (a central é
+ * admin-only). Append-only e fire-and-forget: só INSERT no SugestaoRiceLog, e o
+ * writer engole qualquer falha pra nunca quebrar o fluxo do front.
+ */
+export async function registrarResultadoSugestaoRice(input: {
+  implementacaoId: string;
+  sugestaoLogId: string | null;
+  resultado: "confirmada" | "descartada";
+  reach: number | null;
+  impact: number | null;
+  confidence: number | null;
+  effort: number | null;
+  confiancaGeral?: string | null;
+  eixosEditados?: string[];
+}): Promise<void> {
+  const ctx = await getAuthContext();
+  if (!isAdmin(ctx)) return; // central é admin-only — defesa em profundidade
+
+  const score = calcRiceScore(
+    input.reach,
+    input.impact,
+    input.confidence,
+    input.effort,
+  );
+  await logResultadoSugestaoRice({
+    evento: input.resultado,
+    implementacaoId: input.implementacaoId,
+    sugestaoLogId: input.sugestaoLogId,
+    usuarioId: ctx.userId,
+    usuarioNome: ctx.name,
+    valores: {
+      reach: input.reach,
+      impact: input.impact,
+      confidence: input.confidence,
+      effort: input.effort,
+      score,
+      confiancaGeral: input.confiancaGeral ?? null,
+    },
+    metadata:
+      input.eixosEditados && input.eixosEditados.length
+        ? { eixosEditados: input.eixosEditados }
+        : undefined,
+  });
 }

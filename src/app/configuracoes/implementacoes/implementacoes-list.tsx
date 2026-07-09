@@ -18,6 +18,7 @@ import {
   atualizarRice,
   atualizarStatus,
   removerAnexo,
+  registrarResultadoSugestaoRice,
 } from "@/app/actions/implementacao";
 import { RiceHelp } from "./rice-help";
 import {
@@ -63,7 +64,15 @@ type RiceDraft = {
   justificativas: Partial<Record<Eixo, string>> | null;
   confiancaGeral: string | null;
   anexosIgnorados?: string[];
+  // Correlaciona o resultado (confirmada/descartada) à linha "sugerida" no log.
+  sugestaoLogId: string | null;
 };
+
+const EIXOS: Eixo[] = ["reach", "impact", "confidence", "effort"];
+/** Eixos que o humano editou no rascunho (perderam o destaque "IA"). */
+function eixosEditados(d: RiceDraft): Eixo[] {
+  return EIXOS.filter((e) => !d.ia[e]);
+}
 
 const GOLD = "#FFB114";
 
@@ -302,6 +311,7 @@ export function ImplementacoesList({
         justificativas: Partial<Record<Eixo, string>> | null;
         confiancaGeral: string | null;
         anexosIgnorados?: string[];
+        sugestaoLogId: string | null;
       };
       setDrafts((m) => ({
         ...m,
@@ -314,6 +324,7 @@ export function ImplementacoesList({
           justificativas: d.justificativas ?? null,
           confiancaGeral: d.confiancaGeral ?? null,
           anexosIgnorados: d.anexosIgnorados,
+          sugestaoLogId: d.sugestaoLogId ?? null,
         },
       }));
     } catch (e) {
@@ -350,17 +361,46 @@ export function ImplementacoesList({
   function confirmarDraft(id: string) {
     const d = drafts[id];
     if (!d) return;
-    commitRice(id, {
+    const vals = {
       reach: numOrNull(d.reach),
       impact: numOrNull(d.impact),
       confidence: numOrNull(d.confidence),
       effort: numOrNull(d.effort),
-    });
+    };
+    commitRice(id, vals);
+    // Log append-only "confirmada", correlacionado à sugestão (fire-and-forget).
+    startTransition(() =>
+      registrarResultadoSugestaoRice({
+        implementacaoId: id,
+        sugestaoLogId: d.sugestaoLogId,
+        resultado: "confirmada",
+        ...vals,
+        confiancaGeral: d.confiancaGeral,
+        eixosEditados: eixosEditados(d),
+      }),
+    );
     limparDraft(id);
   }
 
-  /** Descartar: some o rascunho, campos voltam ao salvo. NADA é gravado. */
+  /** Descartar: some o rascunho, campos voltam ao salvo. NADA é gravado no RICE. */
   function descartarDraft(id: string) {
+    const d = drafts[id];
+    if (d) {
+      // Log append-only "descartada", correlacionado à sugestão (fire-and-forget).
+      startTransition(() =>
+        registrarResultadoSugestaoRice({
+          implementacaoId: id,
+          sugestaoLogId: d.sugestaoLogId,
+          resultado: "descartada",
+          reach: numOrNull(d.reach),
+          impact: numOrNull(d.impact),
+          confidence: numOrNull(d.confidence),
+          effort: numOrNull(d.effort),
+          confiancaGeral: d.confiancaGeral,
+          eixosEditados: eixosEditados(d),
+        }),
+      );
+    }
     limparDraft(id);
     setSugError((m) => ({ ...m, [id]: null }));
   }
