@@ -46,6 +46,9 @@ model User {
   // Jurídico — fase 1B
   usuarioPermissao UsuarioPermissao?
   acessosContratos ContratoAcessoLog[]
+
+  // Auditoria — Sugestão RICE com IA (PR3)
+  sugestoesRiceLog SugestaoRiceLog[]
 }
 
 // ============================================
@@ -2153,6 +2156,44 @@ model ImplementacaoAnexo {
   criadoEm        DateTime      @default(now())
 
   @@index([implementacaoId])
+}
+
+// ============================================
+// AUDITORIA — SUGESTÃO RICE COM IA (PR3)
+// ============================================
+// Log append-only do fluxo "Sugerir RICE com IA": UMA linha por EVENTO
+// (sugerida | confirmada | descartada), NUNCA atualizada (Design A). A rota
+// sugerir-rice grava "sugerida" e devolve o id; o front correlaciona a
+// confirmação/descarte via sugestaoLogId. Mesmo molde de ContratoAcessoLog:
+// FK de usuário onDelete: Restrict (não apaga histórico junto com o User),
+// ref soft de implementacaoId (sem FK, igual AlertaClienteLog.clienteId) e
+// metadata Json pra payload extra.
+model SugestaoRiceLog {
+  id String @id @default(cuid())
+
+  evento          String // "sugerida" | "confirmada" | "descartada"
+  implementacaoId String // ref soft (sem FK)
+  sugestaoLogId   String? // correlaciona "confirmada"/"descartada" à linha "sugerida"
+
+  usuarioId   String
+  usuario     User   @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
+  usuarioNome String // snapshot do nome no momento do evento
+
+  // Valores em jogo no evento: na "sugerida" = sugestão da IA; na "confirmada"
+  // = valores finais salvos. Nullable por robustez entre os tipos de evento.
+  reach          Int?
+  impact         Int?
+  confidence     Int?
+  effort         Int?
+  score          Float?
+  confiancaGeral String? // "alta" | "media" | "baixa" (só na "sugerida")
+
+  metadata Json? // payload extra (eixos editados, anexosIgnorados, etc.)
+
+  createdAt DateTime @default(now())
+
+  @@index([implementacaoId, createdAt(sort: Desc)])
+  @@index([usuarioId, createdAt(sort: Desc)])
 }
 
 // ============================================
