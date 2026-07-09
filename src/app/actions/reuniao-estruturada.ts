@@ -18,6 +18,11 @@ import {
   type ReuniaoPendencias,
   type ReuniaoProximosPassos,
 } from "@/lib/cockpit-reuniao/tipos";
+import { importReuniaoIdempotenteHabilitado } from "@/lib/cockpit-reuniao/import-idempotencia-flag";
+import {
+  pendenciasTemConcluido,
+  proximosPassosTemConcluido,
+} from "@/lib/cockpit-reuniao/import-idempotencia";
 
 /* ──────────────────────────────────────────────────────────────────────────
    Helpers de coerção — mesmo padrão de reuniao-time.ts (sem Zod; o repo não usa).
@@ -75,7 +80,14 @@ function novoItemAcionavel(texto: string): ItemAcionavel {
   return { texto, concluido: false, concluidoEm: null };
 }
 
-export type CriarReuniaoState = { ok: boolean; error?: string };
+export type CriarReuniaoState = {
+  ok: boolean;
+  error?: string;
+  // Import idempotente (T2.5b): true quando uma reunião existente (mesmo
+  // clienteId+data) foi ATUALIZADA em vez de duplicada. `reuniaoData` = yyyy-mm-dd.
+  atualizado?: boolean;
+  reuniaoData?: string;
+};
 
 /**
  * Cria uma `ReuniaoEstruturada` a partir do formulário de captura manual.
@@ -293,30 +305,70 @@ export async function importarReuniaoEstruturada(
   const fr = (await getConfig("PERFIL_FATO_RICO_WRITE"))?.trim().toLowerCase();
   const ligadoFatosRicos = fr === "on" || fr === "true" || fr === "1";
 
+  // Idempotência do import (T2.5b, flag própria default OFF). ON → reimportar a
+  // MESMA reunião (clienteId+data) atualiza o registro existente em vez de criar
+  // um novo (evita duplicar pendências/fatos). Lido antes da transação.
+  const idempotente = await importReuniaoIdempotenteHabilitado();
+
+  let reuniaoId = "";
+  let atualizado = false;
+
   // Reunião + registro de histórico atômicos: se um falha, nada grava.
   await prisma.$transaction(async (tx) => {
-    const reuniao = await tx.reuniaoEstruturada.create({
-      data: {
-        clienteId,
-        data,
-        dataRetorno,
-        tipoCadencia,
-        pessoaId,
-        pautas,
-        pendencias,
-        proximosPassos,
-        textoBruto,
-        patrimonioSnapshot: patrimonioSnapshot ?? undefined,
-      },
-      select: { id: true },
-    });
+    const existente = idempotente
+      ? await tx.reuniaoEstruturada.findFirst({
+          where: { clienteId, data },
+          orderBy: { createdAt: "desc" },
+          select: { id: true, pendencias: true, proximosPassos: true },
+        })
+      : null;
+
+    if (existente) {
+      // Reimport da MESMA reunião → ATUALIZA (não duplica). Conteúdo é refrescado
+      // com a extração nova; pendências/próximos passos são PRESERVADOS se já
+      // houver conclusão (não perde o trabalho do usuário — proteção all-or-none,
+      // já que casar item-a-item entre reimports é frágil). textoBruto/patrimônio
+      // só sobrescrevem quando presentes (nunca apagam a fonte por ausência).
+      atualizado = true;
+      reuniaoId = existente.id;
+      await tx.reuniaoEstruturada.update({
+        where: { id: existente.id },
+        data: {
+          dataRetorno,
+          tipoCadencia,
+          pessoaId,
+          pautas,
+          ...(pendenciasTemConcluido(existente.pendencias) ? {} : { pendencias }),
+          ...(proximosPassosTemConcluido(existente.proximosPassos) ? {} : { proximosPassos }),
+          ...(textoBruto !== null ? { textoBruto } : {}),
+          ...(patrimonioSnapshot ? { patrimonioSnapshot } : {}),
+        },
+      });
+    } else {
+      const nova = await tx.reuniaoEstruturada.create({
+        data: {
+          clienteId,
+          data,
+          dataRetorno,
+          tipoCadencia,
+          pessoaId,
+          pautas,
+          pendencias,
+          proximosPassos,
+          textoBruto,
+          patrimonioSnapshot: patrimonioSnapshot ?? undefined,
+        },
+        select: { id: true },
+      });
+      reuniaoId = nova.id;
+    }
 
     // Fatos de patrimônio (Fase 1a) — no MESMO tx (atômico com a reunião).
     // Flag OFF ou sem patrimônio => no-op. Grava só os totais que mudaram.
     if (ligadoFatos && patrimonioSnapshot) {
       await gravarFatosPatrimonio(tx, {
         clienteId,
-        reuniaoId: reuniao.id,
+        reuniaoId,
         patrimonio: patrimonioSnapshot,
       });
     }
@@ -327,15 +379,17 @@ export async function importarReuniaoEstruturada(
     if (ligadoFatosRicos) {
       await gravarFatosRicos(tx, {
         clienteId,
-        reuniaoId: reuniao.id,
+        reuniaoId,
         extracao: extracaoRica,
       });
     }
 
+    // ReuniaoImport é log de AUDITORIA: sempre append (registra todo import,
+    // inclusive reimport que só atualizou a reunião).
     await tx.reuniaoImport.create({
       data: {
         clienteId,
-        reuniaoEstruturadaId: reuniao.id,
+        reuniaoEstruturadaId: reuniaoId,
         fonte,
         textoBruto,
         nomeArquivo: input.nomeArquivo?.trim() || null,
@@ -348,5 +402,5 @@ export async function importarReuniaoEstruturada(
   });
 
   revalidatePath(`/empresas/investimentos/clientes/${clienteId}`);
-  return { ok: true };
+  return { ok: true, atualizado, reuniaoData: data.toISOString().slice(0, 10) };
 }
