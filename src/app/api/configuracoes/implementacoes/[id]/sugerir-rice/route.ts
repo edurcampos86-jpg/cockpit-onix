@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAuthContext, isAdmin } from "@/lib/auth-helpers";
+import { getConfig } from "@/lib/config-db";
 import { downloadContrato } from "@/lib/b2/upload";
 import { calcRiceScore } from "@/lib/rice";
 import { EMPRESAS } from "@/lib/empresas-config";
@@ -114,10 +115,17 @@ export async function POST(
   if (!ctx) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   if (!isAdmin(ctx)) return notFound();
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  // Chave vive no Config DB (gravada pela UI de Integrações via setConfig), com
+  // fallback pra env — mesmo padrão de extrair/analisar e das libs de IA. Ler de
+  // process.env direto quebrava quando a chave só estava no banco (Railway sem a
+  // env), dando "ausente" mesmo com a IA funcionando no resto do app.
+  const apiKey = await getConfig("ANTHROPIC_API_KEY");
   if (!apiKey) {
     return NextResponse.json(
-      { error: "ANTHROPIC_API_KEY ausente" },
+      {
+        error:
+          "IA indisponível: a chave da Anthropic não está configurada (Integrações › Claude AI).",
+      },
       { status: 500 },
     );
   }
