@@ -8,7 +8,7 @@
  *
  * A key e as credenciais B2 nunca são expostas na resposta nem no log.
  */
-import { getAuthContext } from "@/lib/auth-helpers";
+import { getAuthContext, isAdmin } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import { downloadContrato } from "@/lib/b2/upload";
 import { mimeFromKey } from "@/lib/implementacoes/anexos";
@@ -23,6 +23,9 @@ export async function GET(
 ) {
   const ctx = await getAuthContext().catch(() => null);
   if (!ctx) return new Response("forbidden", { status: 403 });
+  // Central de implementações é admin-only; não-admin recebe o MESMO 404 do
+  // "não existe" (não vaza existência) — mesmo padrão da rota sugerir-rice.
+  if (!isAdmin(ctx)) return new Response("Não encontrado", { status: 404 });
 
   const { id } = await ctxParams.params;
 

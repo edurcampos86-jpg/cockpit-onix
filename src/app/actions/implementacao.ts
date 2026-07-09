@@ -193,7 +193,8 @@ export async function atualizarRice(
     effort?: number | null;
   },
 ): Promise<void> {
-  await getAuthContext();
+  const ctx = await getAuthContext();
+  if (!isAdmin(ctx)) return; // central é admin-only — defesa em profundidade
 
   const reach = intOrNull(vals.reach);
   const impact = intOrNull(vals.impact);
@@ -210,7 +211,8 @@ export async function atualizarRice(
 
 /** Atualiza o status (triagem|aprovada|em-andamento|concluida|recusada). */
 export async function atualizarStatus(id: string, status: string): Promise<void> {
-  await getAuthContext();
+  const ctx = await getAuthContext();
+  if (!isAdmin(ctx)) return; // central é admin-only — defesa em profundidade
   if (!STATUSES.includes(status)) return;
 
   await prisma.implementacao.update({
