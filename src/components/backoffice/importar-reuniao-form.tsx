@@ -881,7 +881,13 @@ export function ImportarReuniaoForm({
       fd.append("payload", JSON.stringify(payload));
       if (modo === "pdf" && arquivo) fd.append("file", arquivo);
 
-      let json: { ok?: boolean; error?: string; pdfNaoArmazenado?: boolean };
+      let json: {
+        ok?: boolean;
+        error?: string;
+        pdfNaoArmazenado?: boolean;
+        atualizado?: boolean;
+        reuniaoData?: string;
+      };
       try {
         const res = await fetch("/api/cockpit-reuniao/importar", {
           method: "POST",
@@ -897,12 +903,19 @@ export function ImportarReuniaoForm({
         return;
       }
       const semPdf = Boolean(json.pdfNaoArmazenado);
+      const atualizado = Boolean(json.atualizado);
+      // yyyy-mm-dd → dd/mm/aaaa (sem lib).
+      const dataFmt = json.reuniaoData
+        ? json.reuniaoData.split("-").reverse().join("/")
+        : null;
       setOpen(false);
       resetTudo();
       setAviso(
-        semPdf
-          ? "Reunião salva, mas o PDF não foi armazenado (storage indisponível neste ambiente)."
-          : null,
+        atualizado
+          ? `Já existia uma reunião${dataFmt ? ` de ${dataFmt}` : ""} — atualizamos em vez de duplicar.${semPdf ? " (PDF não armazenado.)" : ""}`
+          : semPdf
+            ? "Reunião salva, mas o PDF não foi armazenado (storage indisponível neste ambiente)."
+            : null,
       );
       setSucesso(true);
       window.dispatchEvent(

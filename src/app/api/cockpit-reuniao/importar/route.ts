@@ -137,5 +137,11 @@ export async function POST(req: NextRequest) {
   if (!r.ok) {
     return NextResponse.json({ error: r.error ?? "Falha ao salvar." }, { status: 400 });
   }
-  return NextResponse.json({ ok: true, pdfNaoArmazenado });
+  // atualizado = reimport da mesma reunião atualizou o registro (não duplicou).
+  return NextResponse.json({
+    ok: true,
+    pdfNaoArmazenado,
+    atualizado: r.atualizado ?? false,
+    reuniaoData: r.reuniaoData,
+  });
 }
