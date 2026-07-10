@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { getAuthContext } from "@/lib/auth-helpers";
+import { getAuthContext, type AuthContext } from "@/lib/auth-helpers";
+import { rbacEnforcementHabilitado, clienteVisivelPorAssessorCge } from "@/lib/rbac";
 import { parsePendencias } from "@/lib/cockpit-reuniao/derivar";
 import type { ReuniaoPendencias } from "@/lib/cockpit-reuniao/tipos";
 
@@ -30,16 +31,37 @@ function ladoValido(v: string): v is Lado {
  * Carrega a reunião + pendências canônicas, valida lado/índice. Retorna o
  * estado canônico (mutável) ou um erro padronizado — sem lançar exceção.
  */
-async function carregarItem(reuniaoId: string, lado: string, indice: number) {
+async function carregarItem(
+  reuniaoId: string,
+  lado: string,
+  indice: number,
+  ctx: AuthContext,
+) {
   if (!reuniaoId) return { erro: "Reunião não informada." as const };
   if (!ladoValido(lado)) return { erro: "Lado inválido." as const };
   if (!Number.isInteger(indice) || indice < 0) return { erro: "Índice inválido." as const };
 
   const reuniao = await prisma.reuniaoEstruturada.findUnique({
     where: { id: reuniaoId },
-    select: { id: true, clienteId: true, pendencias: true },
+    select: {
+      id: true,
+      clienteId: true,
+      pendencias: true,
+      cliente: { select: { assessorCge: true } },
+    },
   });
   if (!reuniao) return { erro: "Reunião não encontrada." as const };
+
+  // RBAC — Camada 2 (escopo). Pendência de cliente fora do escopo do usuário =
+  // "não encontrada" (não pode ver ⇒ não pode mutar) — mesma máscara de
+  // inexistência das rotas-irmãs (apelido/route.ts, cockpit-reuniao/importar).
+  // Reusa o assessorCge já carregado (sem 2ª query). Flag RBAC_ENFORCEMENT
+  // (default OFF) → comportamento idêntico a hoje.
+  if (await rbacEnforcementHabilitado()) {
+    if (!(await clienteVisivelPorAssessorCge(reuniao.cliente?.assessorCge ?? null, ctx))) {
+      return { erro: "Reunião não encontrada." as const };
+    }
+  }
 
   const pend = parsePendencias(reuniao.pendencias);
   const item = pend[lado][indice];
@@ -57,9 +79,9 @@ export async function marcarPendenciaRealizada(input: {
   lado: string;
   indice: number;
 }): Promise<PendenciaActionState> {
-  await getAuthContext();
+  const ctx = await getAuthContext();
 
-  const r = await carregarItem(input.reuniaoId, input.lado, input.indice);
+  const r = await carregarItem(input.reuniaoId, input.lado, input.indice, ctx);
   if ("erro" in r) return { ok: false, error: r.erro };
 
   if (!r.item.concluido) {
@@ -84,9 +106,9 @@ export async function desmarcarPendencia(input: {
   lado: string;
   indice: number;
 }): Promise<PendenciaActionState> {
-  await getAuthContext();
+  const ctx = await getAuthContext();
 
-  const r = await carregarItem(input.reuniaoId, input.lado, input.indice);
+  const r = await carregarItem(input.reuniaoId, input.lado, input.indice, ctx);
   if ("erro" in r) return { ok: false, error: r.erro };
 
   if (r.item.concluido) {
@@ -120,13 +142,13 @@ export async function rotearPendenciaParaPainel(input: {
   indice: number;
   destinatarioPessoaId: string;
 }): Promise<PendenciaActionState> {
-  await getAuthContext();
+  const ctx = await getAuthContext();
 
   if (!input.destinatarioPessoaId) {
     return { ok: false, error: "Destinatário não informado." };
   }
 
-  const r = await carregarItem(input.reuniaoId, input.lado, input.indice);
+  const r = await carregarItem(input.reuniaoId, input.lado, input.indice, ctx);
   if ("erro" in r) return { ok: false, error: r.erro };
 
   const pessoa = await prisma.pessoa.findUnique({
