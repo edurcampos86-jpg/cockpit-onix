@@ -118,6 +118,18 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       );
     }
 
+    // Rastro do Fee Fixo — mesmo padrão de apelidoEditadoEm/Por. Carimbado
+    // aqui (e não pelo cliente) pra que o "quem/quando" venha da sessão e não
+    // do corpo da request. O proxy já exige sessão nesta rota; o `if` cobre o
+    // caso degenerado de cookie válido cujo usuário sumiu.
+    if ("feeFixo" in body) {
+      const session = await getSession();
+      if (session) {
+        data.feeFixoEditadoEm = new Date();
+        data.feeFixoEditadoPor = session.userId;
+      }
+    }
+
     // Se mudou classificação manualmente, trava recálculo automático
     if ("classificacao" in body && !("classificacaoManual" in body)) {
       data.classificacaoManual = true;
