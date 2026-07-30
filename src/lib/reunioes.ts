@@ -8,9 +8,14 @@ import { prisma } from "@/lib/prisma";
  * Por que essa camada existe:
  * - As 3 fontes externas (Google Calendar, Outlook ICS, Datacrazy Atividades)
  *   podem registrar a MESMA reunião. Sem chave externa, "última escrita ganha".
- * - `ReuniaoCliente` tem `(source, externalId)` unique → idempotência por
- *   fonte. Mesma reunião replicada em 2 fontes vira 2 linhas com `startAt`
- *   igual; o agregado deduplica via MIN/MAX no SQL.
+ * - `ReuniaoCliente` tem `(userId, source, externalId, clienteId)` unique →
+ *   idempotência por fonte. Mesma reunião replicada em 2 fontes vira 2 linhas
+ *   com `startAt` igual; o agregado deduplica via MIN/MAX no SQL.
+ * - `clienteId` entra na chave porque UM evento pode casar com VÁRIOS clientes
+ *   (reunião com casal, título citando dois nomes): cada match tem a própria
+ *   linha. Antes da migration 20260730200000 eles dividiam uma linha só e se
+ *   sobrescreviam — vencia o match de MENOR confiança, cujo score 30 é
+ *   filtrado do rollup, então a reunião sumia das colunas de todos.
  *
  * Ordem das fontes ao haver conflito de dados (ex: título diferente):
  *   google-cal > outlook-ics > datacrazy-atividade > manual
@@ -101,8 +106,19 @@ export async function upsertReuniao(
   // findUnique nao serve aqui: o Prisma rejeita `userId: null` no compound
   // unique (NULL nao satisfaz @unique no contrato JS). findFirst escopa
   // corretamente o "tipo global" via where literal.
+  //
+  // `clienteId` FAZ PARTE da busca: um mesmo evento pode casar com varios
+  // clientes, e cada um tem a PROPRIA linha (unique inclui clienteId desde a
+  // migration 20260730200000). Sem ele aqui, os matches do mesmo evento
+  // encontrariam a linha um do outro e se sobrescreveriam em cadeia — a linha
+  // acabava com o match de MENOR confianca e sumia do rollup.
   const existente = await prisma.reuniaoCliente.findFirst({
-    where: { userId, source: input.source, externalId: input.externalId },
+    where: {
+      userId,
+      source: input.source,
+      externalId: input.externalId,
+      clienteId: input.clienteId,
+    },
   });
 
   if (!existente) {
@@ -124,19 +140,27 @@ export async function upsertReuniao(
     return "created";
   }
 
-  // Se nada relevante mudou, no-op (evita updatedAt churn no índice)
+  // Se nada relevante mudou, no-op (evita updatedAt churn no índice).
+  //
+  // `clienteId` saiu da comparação: agora é parte da chave de busca, então
+  // sempre bate. Em troca entraram `matchedVia`/`matchScore` — antes eles eram
+  // reescritos "de graça" a cada troca de dono da linha; com a linha estável
+  // por cliente, sem compará-los um match que MELHORA (ex.: o cliente ganha
+  // e-mail e passa de nome-substring/30 para email/100) cairia no no-op e o
+  // score ficaria congelado abaixo do MIN_SCORE_ROLLUP — a reunião nunca
+  // subiria pro rollup.
   const naoMudou =
     existente.startAt.getTime() === input.startAt.getTime() &&
     (existente.endAt?.getTime() ?? null) === (input.endAt?.getTime() ?? null) &&
     existente.titulo === (input.titulo ?? null) &&
     existente.realizada === realizada &&
-    existente.clienteId === input.clienteId;
+    existente.matchedVia === input.matchedVia &&
+    existente.matchScore === matchScore;
   if (naoMudou) return "noop";
 
   await prisma.reuniaoCliente.update({
     where: { id: existente.id },
     data: {
-      clienteId: input.clienteId,
       startAt: input.startAt,
       endAt: input.endAt ?? null,
       titulo: input.titulo ?? null,
@@ -152,17 +176,33 @@ export async function upsertReuniao(
 /**
  * Remove uma reunião (quando o evento sumiu da fonte externa).
  * `userId` escopa para fontes per-user (default: global / NULL).
- * Retorna true se algo foi deletado. Caller decide se recalcula agregados.
+ *
+ * Remove TODAS as linhas daquele `externalId` — o evento pode ter casado com
+ * vários clientes, e cada um tem a própria linha. Retorna os `clienteId`
+ * afetados (dedupados) para que o caller os passe INTEIROS pro recompute:
+ * devolver só um booleano deixaria de fora os demais donos, que ficariam com
+ * `proximaReuniaoAt`/`ultimaReuniaoAt` apontando pra uma reunião já deletada.
  */
 export async function deleteReuniaoByExternal(
   source: ReuniaoSource,
   externalId: string,
   userId: string | null = null,
-): Promise<boolean> {
+): Promise<{ removidas: number; clientesAfetados: string[] }> {
+  // Lê antes de deletar: o deleteMany devolve só a contagem, e precisamos
+  // saber DE QUEM eram as linhas pra recomputar os agregados deles.
+  const alvos = await prisma.reuniaoCliente.findMany({
+    where: { source, externalId, userId },
+    select: { clienteId: true },
+  });
+  if (alvos.length === 0) return { removidas: 0, clientesAfetados: [] };
+
   const r = await prisma.reuniaoCliente.deleteMany({
     where: { source, externalId, userId },
   });
-  return r.count > 0;
+  return {
+    removidas: r.count,
+    clientesAfetados: Array.from(new Set(alvos.map((a) => a.clienteId))),
+  };
 }
 
 /**

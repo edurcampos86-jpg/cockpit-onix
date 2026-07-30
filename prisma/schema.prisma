@@ -768,9 +768,17 @@ model ReuniaoCliente {
   // Campo virtual: NÃO altera a tabela ReuniaoCliente nem lib/reunioes.ts.
   reunioesEstruturadas ReuniaoEstruturada[]
 
-  // Dedupe escopado por usuario. NULL no userId vale para fontes globais
-  // (Postgres permite múltiplos NULL no unique).
-  @@unique([userId, source, externalId])
+  // Dedupe escopado por usuario E por cliente. NULL no userId vale para fontes
+  // globais (Postgres permite múltiplos NULL no unique).
+  //
+  // `clienteId` faz parte da chave DE PROPÓSITO: um mesmo evento de calendário
+  // pode casar com VÁRIOS clientes (reunião com casal, título citando dois
+  // nomes). Sem `clienteId` na chave, os matches do mesmo evento disputavam
+  // UMA linha só: cada upsert sobrescrevia o anterior, a linha terminava com o
+  // match de MENOR confiança (a ordem é email → nome-unico → nome-substring) e
+  // o `matchScore` 30 resultante era filtrado do rollup — a reunião sumia das
+  // colunas de TODOS os envolvidos, inclusive de quem casou por e-mail.
+  @@unique([userId, source, externalId, clienteId])
   @@index([clienteId, startAt])
   @@index([source, startAt])
   @@index([userId, source])
