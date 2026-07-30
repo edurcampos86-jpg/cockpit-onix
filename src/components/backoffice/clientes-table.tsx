@@ -35,6 +35,7 @@ import {
 import type { EstadoAtencao } from "@/lib/painel-atencao/core";
 import { getNomeRelacionamento } from "@/lib/backoffice/display-name";
 import { ApelidoEditButton } from "@/components/backoffice/apelido-edit-button";
+import { Switch } from "@/components/ui/switch";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 declare global {
@@ -244,6 +245,7 @@ interface Cliente {
   proximaReuniaoAt: Date | string | null;
   proximoContatoAt: Date | string | null;
   receitaAnual: number;
+  feeFixo: boolean;
   assessorNome: string | null;
   assessorCge: string | null;
   assessorEmail: string | null;
@@ -263,6 +265,7 @@ type SortKey =
   | "saldoConta"
   | "saldoContaDesde"
   | "receitaAnual"
+  | "feeFixo"
   | "ultimoContatoAt"
   | "ultimaReuniaoAt"
   | "proximaReuniaoAt"
@@ -343,6 +346,7 @@ export function ClientesTable({
   const [marcandoContato, setMarcandoContato] = useState(false);
   const [registrandoReuniao, setRegistrandoReuniao] = useState<string | null>(null);
   const [registrandoContato, setRegistrandoContato] = useState<string | null>(null);
+  const [feeSalvando, setFeeSalvando] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -440,6 +444,11 @@ export function ClientesTable({
       const vb = b[sortKey];
       if (va === null || va === undefined) return 1;
       if (vb === null || vb === undefined) return -1;
+      // feeFixo é boolean. Como toggleSort abre toda coluna nova em "desc",
+      // o primeiro clique já traz os ATIVOS primeiro.
+      if (typeof va === "boolean" && typeof vb === "boolean") {
+        return (Number(va) - Number(vb)) * dir;
+      }
       if (typeof va === "string" && typeof vb === "string") {
         return va.localeCompare(vb) * dir;
       }
@@ -658,6 +667,31 @@ export function ClientesTable({
     }
   };
 
+  // Toggle OTIMISTA do Fee Fixo: pinta na hora e desfaz se o PATCH falhar.
+  // `feeSalvando` guarda o id em voo só pra desabilitar aquele switch — os
+  // demais seguem clicáveis.
+  const alternarFeeFixo = async (id: string, valor: boolean) => {
+    const anterior = clientes.find((c) => c.id === id)?.feeFixo ?? false;
+    if (anterior === valor) return;
+    setFeeSalvando(id);
+    setClientes((prev) => prev.map((c) => (c.id === id ? { ...c, feeFixo: valor } : c)));
+    try {
+      const res = await fetch(`/api/backoffice/clientes/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ feeFixo: valor }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    } catch (e) {
+      // Rollback: sem isso o switch ficaria mentindo até o próximo reload.
+      console.error("Erro ao alternar Fee Fixo:", e);
+      setClientes((prev) => prev.map((c) => (c.id === id ? { ...c, feeFixo: anterior } : c)));
+      alert("Não foi possível salvar o Fee Fixo. Tente novamente.");
+    } finally {
+      setFeeSalvando(null);
+    }
+  };
+
   const toggleSelecionado = (id: string) => {
     setSelecionados((prev) => {
       const next = new Set(prev);
@@ -702,7 +736,10 @@ export function ClientesTable({
       "Conta",
       "AUM",
       "Saldo Conta",
+      // "Receita/ano" saiu da TABELA mas continua no CSV: o dado não foi
+      // removido do banco e planilhas existentes dependem dessa coluna.
       "Receita/ano",
+      "Fee Fixo",
       "Assessor",
       "Telefone",
       "Email",
@@ -717,6 +754,7 @@ export function ClientesTable({
       c.saldo.toFixed(2).replace(".", ","),
       c.saldoConta.toFixed(2).replace(".", ","),
       c.receitaAnual.toFixed(2).replace(".", ","),
+      c.feeFixo ? "Sim" : "Não",
       c.assessorNome || "",
       c.telefone || "",
       c.email || "",
@@ -1148,8 +1186,8 @@ export function ClientesTable({
                     </button>
                   )}
                 </Th>
-                <Th align="right" onClick={() => toggleSort("receitaAnual")}>
-                  Receita/ano <SortIcon k="receitaAnual" />
+                <Th onClick={() => toggleSort("feeFixo")}>
+                  Fee Fixo <SortIcon k="feeFixo" />
                 </Th>
                 <Th onClick={() => toggleSort("ultimoContatoAt")}>
                   Último contato <SortIcon k="ultimoContatoAt" />
@@ -1339,7 +1377,19 @@ export function ClientesTable({
                           </div>
                         )}
                     </td>
-                    <td className="px-3 py-3 text-right font-mono text-muted-foreground">{moeda(c.receitaAnual)}</td>
+                    <td className="px-3 py-3">
+                      <Switch
+                        checked={c.feeFixo}
+                        onCheckedChange={(valor) => alternarFeeFixo(c.id, valor)}
+                        disabled={feeSalvando === c.id}
+                        aria-label={`Fee fixo de ${c.nome}`}
+                        title={
+                          c.feeFixo
+                            ? "Cliente com honorário fixo — clique para desmarcar"
+                            : "Sem honorário fixo — clique para marcar"
+                        }
+                      />
+                    </td>
 
                     <td className="px-3 py-3 text-xs">
                       {c.ultimoContatoAt ? (
