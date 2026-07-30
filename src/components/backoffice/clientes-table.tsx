@@ -26,6 +26,7 @@ import {
   MessageCircle,
   CalendarPlus,
   Phone,
+  BadgeDollarSign,
 } from "lucide-react";
 import { statusTermometro } from "@/lib/cadencia-core";
 import {
@@ -246,6 +247,8 @@ interface Cliente {
   proximoContatoAt: Date | string | null;
   receitaAnual: number;
   feeFixo: boolean;
+  feeFixoEditadoEm?: Date | string | null;
+  feeFixoEditadoPorNome?: string | null;
   assessorNome: string | null;
   assessorCge: string | null;
   assessorEmail: string | null;
@@ -312,12 +315,17 @@ export function ClientesTable({
   clientes: iniciais,
   isAdmin = false,
   mostrarSaldoParado = false,
+  usuarioNome = null,
 }: {
   clientes: Cliente[];
   isAdmin?: boolean;
   // Gate da UI "parado há X dias" (flag CLIENTES_SALDO_PARADO_DIAS). Default
   // false → célula Saldo Conta e ordenação byte-idênticas a hoje (invariante OFF).
   mostrarSaldoParado?: boolean;
+  // Nome do usuário da sessão — usado só pra preencher o rastro do Fee Fixo
+  // otimisticamente (o servidor grava o userId; o nome já está em mãos aqui,
+  // evitando um refetch só pra exibir quem acabou de clicar).
+  usuarioNome?: string | null;
 }) {
   const [clientes, setClientes] = useState(iniciais);
 
@@ -329,6 +337,7 @@ export function ClientesTable({
   const [foraCadencia, setForaCadencia] = useState(false);
   const [semProximaReuniao, setSemProximaReuniao] = useState(false);
   const [saldoParado, setSaldoParado] = useState(false);
+  const [soFeeFixo, setSoFeeFixo] = useState(false);
   const [filtrosExpandidos, setFiltrosExpandidos] = useState(false);
 
   // Ordenação
@@ -382,6 +391,25 @@ export function ClientesTable({
     return new Date(data).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
   };
 
+  // Tooltip do switch de Fee Fixo: ação + rastro de quem alternou e quando.
+  // Linhas anteriores à migration de auditoria têm os campos NULL — nesse caso
+  // mostra só a ação, sem inventar autoria.
+  const rotuloFeeFixo = (c: Cliente): string => {
+    const acao = c.feeFixo
+      ? "Cliente com honorário fixo — clique para desmarcar"
+      : "Sem honorário fixo — clique para marcar";
+    if (!c.feeFixoEditadoEm) return acao;
+    const quando = new Date(c.feeFixoEditadoEm).toLocaleString("pt-BR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    const quem = c.feeFixoEditadoPorNome ?? "usuário removido";
+    return `${acao}\nÚltima alteração: ${quem} em ${quando}`;
+  };
+
   // Status legado de 3 estados (ok/atencao/alerta) usado por filtros e contadores.
   // Deriva do termômetro compartilhado: vermelho→alerta, amarelo→atencao,
   // verde/sem-historico→ok (nunca-contatado é estado neutro, não conta como fora).
@@ -431,9 +459,10 @@ export function ClientesTable({
       if (foraCadencia && statusCadencia(c) === "ok") return false;
       if (semProximaReuniao && c.proximaReuniaoAt) return false;
       if (saldoParado && c.saldoConta < SALDO_PARADO_LIMITE) return false;
+      if (soFeeFixo && !c.feeFixo) return false;
       return true;
     });
-  }, [clientes, busca, filtroClasse, filtroSaldoConta, filtroAssessor, foraCadencia, semProximaReuniao, saldoParado]);
+  }, [clientes, busca, filtroClasse, filtroSaldoConta, filtroAssessor, foraCadencia, semProximaReuniao, saldoParado, soFeeFixo]);
 
   // Ordenação
   const ordenados = useMemo(() => {
@@ -519,6 +548,10 @@ export function ClientesTable({
       rendaTotal,
       pendencias,
       aniversariantes,
+      // Contrapartida do "Renda anual dos clientes": aquele KPI vem de
+      // receitaAnual, que não tem mais coluna na tabela. Este responde
+      // "quantos já estão em fee fixo?" — a pergunta que motiva o toggle.
+      comFeeFixo: filtrados.filter((c) => c.feeFixo).length,
     };
   }, [filtrados]);
 
@@ -671,10 +704,30 @@ export function ClientesTable({
   // `feeSalvando` guarda o id em voo só pra desabilitar aquele switch — os
   // demais seguem clicáveis.
   const alternarFeeFixo = async (id: string, valor: boolean) => {
-    const anterior = clientes.find((c) => c.id === id)?.feeFixo ?? false;
-    if (anterior === valor) return;
+    const alvo = clientes.find((c) => c.id === id);
+    if (!alvo || alvo.feeFixo === valor) return;
+    // Guarda o rastro anterior INTEIRO: o rollback precisa desfazer também o
+    // "quem/quando", senão a linha voltaria ao valor antigo com autoria nova.
+    const antes = {
+      feeFixo: alvo.feeFixo,
+      feeFixoEditadoEm: alvo.feeFixoEditadoEm ?? null,
+      feeFixoEditadoPorNome: alvo.feeFixoEditadoPorNome ?? null,
+    };
     setFeeSalvando(id);
-    setClientes((prev) => prev.map((c) => (c.id === id ? { ...c, feeFixo: valor } : c)));
+    setClientes((prev) =>
+      prev.map((c) =>
+        c.id === id
+          ? {
+              ...c,
+              feeFixo: valor,
+              // Espelha o que o servidor vai carimbar, pra o tooltip não ficar
+              // mostrando a alteração ANTERIOR logo após o clique.
+              feeFixoEditadoEm: new Date(),
+              feeFixoEditadoPorNome: usuarioNome,
+            }
+          : c,
+      ),
+    );
     try {
       const res = await fetch(`/api/backoffice/clientes/${id}`, {
         method: "PATCH",
@@ -685,7 +738,7 @@ export function ClientesTable({
     } catch (e) {
       // Rollback: sem isso o switch ficaria mentindo até o próximo reload.
       console.error("Erro ao alternar Fee Fixo:", e);
-      setClientes((prev) => prev.map((c) => (c.id === id ? { ...c, feeFixo: anterior } : c)));
+      setClientes((prev) => prev.map((c) => (c.id === id ? { ...c, ...antes } : c)));
       alert("Não foi possível salvar o Fee Fixo. Tente novamente.");
     } finally {
       setFeeSalvando(null);
@@ -716,6 +769,7 @@ export function ClientesTable({
     setForaCadencia(false);
     setSemProximaReuniao(false);
     setSaldoParado(false);
+    setSoFeeFixo(false);
     setBusca("");
   };
 
@@ -726,6 +780,7 @@ export function ClientesTable({
     foraCadencia ||
     semProximaReuniao ||
     saldoParado ||
+    soFeeFixo ||
     !!busca;
 
   const exportarCSV = () => {
@@ -863,7 +918,7 @@ export function ClientesTable({
 
   return (
     <div className="space-y-4">
-      {/* Painel de saúde — 8 KPIs (todos respeitam filtros ativos) */}
+      {/* Painel de saúde — 9 KPIs (todos respeitam filtros ativos) */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {/* Linha 1 — financeiros */}
         <KpiCard
@@ -893,6 +948,17 @@ export function ClientesTable({
           value={moeda(kpis.rendaTotal)}
           sub="somatório de Renda Anual (BTG)"
           tone="neutro"
+        />
+        <KpiCard
+          icon={BadgeDollarSign}
+          label="Clientes com fee fixo"
+          value={String(kpis.comFeeFixo)}
+          sub={
+            filtrados.length > 0
+              ? `${Math.round((kpis.comFeeFixo / filtrados.length) * 100)}% dos ${filtrados.length} exibidos`
+              : "nenhum cliente exibido"
+          }
+          tone={kpis.comFeeFixo > 0 ? "ok" : "neutro"}
         />
         {/* Linha 2 — operacionais */}
         <KpiCard
@@ -1082,6 +1148,16 @@ export function ClientesTable({
               />
               <Wallet className="h-4 w-4 text-amber-600" />
               Saldo parado &gt; {moeda(SALDO_PARADO_LIMITE)}
+            </label>
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={soFeeFixo}
+                onChange={(e) => setSoFeeFixo(e.target.checked)}
+                className="rounded"
+              />
+              <BadgeDollarSign className="h-4 w-4 text-emerald-600" />
+              Só com fee fixo
             </label>
 
             {filtrosAtivos && (
@@ -1383,11 +1459,7 @@ export function ClientesTable({
                         onCheckedChange={(valor) => alternarFeeFixo(c.id, valor)}
                         disabled={feeSalvando === c.id}
                         aria-label={`Fee fixo de ${c.nome}`}
-                        title={
-                          c.feeFixo
-                            ? "Cliente com honorário fixo — clique para desmarcar"
-                            : "Sem honorário fixo — clique para marcar"
-                        }
+                        title={rotuloFeeFixo(c)}
                       />
                     </td>
 

@@ -68,6 +68,10 @@ export default async function ClientesPage() {
     proximoContatoAt: Date | null;
     receitaAnual: number;
     feeFixo: boolean;
+    feeFixoEditadoEm: Date | null;
+    // Nome resolvido de quem alternou o fee (o banco guarda só o userId).
+    // null = nunca alternado, ou usuário removido desde então.
+    feeFixoEditadoPorNome: string | null;
     assessorNome: string | null;
     assessorCge: string | null;
     assessorEmail: string | null;
@@ -85,6 +89,22 @@ export default async function ClientesPage() {
       where,
       orderBy: [{ classificacao: "asc" }, { saldo: "desc" }],
     });
+
+    // `feeFixoEditadoPor` guarda userId (String, sem relation). Resolve os
+    // nomes numa query só, e SÓ quando existe alguém pra resolver — base sem
+    // fee marcado não paga nada por isso.
+    const editorIds = [
+      ...new Set(raw.map((c) => c.feeFixoEditadoPor).filter((v): v is string => !!v)),
+    ];
+    const nomePorUserId = new Map<string, string>();
+    if (editorIds.length > 0) {
+      const users = await prisma.user.findMany({
+        where: { id: { in: editorIds } },
+        select: { id: true, name: true },
+      });
+      for (const u of users) nomePorUserId.set(u.id, u.name);
+    }
+
     clientes = raw.map((c) => ({
       id: c.id,
       nome: c.nome,
@@ -106,6 +126,10 @@ export default async function ClientesPage() {
       proximoContatoAt: c.proximoContatoAt,
       receitaAnual: c.receitaAnual,
       feeFixo: c.feeFixo,
+      feeFixoEditadoEm: c.feeFixoEditadoEm,
+      feeFixoEditadoPorNome: c.feeFixoEditadoPor
+        ? (nomePorUserId.get(c.feeFixoEditadoPor) ?? null)
+        : null,
       assessorNome: c.assessorNome,
       assessorCge: c.assessorCge,
       assessorEmail: c.assessorEmail,
@@ -171,7 +195,12 @@ export default async function ClientesPage() {
           titulo="Por que classificar clientes em A, B e C?"
         />
 
-        <ClientesTable clientes={clientes} isAdmin={isAdmin} mostrarSaldoParado={mostrarSaldoParado} />
+        <ClientesTable
+          clientes={clientes}
+          isAdmin={isAdmin}
+          mostrarSaldoParado={mostrarSaldoParado}
+          usuarioNome={session?.name ?? null}
+        />
       </div>
     </div>
   );

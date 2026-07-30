@@ -618,6 +618,11 @@ model ClienteBackoffice {
   // segue alimentando /performance, o dashboard e o recálculo de ReceitaItem.
   // Fora da FIELD_SOURCE_POLICY de propósito: nenhum import pode sobrescrever.
   feeFixo Boolean @default(false)
+  // Rastro de quem alternou o fee e quando — mesmo padrão de apelidoEditado*.
+  // É a única marcação manual E financeira da tabela: com RBAC ligado e vários
+  // assessores, "quem marcou esse cliente?" precisa ter resposta.
+  feeFixoEditadoEm  DateTime?
+  feeFixoEditadoPor String? // userId de quem alternou (sessao atual)
 
   // Dados BTG sincronizados via API
   cpfCnpj                     String? // taxIdentification do holder (CPF ou CNPJ)
