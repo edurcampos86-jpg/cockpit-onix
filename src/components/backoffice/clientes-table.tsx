@@ -518,10 +518,6 @@ export function ClientesTable({
 
     const rendaTotal = filtrados.reduce((sum, c) => sum + c.receitaAnual, 0);
 
-    const pendencias = filtrados.filter(
-      (c) => c.pendenciaCadastral && c.pendenciaCadastral.trim() !== ""
-    ).length;
-
     const hoje = new Date();
     const seteDias = new Date(hoje.getTime() + 7 * 24 * 60 * 60 * 1000);
     const aniversariantes = filtrados.filter((c) => {
@@ -546,11 +542,11 @@ export function ClientesTable({
       saldoNegativoTotal,
       clientesNegativos,
       rendaTotal,
-      pendencias,
       aniversariantes,
-      // Contrapartida do "Renda anual dos clientes": aquele KPI vem de
-      // receitaAnual, que não tem mais coluna na tabela. Este responde
-      // "quantos já estão em fee fixo?" — a pergunta que motiva o toggle.
+      // Ocupa o lugar do antigo KPI "Pendências cadastrais" (resolvido no BTG,
+      // não nesta página). Contrapartida do "Renda anual dos clientes", que vem
+      // de receitaAnual e não tem mais coluna na tabela: responde "quantos já
+      // estão em fee fixo?" — a pergunta que motiva o toggle.
       comFeeFixo: filtrados.filter((c) => c.feeFixo).length,
     };
   }, [filtrados]);
@@ -918,7 +914,7 @@ export function ClientesTable({
 
   return (
     <div className="space-y-4">
-      {/* Painel de saúde — 9 KPIs (todos respeitam filtros ativos) */}
+      {/* Painel de saúde — 8 KPIs (todos respeitam filtros ativos) */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {/* Linha 1 — financeiros */}
         <KpiCard
@@ -949,17 +945,6 @@ export function ClientesTable({
           sub="somatório de Renda Anual (BTG)"
           tone="neutro"
         />
-        <KpiCard
-          icon={BadgeDollarSign}
-          label="Clientes com fee fixo"
-          value={String(kpis.comFeeFixo)}
-          sub={
-            filtrados.length > 0
-              ? `${Math.round((kpis.comFeeFixo / filtrados.length) * 100)}% dos ${filtrados.length} exibidos`
-              : "nenhum cliente exibido"
-          }
-          tone={kpis.comFeeFixo > 0 ? "ok" : "neutro"}
-        />
         {/* Linha 2 — operacionais */}
         <KpiCard
           icon={TrendingUp}
@@ -976,11 +961,15 @@ export function ClientesTable({
           tone="neutro"
         />
         <KpiCard
-          icon={AlertTriangle}
-          label="Pendências cadastrais"
-          value={String(kpis.pendencias)}
-          sub={kpis.pendencias === 0 ? "sem pendências" : "abrir BTG p/ resolver"}
-          tone={kpis.pendencias > 0 ? "atencao" : "ok"}
+          icon={BadgeDollarSign}
+          label="Clientes com fee fixo"
+          value={String(kpis.comFeeFixo)}
+          sub={
+            filtrados.length > 0
+              ? `${Math.round((kpis.comFeeFixo / filtrados.length) * 100)}% dos ${filtrados.length} exibidos`
+              : "nenhum cliente exibido"
+          }
+          tone={kpis.comFeeFixo > 0 ? "ok" : "neutro"}
         />
         <KpiCard
           icon={CalendarCheck}
