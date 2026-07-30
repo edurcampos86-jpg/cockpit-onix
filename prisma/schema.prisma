@@ -613,6 +613,12 @@ model ClienteBackoffice {
   // Receita
   receitaAnual Float @default(0)
 
+  // Fee fixo — cliente com honorário fixo contratado. Marcação MANUAL (toggle
+  // na tabela de clientes), independente de `receitaAnual`, que vem do BTG e
+  // segue alimentando /performance, o dashboard e o recálculo de ReceitaItem.
+  // Fora da FIELD_SOURCE_POLICY de propósito: nenhum import pode sobrescrever.
+  feeFixo Boolean @default(false)
+
   // Dados BTG sincronizados via API
   cpfCnpj                     String? // taxIdentification do holder (CPF ou CNPJ)
   perfilInvestidor            String? // Suitability: "conservador" | "moderado" | "sofisticado"

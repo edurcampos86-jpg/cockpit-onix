@@ -88,6 +88,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       "classificacao",
       "classificacaoManual",
       "receitaAnual",
+      // Marcação manual de honorário fixo (toggle na tabela de clientes).
+      // Entra na mesma allowlist de propósito: herda o guard de RBAC do PATCH
+      // (assertClienteVisivel) — quem não enxerga o cliente recebe 404 antes de
+      // chegar aqui, logo não alterna o fee de quem não é da sua carteira.
+      "feeFixo",
       "ultimoContatoAt",
       "proximoContatoAt",
     ];
@@ -102,6 +107,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           data[key] = body[key];
         }
       }
+    }
+
+    // `feeFixo` é NOT NULL no banco: um valor não-booleano (ex.: a string
+    // "true") explodiria no Prisma e viraria 500. Rejeita como 400 explícito.
+    if ("feeFixo" in body && typeof body.feeFixo !== "boolean") {
+      return NextResponse.json(
+        { error: "feeFixo deve ser booleano." },
+        { status: 400 },
+      );
     }
 
     // Se mudou classificação manualmente, trava recálculo automático

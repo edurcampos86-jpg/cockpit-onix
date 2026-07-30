@@ -67,6 +67,7 @@ export default async function ClientesPage() {
     proximaReuniaoAt: Date | null;
     proximoContatoAt: Date | null;
     receitaAnual: number;
+    feeFixo: boolean;
     assessorNome: string | null;
     assessorCge: string | null;
     assessorEmail: string | null;
@@ -104,6 +105,7 @@ export default async function ClientesPage() {
       proximaReuniaoAt: c.proximaReuniaoAt,
       proximoContatoAt: c.proximoContatoAt,
       receitaAnual: c.receitaAnual,
+      feeFixo: c.feeFixo,
       assessorNome: c.assessorNome,
       assessorCge: c.assessorCge,
       assessorEmail: c.assessorEmail,
