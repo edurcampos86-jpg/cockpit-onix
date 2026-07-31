@@ -6,6 +6,19 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 # Como o Eduardo quer o trabalho entregue
 
+## Resposta sempre resumida
+
+Toda resposta ao Eduardo vem **curta**: a conclusão primeiro, o mínimo de
+contexto para sustentá-la, e nada além disso. Sem retomar o que ele já sabe,
+sem narrar o caminho até a resposta, sem listar alternativas descartadas.
+
+O trabalho continua profundo — o que encurta é o relato, não a investigação.
+Detalhe técnico longo (diff, log, tabela de verificação, justificativa extensa)
+vai para o corpo do PR ou do commit, onde fica registrado; o chat leva o
+resumo e o link.
+
+Quando ele quiser mais, ele pede.
+
 ## Ao finalizar uma tarefa: sempre 3 sugestões de melhoria da página
 
 Toda tarefa que mexe numa página do Cockpit termina com **três sugestões de

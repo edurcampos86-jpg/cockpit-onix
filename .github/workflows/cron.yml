@@ -18,9 +18,8 @@ name: Cockpit Crons
 on:
   schedule:
     - cron: '*/5 * * * *'   # datacrazy-poll (mensagens WhatsApp)
-    - cron: '*/15 * * * *'  # google-calendar-poll + auto-encerrar + triar-emails
+    - cron: '*/15 * * * *'  # google-calendar-poll
     - cron: '*/30 * * * *'  # outlook-poll + datacrazy-atividades-poll + integration-audit
-    - cron: '30 10 * * 1-5' # boot-do-dia (seg-sex 07:30 Bahia / 10:30 UTC)
     - cron: '0 23 * * 0'    # retrospectiva-semanal (dom 20:00 Bahia / 23:00 UTC)
     - cron: '0 4 * * 2'     # btg-movements-poll (ter 01:00 Bahia / 04:00 UTC — fora de pico)
     - cron: '0 9 * * *'     # btg-balances-poll (diário 06:00 Bahia / 09:00 UTC — saldoConta)
@@ -67,14 +66,38 @@ jobs:
                 PATHS="/api/cron/datacrazy-poll"
                 ;;
               "*/15 * * * *")
-                PATHS="/api/cron/google-calendar-poll /api/cron/auto-encerrar /api/cron/triar-emails"
+                PATHS="/api/cron/google-calendar-poll"
                 ;;
               "*/30 * * * *")
                 PATHS="/api/cron/outlook-poll /api/cron/datacrazy-atividades-poll /api/cron/juridico-email-poll /api/cron/integration-audit"
                 ;;
-              "30 10 * * 1-5")
-                PATHS="/api/cron/boot-do-dia"
-                ;;
+              # ─────────────────────────────────────────────────────────────
+              # PAUSADO — /api/cron/auto-encerrar, /api/cron/triar-emails e
+              # /api/cron/boot-do-dia foram removidos deste workflow em
+              # 2026-07-30 porque as rotas NÃO EXISTEM: foram deletadas em
+              # 1bbbfcd (2026-05-01) junto com 11 rotas do painel-do-dia
+              # ("painel-do-dia pendente"). As outras 8 voltaram; estas 3 não.
+              # Resultado: 404 a cada tick por ~3 meses, escondido atrás de um
+              # `::warning::` que ninguém lê.
+              #
+              # Para religar, é preciso recriar (código original em f9409a4):
+              #   - src/app/api/cron/triar-emails/route.ts
+              #       lib intacta: processarTriagem() em
+              #       src/lib/painel-do-dia/triar-emails.ts
+              #   - src/app/api/cron/auto-encerrar/route.ts
+              #       + src/lib/painel-do-dia/auto-encerrar.ts (deletada)
+              #   - src/app/api/cron/boot-do-dia/route.ts
+              #       + src/lib/painel-do-dia/boot-do-dia.ts (deletada)
+              #
+              # As dependências das libs deletadas continuam válidas hoje
+              # (models AcaoPainel/PainelSugestao/PainelPrioridade, helpers
+              # normalizarTitulo/hojeBahia, type EventoAgenda), então a
+              # restauração é viável — falta só a decisão de religar, já que
+              # as três escrevem em produção e a triagem consome API Claude.
+              # Ao restaurar, devolver também os schedules:
+              #   '*/15 * * * *'  → + auto-encerrar + triar-emails
+              #   '30 10 * * 1-5' → boot-do-dia (seg-sex 07:30 Bahia)
+              # ─────────────────────────────────────────────────────────────
               "0 23 * * 0")
                 PATHS="/api/cron/retrospectiva-semanal"
                 ;;
@@ -121,7 +144,10 @@ jobs:
             echo "::error::APP_BASE_URL não configurado (Repo Settings → Variables)"
             exit 1
           fi
-          FAIL=0
+          # Duas contagens porque são dois tipos de falha com tratamento
+          # oposto — ver o `case "$HTTP_CODE"` abaixo.
+          FAIL=0   # transitória (5xx, timeout, DNS) → warning
+          HARD=0   # estrutural (404/405/501)        → exit 1
           # Salva a última resposta em /tmp/last_*.txt (persiste entre steps no
           # mesmo job). Step "Notify Slack — BTG" consome esses arquivos quando
           # o schedule do dia é o cron weekly BTG (1 path só, sem ambiguidade).
@@ -135,7 +161,17 @@ jobs:
               */btg-cadastral-poll) MAXT=540 ;;
               *) MAXT=120 ;;
             esac
-            HTTP_CODE=$(curl -fsS -o /tmp/resp.txt -w "%{http_code}" \
+            # Zera a resposta anterior ANTES do curl. Sem isso, um curl que
+            # falha não escreve em /tmp/resp.txt e o `head` abaixo relê o corpo
+            # do endpoint anterior — o log passa a atribuir a resposta de um
+            # endpoint a outro (visto em 2026-07-30: auto-encerrar e
+            # triar-emails, ambos 404, imprimindo o JSON do google-calendar-poll).
+            : > /tmp/resp.txt
+            # Sem -f: queremos o código real (404, 500) e o corpo do erro. Com
+            # -f o curl aborta sem gravar o corpo e o `||` mascarava qualquer
+            # status de erro como "000". O `||` continua cobrindo falha de
+            # transporte de verdade (timeout, DNS), onde não há status HTTP.
+            HTTP_CODE=$(curl -sS -o /tmp/resp.txt -w "%{http_code}" \
               -H "Authorization: Bearer ${CRON_SECRET}" \
               --max-time "$MAXT" \
               "$URL") || HTTP_CODE="000"
@@ -144,17 +180,38 @@ jobs:
             echo "  → body: $BODY"
             echo "$HTTP_CODE" > /tmp/last_code.txt
             echo "$path"      > /tmp/last_path.txt
-            if [ "$HTTP_CODE" != "200" ]; then
-              echo "::warning::$path retornou HTTP $HTTP_CODE"
-              FAIL=$((FAIL+1))
-            fi
+            case "$HTTP_CODE" in
+              200)
+                ;;
+              404|405|501)
+                # Falha ESTRUTURAL: o path não existe (ou não aceita GET).
+                # Isso nunca é blip de rede — é o cron.yml apontando para uma
+                # rota que não está no ar, e só um commit conserta. Precisa ser
+                # barulhento: foi exatamente este silêncio que deixou
+                # auto-encerrar, triar-emails e boot-do-dia devolvendo 404 a
+                # cada tick por 3 meses sem ninguém perceber.
+                echo "::error::$path retornou HTTP $HTTP_CODE — rota inexistente ou método errado. Falha estrutural: corrigir o path no cron.yml ou restaurar a rota."
+                HARD=$((HARD+1))
+                ;;
+              *)
+                # Falha TRANSITÓRIA: 5xx, timeout, DNS ("000"). Pode ser blip
+                # e costuma se resolver no próximo tick — segue warning, para
+                # não gerar email do GitHub a cada oscilação de rede.
+                echo "::warning::$path retornou HTTP $HTTP_CODE"
+                FAIL=$((FAIL+1))
+                ;;
+            esac
           done
           if [ "$FAIL" -gt 0 ]; then
-            echo "::warning::$FAIL endpoint(s) falharam neste tick"
+            echo "::warning::$FAIL endpoint(s) com falha transitória neste tick"
           fi
-          # Não usamos exit 1 mesmo com falhas — não queremos que GitHub
-          # mande email a cada blip de rede. Acompanhar via logs do workflow
-          # e /api/backoffice/sync-logs no Cockpit.
+          # Falha transitória não usa exit 1 — não queremos email do GitHub a
+          # cada blip de rede. Acompanhar via logs do workflow e
+          # /api/backoffice/sync-logs no Cockpit.
+          if [ "$HARD" -gt 0 ]; then
+            echo "::error::$HARD endpoint(s) com falha estrutural — o workflow está chamando rota que não existe."
+            exit 1
+          fi
 
       # ─────────────────────────────────────────────────────────────────
       # Notify Slack — APENAS para o cron semanal BTG.
