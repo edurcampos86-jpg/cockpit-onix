@@ -101,6 +101,7 @@ interface MsEvent {
   onlineMeeting?: { joinUrl?: string };
   webLink?: string;
   organizer?: { emailAddress?: { name?: string; address?: string } };
+  attendees?: Array<{ emailAddress?: { name?: string; address?: string } }>;
   isAllDay?: boolean;
 }
 
@@ -114,7 +115,7 @@ export async function fetchAgendaDoDiaMs(
     startISO,
   )}&endDateTime=${encodeURIComponent(
     endISO,
-  )}&$select=id,subject,start,end,location,bodyPreview,body,onlineMeeting,webLink,organizer,isAllDay&$top=50&$orderby=start/dateTime`;
+  )}&$select=id,subject,start,end,location,bodyPreview,body,onlineMeeting,webLink,organizer,attendees,isAllDay&$top=50&$orderby=start/dateTime`;
 
   let data: { value?: MsEvent[] };
   try {
@@ -144,6 +145,19 @@ export async function fetchAgendaDoDiaMs(
       inicio,
       fim,
       organizador: ev.organizer?.emailAddress?.name ?? undefined,
+      // Organizador + convidados, só o endereço. É o identificador forte que
+      // liga a reunião a um cliente; o nome do organizador acima continua
+      // sendo só rótulo de exibição.
+      participantes: Array.from(
+        new Set(
+          [
+            ev.organizer?.emailAddress?.address,
+            ...(ev.attendees ?? []).map((a) => a.emailAddress?.address),
+          ]
+            .filter((e): e is string => typeof e === "string" && e.includes("@"))
+            .map((e) => e.trim().toLowerCase()),
+        ),
+      ),
       origem: "ms-calendar",
       linkReuniao: extractMeetingLink(
         ev.body?.content,
