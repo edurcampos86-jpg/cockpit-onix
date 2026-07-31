@@ -3,7 +3,14 @@
  *
  * Como rodar (NUNCA contra produção — aborta se o host não for local):
  *   DATABASE_URL="postgresql://onix:onix@localhost:5432/shadow_onix" \
- *     npx tsx scripts/test-outlook-web-sync.ts
+ *     npx tsx --conditions=react-server scripts/test-outlook-web-sync.ts
+ *
+ * A flag --conditions=react-server é obrigatória. src/lib/reunioes.ts — e
+ * outros ~59 arquivos — importam "server-only", cujo `exports` mapeia
+ * `react-server` para um módulo vazio e `default` para um `index.js` que é um
+ * `throw` explícito. Sem a condição, importar módulo de servidor fora do Next
+ * estoura com "This module cannot be imported from a Client Component module",
+ * que é o pacote funcionando como projetado — não um defeito a contornar.
  *
  * Usa as MESMAS funções que a rota importa — buildClienteIndex,
  * matchEventToClientes, upsertReuniao, recomputeAgregadosBatch e o
@@ -15,38 +22,15 @@
  * match frouxo). Roda duas vezes para provar idempotência.
  *
  * DESTRUTIVO: limpa ReuniaoCliente, ClienteBackoffice e User antes de semear.
- *
- * ── Sobre o stub de `server-only`
- * src/lib/reunioes.ts (e outros ~59 arquivos) importam "server-only", que NÃO
- * é dependência declarada do projeto: o Next resolve esse specifier dentro do
- * próprio bundler. Fora do Next, o require falha com MODULE_NOT_FOUND. O stub
- * abaixo cria o módulo vazio em node_modules quando ele não existe, para o
- * script poder importar a lógica real em vez de duplicá-la. Não altera as
- * dependências da aplicação.
  */
-import { mkdirSync, writeFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
-
-function garantirStubServerOnly() {
-  const dir = join(process.cwd(), "node_modules", "server-only");
-  if (existsSync(join(dir, "index.js"))) return;
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(
-    join(dir, "package.json"),
-    JSON.stringify({ name: "server-only", version: "0.0.0-stub", main: "index.js" }),
-  );
-  writeFileSync(join(dir, "index.js"), "module.exports = {};\n");
-  console.log("  (stub de server-only criado em node_modules para este run)");
-}
-
 async function main() {
   const u = new URL(process.env.DATABASE_URL ?? "");
   if (!["localhost", "127.0.0.1"].includes(u.hostname)) {
     throw new Error(`ABORTA: DATABASE_URL não é local (host=${u.hostname})`);
   }
-  garantirStubServerOnly();
 
-  // Imports dinâmicos: precisam acontecer DEPOIS do stub existir.
+  // Imports dinâmicos: só acontecem depois da guarda de host acima, para um
+  // DATABASE_URL apontando para produção abortar antes de qualquer conexão.
   const { prisma } = await import("@/lib/prisma");
   const { buildClienteIndex, matchEventToClientes } = await import(
     "@/lib/integrations/google-calendar-match"
