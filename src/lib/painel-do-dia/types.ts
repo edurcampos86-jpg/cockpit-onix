@@ -26,6 +26,16 @@ export type EventoAgenda = {
   fim: string; // ISO 8601
   linkReuniao?: string;
   organizador?: string;
+  /**
+   * E-mails de todos os envolvidos no evento (participantes + organizador),
+   * em minúsculas e sem repetição.
+   *
+   * É o que permite ligar uma reunião a um ClienteBackoffice por identificador
+   * forte em vez de por semelhança de nome — ver casarCliente() em
+   * ./auto-encerrar. Opcional porque o cache alimentado pelo cowork
+   * (Chrome MCP → /api/painel-do-dia/cowork-sync) não traz essa informação.
+   */
+  participantes?: string[];
   conflitaCom?: string[]; // ids de outros eventos
   /**
    * Origens adicionais que tambem possuem esta mesma entrada (dedupe cruzada).
