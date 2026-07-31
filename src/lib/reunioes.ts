@@ -18,7 +18,7 @@ import { prisma } from "@/lib/prisma";
  *   filtrado do rollup, então a reunião sumia das colunas de todos.
  *
  * Ordem das fontes ao haver conflito de dados (ex: título diferente):
- *   google-cal > outlook-ics > datacrazy-atividade > manual
+ *   google-cal > outlook-ics > outlook-web > datacrazy-atividade > manual
  * (definido em SOURCE_RANK abaixo, usado só pra desempate na escolha do
  * "título canônico" — os agregados de data não dependem dessa ordem).
  */
@@ -26,6 +26,7 @@ import { prisma } from "@/lib/prisma";
 export type ReuniaoSource =
   | "google-cal"
   | "outlook-ics"
+  | "outlook-web"
   | "datacrazy-atividade"
   | "manual";
 
@@ -36,9 +37,13 @@ export type ReuniaoMatchedVia =
   | "nome-substring"
   | "manual";
 
+// Renumerado para abrir espaço para outlook-web sem alterar a ordem relativa
+// que já existia. outlook-web fica logo abaixo de outlook-ics: é a mesma
+// agenda, mas obtida por extração da UI (menos estruturada que o feed .ics).
 const SOURCE_RANK: Record<ReuniaoSource, number> = {
-  "google-cal": 4,
-  "outlook-ics": 3,
+  "google-cal": 5,
+  "outlook-ics": 4,
+  "outlook-web": 3,
   "datacrazy-atividade": 2,
   manual: 1,
 };
