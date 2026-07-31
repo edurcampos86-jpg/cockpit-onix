@@ -144,7 +144,10 @@ jobs:
             echo "::error::APP_BASE_URL não configurado (Repo Settings → Variables)"
             exit 1
           fi
-          FAIL=0
+          # Duas contagens porque são dois tipos de falha com tratamento
+          # oposto — ver o `case "$HTTP_CODE"` abaixo.
+          FAIL=0   # transitória (5xx, timeout, DNS) → warning
+          HARD=0   # estrutural (404/405/501)        → exit 1
           # Salva a última resposta em /tmp/last_*.txt (persiste entre steps no
           # mesmo job). Step "Notify Slack — BTG" consome esses arquivos quando
           # o schedule do dia é o cron weekly BTG (1 path só, sem ambiguidade).
@@ -177,17 +180,38 @@ jobs:
             echo "  → body: $BODY"
             echo "$HTTP_CODE" > /tmp/last_code.txt
             echo "$path"      > /tmp/last_path.txt
-            if [ "$HTTP_CODE" != "200" ]; then
-              echo "::warning::$path retornou HTTP $HTTP_CODE"
-              FAIL=$((FAIL+1))
-            fi
+            case "$HTTP_CODE" in
+              200)
+                ;;
+              404|405|501)
+                # Falha ESTRUTURAL: o path não existe (ou não aceita GET).
+                # Isso nunca é blip de rede — é o cron.yml apontando para uma
+                # rota que não está no ar, e só um commit conserta. Precisa ser
+                # barulhento: foi exatamente este silêncio que deixou
+                # auto-encerrar, triar-emails e boot-do-dia devolvendo 404 a
+                # cada tick por 3 meses sem ninguém perceber.
+                echo "::error::$path retornou HTTP $HTTP_CODE — rota inexistente ou método errado. Falha estrutural: corrigir o path no cron.yml ou restaurar a rota."
+                HARD=$((HARD+1))
+                ;;
+              *)
+                # Falha TRANSITÓRIA: 5xx, timeout, DNS ("000"). Pode ser blip
+                # e costuma se resolver no próximo tick — segue warning, para
+                # não gerar email do GitHub a cada oscilação de rede.
+                echo "::warning::$path retornou HTTP $HTTP_CODE"
+                FAIL=$((FAIL+1))
+                ;;
+            esac
           done
           if [ "$FAIL" -gt 0 ]; then
-            echo "::warning::$FAIL endpoint(s) falharam neste tick"
+            echo "::warning::$FAIL endpoint(s) com falha transitória neste tick"
           fi
-          # Não usamos exit 1 mesmo com falhas — não queremos que GitHub
-          # mande email a cada blip de rede. Acompanhar via logs do workflow
-          # e /api/backoffice/sync-logs no Cockpit.
+          # Falha transitória não usa exit 1 — não queremos email do GitHub a
+          # cada blip de rede. Acompanhar via logs do workflow e
+          # /api/backoffice/sync-logs no Cockpit.
+          if [ "$HARD" -gt 0 ]; then
+            echo "::error::$HARD endpoint(s) com falha estrutural — o workflow está chamando rota que não existe."
+            exit 1
+          fi
 
       # ─────────────────────────────────────────────────────────────────
       # Notify Slack — APENAS para o cron semanal BTG.
