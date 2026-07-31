@@ -72,29 +72,34 @@ jobs:
                 PATHS="/api/cron/outlook-poll /api/cron/datacrazy-atividades-poll /api/cron/juridico-email-poll /api/cron/integration-audit"
                 ;;
               # ─────────────────────────────────────────────────────────────
-              # PAUSADO — /api/cron/auto-encerrar, /api/cron/triar-emails e
-              # /api/cron/boot-do-dia foram removidos deste workflow em
-              # 2026-07-30 porque as rotas NÃO EXISTEM: foram deletadas em
-              # 1bbbfcd (2026-05-01) junto com 11 rotas do painel-do-dia
-              # ("painel-do-dia pendente"). As outras 8 voltaram; estas 3 não.
-              # Resultado: 404 a cada tick por ~3 meses, escondido atrás de um
-              # `::warning::` que ninguém lê.
+              # SEM SCHEDULE, POR ORA — /api/cron/auto-encerrar,
+              # /api/cron/triar-emails e /api/cron/boot-do-dia existem e
+              # funcionam, mas são disparadas SÓ manualmente, pelo
+              # workflow_dispatch acima (informar o path no campo "paths").
               #
-              # Para religar, é preciso recriar (código original em f9409a4):
-              #   - src/app/api/cron/triar-emails/route.ts
-              #       lib intacta: processarTriagem() em
-              #       src/lib/painel-do-dia/triar-emails.ts
-              #   - src/app/api/cron/auto-encerrar/route.ts
-              #       + src/lib/painel-do-dia/auto-encerrar.ts (deletada)
-              #   - src/app/api/cron/boot-do-dia/route.ts
-              #       + src/lib/painel-do-dia/boot-do-dia.ts (deletada)
+              # CORREÇÃO DE REGISTRO: a versão anterior deste comentário dizia
+              # que as 3 rotas "foram deletadas em 1bbbfcd (2026-05-01)" e que
+              # o 404 durava "~3 meses". Ambas erradas. O que os fatos mostram:
               #
-              # As dependências das libs deletadas continuam válidas hoje
-              # (models AcaoPainel/PainelSugestao/PainelPrioridade, helpers
-              # normalizarTitulo/hojeBahia, type EventoAgenda), então a
-              # restauração é viável — falta só a decisão de religar, já que
-              # as três escrevem em produção e a triagem consome API Claude.
-              # Ao restaurar, devolver também os schedules:
+              #   git log origin/main -- src/app/api/cron/auto-encerrar/route.ts
+              #     → 0 commits (idem triar-emails, boot-do-dia e as libs
+              #       auto-encerrar.ts / boot-do-dia.ts)
+              #
+              # As rotas NUNCA existiram na main. Foram escritas em f9409a4
+              # (2026-04-21) na branch feat/painel-automacoes, que nunca foi
+              # mergeada; 1bbbfcd também vive nessa branch, então a "deleção"
+              # nunca chegou à produção porque o código também nunca chegou.
+              #
+              # O que houve de fato: a PR #198 (58fa570, 2026-06-21) adicionou
+              # os 3 paths a este workflow apontando para rotas que não
+              # existiam na main. Resultado: 404 a cada tick de 21/06 a 30/07
+              # — ~6 semanas, escondido atrás de um `::warning::`.
+              #
+              # Por isso a estreia é conservadora: este código nunca rodou
+              # contra dados reais. As três escrevem em produção e a triagem
+              # consome API Claude (até 20 e-mails por usuário por execução).
+              #
+              # Para agendar, depois de validar no disparo manual, devolver:
               #   '*/15 * * * *'  → + auto-encerrar + triar-emails
               #   '30 10 * * 1-5' → boot-do-dia (seg-sex 07:30 Bahia)
               # ─────────────────────────────────────────────────────────────
