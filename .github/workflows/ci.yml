@@ -1,0 +1,84 @@
+name: CI
+
+# Gates de código em toda PR.
+#
+# Antes disto, NENHUM workflow rodava test, lint ou build. Os 5 arquivos de
+# teste do repo (27 casos) nunca tinham sido executados em CI — só rodavam se
+# alguém digitasse `npm test` na mão — e uma PR podia quebrar o build sem nada
+# acusar até o deploy no Railway.
+#
+# docker-build-check.yml também constrói a app, mas tem path filter
+# (Dockerfile/.dockerignore/railway.toml), então não cobre PR de código.
+#
+# Sem path filter aqui, de propósito: roda sempre, o que permite torná-lo
+# required check sem o deadlock de "check expected que nunca roda" — mesma
+# razão documentada em actionlint.yml.
+on:
+  pull_request:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    # Build da app leva ~4min; o resto é segundos. 20 dá folga para fila e
+    # cache frio de npm.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # O gate de lint compara a PR com seu merge-base — precisa do
+          # histórico, que o checkout raso (default depth=1) não traz.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          # Mesma major do runtime de produção (Dockerfile: node:22-bookworm-slim).
+          node-version: '22'
+          cache: npm
+
+      - name: Install
+        id: install
+        # postinstall roda `prisma generate`, que cria src/generated/ (não
+        # versionado). Build e lint dependem disso.
+        run: npm ci
+
+      # Os três gates abaixo rodam mesmo se um anterior falhar, para a PR
+      # mostrar tudo que está quebrado num run só em vez de um problema por
+      # vez. Todos exigem o install ter dado certo — sem node_modules os três
+      # falhariam por um motivo que não é o deles.
+
+      - name: Test
+        if: always() && steps.install.outcome == 'success'
+        run: npm test
+
+      - name: Lint (apenas arquivos alterados)
+        if: always() && steps.install.outcome == 'success'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # `npm run lint` no repo inteiro hoje falha com 35 erros
+          # PRÉ-EXISTENTES (26 @typescript-eslint/no-explicit-any + 9
+          # react-hooks, em 13 arquivos). Ligar o lint global como gate
+          # deixaria toda PR vermelha por dívida que ela não criou, e o sinal
+          # viraria ruído em uma semana.
+          #
+          # Então o gate é sobre o que a PR TOCA: código novo entra limpo, e a
+          # dívida antiga se paga sozinha conforme os arquivos forem mexidos.
+          # Zerar os 35 é backlog próprio, não trabalho de PR cirúrgica.
+          MERGE_BASE=$(git merge-base "$BASE_SHA" "$HEAD_SHA")
+          # --diff-filter=d exclui arquivo deletado: lintar caminho que não
+          # existe mais aborta o eslint.
+          FILES=$(git diff --name-only --diff-filter=d "$MERGE_BASE" "$HEAD_SHA" -- '*.ts' '*.tsx')
+          if [ -z "$FILES" ]; then
+            echo "Nenhum .ts/.tsx alterado nesta PR — nada a lintar."
+            exit 0
+          fi
+          echo "Arquivos alterados nesta PR:"
+          echo "$FILES" | awk '{ print "  " $0 }'
+          echo "---"
+          echo "$FILES" | xargs npx eslint
+
+      - name: Build
+        if: always() && steps.install.outcome == 'success'
+        # O heap padrão do Node não basta para o build desta app.
+        run: NODE_OPTIONS=--max-old-space-size=8192 npm run build
