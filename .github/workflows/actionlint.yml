@@ -18,3 +18,53 @@ jobs:
           # A dívida de estilo pré-existente (SC2129 nos redirects; SC2016 no
           # JMESPath) foi saneada, então validamos sintaxe/schema + scripts de run.
           ./actionlint -color -shellcheck=shellcheck
+
+      # ─────────────────────────────────────────────────────────────────
+      # Guarda contra drift entre cron.yml e as rotas no disco.
+      #
+      # Em 1bbbfcd (2026-05-01) três rotas de cron foram deletadas e o
+      # cron.yml continuou chamando: 404 a cada tick por 3 meses, escondido
+      # atrás de um `::warning::`. Esta checagem pega o mesmo erro no PR,
+      # antes de chegar em produção.
+      #
+      # É UNIDIRECIONAL de propósito: todo path agendado precisa existir no
+      # disco, mas rota sem schedule é legítima (ex.: cadencia-backfill, que
+      # é one-shot e roda por workflow_dispatch).
+      #
+      # always(): roda mesmo se o actionlint acima falhar, para os dois
+      # problemas aparecerem no mesmo run em vez de um de cada vez.
+      # ─────────────────────────────────────────────────────────────────
+      - name: Cron paths existem no disco
+        if: always()
+        run: |
+          # Só linhas de atribuição real (`PATHS="..."`). O `[^#]*` impede
+          # casar linha comentada — o cron.yml documenta em comentário as
+          # rotas pausadas, e essas NÃO devem ser exigidas no disco.
+          PATHS=$(grep -oE '^[^#]*PATHS="[^"]*"' .github/workflows/cron.yml \
+            | grep -oE '/api/cron/[a-z0-9-]+' \
+            | sort -u)
+
+          # Sem isto, um regex quebrado faria a checagem passar em silêncio —
+          # que é a classe de bug que ela existe para impedir.
+          if [ -z "$PATHS" ]; then
+            echo "::error file=.github/workflows/cron.yml::Nenhum path extraído de cron.yml — a extração quebrou (regex ou formato mudou)."
+            exit 1
+          fi
+
+          MISSING=0
+          for p in $PATHS; do
+            FILE="src/app/api/cron/${p#/api/cron/}/route.ts"
+            if [ -f "$FILE" ]; then
+              echo "  ok   $p → $FILE"
+            else
+              echo "::error file=.github/workflows/cron.yml::cron.yml agenda $p, mas $FILE não existe. Restaure a rota ou remova o path do workflow."
+              MISSING=$((MISSING+1))
+            fi
+          done
+
+          TOTAL=$(echo "$PATHS" | wc -l | tr -d ' ')
+          if [ "$MISSING" -gt 0 ]; then
+            echo "::error::$MISSING de $TOTAL path(s) agendado(s) não têm rota no disco."
+            exit 1
+          fi
+          echo "$TOTAL path(s) agendado(s), todos com rota no disco."
