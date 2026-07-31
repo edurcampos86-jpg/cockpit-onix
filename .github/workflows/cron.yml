@@ -135,7 +135,17 @@ jobs:
               */btg-cadastral-poll) MAXT=540 ;;
               *) MAXT=120 ;;
             esac
-            HTTP_CODE=$(curl -fsS -o /tmp/resp.txt -w "%{http_code}" \
+            # Zera a resposta anterior ANTES do curl. Sem isso, um curl que
+            # falha não escreve em /tmp/resp.txt e o `head` abaixo relê o corpo
+            # do endpoint anterior — o log passa a atribuir a resposta de um
+            # endpoint a outro (visto em 2026-07-30: auto-encerrar e
+            # triar-emails, ambos 404, imprimindo o JSON do google-calendar-poll).
+            : > /tmp/resp.txt
+            # Sem -f: queremos o código real (404, 500) e o corpo do erro. Com
+            # -f o curl aborta sem gravar o corpo e o `||` mascarava qualquer
+            # status de erro como "000". O `||` continua cobrindo falha de
+            # transporte de verdade (timeout, DNS), onde não há status HTTP.
+            HTTP_CODE=$(curl -sS -o /tmp/resp.txt -w "%{http_code}" \
               -H "Authorization: Bearer ${CRON_SECRET}" \
               --max-time "$MAXT" \
               "$URL") || HTTP_CODE="000"
