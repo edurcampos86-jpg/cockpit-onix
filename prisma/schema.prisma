@@ -750,7 +750,12 @@ model ReuniaoCliente {
   clienteId String
   cliente   ClienteBackoffice @relation(fields: [clienteId], references: [id], onDelete: Cascade)
 
-  source     String // "google-cal" | "outlook-ics" | "datacrazy-atividade" | "manual"
+  // "google-cal" | "outlook-ics" | "outlook-web" | "datacrazy-atividade" | "manual"
+  // outlook-web: eventos extraídos do Outlook Web por agente autenticado como o
+  // próprio usuário, via POST /api/integracoes/outlook-web/sync. Coluna é String
+  // livre, então valor novo não exige migration — mas a união ReuniaoSource em
+  // src/lib/reunioes.ts é fechada e precisa ser mantida em dia com esta lista.
+  source     String
   externalId String // event.id do Google, UID do ICS, activity.id do Datacrazy, cuid() pra manual
 
   // userId é o "dono" da reunião quando a fonte é per-user (google-cal pos
