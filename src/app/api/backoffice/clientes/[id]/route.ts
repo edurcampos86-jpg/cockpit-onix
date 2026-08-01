@@ -93,6 +93,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       // (assertClienteVisivel) — quem não enxerga o cliente recebe 404 antes de
       // chegar aqui, logo não alterna o fee de quem não é da sua carteira.
       "feeFixo",
+      // Teto manual de dias entre reuniões, sobrepondo a régua da classe
+      // (A=90/B=120/C=180 em cadencia-core.ts). Mesma allowlist pelo mesmo
+      // motivo do feeFixo: herda o guard de RBAC do PATCH.
+      "cadenciaReuniaoDiasOverride",
       "ultimoContatoAt",
       "proximoContatoAt",
     ];
@@ -127,6 +131,34 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       if (session) {
         data.feeFixoEditadoEm = new Date();
         data.feeFixoEditadoPor = session.userId;
+      }
+    }
+
+    // Teto manual de reunião: aceita inteiro positivo, ou null para voltar à
+    // régua da classe. Validado explicitamente porque um valor inválido aqui
+    // não estoura — ele SILENCIA um alerta de risco de evasão. `0` ou negativo
+    // viraria teto degenerado; string viraria erro do Prisma como 500.
+    if ("cadenciaReuniaoDiasOverride" in body) {
+      const v = body.cadenciaReuniaoDiasOverride;
+      if (v !== null && (!Number.isInteger(v) || v <= 0 || v > 3650)) {
+        return NextResponse.json(
+          {
+            error:
+              "cadenciaReuniaoDiasOverride deve ser inteiro entre 1 e 3650, ou null para usar a régua da classe.",
+          },
+          { status: 400 },
+        );
+      }
+      data.cadenciaReuniaoDiasOverride = v;
+
+      // Rastro obrigatório: afrouxar o teto é a única edição desta tabela que
+      // APAGA um alerta de evasão. Se um cliente for perdido, "quem afrouxou a
+      // régua e quando" precisa ter resposta. Carimbado da SESSÃO, nunca do
+      // corpo da request.
+      const session = await getSession();
+      if (session) {
+        data.cadenciaReuniaoEditadoEm = new Date();
+        data.cadenciaReuniaoEditadoPor = session.userId;
       }
     }
 

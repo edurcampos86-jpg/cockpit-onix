@@ -252,6 +252,8 @@ interface Cliente {
   proximaReuniaoConfirmadaManualmente?: boolean | null;
   // Teto de dias entre reuniões só deste cliente; null = régua da classe.
   cadenciaReuniaoDiasOverride?: number | null;
+  cadenciaReuniaoEditadoEm?: Date | string | null;
+  cadenciaReuniaoEditadoPorNome?: string | null;
   proximoContatoAt: Date | string | null;
   receitaAnual: number;
   feeFixo: boolean;
@@ -419,6 +421,10 @@ export function ClientesTable({
   const [semProximaReuniao, setSemProximaReuniao] = useState(false);
   // Risco de evasão: sem reunião agendada dentro do teto da classe.
   const [riscoEvasao, setRiscoEvasao] = useState(false);
+  // Edição do teto manual de reunião: guarda o id em edição e o rascunho.
+  const [editandoTeto, setEditandoTeto] = useState<string | null>(null);
+  const [rascunhoTeto, setRascunhoTeto] = useState("");
+  const [tetoSalvando, setTetoSalvando] = useState<string | null>(null);
   const [saldoParado, setSaldoParado] = useState(false);
   const [soFeeFixo, setSoFeeFixo] = useState(false);
   const [filtrosExpandidos, setFiltrosExpandidos] = useState(false);
@@ -783,6 +789,44 @@ export function ClientesTable({
         prev.map((c) => (c.id === id ? { ...c, classificacao: novaClasse, classificacaoManual: true } : c))
       );
       setEditando(null);
+    }
+  };
+
+  /**
+   * Salva o teto manual de reunião. `dias = null` volta para a régua da classe.
+   *
+   * Otimista como o Fee Fixo, e pelo mesmo motivo: o efeito é visual e imediato
+   * (o selo de risco recalcula na hora). Guarda o rastro anterior INTEIRO para
+   * o rollback não deixar o valor antigo com autoria nova.
+   */
+  const salvarTetoReuniao = async (id: string, dias: number | null) => {
+    const alvo = clientes.find((c) => c.id === id);
+    if (!alvo) return;
+    const antes = {
+      cadenciaReuniaoDiasOverride: alvo.cadenciaReuniaoDiasOverride ?? null,
+      cadenciaReuniaoEditadoEm: alvo.cadenciaReuniaoEditadoEm ?? null,
+      cadenciaReuniaoEditadoPorNome: alvo.cadenciaReuniaoEditadoPorNome ?? null,
+    };
+    setTetoSalvando(id);
+    setClientes((prev) =>
+      prev.map((c) =>
+        c.id === id ? { ...c, cadenciaReuniaoDiasOverride: dias } : c,
+      ),
+    );
+    setEditandoTeto(null);
+    try {
+      const res = await fetch(`/api/backoffice/clientes/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cadenciaReuniaoDiasOverride: dias }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+    } catch (e) {
+      console.error("Erro ao salvar teto de reunião:", e);
+      setClientes((prev) => prev.map((c) => (c.id === id ? { ...c, ...antes } : c)));
+      alert("Não foi possível salvar o teto de reunião. Tente novamente.");
+    } finally {
+      setTetoSalvando(null);
     }
   };
 
@@ -1668,6 +1712,75 @@ export function ClientesTable({
                             "—"
                           )}
                         </span>
+                      )}
+                      {/* Teto manual. Fica ao lado do estado da régua porque é
+                          o que EXPLICA o estado: quem vê "45d vencida" precisa
+                          saber contra qual teto, e poder ajustá-lo ali mesmo.
+                          Chip discreto quando é a régua da classe; destacado
+                          quando é override, para o teto afrouxado nunca passar
+                          despercebido. */}
+                      {editandoTeto === c.id ? (
+                        <span className="mt-1 flex items-center gap-1">
+                          <input
+                            type="number"
+                            min={1}
+                            max={3650}
+                            autoFocus
+                            value={rascunhoTeto}
+                            onChange={(e) => setRascunhoTeto(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                const n = Number(rascunhoTeto);
+                                if (Number.isInteger(n) && n > 0 && n <= 3650) {
+                                  salvarTetoReuniao(c.id, n);
+                                }
+                              }
+                              if (e.key === "Escape") setEditandoTeto(null);
+                            }}
+                            className="w-16 rounded border px-1 py-0.5 text-[10px]"
+                            placeholder="dias"
+                          />
+                          <button
+                            onClick={() => salvarTetoReuniao(c.id, null)}
+                            className="text-[10px] text-muted-foreground underline hover:text-foreground"
+                            title="Voltar para a régua da classe"
+                          >
+                            padrão
+                          </button>
+                          <button
+                            onClick={() => setEditandoTeto(null)}
+                            className="text-[10px] text-muted-foreground"
+                          >
+                            ✕
+                          </button>
+                        </span>
+                      ) : (
+                        <button
+                          disabled={tetoSalvando === c.id}
+                          onClick={() => {
+                            setRascunhoTeto(String(risco.cadencia));
+                            setEditandoTeto(c.id);
+                          }}
+                          className={`mt-1 block text-[10px] leading-none disabled:opacity-50 ${
+                            risco.override
+                              ? "font-semibold text-violet-700 dark:text-violet-400"
+                              : "text-muted-foreground/60 hover:text-foreground"
+                          }`}
+                          title={
+                            risco.override
+                              ? `Teto manual deste cliente: ${risco.cadencia} dias` +
+                                (c.cadenciaReuniaoEditadoPorNome
+                                  ? ` · por ${c.cadenciaReuniaoEditadoPorNome}`
+                                  : "") +
+                                (c.cadenciaReuniaoEditadoEm
+                                  ? ` em ${formatData(c.cadenciaReuniaoEditadoEm)}`
+                                  : "") +
+                                " · clique para alterar"
+                              : `Teto da classe ${c.classificacao}: ${risco.cadencia} dias · clique para definir um teto só deste cliente`
+                          }
+                        >
+                          teto {risco.cadencia}d{risco.override ? " ✎" : ""}
+                        </button>
                       )}
                     </td>
 
