@@ -1,0 +1,26 @@
+-- Teto de dias entre REUNIÕES por cliente, sobrepondo a régua da classe.
+--
+-- A régua (A=90, B=120, C=180, em cadencia-core.ts) responde "de quanto em
+-- quanto tempo este cliente precisa de reunião marcada". Ela vem de teoria, e
+-- cliente real tem exceção: quem pediu frequência menor, quem está em
+-- transição patrimonial e precisa de mais, quem só aceita reunião anual.
+--
+-- Sem esta coluna, a única forma de acomodar a exceção seria reclassificar o
+-- cliente — e a classificação A/B/C serve a outros propósitos (cadência de
+-- CONTATO, priorização, relatórios). Mudá-la para consertar a régua de reunião
+-- estragaria os outros usos.
+--
+-- NULLABLE sem default: NULL = "usa a régua da classe", que é o caso da imensa
+-- maioria. Nenhum backfill, nenhuma reescrita de tabela.
+--
+-- Nota de manutenção: o diff automático do Prisma também propõe
+-- `DROP INDEX "PainelEmailAI_tsv_idx"` e
+-- `ALTER TABLE "PainelEmailAI" ALTER COLUMN "tsv" DROP DEFAULT` — drift
+-- conhecido (coluna GENERATED + índice full-text criados por SQL cru em
+-- 20260519240000_painel_email_ai_fts, não representáveis no schema.prisma).
+-- Os dois foram REMOVIDOS desta migration de propósito; aplicá-los quebraria a
+-- busca do Painel do Dia. Mesmo tratamento das migrations 20260730210000,
+-- 20260730220000 e 20260801061615.
+
+-- AlterTable
+ALTER TABLE "ClienteBackoffice" ADD COLUMN     "cadenciaReuniaoDiasOverride" INTEGER;
