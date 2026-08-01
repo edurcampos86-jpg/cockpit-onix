@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { getConfig } from "@/lib/config-db";
 import { sendSlackMessage } from "@/lib/integrations/slack";
 import { diasCadencia } from "@/lib/cadencia";
+import { riscoEvasaoReuniao } from "@/lib/cadencia-core";
+import { sendWhatsappMessage } from "@/lib/integrations/datacrazy-send";
 import {
   decidirAlertaCliente,
   chaveAlerta,
@@ -157,6 +159,7 @@ export async function avaliarAlertasClientes(opts: {
     saldo_parado: 0,
     rf_vencendo: 0,
     termometro_vermelho: 0,
+    risco_evasao: 0,
   };
   let enviados = 0;
   let resolvidos = 0;
@@ -232,6 +235,64 @@ export async function avaliarAlertasClientes(opts: {
     }
   }
 
+  // Gatilho 4: risco de evasão — sem reunião AGENDADA dentro do teto da classe.
+  //
+  // Query PRÓPRIA, e não o `clientes` acima, por dois motivos:
+  //  - aquele conjunto é restrito a A e B, e esta regra vale para C também
+  //    (teto de 180 dias); incluir C lá dentro mudaria o candidato dos outros
+  //    três gatilhos, que não é o que se quer;
+  //  - precisa de campos que os outros não usam (datas de reunião e o teto
+  //    manual), e carregá-los para todo mundo seria desperdício.
+  //
+  // Só `risco` alerta. `atencao` (prazo se aproximando, ou reunião marcada
+  // fora do teto) fica visível na tabela de clientes, mas não vira mensagem —
+  // alerta que dispara antes de ser acionável vira ruído e some do radar.
+  try {
+    const paraEvasao = await prisma.clienteBackoffice.findMany({
+      where: {
+        classificacao: { in: ["A", "B", "C"] },
+        OR: [{ ativacaoConta: "Ativa" }, { ativacaoConta: null }],
+      },
+      select: {
+        id: true,
+        nome: true,
+        numeroConta: true,
+        classificacao: true,
+        saldoConta: true,
+        ultimoContatoAt: true,
+        ultimaReuniaoAt: true,
+        proximaReuniaoAt: true,
+        cadenciaReuniaoDiasOverride: true,
+      },
+    });
+
+    for (const c of paraEvasao) {
+      const r = riscoEvasaoReuniao(
+        c.classificacao,
+        c.ultimaReuniaoAt,
+        c.proximaReuniaoAt,
+        c.cadenciaReuniaoDiasOverride,
+        agora.getTime(),
+      );
+      if (r.status !== "risco") continue;
+      const vencidaHa = Math.abs(r.diasAteLimite);
+      disparos.push({
+        gatilho: "risco_evasao",
+        cliente: { ...c, breakdownProdutos: null },
+        detalhe:
+          `Sem reunião agendada — teto de ${r.cadencia}d` +
+          (r.override ? " (manual)" : ` (classe ${c.classificacao})`) +
+          ` venceu há ${vencidaHa}d`,
+        valor: `${vencidaHa}d vencida`,
+      });
+    }
+  } catch (e) {
+    erros.push({
+      etapa: "risco_evasao",
+      motivo: e instanceof Error ? e.message : "?",
+    });
+  }
+
   for (const d of disparos) disparandoPorGatilho[d.gatilho]++;
 
   // ── Reconcilia com o estado persistido (dedupe + reenvio + resolução) ──
@@ -241,6 +302,53 @@ export async function avaliarAlertasClientes(opts: {
   const rows = await prisma.alertaClienteLog.findMany();
   const rowByChave = new Map(rows.map((r) => [r.chave, r]));
   const link = baseUrl();
+
+  // Destinatários de WhatsApp do alerta de evasão. Vêm de Config
+  // (ALERTA_EVASAO_EMAILS, e-mails separados por vírgula) e não de nomes no
+  // código: quem recebe alerta de carteira muda com a equipe, e trocar isso
+  // não pode exigir deploy. O telefone sai do cadastro em Pessoa — uma fonte
+  // só, já mantida no /time.
+  //
+  // Sem a config, nenhum WhatsApp é enviado e o Slack segue normal: o alerta
+  // não deixa de existir por falta de configuração, só perde um canal.
+  let telefonesEvasao: Array<{ nome: string; telefone: string }> = [];
+  if (disparandoPorGatilho.risco_evasao > 0) {
+    try {
+      const emails = (await getConfig("ALERTA_EVASAO_EMAILS")) ?? "";
+      const lista = emails
+        .split(",")
+        .map((e) => e.trim().toLowerCase())
+        .filter((e) => e.includes("@"));
+      if (lista.length > 0) {
+        const pessoas = await prisma.pessoa.findMany({
+          where: { email: { in: lista } },
+          select: { nomeCompleto: true, telefone: true },
+        });
+        telefonesEvasao = pessoas
+          .filter((p): p is { nomeCompleto: string; telefone: string } => !!p.telefone)
+          .map((p) => ({ nome: p.nomeCompleto, telefone: p.telefone }));
+        const semTelefone = pessoas.length - telefonesEvasao.length;
+        if (semTelefone > 0) {
+          erros.push({
+            etapa: "whatsapp-evasao",
+            motivo: `${semTelefone} destinatário(s) sem telefone cadastrado em Pessoa`,
+          });
+        }
+        const naoEncontrados = lista.length - pessoas.length;
+        if (naoEncontrados > 0) {
+          erros.push({
+            etapa: "whatsapp-evasao",
+            motivo: `${naoEncontrados} e-mail(s) de ALERTA_EVASAO_EMAILS sem Pessoa correspondente`,
+          });
+        }
+      }
+    } catch (e) {
+      erros.push({
+        etapa: "whatsapp-evasao",
+        motivo: e instanceof Error ? e.message : "?",
+      });
+    }
+  }
 
   // Disparando agora → decide e (talvez) envia
   for (const [chave, d] of firingMap) {
@@ -264,6 +372,33 @@ export async function avaliarAlertasClientes(opts: {
         else erros.push({ etapa: "slack", motivo: "webhook não configurado/falhou" });
       } catch (e) {
         erros.push({ etapa: "slack", motivo: e instanceof Error ? e.message : "?" });
+      }
+
+      // WhatsApp individual — só para risco de evasão. Os outros gatilhos
+      // seguem só no Slack, como antes: mandar todos no WhatsApp de três
+      // pessoas transformaria o canal em ruído e o alerta grave se perderia
+      // no meio.
+      if (d.gatilho === "risco_evasao") {
+        const texto =
+          `🚨 *${LABEL_GATILHO[d.gatilho]}*${lembrete}\n` +
+          `${c.nome} (classe ${c.classificacao}, conta ${c.numeroConta})\n` +
+          `${d.detalhe}\n${url}`;
+        for (const dest of telefonesEvasao) {
+          try {
+            const ok = await sendWhatsappMessage(texto, dest.telefone);
+            if (!ok) {
+              erros.push({
+                etapa: "whatsapp-evasao",
+                motivo: `envio falhou para ${dest.nome}`,
+              });
+            }
+          } catch (e) {
+            erros.push({
+              etapa: "whatsapp-evasao",
+              motivo: `${dest.nome}: ${e instanceof Error ? e.message : "?"}`,
+            });
+          }
+        }
       }
     }
 

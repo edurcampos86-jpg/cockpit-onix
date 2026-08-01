@@ -7,14 +7,28 @@
  * quando o gatilho deixa de disparar. Unit-testável sem IO.
  */
 
-export type Gatilho = "saldo_parado" | "rf_vencendo" | "termometro_vermelho";
+export type Gatilho =
+  | "saldo_parado"
+  | "rf_vencendo"
+  | "termometro_vermelho"
+  // Sem reunião AGENDADA dentro do teto da classe (cadencia-core.ts).
+  // Eixo distinto de termometro_vermelho: aquele mede CONTATO passado
+  // (qualquer canal), este mede reunião futura marcada. Cliente pode estar
+  // em dia num e em risco no outro.
+  | "risco_evasao";
 
-export const GATILHOS: Gatilho[] = ["saldo_parado", "rf_vencendo", "termometro_vermelho"];
+export const GATILHOS: Gatilho[] = [
+  "saldo_parado",
+  "rf_vencendo",
+  "termometro_vermelho",
+  "risco_evasao",
+];
 
 export const LABEL_GATILHO: Record<Gatilho, string> = {
   saldo_parado: "Saldo parado em conta",
   rf_vencendo: "Renda fixa vencendo",
   termometro_vermelho: "Cliente A vermelho no termômetro",
+  risco_evasao: "Risco de evasão — sem reunião agendada",
 };
 
 /** Reenvio no máximo 1x por semana enquanto o gatilho seguir disparando. */
