@@ -40,5 +40,10 @@ Eduardo usa a página mudaria a recomendação, fazer a pergunta — mas junto c
 a sugestão, nunca no lugar dela. Ele decide com a análise na mão, não é
 consultado no vazio.
 
+**Curtas também.** A regra da resposta resumida vale aqui e é onde ela mais
+escapa: cada sugestão cabe em ~3 linhas — problema, evidência, ganho. Sem
+parágrafo de contexto, sem explicar o que ele já sabe da própria página, sem
+desenvolver a solução. O raciocínio longo, se existir, vai para o PR.
+
 Isso é entrega de informação, não pedido de autorização: apresentar as três e
 seguir. Só virar trabalho se o Eduardo pedir.
