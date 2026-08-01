@@ -516,6 +516,25 @@ Distribuição de lucros pode ser desproporcional à participação societária 
   },
 ];
 
+/**
+ * Projeção do time VERSIONADO para conferência contra o banco.
+ *
+ * Exposto porque este arquivo é a rede de restauração do /time e ninguém
+ * confere se ele ainda bate com a realidade — hoje faltam 4 assessores com
+ * carteira ativa. `scripts/check-recover-team-data.ts` usa isto para acusar a
+ * divergência; a lógica de comparação vive em ./recover-team-data-diff (pura,
+ * testável sem banco).
+ */
+export const TIME_VERSIONADO: Array<{
+  cpf: string;
+  nomeCompleto: string;
+  email: string;
+}> = PESSOAS.map((p) => ({
+  cpf: p.cpf,
+  nomeCompleto: p.nomeCompleto,
+  email: p.email,
+}));
+
 export type RecoverReport = {
   filiais: { criadas: number; atualizadas: number; nomes: string[] };
   departamentos: { criados: number; atualizados: number; nomes: string[] };
