@@ -80,19 +80,60 @@ test("número da conta — casa", () => {
   assert.equal(r?.id, "c-lima");
 });
 
-// ── Regra do Eduardo: conta que começa com 0 não entra no índice.
+// ── Zero à esquerda é formatação do BTG, não identidade. Todas as variações
+// da MESMA conta têm de resolver para o mesmo cliente, nos dois sentidos.
+// (Antes, conta começando com "0" era descartada do índice — o que excluía a
+// forma canônica de persistência, padStart(9,"0").)
 
-test("conta começando com 0 fica fora do índice", () => {
-  const cli = { ...LIMA, numeroConta: "0987654" };
+const VARIACOES = ["002485047", "02485047", "2485047"];
+
+for (const armazenada of VARIACOES) {
+  for (const noTitulo of VARIACOES) {
+    test(`conta armazenada "${armazenada}" casa com título "${noTitulo}"`, () => {
+      const cli = { ...LIMA, numeroConta: armazenada };
+      const r = casarCliente({ titulo: `Reunião conta ${noTitulo}` }, idx([cli]));
+      assert.equal(r?.id, "c-lima");
+    });
+  }
+}
+
+test("conta zero-padded a 9 (forma canônica) entra no índice", () => {
+  const cli = { ...LIMA, numeroConta: "002870286" };
   const { indice } = construirIndice([cli]);
-  assert.equal(indice.has("0987654"), false);
-  assert.equal(casarCliente({ titulo: "Conta 0987654" }, indice), null);
+  assert.equal(indice.has("2870286"), true);
 });
 
-test("conta com 0 à esquerda não casa nem sem o zero", () => {
-  const cli = { ...LIMA, numeroConta: "0987654" };
-  const r = casarCliente({ titulo: "Conta 987654" }, idx([cli]));
-  assert.equal(r, null);
+test("duas contas que só diferem por zeros são a MESMA — vira ambíguo entre clientes", () => {
+  const a = { ...ANA, id: "c-1", numeroConta: "002485047", email: null, telefone: null, cpfCnpj: null };
+  const b = { ...LIMA, id: "c-2", numeroConta: "2485047", email: null };
+  const { indice, ambiguos } = construirIndice([a, b]);
+  assert.equal(ambiguos, 1);
+  assert.equal(casarCliente({ titulo: "Conta 2485047" }, indice), null);
+});
+
+// ── Edge case: conta "0" ou só zeros não pode quebrar nem virar chave lixo.
+
+test("conta só de zeros não quebra e não entra no índice", () => {
+  for (const zeros of ["0", "00", "000000000"]) {
+    const cli = { ...LIMA, numeroConta: zeros, email: null };
+    const { indice } = construirIndice([cli]);
+    assert.equal(indice.has("0"), false, `numeroConta="${zeros}" não deve virar chave "0"`);
+    assert.equal(indice.has(""), false, `numeroConta="${zeros}" não deve virar chave vazia`);
+  }
+});
+
+test("conta vazia ou nula não entra no índice", () => {
+  assert.equal(construirIndice([{ ...LIMA, numeroConta: "", email: null }]).indice.size, 0);
+  assert.equal(construirIndice([{ ...LIMA, numeroConta: null, email: null }]).indice.size, 0);
+});
+
+test("conta curta demais depois de tirar os zeros não entra", () => {
+  // "000012" → "12": 2 dígitos, abaixo do mínimo. O corte é sobre a CHAVE,
+  // não sobre o valor bruto — é a chave que pode colidir.
+  const cli = { ...LIMA, numeroConta: "000012", email: null };
+  const { indice } = construirIndice([cli]);
+  assert.equal(indice.has("12"), false);
+  assert.equal(casarCliente({ titulo: "Sala 000012" }, indice), null);
 });
 
 // ── Ambiguidade: descartar, nunca desempatar.
