@@ -19,6 +19,29 @@ export function contaCanonica(s: string | null | undefined): string {
 }
 
 /**
+ * Chave de COMPARAÇÃO: só dígitos, sem zeros à esquerda.
+ *
+ * Para quando não dá pra consultar o banco com `in: variacoesConta(...)` e é
+ * preciso uma chave única em memória — caso do índice de matching em
+ * ../painel-do-dia/auto-encerrar-core. Faz "002485047", "02485047" e
+ * "2485047" colapsarem no mesmo valor.
+ *
+ * Zero à esquerda é formatação do BTG, não identidade: a mesma conta aparece
+ * zero-padded a 9 no export de arquivo e sem zeros na API. Duas contas que só
+ * diferem por zeros à esquerda são a MESMA conta.
+ *
+ * Conta só de zeros vira "0" (mesmo fallback de variacoesConta) em vez de
+ * string vazia, para não colidir com "campo ausente".
+ *
+ * NÃO usar para persistir — a forma canônica de gravação é contaCanonica().
+ */
+export function chaveConta(s: string | null | undefined): string {
+  const digitos = (s ?? "").replace(/\D+/g, "");
+  if (!digitos) return "";
+  return digitos.replace(/^0+/, "") || "0";
+}
+
+/**
  * Todas as formas em que a mesma conta pode ter sido persistida, pra usar em
  * `where: { numeroConta: { in: variacoesConta(x) } }`. Cobre: como veio, sem
  * zeros à esquerda, e zero-padded a 9.

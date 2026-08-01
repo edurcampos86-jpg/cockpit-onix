@@ -16,6 +16,8 @@
  * ainda mais numa base de ~480 contas onde nome curto é comum.
  */
 
+import { chaveConta } from "@/lib/backoffice/conta";
+
 /** Tamanhos mínimos: número curto demais colide com qualquer coisa. */
 export const MIN_DIGITOS_TELEFONE = 8;
 export const MIN_DIGITOS_DOCUMENTO = 11; // CPF = 11, CNPJ = 14
@@ -79,10 +81,18 @@ export function construirIndice(clientes: ClienteIdentificadores[]): {
     const doc = c.cpfCnpj ? soDigitos(c.cpfCnpj) : "";
     if (doc.length >= MIN_DIGITOS_DOCUMENTO) registrar(doc, cli);
 
-    const conta = c.numeroConta ? soDigitos(c.numeroConta) : "";
-    if (conta.length >= MIN_DIGITOS_CONTA && !conta.startsWith("0")) {
-      registrar(conta, cli);
-    }
+    // Zero à esquerda é formatação do BTG, não identidade: a mesma conta
+    // aparece zero-padded a 9 no export de arquivo e sem zeros na API.
+    // chaveConta colapsa "002485047", "02485047" e "2485047" no mesmo valor.
+    //
+    // A versão anterior descartava do índice qualquer conta começando com "0",
+    // por medo de ambiguidade. O efeito era o oposto do pretendido: a forma
+    // CANÔNICA de persistência é padStart(9,"0") (ver conta.ts e
+    // api/backoffice/clientes/route.ts), então toda conta com menos de 9
+    // dígitos significativos começa com zero — e ficava de fora. Sobravam só
+    // as contas naturalmente de 9 dígitos.
+    const conta = chaveConta(c.numeroConta);
+    if (conta.length >= MIN_DIGITOS_CONTA) registrar(conta, cli);
   }
 
   return { indice, ambiguos: ambiguos.size };
@@ -118,7 +128,11 @@ export function casarCliente(
     if (hit) return hit;
   }
   for (const numero of numerosDoTexto(evento.titulo)) {
-    const hit = indice.get(numero);
+    // Duas tentativas porque o índice guarda chaves de tipos diferentes:
+    // telefone e CPF/CNPJ entram como dígitos crus, conta entra sem zeros à
+    // esquerda. Sem a segunda, um título escrito "conta 002485047" não
+    // acharia a conta indexada como "2485047" — e vice-versa.
+    const hit = indice.get(numero) ?? indice.get(chaveConta(numero));
     if (hit) return hit;
   }
   return null;
