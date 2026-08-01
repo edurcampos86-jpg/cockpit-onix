@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth-helpers";
+import { cpfValido } from "@/lib/backoffice/cpf";
 import {
   CARGO_FAMILIAS,
   TEAM_ROLES,
@@ -67,6 +68,12 @@ export async function createPessoa(formData: FormData): Promise<TimeActionResult
 
   if (!nomeCompleto) return { ok: false, error: "Nome completo é obrigatório" };
   if (digits(cpfRaw).length !== 11) return { ok: false, error: "CPF inválido (11 dígitos)" };
+  // Tamanho não basta: o CPF é a chave de cruzamento com os relatórios do BTG,
+  // e um dígito trocado tem 11 dígitos, entra como chave única e nunca casa —
+  // sem sinal em tela nenhuma.
+  if (!cpfValido(cpfRaw)) {
+    return { ok: false, error: "CPF inválido — dígitos verificadores não conferem" };
+  }
   if (!email.includes("@")) return { ok: false, error: "Email inválido" };
   if (!isCargo(cargoFamilia)) return { ok: false, error: "Cargo (família) inválido" };
   if (!filialId) return { ok: false, error: "Filial obrigatória" };
@@ -150,6 +157,15 @@ export async function updatePessoa(formData: FormData): Promise<TimeActionResult
   if (!departamentoId) return { ok: false, error: "Departamento obrigatório" };
 
   const cpf = digits(cpfRaw);
+
+  // Validação de dígitos só quando o CPF MUDA. Cadastro antigo que já esteja
+  // no banco continua editável (dá para corrigir o telefone de alguém sem ter
+  // de resolver o CPF antes); o que não passa é gravar um CPF novo inválido.
+  const atual = await prisma.pessoa.findUnique({ where: { id }, select: { cpf: true } });
+  if (!atual) return { ok: false, error: "Pessoa não encontrada" };
+  if (cpf !== atual.cpf && !cpfValido(cpf)) {
+    return { ok: false, error: "CPF inválido — dígitos verificadores não conferem" };
+  }
 
   // Unicidade ignorando o próprio
   const conflict = await prisma.pessoa.findFirst({

@@ -1,5 +1,6 @@
 import "server-only";
 import { prisma } from "./prisma";
+import { chaveCpf, formatarCpf } from "./backoffice/cpf";
 
 /* ──────────────────────────────────────────────────────────────────────────
    CONSTANTES — espelham os "enums via string" do schema.prisma (Pessoa).
@@ -107,6 +108,11 @@ export type ListPessoasFilters = {
 
 export async function listPessoas(filters: ListPessoasFilters = {}) {
   const status = filters.status ?? "ativo";
+  // O banco guarda CPF só em dígitos (actions/time.ts normaliza antes de
+  // gravar), então comparar com o texto cru nunca casava para quem digita ou
+  // cola no formato pontuado — que é o formato sugerido pelo próprio
+  // placeholder do formulário. Normalizar a BUSCA fecha o par.
+  const cpfBusca = chaveCpf(filters.busca);
   return prisma.pessoa.findMany({
     where: {
       ...(status !== "todos" ? { status } : {}),
@@ -118,7 +124,9 @@ export async function listPessoas(filters: ListPessoasFilters = {}) {
               { nomeCompleto: { contains: filters.busca, mode: "insensitive" } },
               { apelido: { contains: filters.busca, mode: "insensitive" } },
               { email: { contains: filters.busca, mode: "insensitive" } },
-              { cpf: { contains: filters.busca } },
+              // Sem dígitos na busca não há cláusula de CPF: `contains: ""`
+              // casaria com todo mundo e diluiria o filtro de texto.
+              ...(cpfBusca ? [{ cpf: { contains: cpfBusca } }] : []),
             ],
           }
         : {}),
@@ -214,8 +222,11 @@ export function pessoaIniciais(nomeCompleto: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
+/**
+ * Mantido como reexport: a implementação mudou de casa para ./backoffice/cpf,
+ * que é puro e pode ser importado por client component (team.ts é
+ * `server-only`). O nome fica para não mexer nos chamadores.
+ */
 export function formatCpf(cpf: string): string {
-  const digits = cpf.replace(/\D/g, "");
-  if (digits.length !== 11) return cpf;
-  return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
+  return formatarCpf(cpf);
 }

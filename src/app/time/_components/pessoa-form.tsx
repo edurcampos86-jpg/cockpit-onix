@@ -1,4 +1,5 @@
 import { CARGO_FAMILIAS, TEAM_ROLES } from "@/lib/team";
+import { CpfField } from "./cpf-field";
 import { TelefoneField } from "./telefone-field";
 
 type PessoaInput = {
@@ -54,7 +55,9 @@ export function PessoaForm({
       <Section title="Identificação">
         <Field label="Nome completo *" name="nomeCompleto" defaultValue={pessoa?.nomeCompleto ?? ""} required colSpan={2} />
         <Field label="Apelido" name="apelido" defaultValue={pessoa?.apelido ?? ""} />
-        <Field label="CPF *" name="cpf" defaultValue={pessoa?.cpf ?? ""} placeholder="000.000.000-00" required />
+        {/* Máscara + conferência dos dígitos: é a chave de cruzamento com os
+            relatórios do BTG, e CPF errado não dá sinal em lugar nenhum. */}
+        <CpfField defaultValue={pessoa?.cpf} />
         <Field label="Email *" name="email" type="email" defaultValue={pessoa?.email ?? ""} required />
         {/* Único campo com JS: precisa de máscara ao digitar, e é o que
             alimenta o alerta de risco de evasão no WhatsApp. */}
