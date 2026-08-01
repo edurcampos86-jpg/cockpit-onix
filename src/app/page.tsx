@@ -10,6 +10,13 @@ import { WeekCategoriesAlert } from "@/components/calendario/week-categories-ale
 import { PlanningReminderBanner } from "@/components/dashboard/planning-reminder-banner";
 import { OverdueTasksBanner } from "@/components/dashboard/overdue-tasks-banner";
 import { ExpiringTasksBanner } from "@/components/dashboard/expiring-tasks-banner";
+import {
+  RiscoEvasaoBanner,
+  type ClienteEmRisco,
+} from "@/components/dashboard/risco-evasao-banner";
+import { riscoEvasaoReuniao } from "@/lib/cadencia-core";
+import { rbacEnforcementHabilitado, resolverCgesVisiveis } from "@/lib/rbac";
+import { getAuthContext } from "@/lib/auth-helpers";
 
 export default async function DashboardPage() {
   const now = new Date();
@@ -60,6 +67,61 @@ export default async function DashboardPage() {
     }),
   ]);
 
+  // Clientes em risco de evasão: sem reunião AGENDADA e com o teto da classe
+  // já vencido. Mesma regra da tabela de clientes (cadencia-core.ts) — não é
+  // recalculada aqui de outro jeito, é a mesma função.
+  //
+  // Respeita o RBAC igual à página de clientes: quem só enxerga a própria
+  // carteira não recebe no painel o alerta de cliente que não é dele.
+  //
+  // Falha silenciosa de propósito: o painel inteiro não pode quebrar porque a
+  // tabela de clientes não existe ainda ou o RBAC não resolveu.
+  let clientesEmRisco: ClienteEmRisco[] = [];
+  try {
+    const whereClientes: { assessorCge?: { in: string[] } } = {};
+    if (await rbacEnforcementHabilitado()) {
+      const ctx = await getAuthContext();
+      const cges = await resolverCgesVisiveis(ctx);
+      if (cges) whereClientes.assessorCge = { in: cges };
+    }
+    const candidatos = await prisma.clienteBackoffice.findMany({
+      where: {
+        ...whereClientes,
+        OR: [{ ativacaoConta: "Ativa" }, { ativacaoConta: null }],
+      },
+      select: {
+        id: true,
+        nome: true,
+        classificacao: true,
+        ultimaReuniaoAt: true,
+        proximaReuniaoAt: true,
+        cadenciaReuniaoDiasOverride: true,
+      },
+    });
+    clientesEmRisco = candidatos.flatMap((c) => {
+      const r = riscoEvasaoReuniao(
+        c.classificacao,
+        c.ultimaReuniaoAt,
+        c.proximaReuniaoAt,
+        c.cadenciaReuniaoDiasOverride,
+      );
+      if (r.status !== "risco") return [];
+      return [
+        {
+          id: c.id,
+          nome: c.nome,
+          classificacao: c.classificacao,
+          diasVencidos: Math.abs(r.diasAteLimite),
+          teto: r.cadencia,
+          tetoManual: r.override,
+        },
+      ];
+    });
+  } catch {
+    // tabela de clientes pode não existir neste ambiente
+  }
+
+
   const weekPostStats = {
     total: weekPosts.length,
     published: weekPosts.filter((p) => p.status === "publicado").length,
@@ -89,6 +151,9 @@ export default async function DashboardPage() {
           todayTasksCount={todayTasks.length}
           todayCompletedCount={todayTasks.filter((t) => t.status === "concluida").length}
         />
+
+        {/* Risco de evasão — clientes sem reunião agendada além do teto */}
+        <RiscoEvasaoBanner clientes={clientesEmRisco} />
 
         {/* Alerta de Tarefas Atrasadas */}
         <OverdueTasksBanner tasks={JSON.parse(JSON.stringify(overdueTasks))} />
