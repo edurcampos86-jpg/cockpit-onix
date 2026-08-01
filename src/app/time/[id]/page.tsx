@@ -13,6 +13,7 @@ import {
   Users,
   Archive,
   Cake,
+  Wallet,
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { getAuthContext, canManageTeam, isAdmin } from "@/lib/auth-helpers";
@@ -23,8 +24,10 @@ import {
   labelMotivoSaida,
   pessoaIniciais,
   formatCpf,
+  getCarteiraBtg,
 } from "@/lib/team";
 import { cn } from "@/lib/utils";
+import { formatBRL } from "@/lib/painel-utils";
 import { NumerologiaSection } from "../_components/numerologia-section";
 import { AcordoComercialSection } from "../_components/acordo-comercial-section";
 import { ConviteSection } from "../_components/convite-section";
@@ -48,6 +51,13 @@ export default async function PessoaPage({
 
   const pessoa = await getPessoa(id);
   if (!pessoa) notFound();
+
+  // Carteira só é consultada quando há código E quem olha pode ver — evita a
+  // query para as pessoas sem vínculo com o BTG (imobiliária, corretora).
+  const carteira =
+    canManage && pessoa.codigoAssessorBtg
+      ? await getCarteiraBtg(pessoa.codigoAssessorBtg)
+      : null;
 
   const isArquivado = pessoa.status === "arquivado";
 
@@ -135,6 +145,43 @@ export default async function PessoaPage({
           />
           {canManage && <Row label="CPF" value={formatCpf(pessoa.cpf)} />}
         </Section>
+
+        {/* ── Carteira BTG ──
+            Só aparece para quem TEM código de assessor: imobiliária, corretora
+            e administrativo não têm vínculo com o BTG e a seção sumiria vazia.
+            Gated por canManage pelo mesmo motivo do CPF acima — é dado
+            financeiro de carteira alheia. */}
+        {canManage && pessoa.codigoAssessorBtg && (
+          <Section title="Carteira BTG" icon={Wallet}>
+            <Row label="Código do assessor" value={pessoa.codigoAssessorBtg} />
+            {carteira ? (
+              <>
+                <Row label="Clientes" value={String(carteira.clientes)} />
+                <Row label="PL sob gestão" value={formatBRL(carteira.pl)} />
+                <Row label="Ticket médio" value={formatBRL(carteira.ticketMedio)} />
+                <Row
+                  label="Por classe"
+                  value={`A ${carteira.porClasse.A} · B ${carteira.porClasse.B} · C ${carteira.porClasse.C}`}
+                />
+                <Row
+                  label="Sem próxima reunião"
+                  value={
+                    carteira.semReuniaoAgendada === 0
+                      ? "nenhum"
+                      : `${carteira.semReuniaoAgendada} de ${carteira.clientes}`
+                  }
+                />
+              </>
+            ) : (
+              // Código preenchido e zero clientes é sinal, não vazio: ou o
+              // código está errado, ou a Base BTG ainda não foi importada.
+              <Row
+                label="Clientes"
+                value="Nenhum cliente com esse código — confira o número ou reimporte a Base BTG"
+              />
+            )}
+          </Section>
+        )}
 
         {/* ── Vínculo Onix ── */}
         <Section title="Vínculo Onix" icon={Calendar}>

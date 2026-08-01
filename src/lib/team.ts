@@ -212,6 +212,74 @@ export async function getTimeStats() {
 }
 
 /* ──────────────────────────────────────────────────────────────────────────
+   CARTEIRA BTG — leitura pelo código do assessor
+   ────────────────────────────────────────────────────────────────────────── */
+
+export type CarteiraBtg = {
+  clientes: number;
+  pl: number;
+  ticketMedio: number;
+  porClasse: { A: number; B: number; C: number };
+  semReuniaoAgendada: number;
+};
+
+/**
+ * Carteira de uma pessoa a partir do código dela no BTG.
+ *
+ * O casamento é por VALOR entre `Pessoa.codigoAssessorBtg` e
+ * `ClienteBackoffice.assessorCge` — sem FK, mesma convenção já usada por
+ * `CarteiraCge.cge` e pelo scoping de RBAC (src/lib/rbac.ts). `assessorCge` é
+ * indexado (schema.prisma, @@index([assessorCge])), então isto é uma leitura
+ * barata mesmo com a base inteira.
+ *
+ * `semReuniaoAgendada` fica junto de propósito: é o número que transforma a
+ * ficha de cadastro em ferramenta de gestão. "Tem 141 clientes" é dado; "tem
+ * 141 clientes e 38 sem próxima reunião marcada" é uma conversa de 1:1.
+ */
+export async function getCarteiraBtg(
+  codigoAssessorBtg: string | null | undefined,
+): Promise<CarteiraBtg | null> {
+  const cge = (codigoAssessorBtg ?? "").trim();
+  if (!cge) return null;
+
+  const where = { assessorCge: cge };
+
+  const [agregado, porClasse, semReuniao] = await Promise.all([
+    prisma.clienteBackoffice.aggregate({
+      where,
+      _count: { _all: true },
+      _sum: { saldo: true },
+    }),
+    prisma.clienteBackoffice.groupBy({
+      by: ["classificacao"],
+      where,
+      _count: { _all: true },
+    }),
+    prisma.clienteBackoffice.count({
+      where: { ...where, proximaReuniaoAt: null },
+    }),
+  ]);
+
+  const clientes = agregado._count._all;
+  if (clientes === 0) return null;
+
+  const pl = agregado._sum.saldo ?? 0;
+  const classe = { A: 0, B: 0, C: 0 };
+  for (const linha of porClasse) {
+    const k = linha.classificacao as "A" | "B" | "C";
+    if (k in classe) classe[k] = linha._count._all;
+  }
+
+  return {
+    clientes,
+    pl,
+    ticketMedio: pl / clientes,
+    porClasse: classe,
+    semReuniaoAgendada: semReuniao,
+  };
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
    UTILS
    ────────────────────────────────────────────────────────────────────────── */
 

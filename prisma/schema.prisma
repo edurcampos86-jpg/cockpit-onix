@@ -1473,6 +1473,22 @@ model Pessoa {
   teamRole     String    @default("colaborador") // "admin" | "lideranca" | "colaborador"
   observacoes  String?   @db.Text
 
+  // Código do Assessor no BTG (coluna "Código do Assessor" da Base BTG). Casa
+  // por VALOR com ClienteBackoffice.assessorCge — sem FK, mesma convenção de
+  // CarteiraCge.cge.
+  //
+  // NULLABLE de propósito: time de imobiliária, corretora e administrativo não
+  // tem vínculo com o BTG e não precisa ter (confirmado pelo Eduardo).
+  //
+  // Não confundir com CarteiraCge: aqui é IDENTIDADE ("qual é o código desta
+  // pessoa"), lá é PERMISSÃO ("quais CGEs esta pessoa pode ver"). Um líder
+  // enxerga várias carteiras e tem um código só.
+  //
+  // Por que campo próprio e não derivar do e-mail: dos 16 assessores da Base
+  // BTG, só 4 têm e-mail idêntico ao cadastrado aqui (o do Eduardo é
+  // eduardo.campos@ no BTG e eduardo.rodrigues@ no /time).
+  codigoAssessorBtg String? @unique
+
   // Hierarquia organizacional
   filialId       String
   filial         Filial       @relation(fields: [filialId], references: [id])

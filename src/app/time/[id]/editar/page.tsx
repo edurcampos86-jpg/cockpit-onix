@@ -73,6 +73,7 @@ export default async function EditarPessoaPage({
             dataEntrada: pessoa.dataEntrada,
             cargoFamilia: pessoa.cargoFamilia,
             cargoTitulo: pessoa.cargoTitulo,
+            codigoAssessorBtg: pessoa.codigoAssessorBtg,
             teamRole: pessoa.teamRole,
             filialId: pessoa.filialId,
             departamentoId: pessoa.departamentoId,
