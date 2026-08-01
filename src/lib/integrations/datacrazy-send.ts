@@ -1,5 +1,6 @@
 import "server-only";
 import { getConfig } from "@/lib/config-db";
+import { normalizarTelefoneZapi } from "@/lib/integrations/telefone";
 
 /**
  * Envia mensagem de texto via Z-API (Datacrazy WhatsApp).
@@ -17,7 +18,8 @@ import { getConfig } from "@/lib/config-db";
  * ⚠️ Atenção: NÃO confundir com `DATACRAZY_TOKEN` — esse é o JWT da API
  * Datacrazy proprietária (usado pra polling de mensagens), não serve pra Z-API.
  *
- * `phone` aceita override; se omitido, usa `DATACRAZY_ALERTS_PHONE`.
+ * `phone` aceita override; se omitido, usa `DATACRAZY_ALERTS_PHONE`. Em ambos
+ * os casos o número é normalizado — ver normalizarTelefoneZapi.
  *
  * Retorna `true` em sucesso, `false` caso ausência de config ou erro de rede.
  * Nunca lança.
@@ -33,7 +35,7 @@ export async function sendWhatsappMessage(
     getConfig("DATACRAZY_CLIENT_TOKEN"),
   ]);
 
-  const phone = phoneOverride ?? defaultPhone;
+  const phone = normalizarTelefoneZapi(phoneOverride ?? defaultPhone);
   if (!token || !instance || !phone) return false;
 
   const url = `https://api.z-api.io/instances/${instance}/token/${token}/send-text`;
