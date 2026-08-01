@@ -227,16 +227,21 @@ export async function recomputeAgregadosReuniao(
 
   // Só matches confiáveis (score >= 50 ou manual) promovem os agregados.
   // nome-substring (30) é ignorado aqui — fica gravado pra revisão.
+  //
+  // `source` e `matchedVia` entram no select para a procedência ser GRAVADA
+  // junto da data, vinda da MESMA linha que venceu o desempate. Inferir isso
+  // no render obrigaria a UI a repetir a regra de ordenação e o filtro de
+  // confiança — e a divergir dela no primeiro ajuste.
   const [proxima, ultima] = await Promise.all([
     prisma.reuniaoCliente.findFirst({
       where: { clienteId, startAt: { gte: agora }, ...ROLLUP_CONFIAVEL },
       orderBy: { startAt: "asc" },
-      select: { startAt: true },
+      select: { startAt: true, source: true, matchedVia: true },
     }),
     prisma.reuniaoCliente.findFirst({
       where: { clienteId, startAt: { lt: agora }, ...ROLLUP_CONFIAVEL },
       orderBy: { startAt: "desc" },
-      select: { startAt: true },
+      select: { startAt: true, source: true, matchedVia: true },
     }),
   ]);
 
@@ -245,6 +250,13 @@ export async function recomputeAgregadosReuniao(
     data: {
       proximaReuniaoAt: proxima?.startAt ?? null,
       ultimaReuniaoAt: ultima?.startAt ?? null,
+      // Sem linha vencedora, os três campos zeram juntos: data, fonte e selo
+      // seguem sempre o mesmo registro. Deixar uma fonte órfã de uma data
+      // removida faria a tabela exibir procedência de reunião que não existe.
+      proximaReuniaoSource: proxima?.source ?? null,
+      ultimaReuniaoSource: ultima?.source ?? null,
+      proximaReuniaoConfirmadaManualmente: proxima?.matchedVia === "manual",
+      ultimaReuniaoConfirmadaManualmente: ultima?.matchedVia === "manual",
     },
   });
 

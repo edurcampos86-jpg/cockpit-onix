@@ -607,6 +607,26 @@ model ClienteBackoffice {
   ultimoContatoAt     DateTime? // qualquer canal (WhatsApp, ligação, reunião, manual)
   ultimaReuniaoAt     DateTime? // só reuniões (Plaud + manual tipo=reuniao)
   proximaReuniaoAt    DateTime? // próxima reunião agendada (Calendar / Datacrazy multiservice)
+
+  // Procedência dos dois agregados acima. Gravados pelo recompute em
+  // lib/reunioes.ts a partir da linha VENCEDORA de ReuniaoCliente — não são
+  // inferidos no render, para a UI não ter que reimplementar o desempate.
+  //
+  // Source = de ONDE o dado veio: "google-cal" | "outlook-ics" |
+  // "outlook-web" | "datacrazy-atividade". São 4; "manual" NÃO é source —
+  // upsertReuniao nunca grava esse valor.
+  //
+  // ConfirmadaManualmente = COMO a reunião foi ligada ao cliente
+  // (matchedVia === "manual"). É eixo independente: uma reunião do Google
+  // ligada à mão tem source "google-cal" e confirmação manual true. Por isso
+  // é selo sobreposto ao badge de fonte, e não uma quinta fonte.
+  //
+  // NULL/false = sem reunião no agregado, ou recompute ainda não rodou desde
+  // a migration. A UI não deve inventar rótulo nesse caso.
+  ultimaReuniaoSource                 String?
+  ultimaReuniaoConfirmadaManualmente  Boolean @default(false)
+  proximaReuniaoSource                String?
+  proximaReuniaoConfirmadaManualmente Boolean @default(false)
   proximoContatoAt    DateTime? // próximo contato planejado (qualquer canal)
   ultimaSyncDatacrazy DateTime? // quando rodou último sync de contatos (Datacrazy + Plaud)
 

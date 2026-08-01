@@ -65,6 +65,12 @@ export default async function ClientesPage() {
     ultimoContatoAt: Date | null;
     ultimaReuniaoAt: Date | null;
     proximaReuniaoAt: Date | null;
+    // Procedência gravada pelo recompute (lib/reunioes.ts) — vira badge de
+    // fonte + selo de confirmação manual na tabela.
+    ultimaReuniaoSource: string | null;
+    ultimaReuniaoConfirmadaManualmente: boolean;
+    proximaReuniaoSource: string | null;
+    proximaReuniaoConfirmadaManualmente: boolean;
     proximoContatoAt: Date | null;
     receitaAnual: number;
     feeFixo: boolean;
@@ -123,6 +129,10 @@ export default async function ClientesPage() {
       ultimoContatoAt: c.ultimoContatoAt,
       ultimaReuniaoAt: c.ultimaReuniaoAt,
       proximaReuniaoAt: c.proximaReuniaoAt,
+      ultimaReuniaoSource: c.ultimaReuniaoSource,
+      ultimaReuniaoConfirmadaManualmente: c.ultimaReuniaoConfirmadaManualmente,
+      proximaReuniaoSource: c.proximaReuniaoSource,
+      proximaReuniaoConfirmadaManualmente: c.proximaReuniaoConfirmadaManualmente,
       proximoContatoAt: c.proximoContatoAt,
       receitaAnual: c.receitaAnual,
       feeFixo: c.feeFixo,
