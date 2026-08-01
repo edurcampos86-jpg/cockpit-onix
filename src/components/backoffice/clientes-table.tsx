@@ -244,6 +244,12 @@ interface Cliente {
   ultimoContatoAt: Date | string | null;
   ultimaReuniaoAt: Date | string | null;
   proximaReuniaoAt: Date | string | null;
+  // Procedência gravada pelo recompute — ver FonteReuniao abaixo. Opcionais
+  // porque nem todo caller da tabela seleciona esses campos.
+  ultimaReuniaoSource?: string | null;
+  ultimaReuniaoConfirmadaManualmente?: boolean | null;
+  proximaReuniaoSource?: string | null;
+  proximaReuniaoConfirmadaManualmente?: boolean | null;
   proximoContatoAt: Date | string | null;
   receitaAnual: number;
   feeFixo: boolean;
@@ -284,6 +290,79 @@ const FAIXAS_SALDO: { valor: FaixaSaldo; label: string; min: number; max: number
   { valor: "100k-500k", label: "R$ 100k – 500k", min: 100_000, max: 500_000 },
   { valor: "500k+", label: "Acima de R$ 500k", min: 500_000, max: Infinity },
 ];
+
+// Procedência dos agregados de reunião. Os valores vêm GRAVADOS do recompute
+// (lib/reunioes.ts) — a tabela não infere fonte a partir de nada, só exibe.
+//
+// São 4 fontes. "manual" NÃO está aqui de propósito: não é fonte, é a forma
+// como a reunião foi ligada ao cliente, e vem no booleano
+// *ConfirmadaManualmente como SELO sobreposto. Uma reunião do Google ligada à
+// mão é "Google" + selo, nunca "Manual".
+const FONTE_REUNIAO: Record<string, { sigla: string; nome: string; cor: string }> = {
+  "google-cal": {
+    sigla: "G",
+    nome: "Google Calendar",
+    cor: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200",
+  },
+  "outlook-ics": {
+    sigla: "O",
+    nome: "Outlook (feed .ics)",
+    cor: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-200",
+  },
+  "outlook-web": {
+    sigla: "Ow",
+    nome: "Outlook Web (extração manual)",
+    cor: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-200",
+  },
+  "datacrazy-atividade": {
+    sigla: "D",
+    nome: "Datacrazy (atividades)",
+    cor: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
+  },
+};
+
+/**
+ * Badge de fonte + selo de confirmação manual.
+ *
+ * Sem fonte → não renderiza nada. Isso cobre cliente sem reunião e também as
+ * linhas ainda não recomputadas depois da migration: melhor não mostrar nada
+ * do que inventar rótulo. Fonte desconhecida (valor novo que a UI não conhece)
+ * cai num badge neutro com o valor cru no tooltip, em vez de sumir.
+ */
+function FonteReuniao({
+  source,
+  manual,
+}: {
+  source: string | null | undefined;
+  manual: boolean | null | undefined;
+}) {
+  if (!source) return null;
+  const f = FONTE_REUNIAO[source];
+  const cor = f?.cor ?? "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300";
+  const sigla = f?.sigla ?? "?";
+  const nome = f?.nome ?? `Fonte desconhecida (${source})`;
+  const titulo = manual ? `${nome} · confirmada manualmente` : nome;
+
+  return (
+    <span className="relative ml-1.5 inline-flex" title={titulo}>
+      <span
+        className={`inline-flex h-4 min-w-4 items-center justify-center rounded px-1 text-[9px] font-semibold leading-none ${cor}`}
+      >
+        {sigla}
+      </span>
+      {manual && (
+        // Selo SOBREPOSTO, não um segundo badge ao lado: fonte e confirmação
+        // são eixos independentes do mesmo dado, não duas informações soltas.
+        <span
+          aria-hidden
+          className="absolute -right-1 -top-1 flex h-2.5 w-2.5 items-center justify-center rounded-full bg-emerald-500 text-[7px] font-bold leading-none text-white ring-1 ring-background"
+        >
+          ✓
+        </span>
+      )}
+    </span>
+  );
+}
 
 const classCores: Record<string, string> = {
   A: "bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-900/30 dark:text-amber-200",
@@ -1485,20 +1564,36 @@ export function ClientesTable({
                     </td>
 
                     <td className="px-3 py-3 text-xs text-muted-foreground">
-                      {c.ultimaReuniaoAt ? formatData(c.ultimaReuniaoAt) : "—"}
+                      {c.ultimaReuniaoAt ? (
+                        <span className="inline-flex items-center">
+                          {formatData(c.ultimaReuniaoAt)}
+                          <FonteReuniao
+                            source={c.ultimaReuniaoSource}
+                            manual={c.ultimaReuniaoConfirmadaManualmente}
+                          />
+                        </span>
+                      ) : (
+                        "—"
+                      )}
                     </td>
 
                     <td className="px-3 py-3 text-xs">
                       {c.proximaReuniaoAt ? (
-                        <span
-                          className={
-                            diasProxReuniao !== null && diasProxReuniao <= 7
-                              ? "text-blue-700 dark:text-blue-400 font-semibold"
-                              : "text-emerald-700 dark:text-emerald-400"
-                          }
-                          title={diasProxReuniao !== null ? `Em ${diasProxReuniao} dia(s)` : undefined}
-                        >
-                          {formatData(c.proximaReuniaoAt)}
+                        <span className="inline-flex items-center">
+                          <span
+                            className={
+                              diasProxReuniao !== null && diasProxReuniao <= 7
+                                ? "text-blue-700 dark:text-blue-400 font-semibold"
+                                : "text-emerald-700 dark:text-emerald-400"
+                            }
+                            title={diasProxReuniao !== null ? `Em ${diasProxReuniao} dia(s)` : undefined}
+                          >
+                            {formatData(c.proximaReuniaoAt)}
+                          </span>
+                          <FonteReuniao
+                            source={c.proximaReuniaoSource}
+                            manual={c.proximaReuniaoConfirmadaManualmente}
+                          />
                         </span>
                       ) : (
                         <span className="text-muted-foreground">—</span>

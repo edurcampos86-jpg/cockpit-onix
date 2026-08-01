@@ -179,3 +179,9 @@ main().catch((e) => {
   console.error(e);
   process.exit(1);
 });
+
+// Marca o arquivo como MÓDULO. Sem nenhum import de topo (os imports
+// aqui são dinâmicos, dentro de main), o TypeScript trataria isto como script
+// global e o `main` colidiria com o de outro script em scripts/ — que o build
+// type-checa junto.
+export {};
