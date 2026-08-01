@@ -28,6 +28,7 @@ import {
 } from "@/lib/team";
 import { cn } from "@/lib/utils";
 import { formatBRL } from "@/lib/painel-utils";
+import { isEmailCorporativo } from "@/lib/dominios-corporativos";
 import { NumerologiaSection } from "../_components/numerologia-section";
 import { AcordoComercialSection } from "../_components/acordo-comercial-section";
 import { ConviteSection } from "../_components/convite-section";
@@ -131,7 +132,18 @@ export default async function PessoaPage({
 
         {/* ── Identificação ── */}
         <Section title="Identificação" icon={Mail}>
-          <Row icon={Mail} label="Email" value={pessoa.email} />
+          <Row
+            icon={Mail}
+            label="Email"
+            value={pessoa.email}
+            // O e-mail dá o login e some na saída — quando é conta pessoal,
+            // nenhuma das duas coisas vale.
+            aviso={
+              isEmailCorporativo(pessoa.email)
+                ? undefined
+                : "Conta pessoal — não é revogada na saída"
+            }
+          />
           <Row icon={Phone} label="Telefone" value={pessoa.telefone || "—"} />
           <Row icon={MapPin} label="Cidade" value={pessoa.cidade || "—"} />
           <Row
@@ -358,10 +370,12 @@ function Row({
   icon: Icon,
   label,
   value,
+  aviso,
 }: {
   icon?: React.ComponentType<{ className?: string }>;
   label: string;
   value: string;
+  aviso?: string;
 }) {
   return (
     <div className="flex items-start gap-2">
@@ -371,6 +385,9 @@ function Row({
           {label}
         </div>
         <div className="text-sm text-foreground truncate">{value}</div>
+        {aviso && (
+          <div className="text-[11px] text-amber-600 dark:text-amber-400">{aviso}</div>
+        )}
       </div>
     </div>
   );

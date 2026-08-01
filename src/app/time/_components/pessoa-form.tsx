@@ -1,4 +1,8 @@
 import { CARGO_FAMILIAS, TEAM_ROLES } from "@/lib/team";
+import {
+  DOMINIOS_CORPORATIVOS,
+  listaDominiosCorporativos,
+} from "@/lib/dominios-corporativos";
 import { CpfField } from "./cpf-field";
 import { TelefoneField } from "./telefone-field";
 
@@ -59,7 +63,18 @@ export function PessoaForm({
         {/* Máscara + conferência dos dígitos: é a chave de cruzamento com os
             relatórios do BTG, e CPF errado não dá sinal em lugar nenhum. */}
         <CpfField defaultValue={pessoa?.cpf} />
-        <Field label="Email *" name="email" type="email" defaultValue={pessoa?.email ?? ""} required />
+        {/* O e-mail é identidade, não contato: é UNIQUE e é o que liga a
+            Pessoa ao login. Por isso a regra do domínio corporativo — e por
+            isso ela aparece aqui, antes de o erro voltar do servidor. */}
+        <Field
+          label="Email corporativo *"
+          name="email"
+          type="email"
+          defaultValue={pessoa?.email ?? ""}
+          placeholder={`nome@${DOMINIOS_CORPORATIVOS[0]}`}
+          hint={`Dá o acesso ao Cockpit e é revogado na saída — ${listaDominiosCorporativos()}`}
+          required
+        />
         {/* Único campo com JS: precisa de máscara ao digitar, e é o que
             alimenta o alerta de risco de evasão no WhatsApp. */}
         <TelefoneField defaultValue={pessoa?.telefone} />

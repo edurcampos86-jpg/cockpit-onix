@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth-helpers";
 import { cpfValido } from "@/lib/backoffice/cpf";
+import { isEmailCorporativo, listaDominiosCorporativos } from "@/lib/dominios-corporativos";
 import {
   CARGO_FAMILIAS,
   TEAM_ROLES,
@@ -89,6 +90,15 @@ export async function createPessoa(formData: FormData): Promise<TimeActionResult
     return { ok: false, error: "CPF inválido — dígitos verificadores não conferem" };
   }
   if (!email.includes("@")) return { ok: false, error: "Email inválido" };
+  // Pessoa.email é UNIQUE e é o vínculo com o login (Pessoa.userId → User):
+  // é identidade, não contato. Conta pessoal não se revoga quando alguém sai e
+  // não casa com o `E-mail Assessor` dos relatórios do BTG.
+  if (!isEmailCorporativo(email)) {
+    return {
+      ok: false,
+      error: `Use o e-mail corporativo (${listaDominiosCorporativos()}) — é ele que dá o acesso e é revogado na saída`,
+    };
+  }
   if (!isCargo(cargoFamilia)) return { ok: false, error: "Cargo (família) inválido" };
   if (!filialId) return { ok: false, error: "Filial obrigatória" };
   if (!departamentoId) return { ok: false, error: "Departamento obrigatório" };
@@ -186,10 +196,23 @@ export async function updatePessoa(formData: FormData): Promise<TimeActionResult
   // Validação de dígitos só quando o CPF MUDA. Cadastro antigo que já esteja
   // no banco continua editável (dá para corrigir o telefone de alguém sem ter
   // de resolver o CPF antes); o que não passa é gravar um CPF novo inválido.
-  const atual = await prisma.pessoa.findUnique({ where: { id }, select: { cpf: true } });
+  const atual = await prisma.pessoa.findUnique({
+    where: { id },
+    select: { cpf: true, email: true },
+  });
   if (!atual) return { ok: false, error: "Pessoa não encontrada" };
   if (cpf !== atual.cpf && !cpfValido(cpf)) {
     return { ok: false, error: "CPF inválido — dígitos verificadores não conferem" };
+  }
+  // Mesma regra do CPF: só barra e-mail pessoal quando ele MUDA. As 3 pessoas
+  // que hoje têm conta pessoal seguem editáveis (dá para corrigir o telefone
+  // de alguém sem ter de migrar o e-mail antes); o que não passa é trocar por
+  // outro e-mail pessoal.
+  if (email !== atual.email && !isEmailCorporativo(email)) {
+    return {
+      ok: false,
+      error: `Use o e-mail corporativo (${listaDominiosCorporativos()}) — é ele que dá o acesso e é revogado na saída`,
+    };
   }
 
   const codigoAssessorBtg = codigoAssessorOrNull(formData.get("codigoAssessorBtg"));
