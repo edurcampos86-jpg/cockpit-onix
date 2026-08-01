@@ -19,10 +19,14 @@ resumo e o link.
 
 Quando ele quiser mais, ele pede.
 
-## Ao finalizar uma tarefa: sempre 3 sugestões de melhoria da página
+## A cada MERGE: sempre 3 sugestões de melhoria da página
 
-Toda tarefa que mexe numa página do Cockpit termina com **três sugestões de
-melhoria para aquela página** — nem duas, nem cinco.
+O gatilho é o **merge**, não o fim da conversa. Toda vez que uma PR entra na
+`main`, a resposta que anuncia o merge traz **três sugestões de melhoria para
+a página que aquela PR tocou** — nem duas, nem cinco.
+
+Numa sequência de PRs, isso vale para CADA merge: três sugestões por merge,
+não três no fim da sequência.
 
 **Postura:** responder como especialista em construção de site, com
 conhecimento profundo deste projeto e daquela página — não como revisor
