@@ -4,15 +4,38 @@ import { NextResponse } from "next/server";
 /**
  * Cron guard: valida `Authorization: Bearer <CRON_SECRET>` no header.
  *
- * Railway dispara os cron endpoints via `railway.toml`. Configure
- * CRON_SECRET no painel de variables do Railway.
+ * Protege as 19 rotas em /api/cron/*, disparadas por
+ * .github/workflows/cron.yml. CRON_SECRET vive nas Variables do Railway e
+ * precisa ser idêntico ao secret de mesmo nome no GitHub Actions.
  *
- * Em dev local: deixar CRON_SECRET vazio desativa o guard (liberado
- * pra testar com `curl localhost:3000/api/cron/boot-do-dia`).
+ * FALHA FECHADA. Sem CRON_SECRET configurado, tudo é bloqueado.
+ *
+ * Antes, a ausência da variável devolvia `null` — ou seja, DESLIGAVA a
+ * guarda. A intenção era conveniência de dev, mas o efeito em produção era
+ * o oposto do pretendido: se a variável sumisse do Railway, ou fosse
+ * renomeada num deploy, as 19 rotas de cron viravam públicas e sem
+ * autenticação nenhuma — incluindo as que escrevem no banco e as que
+ * disparam backup. E não haveria sintoma: tudo continuaria respondendo 200.
+ *
+ * Consequência para dev local: agora é preciso definir CRON_SECRET (qualquer
+ * valor) no .env para chamar essas rotas à mão. Isso é deliberado — uma
+ * guarda que se desliga sozinha quando a config falta não é uma guarda.
  */
 export function guardCron(request: Request): NextResponse | null {
   const secret = process.env.CRON_SECRET?.trim();
-  if (!secret) return null; // dev mode, sem guard
+
+  if (!secret) {
+    // Erro de configuração do servidor, não do chamador. O corpo é distinto
+    // do "forbidden" abaixo de propósito: nos logs do workflow dá pra separar
+    // "o servidor não tem segredo" de "o token enviado não bate".
+    console.error(
+      "CRON_SECRET não configurado — endpoint bloqueado por padrão seguro",
+    );
+    return NextResponse.json(
+      { error: "cron_secret_nao_configurado" },
+      { status: 403 },
+    );
+  }
 
   const auth = request.headers.get("authorization");
   const token = auth?.startsWith("Bearer ") ? auth.slice(7) : null;
