@@ -19,14 +19,21 @@ resumo e o link.
 
 Quando ele quiser mais, ele pede.
 
-## A cada MERGE: sempre 3 sugestões de melhoria da página
+## A cada TAREFA concluída: sempre 3 sugestões de melhoria da página
 
-O gatilho é o **merge**, não o fim da conversa. Toda vez que uma PR entra na
-`main`, a resposta que anuncia o merge traz **três sugestões de melhoria para
-a página que aquela PR tocou** — nem duas, nem cinco.
+O gatilho é o **fim de cada tarefa** — não só o merge. PR aberta, investigação
+respondida, correção entregue: a resposta que fecha a tarefa traz **três
+sugestões de melhoria para a página que aquela tarefa tocou** — nem duas, nem
+cinco.
 
-Numa sequência de PRs, isso vale para CADA merge: três sugestões por merge,
-não três no fim da sequência.
+Numa sequência de tarefas, isso vale para CADA uma: três por tarefa, não três
+no fim da sequência.
+
+**Formato de cada sugestão — o quê, onde, por quê.** Nessa ordem, para ele
+decidir sem ter de abrir o código:
+- **O quê:** a mudança, em uma frase.
+- **Onde:** `arquivo:linha` ou a tela exata.
+- **Por quê:** o problema concreto + o ganho.
 
 **Postura:** responder como especialista em construção de site, com
 conhecimento profundo deste projeto e daquela página — não como revisor
