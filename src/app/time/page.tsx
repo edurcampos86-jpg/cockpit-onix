@@ -8,10 +8,12 @@ import {
   listFiliais,
   listDepartamentos,
   getTimeStats,
+  getCadenciaReuniaoPorAssessor,
   labelCargo,
   labelTeamRole,
   pessoaIniciais,
   type PessoaStatusValue,
+  type CadenciaCarteira,
 } from "@/lib/team";
 import { isEmailCorporativo } from "@/lib/dominios-corporativos";
 import { cn } from "@/lib/utils";
@@ -47,6 +49,12 @@ export default async function TimePage({
     listDepartamentos(),
     getTimeStats(),
   ]);
+
+  // Depende de `pessoas` (precisa dos códigos), por isso fora do Promise.all.
+  // Uma query só para a listagem inteira — nunca uma por card.
+  const cadenciaPorAssessor: Map<string, CadenciaCarteira> = canManage
+    ? await getCadenciaReuniaoPorAssessor(pessoas.map((p) => p.codigoAssessorBtg))
+    : new Map();
 
   const filialNomeById = Object.fromEntries(filiais.map((f) => [f.id, f.nome]));
   const departamentoNomeById = Object.fromEntries(
@@ -187,6 +195,9 @@ export default async function TimePage({
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {pessoas.map((p) => {
               const isArquivado = p.status === "arquivado";
+              const cadencia = p.codigoAssessorBtg
+                ? cadenciaPorAssessor.get(p.codigoAssessorBtg)
+                : undefined;
               return (
                 <Link
                   key={p.id}
@@ -227,6 +238,33 @@ export default async function TimePage({
                         {p.teamRole !== "colaborador" && (
                           <span className="px-1.5 py-0.5 rounded bg-primary/15 text-primary font-medium">
                             {labelTeamRole(p.teamRole)}
+                          </span>
+                        )}
+                        {cadencia && cadencia.clientes > 0 && !isArquivado && (
+                          // A régua de reunião por ASSESSOR: quem está
+                          // deixando a própria carteira envelhecer. O mesmo
+                          // cálculo que a tabela de clientes faz por cliente
+                          // (cadencia-core), somado por carteira.
+                          <span
+                            className={cn(
+                              "px-1.5 py-0.5 rounded font-medium",
+                              cadencia.risco > 0
+                                ? "bg-destructive/15 text-destructive"
+                                : cadencia.atencao > 0
+                                  ? "bg-amber-500/15 text-amber-700 dark:text-amber-400"
+                                  : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                            )}
+                            title={
+                              `${cadencia.clientes} clientes · ${cadencia.risco} em risco · ` +
+                              `${cadencia.atencao} em atenção · ${cadencia.ok} no prazo ` +
+                              `(régua: A 90d · B 120d · C 180d, contada da última reunião)`
+                            }
+                          >
+                            {cadencia.risco > 0
+                              ? `${cadencia.risco} de ${cadencia.clientes} em risco`
+                              : cadencia.atencao > 0
+                                ? `${cadencia.atencao} de ${cadencia.clientes} em atenção`
+                                : `carteira em dia (${cadencia.clientes})`}
                           </span>
                         )}
                         {!isEmailCorporativo(p.email) && !isArquivado && (

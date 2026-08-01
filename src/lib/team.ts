@@ -1,6 +1,7 @@
 import "server-only";
 import { prisma } from "./prisma";
 import { chaveCpf, formatarCpf } from "./backoffice/cpf";
+import { riscoEvasaoReuniao } from "./cadencia-core";
 
 /* ──────────────────────────────────────────────────────────────────────────
    CONSTANTES — espelham os "enums via string" do schema.prisma (Pessoa).
@@ -277,6 +278,71 @@ export async function getCarteiraBtg(
     porClasse: classe,
     semReuniaoAgendada: semReuniao,
   };
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   CADÊNCIA DE REUNIÃO POR ASSESSOR
+   ────────────────────────────────────────────────────────────────────────── */
+
+export type CadenciaCarteira = {
+  clientes: number;
+  ok: number;
+  atencao: number;
+  risco: number;
+};
+
+/**
+ * Saúde da régua de reunião de cada carteira, em UMA query.
+ *
+ * A régua (A 90d · B 120d · C 180d, com override manual por cliente) já existe
+ * em ../cadencia-core e já aparece por CLIENTE — na tabela de clientes e no
+ * banner do dashboard. O que não existia era o corte por ASSESSOR: quem está
+ * deixando a própria carteira envelhecer. Sem isso, "todo cliente com reunião
+ * agendada" é uma meta sem dono.
+ *
+ * Uma query só, com `in`, e a avaliação em memória: `riscoEvasaoReuniao` compara
+ * a data da ÚLTIMA reunião com o teto da classe, o que não se expressa em
+ * groupBy. São 4 colunas pequenas por cliente, filtradas por `assessorCge`
+ * (indexado, schema.prisma:769).
+ *
+ * `agora` é fixado uma vez para a página inteira: se cada cliente chamasse
+ * Date.now(), dois clientes na fronteira do prazo poderiam cair em lados
+ * diferentes na mesma renderização.
+ */
+export async function getCadenciaReuniaoPorAssessor(
+  codigos: Array<string | null | undefined>,
+): Promise<Map<string, CadenciaCarteira>> {
+  const lista = [...new Set(codigos.filter((c): c is string => !!c))];
+  const mapa = new Map<string, CadenciaCarteira>();
+  if (lista.length === 0) return mapa;
+
+  const clientes = await prisma.clienteBackoffice.findMany({
+    where: { assessorCge: { in: lista } },
+    select: {
+      assessorCge: true,
+      classificacao: true,
+      ultimaReuniaoAt: true,
+      proximaReuniaoAt: true,
+      cadenciaReuniaoDiasOverride: true,
+    },
+  });
+
+  const agora = Date.now();
+  for (const c of clientes) {
+    if (!c.assessorCge) continue;
+    const atual = mapa.get(c.assessorCge) ?? { clientes: 0, ok: 0, atencao: 0, risco: 0 };
+    atual.clientes++;
+    const r = riscoEvasaoReuniao(
+      c.classificacao,
+      c.ultimaReuniaoAt,
+      c.proximaReuniaoAt,
+      c.cadenciaReuniaoDiasOverride,
+      agora,
+    );
+    atual[r.status]++;
+    mapa.set(c.assessorCge, atual);
+  }
+  return mapa;
 }
 
 /* ──────────────────────────────────────────────────────────────────────────
