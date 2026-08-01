@@ -73,6 +73,9 @@ export default async function ClientesPage() {
     proximaReuniaoConfirmadaManualmente: boolean;
     // Teto de reunião só deste cliente; null = régua da classe.
     cadenciaReuniaoDiasOverride: number | null;
+    cadenciaReuniaoEditadoEm: Date | null;
+    // Nome de quem definiu o teto manual (o banco guarda só o userId).
+    cadenciaReuniaoEditadoPorNome: string | null;
     proximoContatoAt: Date | null;
     receitaAnual: number;
     feeFixo: boolean;
@@ -98,11 +101,17 @@ export default async function ClientesPage() {
       orderBy: [{ classificacao: "asc" }, { saldo: "desc" }],
     });
 
-    // `feeFixoEditadoPor` guarda userId (String, sem relation). Resolve os
-    // nomes numa query só, e SÓ quando existe alguém pra resolver — base sem
-    // fee marcado não paga nada por isso.
+    // Os dois rastros guardam userId (String, sem relation). Resolve os nomes
+    // de AMBOS numa query só, e SÓ quando existe alguém pra resolver — base sem
+    // fee marcado e sem teto manual não paga nada por isso. Incluir o editor do
+    // teto aqui é o que evita o tooltip mostrar "por null" para quem editou só
+    // o teto.
     const editorIds = [
-      ...new Set(raw.map((c) => c.feeFixoEditadoPor).filter((v): v is string => !!v)),
+      ...new Set(
+        raw
+          .flatMap((c) => [c.feeFixoEditadoPor, c.cadenciaReuniaoEditadoPor])
+          .filter((v): v is string => !!v),
+      ),
     ];
     const nomePorUserId = new Map<string, string>();
     if (editorIds.length > 0) {
@@ -136,6 +145,10 @@ export default async function ClientesPage() {
       proximaReuniaoSource: c.proximaReuniaoSource,
       proximaReuniaoConfirmadaManualmente: c.proximaReuniaoConfirmadaManualmente,
       cadenciaReuniaoDiasOverride: c.cadenciaReuniaoDiasOverride,
+      cadenciaReuniaoEditadoEm: c.cadenciaReuniaoEditadoEm,
+      cadenciaReuniaoEditadoPorNome: c.cadenciaReuniaoEditadoPor
+        ? (nomePorUserId.get(c.cadenciaReuniaoEditadoPor) ?? null)
+        : null,
       proximoContatoAt: c.proximoContatoAt,
       receitaAnual: c.receitaAnual,
       feeFixo: c.feeFixo,

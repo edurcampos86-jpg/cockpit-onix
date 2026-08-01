@@ -637,6 +637,12 @@ model ClienteBackoffice {
   // saída seria reclassificar o cliente — o que estragaria a classificação,
   // que serve a outros propósitos.
   cadenciaReuniaoDiasOverride Int?
+  // Rastro do override — mesmo padrão de feeFixoEditadoEm/Por. Um teto manual
+  // muda quando um cliente entra em alerta de evasão; sem "quem/quando", a
+  // primeira pergunta depois de um cliente perdido ("quem afrouxou a régua
+  // dele?") não teria resposta. NULL = nunca editado.
+  cadenciaReuniaoEditadoEm  DateTime?
+  cadenciaReuniaoEditadoPor String?
   proximoContatoAt    DateTime? // próximo contato planejado (qualquer canal)
   ultimaSyncDatacrazy DateTime? // quando rodou último sync de contatos (Datacrazy + Plaud)
 
