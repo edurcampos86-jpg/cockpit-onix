@@ -15,7 +15,6 @@ import {
   type PessoaStatusValue,
   type CadenciaCarteira,
 } from "@/lib/team";
-import { isEmailCorporativo } from "@/lib/dominios-corporativos";
 import { cn } from "@/lib/utils";
 
 export const metadata = {
@@ -55,6 +54,23 @@ export default async function TimePage({
   const cadenciaPorAssessor: Map<string, CadenciaCarteira> = canManage
     ? await getCadenciaReuniaoPorAssessor(pessoas.map((p) => p.codigoAssessorBtg))
     : new Map();
+
+  // Ordenar por RISCO, não por nome: o card já mostra o número da régua, mas
+  // com 16 assessores misturados a quem não tem carteira, quem está fora do
+  // teto some no meio da grade. `sort` do JS é estável desde o ES2019, então
+  // quem tem o mesmo risco preserva a ordem que veio do banco (status, nome).
+  //
+  // Sem canManage o mapa está vazio: todo mundo pontua 0 e a ordem alfabética
+  // fica intacta.
+  const pessoasOrdenadas = [...pessoas].sort((a, b) => {
+    const ca = a.codigoAssessorBtg ? cadenciaPorAssessor.get(a.codigoAssessorBtg) : undefined;
+    const cb = b.codigoAssessorBtg ? cadenciaPorAssessor.get(b.codigoAssessorBtg) : undefined;
+    return (cb?.risco ?? 0) - (ca?.risco ?? 0) || (cb?.atencao ?? 0) - (ca?.atencao ?? 0);
+  });
+  const ordenadoPorRisco = pessoasOrdenadas.some((p) => {
+    const c = p.codigoAssessorBtg ? cadenciaPorAssessor.get(p.codigoAssessorBtg) : undefined;
+    return (c?.risco ?? 0) > 0 || (c?.atencao ?? 0) > 0;
+  });
 
   const filialNomeById = Object.fromEntries(filiais.map((f) => [f.id, f.nome]));
   const departamentoNomeById = Object.fromEntries(
@@ -192,8 +208,17 @@ export default async function TimePage({
             )}
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {pessoas.map((p) => {
+          <>
+            {/* A ordem muda sozinha quando há carteira fora do teto. Sem esta
+                linha, "por que o Fulano subiu?" não tem resposta na tela. */}
+            {ordenadoPorRisco && (
+              <p className="text-xs text-muted-foreground -mb-2">
+                Ordenado por risco de cadência — carteiras com cliente fora do teto de
+                reunião primeiro.
+              </p>
+            )}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {pessoasOrdenadas.map((p) => {
               const isArquivado = p.status === "arquivado";
               const cadencia = p.codigoAssessorBtg
                 ? cadenciaPorAssessor.get(p.codigoAssessorBtg)
@@ -267,7 +292,7 @@ export default async function TimePage({
                                 : `carteira em dia (${cadencia.clientes})`}
                           </span>
                         )}
-                        {!isEmailCorporativo(p.email) && !isArquivado && (
+                        {p.emailPessoal && !isArquivado && (
                           // E-mail pessoal como identidade: não é revogado
                           // quando a pessoa sai, e é ele que dá o login. Marcar
                           // na LISTAGEM porque é uma pendência de saneamento —
@@ -280,7 +305,7 @@ export default async function TimePage({
                             e-mail pessoal
                           </span>
                         )}
-                        {!p.telefone && !isArquivado && (
+                        {p.semTelefone && !isArquivado && (
                           // Sem telefone = não recebe alerta de carteira no
                           // WhatsApp. Marcar na LISTAGEM porque descobrir isso
                           // abrindo ficha por ficha só acontece depois que um
@@ -303,7 +328,8 @@ export default async function TimePage({
                 </Link>
               );
             })}
-          </div>
+            </div>
+          </>
         )}
       </div>
     </div>

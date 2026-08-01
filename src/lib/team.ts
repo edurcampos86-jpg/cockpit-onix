@@ -2,6 +2,7 @@ import "server-only";
 import { prisma } from "./prisma";
 import { chaveCpf, formatarCpf } from "./backoffice/cpf";
 import { riscoEvasaoReuniao } from "./cadencia-core";
+import { isEmailCorporativo } from "./dominios-corporativos";
 
 /* ──────────────────────────────────────────────────────────────────────────
    CONSTANTES — espelham os "enums via string" do schema.prisma (Pessoa).
@@ -114,7 +115,7 @@ export async function listPessoas(filters: ListPessoasFilters = {}) {
   // cola no formato pontuado — que é o formato sugerido pelo próprio
   // placeholder do formulário. Normalizar a BUSCA fecha o par.
   const cpfBusca = chaveCpf(filters.busca);
-  return prisma.pessoa.findMany({
+  const linhas = await prisma.pessoa.findMany({
     where: {
       ...(status !== "todos" ? { status } : {}),
       ...(filters.filialId ? { filialId: filters.filialId } : {}),
@@ -132,14 +133,42 @@ export async function listPessoas(filters: ListPessoasFilters = {}) {
           }
         : {}),
     },
-    include: {
-      filial: { select: { id: true, nome: true } },
-      departamento: { select: { id: true, nome: true } },
-      equipe: { select: { id: true, nome: true } },
-      lideradoPor: { select: { id: true, nomeCompleto: true, apelido: true } },
+    // `select`, não `include`: com include o Prisma traz TODOS os escalares da
+    // Pessoa, e este resultado atravessa a fronteira server→client como payload
+    // RSC. Ia junto o CPF de todo mundo, data de nascimento e `observacoes` —
+    // que o próprio formulário rotula "admin only" (pessoa-form.tsx) — para uma
+    // tela que mostra 6 campos.
+    //
+    // Ao adicionar campo aqui, o critério é: a LISTAGEM desenha isso? Se é só
+    // para a ficha, o lugar é getPessoa.
+    select: {
+      id: true,
+      nomeCompleto: true,
+      apelido: true,
+      fotoUrl: true,
+      status: true,
+      cargoFamilia: true,
+      cargoTitulo: true,
+      teamRole: true,
+      filialId: true,
+      departamentoId: true,
+      codigoAssessorBtg: true, // chave da régua de cadência por assessor
+      // email e telefone entram só para virar os dois booleanos abaixo — não
+      // saem daqui em texto.
+      email: true,
+      telefone: true,
     },
     orderBy: [{ status: "asc" }, { nomeCompleto: "asc" }],
   });
+
+  // A listagem desenha DOIS BADGES derivados de e-mail e telefone, nunca os
+  // valores. Trocar por booleano aqui tira 20 e-mails e 20 telefones do payload
+  // que vai para o browser, sem mudar um pixel da tela.
+  return linhas.map(({ email, telefone, ...p }) => ({
+    ...p,
+    semTelefone: !telefone,
+    emailPessoal: !isEmailCorporativo(email),
+  }));
 }
 
 export async function getPessoa(id: string) {
