@@ -1,4 +1,5 @@
 import { CARGO_FAMILIAS, TEAM_ROLES } from "@/lib/team";
+import { TelefoneField } from "./telefone-field";
 
 type PessoaInput = {
   id?: string;
@@ -55,7 +56,9 @@ export function PessoaForm({
         <Field label="Apelido" name="apelido" defaultValue={pessoa?.apelido ?? ""} />
         <Field label="CPF *" name="cpf" defaultValue={pessoa?.cpf ?? ""} placeholder="000.000.000-00" required />
         <Field label="Email *" name="email" type="email" defaultValue={pessoa?.email ?? ""} required />
-        <Field label="Telefone" name="telefone" defaultValue={pessoa?.telefone ?? ""} placeholder="(71) 99999-9999" />
+        {/* Único campo com JS: precisa de máscara ao digitar, e é o que
+            alimenta o alerta de risco de evasão no WhatsApp. */}
+        <TelefoneField defaultValue={pessoa?.telefone} />
         <Field label="Data de nascimento" name="dataNascimento" type="date" defaultValue={isoDate(pessoa?.dataNascimento)} />
         <Field label="Cidade" name="cidade" defaultValue={pessoa?.cidade ?? ""} />
       </Section>

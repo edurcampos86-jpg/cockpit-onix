@@ -228,6 +228,18 @@ export default async function TimePage({
                             {labelTeamRole(p.teamRole)}
                           </span>
                         )}
+                        {!p.telefone && !isArquivado && (
+                          // Sem telefone = não recebe alerta de carteira no
+                          // WhatsApp. Marcar na LISTAGEM porque descobrir isso
+                          // abrindo ficha por ficha só acontece depois que um
+                          // alerta já se perdeu.
+                          <span
+                            className="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-400 font-medium"
+                            title="Sem telefone cadastrado — não recebe alertas no WhatsApp"
+                          >
+                            sem telefone
+                          </span>
+                        )}
                         {isArquivado && (
                           <span className="px-1.5 py-0.5 rounded bg-destructive/15 text-destructive font-medium">
                             Arquivado
