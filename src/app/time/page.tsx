@@ -13,6 +13,7 @@ import {
   pessoaIniciais,
   type PessoaStatusValue,
 } from "@/lib/team";
+import { isEmailCorporativo } from "@/lib/dominios-corporativos";
 import { cn } from "@/lib/utils";
 
 export const metadata = {
@@ -226,6 +227,19 @@ export default async function TimePage({
                         {p.teamRole !== "colaborador" && (
                           <span className="px-1.5 py-0.5 rounded bg-primary/15 text-primary font-medium">
                             {labelTeamRole(p.teamRole)}
+                          </span>
+                        )}
+                        {!isEmailCorporativo(p.email) && !isArquivado && (
+                          // E-mail pessoal como identidade: não é revogado
+                          // quando a pessoa sai, e é ele que dá o login. Marcar
+                          // na LISTAGEM porque é uma pendência de saneamento —
+                          // ninguém abre 20 fichas para descobrir quem está
+                          // assim.
+                          <span
+                            className="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-400 font-medium"
+                            title="E-mail pessoal — não é revogado na saída e não casa com os relatórios do BTG"
+                          >
+                            e-mail pessoal
                           </span>
                         )}
                         {!p.telefone && !isArquivado && (
