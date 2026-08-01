@@ -188,14 +188,21 @@ jobs:
             case "$HTTP_CODE" in
               200)
                 ;;
-              404|405|501)
-                # Falha ESTRUTURAL: o path não existe (ou não aceita GET).
-                # Isso nunca é blip de rede — é o cron.yml apontando para uma
-                # rota que não está no ar, e só um commit conserta. Precisa ser
-                # barulhento: foi exatamente este silêncio que deixou
-                # auto-encerrar, triar-emails e boot-do-dia devolvendo 404 a
-                # cada tick por 3 meses sem ninguém perceber.
-                echo "::error::$path retornou HTTP $HTTP_CODE — rota inexistente ou método errado. Falha estrutural: corrigir o path no cron.yml ou restaurar a rota."
+              401|403|404|405|501)
+                # Falha ESTRUTURAL: o path não existe, não aceita GET, ou a
+                # autenticação está mal configurada. Nada disso é blip de rede
+                # — nenhum se conserta sozinho no próximo tick, todos exigem um
+                # commit ou uma variável de ambiente. Precisa ser barulhento:
+                # foi exatamente este silêncio que deixou auto-encerrar,
+                # triar-emails e boot-do-dia devolvendo 404 a cada tick por
+                # semanas sem ninguém perceber.
+                #
+                # 401/403 entraram junto com a guarda de cron passando a falhar
+                # FECHADA: se CRON_SECRET sumir do Railway, ou divergir do
+                # secret do GitHub, as 19 rotas passam a recusar. Sem isso aqui,
+                # essa recusa apareceria como `::warning::` e o job seguiria
+                # verde — trocaríamos um silêncio por outro.
+                echo "::error::$path retornou HTTP $HTTP_CODE — falha estrutural. 404/405: path errado ou rota fora do ar. 401/403: CRON_SECRET ausente no Railway ou divergente do secret do GitHub."
                 HARD=$((HARD+1))
                 ;;
               *)
