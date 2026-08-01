@@ -38,6 +38,20 @@ function digits(v: string): string {
   return v.replace(/\D/g, "");
 }
 
+/**
+ * Código do assessor no BTG: só dígitos, ou null.
+ *
+ * NULL e "" são a mesma coisa aqui — quem não atende no BTG deixa o campo em
+ * branco, e string vazia numa coluna UNIQUE só pode existir uma vez no banco.
+ * Zeros à esquerda caem porque a Base BTG exporta o código sem padding (16
+ * assessores, de "64141" a "56890203"), ao contrário de numeroConta.
+ */
+function codigoAssessorOrNull(v: FormDataEntryValue | null): string | null {
+  const d = digits(s(v));
+  if (!d) return null;
+  return d.replace(/^0+/, "") || null;
+}
+
 function isCargo(v: string): v is CargoFamiliaValue {
   return CARGO_FAMILIAS.some((c) => c.value === v);
 }
@@ -83,14 +97,24 @@ export async function createPessoa(formData: FormData): Promise<TimeActionResult
   if (!isTeamRole(teamRoleRaw)) return { ok: false, error: "Nível de acesso inválido" };
 
   const cpf = digits(cpfRaw);
+  const codigoAssessorBtg = codigoAssessorOrNull(formData.get("codigoAssessorBtg"));
 
-  // Unicidade
+  // Unicidade. O código do assessor entra no mesmo OR: é UNIQUE no banco e um
+  // choque ali estouraria como erro cru do Prisma, sem dizer qual campo.
   const existing = await prisma.pessoa.findFirst({
-    where: { OR: [{ cpf }, { email }] },
-    select: { id: true, cpf: true, email: true },
+    where: {
+      OR: [{ cpf }, { email }, ...(codigoAssessorBtg ? [{ codigoAssessorBtg }] : [])],
+    },
+    select: { id: true, cpf: true, email: true, codigoAssessorBtg: true, nomeCompleto: true },
   });
   if (existing) {
     if (existing.cpf === cpf) return { ok: false, error: "Já existe pessoa com esse CPF" };
+    if (codigoAssessorBtg && existing.codigoAssessorBtg === codigoAssessorBtg) {
+      return {
+        ok: false,
+        error: `Código de assessor ${codigoAssessorBtg} já é de ${existing.nomeCompleto}`,
+      };
+    }
     return { ok: false, error: "Já existe pessoa com esse email" };
   }
 
@@ -106,6 +130,7 @@ export async function createPessoa(formData: FormData): Promise<TimeActionResult
       dataEntrada: dateOrNull(formData.get("dataEntrada")) ?? new Date(),
       cargoFamilia,
       cargoTitulo: sOrNull(formData.get("cargoTitulo")),
+      codigoAssessorBtg,
       teamRole: teamRoleRaw,
       filialId,
       departamentoId,
@@ -167,16 +192,30 @@ export async function updatePessoa(formData: FormData): Promise<TimeActionResult
     return { ok: false, error: "CPF inválido — dígitos verificadores não conferem" };
   }
 
-  // Unicidade ignorando o próprio
+  const codigoAssessorBtg = codigoAssessorOrNull(formData.get("codigoAssessorBtg"));
+
+  // Unicidade ignorando o próprio. O código do assessor entra no mesmo OR:
+  // é UNIQUE no banco e um choque ali estouraria como erro cru do Prisma, sem
+  // dizer qual campo. Dois assessores nunca dividem código no BTG.
   const conflict = await prisma.pessoa.findFirst({
     where: {
-      OR: [{ cpf }, { email }],
+      OR: [
+        { cpf },
+        { email },
+        ...(codigoAssessorBtg ? [{ codigoAssessorBtg }] : []),
+      ],
       NOT: { id },
     },
-    select: { id: true, cpf: true, email: true },
+    select: { id: true, cpf: true, email: true, codigoAssessorBtg: true, nomeCompleto: true },
   });
   if (conflict) {
     if (conflict.cpf === cpf) return { ok: false, error: "Já existe pessoa com esse CPF" };
+    if (codigoAssessorBtg && conflict.codigoAssessorBtg === codigoAssessorBtg) {
+      return {
+        ok: false,
+        error: `Código de assessor ${codigoAssessorBtg} já é de ${conflict.nomeCompleto}`,
+      };
+    }
     return { ok: false, error: "Já existe pessoa com esse email" };
   }
 
@@ -193,6 +232,7 @@ export async function updatePessoa(formData: FormData): Promise<TimeActionResult
       dataEntrada: dateOrNull(formData.get("dataEntrada")) ?? new Date(),
       cargoFamilia,
       cargoTitulo: sOrNull(formData.get("cargoTitulo")),
+      codigoAssessorBtg,
       teamRole: teamRoleRaw,
       filialId,
       departamentoId,

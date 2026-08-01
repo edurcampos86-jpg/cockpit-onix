@@ -16,6 +16,7 @@ type PessoaInput = {
   cargoFamilia?: string;
   cargoTitulo?: string | null;
   teamRole?: string;
+  codigoAssessorBtg?: string | null;
   filialId?: string;
   departamentoId?: string;
   equipeId?: string | null;
@@ -85,6 +86,17 @@ export function PessoaForm({
           required
           defaultValue={pessoa?.teamRole ?? "colaborador"}
           options={TEAM_ROLES.map((c) => ({ value: c.value, label: c.label }))}
+        />
+
+        {/* Opcional: só quem atende cliente no BTG tem esse código.
+            Imobiliária, corretora e administrativo deixam em branco. */}
+        <Field
+          label="Código do assessor (BTG)"
+          name="codigoAssessorBtg"
+          defaultValue={pessoa?.codigoAssessorBtg ?? ""}
+          placeholder="Ex.: 2108333 — em branco se não atende no BTG"
+          hint="Liga a ficha à carteira: nº de clientes, PL e quem está sem reunião marcada."
+          colSpan={2}
         />
       </Section>
 
@@ -171,6 +183,7 @@ function Field({
   placeholder,
   required,
   colSpan,
+  hint,
 }: {
   label: string;
   name: string;
@@ -179,6 +192,7 @@ function Field({
   placeholder?: string;
   required?: boolean;
   colSpan?: 1 | 2;
+  hint?: string;
 }) {
   return (
     <div className={colSpan === 2 ? "md:col-span-2" : undefined}>
@@ -194,6 +208,7 @@ function Field({
         required={required}
         className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
       />
+      {hint && <span className="mt-1 block text-[11px] text-muted-foreground">{hint}</span>}
     </div>
   );
 }
