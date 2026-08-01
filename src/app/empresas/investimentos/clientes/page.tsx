@@ -71,6 +71,8 @@ export default async function ClientesPage() {
     ultimaReuniaoConfirmadaManualmente: boolean;
     proximaReuniaoSource: string | null;
     proximaReuniaoConfirmadaManualmente: boolean;
+    // Teto de reunião só deste cliente; null = régua da classe.
+    cadenciaReuniaoDiasOverride: number | null;
     proximoContatoAt: Date | null;
     receitaAnual: number;
     feeFixo: boolean;
@@ -133,6 +135,7 @@ export default async function ClientesPage() {
       ultimaReuniaoConfirmadaManualmente: c.ultimaReuniaoConfirmadaManualmente,
       proximaReuniaoSource: c.proximaReuniaoSource,
       proximaReuniaoConfirmadaManualmente: c.proximaReuniaoConfirmadaManualmente,
+      cadenciaReuniaoDiasOverride: c.cadenciaReuniaoDiasOverride,
       proximoContatoAt: c.proximoContatoAt,
       receitaAnual: c.receitaAnual,
       feeFixo: c.feeFixo,

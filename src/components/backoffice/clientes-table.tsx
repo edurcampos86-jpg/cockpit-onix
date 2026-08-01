@@ -28,7 +28,7 @@ import {
   Phone,
   BadgeDollarSign,
 } from "lucide-react";
-import { statusTermometro } from "@/lib/cadencia-core";
+import { riscoEvasaoReuniao, statusTermometro } from "@/lib/cadencia-core";
 import {
   selarPresenca,
   type SeloPresenca,
@@ -250,6 +250,8 @@ interface Cliente {
   ultimaReuniaoConfirmadaManualmente?: boolean | null;
   proximaReuniaoSource?: string | null;
   proximaReuniaoConfirmadaManualmente?: boolean | null;
+  // Teto de dias entre reuniões só deste cliente; null = régua da classe.
+  cadenciaReuniaoDiasOverride?: number | null;
   proximoContatoAt: Date | string | null;
   receitaAnual: number;
   feeFixo: boolean;
@@ -415,6 +417,8 @@ export function ClientesTable({
   const [filtroAssessor, setFiltroAssessor] = useState<string>("todos");
   const [foraCadencia, setForaCadencia] = useState(false);
   const [semProximaReuniao, setSemProximaReuniao] = useState(false);
+  // Risco de evasão: sem reunião agendada dentro do teto da classe.
+  const [riscoEvasao, setRiscoEvasao] = useState(false);
   const [saldoParado, setSaldoParado] = useState(false);
   const [soFeeFixo, setSoFeeFixo] = useState(false);
   const [filtrosExpandidos, setFiltrosExpandidos] = useState(false);
@@ -537,11 +541,18 @@ export function ClientesTable({
         return false;
       if (foraCadencia && statusCadencia(c) === "ok") return false;
       if (semProximaReuniao && c.proximaReuniaoAt) return false;
+      if (riscoEvasao) {
+        const r = riscoEvasaoReuniao(
+          c.classificacao, c.ultimaReuniaoAt, c.proximaReuniaoAt,
+          c.cadenciaReuniaoDiasOverride,
+        );
+        if (r.status !== "risco") return false;
+      }
       if (saldoParado && c.saldoConta < SALDO_PARADO_LIMITE) return false;
       if (soFeeFixo && !c.feeFixo) return false;
       return true;
     });
-  }, [clientes, busca, filtroClasse, filtroSaldoConta, filtroAssessor, foraCadencia, semProximaReuniao, saldoParado, soFeeFixo]);
+  }, [clientes, busca, filtroClasse, filtroSaldoConta, filtroAssessor, foraCadencia, semProximaReuniao, riscoEvasao, saldoParado, soFeeFixo]);
 
   // Ordenação
   const ordenados = useMemo(() => {
@@ -854,6 +865,7 @@ export function ClientesTable({
     filtroAssessor !== "todos" ||
     foraCadencia ||
     semProximaReuniao ||
+    riscoEvasao ||
     saldoParado ||
     soFeeFixo ||
     !!busca;
@@ -1210,6 +1222,16 @@ export function ClientesTable({
             <label className="flex items-center gap-2 text-sm cursor-pointer">
               <input
                 type="checkbox"
+                checked={riscoEvasao}
+                onChange={(e) => setRiscoEvasao(e.target.checked)}
+                className="rounded"
+              />
+              <AlertTriangle className="h-4 w-4 text-red-600" />
+              Risco de evasão (reunião vencida)
+            </label>
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
                 checked={saldoParado}
                 onChange={(e) => setSaldoParado(e.target.checked)}
                 className="rounded"
@@ -1353,6 +1375,14 @@ export function ClientesTable({
             <tbody className="divide-y divide-border">
               {ordenados.map((c) => {
                 const cadencia = statusCadencia(c);
+                // Eixo de REUNIÃO — independente do termômetro de contato
+                // abaixo. Cliente pode estar verde no contato e em risco aqui.
+                const risco = riscoEvasaoReuniao(
+                  c.classificacao,
+                  c.ultimaReuniaoAt,
+                  c.proximaReuniaoAt,
+                  c.cadenciaReuniaoDiasOverride,
+                );
                 // `term` é mantido: ainda alimenta o tooltip de recência (dias/cadência/%).
                 const term = statusTermometro(c.classificacao, c.ultimoContatoAt);
                 // Funde a recência com o sinal direcional `c.estado`. Flag OFF →
@@ -1594,9 +1624,50 @@ export function ClientesTable({
                             source={c.proximaReuniaoSource}
                             manual={c.proximaReuniaoConfirmadaManualmente}
                           />
+                          {risco.status === "atencao" &&
+                            risco.motivo === "agendada-fora-do-teto" && (
+                              // Tem reunião marcada, mas depois do teto — o
+                              // ciclo estoura. Sem isto, a data verde esconderia
+                              // o atraso.
+                              <AlertTriangle
+                                className="ml-1 h-3.5 w-3.5 text-amber-600"
+                                aria-label="Agendada fora do teto"
+                              />
+                            )}
                         </span>
                       ) : (
-                        <span className="text-muted-foreground">—</span>
+                        // Sem reunião agendada: em vez de um traço mudo, mostra o
+                        // estado da régua de REUNIÃO. É aqui que a falha grave
+                        // aparece — nada marcado e o teto da classe já vencido.
+                        <span
+                          className={
+                            risco.status === "risco"
+                              ? "inline-flex items-center gap-1 font-semibold text-red-700 dark:text-red-400"
+                              : risco.status === "atencao"
+                                ? "inline-flex items-center gap-1 text-amber-700 dark:text-amber-400"
+                                : "text-muted-foreground"
+                          }
+                          title={
+                            (risco.status === "risco"
+                              ? `Sem reunião agendada — teto de ${risco.cadencia} dias venceu há ${Math.abs(risco.diasAteLimite)} dia(s)`
+                              : `Sem reunião agendada — teto de ${risco.cadencia} dias vence em ${risco.diasAteLimite} dia(s)`) +
+                            (risco.override ? " (teto manual deste cliente)" : "")
+                          }
+                        >
+                          {risco.status === "risco" ? (
+                            <>
+                              <AlertTriangle className="h-3.5 w-3.5" />
+                              {Math.abs(risco.diasAteLimite)}d vencida
+                            </>
+                          ) : risco.status === "atencao" ? (
+                            <>
+                              <CalendarClock className="h-3.5 w-3.5" />
+                              vence em {risco.diasAteLimite}d
+                            </>
+                          ) : (
+                            "—"
+                          )}
+                        </span>
                       )}
                     </td>
 

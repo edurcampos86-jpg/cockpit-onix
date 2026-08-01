@@ -627,6 +627,16 @@ model ClienteBackoffice {
   ultimaReuniaoConfirmadaManualmente  Boolean @default(false)
   proximaReuniaoSource                String?
   proximaReuniaoConfirmadaManualmente Boolean @default(false)
+
+  // Teto de dias entre REUNIÕES para este cliente, sobrepondo a régua da
+  // classe (A=90, B=120, C=180 em cadencia-core.ts). NULL = usa a régua.
+  //
+  // Existe porque as réguas vêm de teoria e cliente real tem exceção: quem
+  // pediu contato trimestral, quem só aceita reunião anual, quem está em
+  // transição patrimonial e precisa de mais frequência. Sem isso, a única
+  // saída seria reclassificar o cliente — o que estragaria a classificação,
+  // que serve a outros propósitos.
+  cadenciaReuniaoDiasOverride Int?
   proximoContatoAt    DateTime? // próximo contato planejado (qualquer canal)
   ultimaSyncDatacrazy DateTime? // quando rodou último sync de contatos (Datacrazy + Plaud)
 
