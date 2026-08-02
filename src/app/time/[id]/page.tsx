@@ -25,6 +25,7 @@ import {
   pessoaIniciais,
   formatCpf,
   getCarteiraBtg,
+  deveTerCodigoBtg,
 } from "@/lib/team";
 import { cn } from "@/lib/utils";
 import { formatBRL } from "@/lib/painel-utils";
@@ -159,14 +160,44 @@ export default async function PessoaPage({
         </Section>
 
         {/* ── Carteira BTG ──
-            Só aparece para quem TEM código de assessor: imobiliária, corretora
-            e administrativo não têm vínculo com o BTG e a seção sumiria vazia.
+            Aparece para quem TEM código ou para quem DEVERIA ter (sócio e
+            assessor de investimentos). Imobiliária, corretora, qualidade e
+            administrativo não têm vínculo com o BTG: para elas a seção não
+            existe, porque ausência de código ali é o estado certo, não
+            pendência.
             Gated por canManage pelo mesmo motivo do CPF acima — é dado
             financeiro de carteira alheia. */}
-        {canManage && pessoa.codigoAssessorBtg && (
+        {canManage && (pessoa.codigoAssessorBtg || deveTerCodigoBtg(pessoa.cargoFamilia)) && (
           <Section title="Carteira BTG" icon={Wallet}>
-            <Row label="Código do assessor" value={pessoa.codigoAssessorBtg} />
-            {carteira ? (
+            {!pessoa.codigoAssessorBtg ? (
+              // Sem código, TUDO nesta seção fica indisponível — e o motivo
+              // precisa estar na tela. Uma seção vazia faria parecer carteira
+              // zerada, que é diagnóstico oposto: aqui não se sabe.
+              <div className="md:col-span-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+                <div className="text-xs font-semibold text-amber-700 dark:text-amber-400">
+                  Sem código BTG vinculado
+                </div>
+                <p className="mt-1 text-[11px] text-amber-700/90 dark:text-amber-400/90">
+                  Clientes, PL sob gestão, ticket médio e a régua de reunião desta
+                  pessoa não podem ser calculados — todos dependem do código do
+                  assessor para casar com a base do BTG. Não é carteira vazia: é
+                  carteira desconhecida.
+                </p>
+                {canManage && (
+                  <Link
+                    href={`/time/${pessoa.id}/editar`}
+                    className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-amber-800 dark:text-amber-300 hover:underline"
+                  >
+                    <Pencil className="h-3 w-3" />
+                    Preencher em Cargo &amp; vínculo Onix
+                  </Link>
+                )}
+              </div>
+            ) : null}
+            {pessoa.codigoAssessorBtg && (
+              <Row label="Código do assessor" value={pessoa.codigoAssessorBtg} />
+            )}
+            {pessoa.codigoAssessorBtg && carteira ? (
               <>
                 <Row label="Clientes" value={String(carteira.clientes)} />
                 <Row label="PL sob gestão" value={formatBRL(carteira.pl)} />
@@ -184,14 +215,14 @@ export default async function PessoaPage({
                   }
                 />
               </>
-            ) : (
+            ) : pessoa.codigoAssessorBtg ? (
               // Código preenchido e zero clientes é sinal, não vazio: ou o
               // código está errado, ou a Base BTG ainda não foi importada.
               <Row
                 label="Clientes"
                 value="Nenhum cliente com esse código — confira o número ou reimporte a Base BTG"
               />
-            )}
+            ) : null}
           </Section>
         )}
 

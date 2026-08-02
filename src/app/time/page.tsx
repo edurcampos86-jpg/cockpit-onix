@@ -9,6 +9,7 @@ import {
   listDepartamentos,
   getTimeStats,
   getCadenciaReuniaoPorAssessor,
+  deveTerCodigoBtg,
   labelCargo,
   labelTeamRole,
   pessoaIniciais,
@@ -292,6 +293,21 @@ export default async function TimePage({
                                 : `carteira em dia (${cadencia.clientes})`}
                           </span>
                         )}
+                        {!p.codigoAssessorBtg &&
+                          deveTerCodigoBtg(p.cargoFamilia) &&
+                          !isArquivado && (
+                            // Sem código não há carteira nem régua de reunião
+                            // para esta pessoa — os dois badges acima
+                            // simplesmente não aparecem. Sem este aviso, a
+                            // ausência deles é indistinguível de "carteira em
+                            // dia".
+                            <span
+                              className="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-400 font-medium"
+                              title="Sem código de assessor BTG — carteira e régua de reunião não podem ser calculadas"
+                            >
+                              sem código BTG
+                            </span>
+                          )}
                         {p.emailPessoal && !isArquivado && (
                           // E-mail pessoal como identidade: não é revogado
                           // quando a pessoa sai, e é ele que dá o login. Marcar
