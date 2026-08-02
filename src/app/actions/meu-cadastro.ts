@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getAuthContext } from "@/lib/auth-helpers";
+import { uploadContrato } from "@/lib/b2/upload";
+import { chaveFotoPessoa } from "@/lib/time-foto";
 
 /**
  * Self-service do próprio cadastro — o ÚNICO caminho de escrita do /time aberto
@@ -23,6 +25,9 @@ import { getAuthContext } from "@/lib/auth-helpers";
  *    editar a ficha de outra pessoa, nem por engano nem de propósito.
  *  - Sem apagar. Limpar o telefone desliga o alerta de alguém em silêncio; para
  *    isso, admin. Aqui só se troca por outro número válido.
+ *
+ * A foto entrou depois pela mesma porta e com os mesmos limites: é o outro dado
+ * que só a própria pessoa tem à mão, e não define acesso nem identidade.
  */
 
 export type MeuCadastroResult = { ok: true } | { ok: false; error: string };
@@ -60,6 +65,66 @@ export async function atualizarMeuTelefone(
     // portas de escrita não podem produzir formatos diferentes. A normalização
     // para a Z-API acontece no envio (integrations/telefone.ts).
     data: { telefone: bruto },
+  });
+
+  revalidatePath("/time");
+  revalidatePath(`/time/${ctx.pessoa.id}`);
+  return { ok: true };
+}
+
+
+/* ──────────────────────────────────────────────────────────────────────────
+   FOTO
+   ────────────────────────────────────────────────────────────────────────── */
+
+const TIPOS_IMAGEM = ["image/jpeg", "image/png", "image/webp"];
+const MAX_BYTES = 2 * 1024 * 1024; // 2 MB
+
+/**
+ * Troca a foto da PRÓPRIA ficha.
+ *
+ * Mesmas três travas do telefone: um campo, a própria pessoa (id da sessão,
+ * nunca do formulário) e sem apagar.
+ *
+ * A chave no B2 é DERIVADA do id da pessoa (ver ../../lib/time-foto), não
+ * sorteada e não vinda do cliente: assim não há como escrever por cima da foto
+ * de outra pessoa, e trocar a foto sobrescreve a anterior em vez de acumular
+ * lixo no bucket.
+ *
+ * `fotoUrl` guarda o caminho da rota que serve a imagem, com `?v=` para furar
+ * o cache do browser — sem isso, quem troca a foto continua vendo a antiga.
+ */
+export async function atualizarMinhaFoto(
+  formData: FormData,
+): Promise<MeuCadastroResult> {
+  const ctx = await getAuthContext();
+  if (!ctx.pessoa) {
+    return { ok: false, error: "Seu login não está vinculado a uma ficha do time" };
+  }
+
+  const arquivo = formData.get("foto");
+  if (!(arquivo instanceof File) || arquivo.size === 0) {
+    return { ok: false, error: "Escolha uma imagem" };
+  }
+  if (!TIPOS_IMAGEM.includes(arquivo.type)) {
+    return { ok: false, error: "Formato não aceito — use JPG, PNG ou WEBP" };
+  }
+  if (arquivo.size > MAX_BYTES) {
+    const mb = (arquivo.size / 1024 / 1024).toFixed(1);
+    return { ok: false, error: `Imagem de ${mb} MB — o limite é 2 MB` };
+  }
+
+  const body = Buffer.from(await arquivo.arrayBuffer());
+  await uploadContrato({
+    key: chaveFotoPessoa(ctx.pessoa.id),
+    body,
+    contentType: arquivo.type,
+    metadata: { pessoaId: ctx.pessoa.id },
+  });
+
+  await prisma.pessoa.update({
+    where: { id: ctx.pessoa.id },
+    data: { fotoUrl: `/api/time/${ctx.pessoa.id}/foto?v=${Date.now()}` },
   });
 
   revalidatePath("/time");

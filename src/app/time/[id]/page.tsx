@@ -37,7 +37,7 @@ import { PatSection } from "../_components/pat-section";
 import { ReunioesSection } from "../_components/reunioes-section";
 import { AlertasBanner } from "../_components/alertas-banner";
 import { CompatibilidadeSection } from "../_components/compatibilidade-section";
-import { MeuTelefoneForm } from "../_components/meu-telefone-form";
+import { MeuTelefoneForm, MinhaFotoForm } from "../_components/meu-telefone-form";
 
 export const metadata = {
   title: "Ficha — Time — Cockpit Onix",
@@ -171,6 +171,7 @@ export default async function PessoaPage({
               do admin. É o que viabiliza "cada um preenche o seu" — 17 das 19
               pessoas ativas estão sem número. */}
           {ehMinhaFicha && <MeuTelefoneForm defaultValue={pessoa.telefone} />}
+          {ehMinhaFicha && <MinhaFotoForm temFoto={!!pessoa.fotoUrl} />}
         </Section>
 
         {/* ── Carteira BTG ──
