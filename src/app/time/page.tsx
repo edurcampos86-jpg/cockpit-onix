@@ -1,7 +1,15 @@
 import Link from "next/link";
 import { PageHeader } from "@/components/layout/page-header";
 import { ComoFunciona } from "@/components/layout/como-funciona";
-import { Plus, Search, Users, Building2, Briefcase, Archive } from "lucide-react";
+import {
+  Plus,
+  Search,
+  Users,
+  Building2,
+  Briefcase,
+  Archive,
+  AlertTriangle,
+} from "lucide-react";
 import { getAuthContext, canManageTeam } from "@/lib/auth-helpers";
 import {
   listPessoas,
@@ -9,7 +17,9 @@ import {
   listDepartamentos,
   getTimeStats,
   getCadenciaReuniaoPorAssessor,
-  deveTerCodigoBtg,
+  contarPendenciasCadastro,
+  pendenciasDe,
+  temPendencia,
   labelCargo,
   labelTeamRole,
   pessoaIniciais,
@@ -27,6 +37,7 @@ type SearchParams = Promise<{
   filial?: string;
   departamento?: string;
   busca?: string;
+  pendencia?: string;
 }>;
 
 export default async function TimePage({
@@ -42,13 +53,20 @@ export default async function TimePage({
   const filialId = params.filial || undefined;
   const departamentoId = params.departamento || undefined;
   const busca = params.busca || undefined;
+  const soPendencia = params.pendencia === "1";
 
-  const [pessoas, filiais, departamentos, stats] = await Promise.all([
+  const [todasPessoas, filiais, departamentos, stats, totalPendencias] = await Promise.all([
     listPessoas({ status, filialId, departamentoId, busca }),
     listFiliais(),
     listDepartamentos(),
     getTimeStats(),
+    contarPendenciasCadastro(),
   ]);
+
+  // Filtro em memória: `emailPessoal` depende de casar domínio, o que não se
+  // expressa em SQL. Como a lista já vem recortada pelos outros filtros, o
+  // custo é percorrer dezenas de linhas.
+  const pessoas = soPendencia ? todasPessoas.filter((p) => temPendencia(p)) : todasPessoas;
 
   // Depende de `pessoas` (precisa dos códigos), por isso fora do Promise.all.
   // Uma query só para a listagem inteira — nunca uma por card.
@@ -122,12 +140,59 @@ export default async function TimePage({
             value={filiais.length}
             tone="muted"
           />
-          <StatCard
-            icon={Briefcase}
-            label="Departamentos"
-            value={departamentos.length}
-            tone="muted"
-          />
+          {canManage ? (
+            // Substitui "Departamentos" (número estático, que o Eduardo sabe de
+            // cor) por um indicador que MUDA e cobra ação. Só para quem pode
+            // editar — quem não pode não tem o que fazer com ele.
+            <Link
+              href={totalPendencias.total > 0 ? "/time?pendencia=1" : "/time"}
+              className="rounded-xl border border-border bg-card p-4 flex items-center gap-3 hover:border-primary/40 transition-colors"
+            >
+              <div
+                className={cn(
+                  "h-10 w-10 rounded-lg flex items-center justify-center shrink-0",
+                  totalPendencias.total > 0
+                    ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                    : "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                )}
+              >
+                <AlertTriangle className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-2xl font-bold text-foreground leading-none">
+                  {totalPendencias.total}
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  {totalPendencias.total === 1
+                    ? "Pendência de cadastro"
+                    : "Pendências de cadastro"}
+                </div>
+                {totalPendencias.total > 0 && (
+                  // A quebra é o que torna o número acionável: sem ela, "19 de
+                  // 19" não diz por onde começar.
+                  <div className="text-[10px] text-muted-foreground/80 mt-0.5 truncate">
+                    {[
+                      totalPendencias.semCodigoBtg > 0 &&
+                        `${totalPendencias.semCodigoBtg} sem código BTG`,
+                      totalPendencias.semTelefone > 0 &&
+                        `${totalPendencias.semTelefone} sem telefone`,
+                      totalPendencias.emailPessoal > 0 &&
+                        `${totalPendencias.emailPessoal} e-mail pessoal`,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </div>
+                )}
+              </div>
+            </Link>
+          ) : (
+            <StatCard
+              icon={Briefcase}
+              label="Departamentos"
+              value={departamentos.length}
+              tone="muted"
+            />
+          )}
         </div>
 
         {/* ── Filtros ── */}
@@ -189,6 +254,25 @@ export default async function TimePage({
           >
             Filtrar
           </button>
+
+          {canManage && (
+            // Os outros filtros recortam por ORGANOGRAMA; este recorta por
+            // TRABALHO A FAZER. Enquanto o saneamento do código BTG estiver
+            // aberto, é o único que interessa.
+            <label className="md:col-span-12 flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
+              <input
+                type="checkbox"
+                name="pendencia"
+                value="1"
+                defaultChecked={soPendencia}
+                className="h-4 w-4 rounded border-border accent-amber-500"
+              />
+              Só quem tem pendência de cadastro
+              <span className="text-xs">
+                (sem código BTG, sem telefone ou e-mail pessoal)
+              </span>
+            </label>
+          )}
         </form>
 
         {/* ── Listagem ── */}
@@ -221,6 +305,9 @@ export default async function TimePage({
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {pessoasOrdenadas.map((p) => {
               const isArquivado = p.status === "arquivado";
+              // Uma regra só para os três badges, o contador e o filtro — se
+              // divergirem, o número do topo deixa de bater com a lista.
+              const pend = pendenciasDe(p);
               const cadencia = p.codigoAssessorBtg
                 ? cadenciaPorAssessor.get(p.codigoAssessorBtg)
                 : undefined;
@@ -293,22 +380,20 @@ export default async function TimePage({
                                 : `carteira em dia (${cadencia.clientes})`}
                           </span>
                         )}
-                        {!p.codigoAssessorBtg &&
-                          deveTerCodigoBtg(p.cargoFamilia) &&
-                          !isArquivado && (
-                            // Sem código não há carteira nem régua de reunião
-                            // para esta pessoa — os dois badges acima
-                            // simplesmente não aparecem. Sem este aviso, a
-                            // ausência deles é indistinguível de "carteira em
-                            // dia".
-                            <span
-                              className="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-400 font-medium"
-                              title="Sem código de assessor BTG — carteira e régua de reunião não podem ser calculadas"
-                            >
-                              sem código BTG
-                            </span>
-                          )}
-                        {p.emailPessoal && !isArquivado && (
+                        {pend.semCodigoBtg && (
+                          // Sem código não há carteira nem régua de reunião
+                          // para esta pessoa — os dois badges acima
+                          // simplesmente não aparecem. Sem este aviso, a
+                          // ausência deles é indistinguível de "carteira em
+                          // dia".
+                          <span
+                            className="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-400 font-medium"
+                            title="Sem código de assessor BTG — carteira e régua de reunião não podem ser calculadas"
+                          >
+                            sem código BTG
+                          </span>
+                        )}
+                        {pend.emailPessoal && (
                           // E-mail pessoal como identidade: não é revogado
                           // quando a pessoa sai, e é ele que dá o login. Marcar
                           // na LISTAGEM porque é uma pendência de saneamento —
@@ -321,7 +406,7 @@ export default async function TimePage({
                             e-mail pessoal
                           </span>
                         )}
-                        {p.semTelefone && !isArquivado && (
+                        {pend.semTelefone && (
                           // Sem telefone = não recebe alerta de carteira no
                           // WhatsApp. Marcar na LISTAGEM porque descobrir isso
                           // abrindo ficha por ficha só acontece depois que um

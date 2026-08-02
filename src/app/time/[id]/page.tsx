@@ -195,7 +195,22 @@ export default async function PessoaPage({
               </div>
             ) : null}
             {pessoa.codigoAssessorBtg && (
-              <Row label="Código do assessor" value={pessoa.codigoAssessorBtg} />
+              <Row
+                label="Código do assessor"
+                value={pessoa.codigoAssessorBtg}
+                // Quem atribuiu esta carteira, e quando. Um código errado
+                // transfere 141 clientes para a pessoa errada sem nenhum outro
+                // sinal na tela.
+                aviso={
+                  pessoa.codigoAssessorBtgEditadoEm
+                    ? `Preenchido em ${new Date(pessoa.codigoAssessorBtgEditadoEm).toLocaleDateString("pt-BR")}${
+                        pessoa.codigoAssessorBtgEditadoPor === "seed"
+                          ? " pela Base BTG (seed)"
+                          : ""
+                      }`
+                    : undefined
+                }
+              />
             )}
             {pessoa.codigoAssessorBtg && carteira ? (
               <>

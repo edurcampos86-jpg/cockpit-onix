@@ -97,7 +97,17 @@ async function main() {
     }
 
     if (apply) {
-      await prisma.pessoa.update({ where: { id: p.id }, data: { codigoAssessorBtg: codigo } });
+      await prisma.pessoa.update({
+        where: { id: p.id },
+        data: {
+          codigoAssessorBtg: codigo,
+          // Autoria: "seed" distingue o que veio deste script do que alguém
+          // digitou na tela. Quando um código estiver errado, a primeira
+          // pergunta ("veio da Base BTG ou foi digitado?") tem resposta.
+          codigoAssessorBtgEditadoEm: new Date(),
+          codigoAssessorBtgEditadoPor: "seed",
+        },
+      });
     }
     console.log(`  ${apply ? "✓" : "→"} ${p.nomeCompleto} = ${codigo}`);
     ok++;
