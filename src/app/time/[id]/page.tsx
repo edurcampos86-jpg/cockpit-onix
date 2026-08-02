@@ -37,6 +37,7 @@ import { PatSection } from "../_components/pat-section";
 import { ReunioesSection } from "../_components/reunioes-section";
 import { AlertasBanner } from "../_components/alertas-banner";
 import { CompatibilidadeSection } from "../_components/compatibilidade-section";
+import { MeuTelefoneForm } from "../_components/meu-telefone-form";
 
 export const metadata = {
   title: "Ficha — Time — Cockpit Onix",
@@ -62,6 +63,8 @@ export default async function PessoaPage({
       : null;
 
   const isArquivado = pessoa.status === "arquivado";
+  // Só na PRÓPRIA ficha, e só enquanto a pessoa está ativa.
+  const ehMinhaFicha = ctx.pessoa?.id === pessoa.id && !isArquivado;
 
   return (
     <div className="min-h-screen">
@@ -145,7 +148,14 @@ export default async function PessoaPage({
                 : "Conta pessoal — não é revogada na saída"
             }
           />
-          <Row icon={Phone} label="Telefone" value={pessoa.telefone || "—"} />
+          {!ehMinhaFicha && (
+            <Row
+              icon={Phone}
+              label="Telefone"
+              value={pessoa.telefone || "—"}
+              aviso={pessoa.telefone ? undefined : "Sem telefone — não recebe alertas no WhatsApp"}
+            />
+          )}
           <Row icon={MapPin} label="Cidade" value={pessoa.cidade || "—"} />
           <Row
             icon={Cake}
@@ -157,6 +167,10 @@ export default async function PessoaPage({
             }
           />
           {canManage && <Row label="CPF" value={formatCpf(pessoa.cpf)} />}
+          {/* Self-service: o dono da ficha edita o próprio telefone sem depender
+              do admin. É o que viabiliza "cada um preenche o seu" — 17 das 19
+              pessoas ativas estão sem número. */}
+          {ehMinhaFicha && <MeuTelefoneForm defaultValue={pessoa.telefone} />}
         </Section>
 
         {/* ── Carteira BTG ──
