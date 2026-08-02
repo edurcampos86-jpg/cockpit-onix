@@ -1489,6 +1489,14 @@ model Pessoa {
   // eduardo.campos@ no BTG e eduardo.rodrigues@ no /time).
   codigoAssessorBtg String? @unique
 
+  // Rastro do preenchimento — mesmo padrão de cadenciaReuniaoEditadoEm/Por e
+  // feeFixoEditadoEm/Por. Este campo decide de QUEM é cada carteira e, por
+  // consequência, de quem é a cobrança de cadência: um código errado atribui
+  // 141 clientes à pessoa errada. Quando isso acontecer, "quem digitou?"
+  // precisa ter resposta. NULL = nunca preenchido.
+  codigoAssessorBtgEditadoEm  DateTime?
+  codigoAssessorBtgEditadoPor String? // userId de quem gravou (sessão atual) ou "seed"
+
   // Hierarquia organizacional
   filialId       String
   filial         Filial       @relation(fields: [filialId], references: [id])

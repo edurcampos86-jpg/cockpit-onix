@@ -72,7 +72,7 @@ export type TimeActionResult =
    ────────────────────────────────────────────────────────────────────────── */
 
 export async function createPessoa(formData: FormData): Promise<TimeActionResult> {
-  await requireAdmin();
+  const ctx = await requireAdmin();
 
   const nomeCompleto = s(formData.get("nomeCompleto"));
   const cpfRaw = s(formData.get("cpf"));
@@ -141,6 +141,14 @@ export async function createPessoa(formData: FormData): Promise<TimeActionResult
       cargoFamilia,
       cargoTitulo: sOrNull(formData.get("cargoTitulo")),
       codigoAssessorBtg,
+      // Autoria só quando há código: NULL/NULL significa "nunca preenchido",
+      // e carimbar quem criou uma pessoa SEM código apagaria essa distinção.
+      ...(codigoAssessorBtg
+        ? {
+            codigoAssessorBtgEditadoEm: new Date(),
+            codigoAssessorBtgEditadoPor: ctx.userId,
+          }
+        : {}),
       teamRole: teamRoleRaw,
       filialId,
       departamentoId,
@@ -170,7 +178,7 @@ export async function createPessoaAndRedirect(formData: FormData): Promise<void>
    ────────────────────────────────────────────────────────────────────────── */
 
 export async function updatePessoa(formData: FormData): Promise<TimeActionResult> {
-  await requireAdmin();
+  const ctx = await requireAdmin();
 
   const id = s(formData.get("id"));
   if (!id) return { ok: false, error: "ID ausente" };
@@ -198,7 +206,7 @@ export async function updatePessoa(formData: FormData): Promise<TimeActionResult
   // de resolver o CPF antes); o que não passa é gravar um CPF novo inválido.
   const atual = await prisma.pessoa.findUnique({
     where: { id },
-    select: { cpf: true, email: true },
+    select: { cpf: true, email: true, codigoAssessorBtg: true },
   });
   if (!atual) return { ok: false, error: "Pessoa não encontrada" };
   if (cpf !== atual.cpf && !cpfValido(cpf)) {
@@ -256,6 +264,14 @@ export async function updatePessoa(formData: FormData): Promise<TimeActionResult
       cargoFamilia,
       cargoTitulo: sOrNull(formData.get("cargoTitulo")),
       codigoAssessorBtg,
+      // Autoria só quando há código: NULL/NULL significa "nunca preenchido",
+      // e carimbar quem criou uma pessoa SEM código apagaria essa distinção.
+      ...(codigoAssessorBtg
+        ? {
+            codigoAssessorBtgEditadoEm: new Date(),
+            codigoAssessorBtgEditadoPor: ctx.userId,
+          }
+        : {}),
       teamRole: teamRoleRaw,
       filialId,
       departamentoId,

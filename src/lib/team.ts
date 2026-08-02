@@ -267,6 +267,97 @@ export async function getTimeStats() {
 }
 
 /* ──────────────────────────────────────────────────────────────────────────
+   PENDÊNCIAS DE CADASTRO
+   ────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * As três pendências que a listagem já marca por card, num só lugar.
+ *
+ * Definidas aqui, e não na página, porque a MESMA regra decide três coisas: o
+ * badge no card, o contador do topo e o filtro. Duplicar a condição em três
+ * lugares é como elas passam a divergir.
+ *
+ * `arquivado` nunca é pendência: quem saiu não vai preencher telefone nem
+ * migrar e-mail. É o mesmo critério dos badges (todos checam !isArquivado).
+ */
+export type PendenciasCadastro = {
+  semCodigoBtg: boolean;
+  semTelefone: boolean;
+  emailPessoal: boolean;
+};
+
+export function pendenciasDe(p: {
+  status: string;
+  cargoFamilia: string;
+  codigoAssessorBtg: string | null;
+  telefone?: string | null;
+  email?: string | null;
+  semTelefone?: boolean;
+  emailPessoal?: boolean;
+}): PendenciasCadastro {
+  if (p.status === "arquivado") {
+    return { semCodigoBtg: false, semTelefone: false, emailPessoal: false };
+  }
+  return {
+    semCodigoBtg: !p.codigoAssessorBtg && deveTerCodigoBtg(p.cargoFamilia),
+    // Aceita a linha já projetada por listPessoas (booleanos) ou a linha crua.
+    semTelefone: p.semTelefone ?? !p.telefone,
+    emailPessoal: p.emailPessoal ?? !isEmailCorporativo(p.email),
+  };
+}
+
+export function temPendencia(p: Parameters<typeof pendenciasDe>[0]): boolean {
+  const d = pendenciasDe(p);
+  return d.semCodigoBtg || d.semTelefone || d.emailPessoal;
+}
+
+export type ResumoPendencias = {
+  /** Pessoas ativas com AO MENOS uma pendência. */
+  total: number;
+  semCodigoBtg: number;
+  semTelefone: number;
+  emailPessoal: number;
+};
+
+/**
+ * Pendências das pessoas ATIVAS, com a quebra por tipo.
+ *
+ * A quebra não é enfeite: medindo contra os 20 do recover-team-data, o total
+ * deu 19 de 19 — porque 17 pessoas estão sem telefone. Um número só, nesse
+ * cenário, é honesto e inútil: não diz o que fazer primeiro. Com a quebra,
+ * "12 sem código BTG" salta e vira fila de trabalho.
+ *
+ * Independente dos filtros da tela de propósito: é indicador de saneamento
+ * ("andou desde ontem?"), não recorte do que está à vista. Um número que muda
+ * ao filtrar por filial não serve para acompanhar progresso.
+ *
+ * `emailPessoal` depende de casar domínio, o que não se expressa em SQL — daí
+ * a contagem em memória. São ~20 linhas de 5 colunas; se o time passar de
+ * algumas centenas, vira agregação com as duas condições SQL-áveis primeiro.
+ */
+export async function contarPendenciasCadastro(): Promise<ResumoPendencias> {
+  const ativos = await prisma.pessoa.findMany({
+    where: { status: "ativo" },
+    select: { status: true, cargoFamilia: true, codigoAssessorBtg: true, telefone: true, email: true },
+  });
+
+  const resumo: ResumoPendencias = {
+    total: 0,
+    semCodigoBtg: 0,
+    semTelefone: 0,
+    emailPessoal: 0,
+  };
+  for (const p of ativos) {
+    const d = pendenciasDe(p);
+    if (d.semCodigoBtg) resumo.semCodigoBtg++;
+    if (d.semTelefone) resumo.semTelefone++;
+    if (d.emailPessoal) resumo.emailPessoal++;
+    if (d.semCodigoBtg || d.semTelefone || d.emailPessoal) resumo.total++;
+  }
+  return resumo;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
    CARTEIRA BTG — leitura pelo código do assessor
    ────────────────────────────────────────────────────────────────────────── */
 
