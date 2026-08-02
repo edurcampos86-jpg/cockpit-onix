@@ -3,6 +3,7 @@ import { prisma } from "./prisma";
 import { chaveCpf, formatarCpf } from "./backoffice/cpf";
 import { riscoEvasaoReuniao } from "./cadencia-core";
 import { isEmailCorporativo } from "./dominios-corporativos";
+import { pendenciasDe } from "./pendencias-cadastro";
 
 /* ──────────────────────────────────────────────────────────────────────────
    CONSTANTES — espelham os "enums via string" do schema.prisma (Pessoa).
@@ -60,31 +61,6 @@ export type PessoaStatusValue = (typeof PESSOA_STATUS)[number]["value"];
 export type MotivoSaidaValue = (typeof MOTIVOS_SAIDA)[number]["value"];
 export type TipoAcordoValue = (typeof TIPOS_ACORDO)[number]["value"];
 export type CategoriaReuniaoValue = (typeof CATEGORIAS_REUNIAO)[number]["value"];
-
-/**
- * Famílias de cargo que atendem cliente no BTG e, portanto, DEVEM ter
- * `codigoAssessorBtg` preenchido.
- *
- * A lista é `socio` + `assessor_investimentos`, e não só "assessor", porque é
- * o que os dados dizem: dos 12 assessores da Base BTG que constam de
- * recover-team-data.ts, os 12 estão cadastrados como `socio`. Só uma pessoa no
- * /time tem `assessor_investimentos`, e ela não aparece na Base BTG. Filtrar
- * por "assessor" acusaria justamente quem não tem carteira e deixaria passar
- * os 12 que têm.
- *
- * Fora da lista ficam imobiliária, corretora, qualidade e administrativo — que
- * não têm vínculo com o BTG e não precisam ter (confirmado pelo Eduardo). Para
- * essas, a ausência de código é o estado correto, não uma pendência.
- */
-export const CARGOS_COM_VINCULO_BTG: readonly string[] = [
-  "socio",
-  "assessor_investimentos",
-];
-
-/** Esta pessoa deveria ter código de assessor no BTG? */
-export function deveTerCodigoBtg(cargoFamilia: string | null | undefined): boolean {
-  return CARGOS_COM_VINCULO_BTG.includes(cargoFamilia ?? "");
-}
 
 export function labelCargo(v: string | null | undefined): string {
   return CARGO_FAMILIAS.find((c) => c.value === v)?.label ?? "—";
@@ -267,49 +243,20 @@ export async function getTimeStats() {
 }
 
 /* ──────────────────────────────────────────────────────────────────────────
-   PENDÊNCIAS DE CADASTRO
+   PENDÊNCIAS DE CADASTRO — regra em ./pendencias-cadastro (pura, testável)
    ────────────────────────────────────────────────────────────────────────── */
 
-/**
- * As três pendências que a listagem já marca por card, num só lugar.
- *
- * Definidas aqui, e não na página, porque a MESMA regra decide três coisas: o
- * badge no card, o contador do topo e o filtro. Duplicar a condição em três
- * lugares é como elas passam a divergir.
- *
- * `arquivado` nunca é pendência: quem saiu não vai preencher telefone nem
- * migrar e-mail. É o mesmo critério dos badges (todos checam !isArquivado).
- */
-export type PendenciasCadastro = {
-  semCodigoBtg: boolean;
-  semTelefone: boolean;
-  emailPessoal: boolean;
-};
-
-export function pendenciasDe(p: {
-  status: string;
-  cargoFamilia: string;
-  codigoAssessorBtg: string | null;
-  telefone?: string | null;
-  email?: string | null;
-  semTelefone?: boolean;
-  emailPessoal?: boolean;
-}): PendenciasCadastro {
-  if (p.status === "arquivado") {
-    return { semCodigoBtg: false, semTelefone: false, emailPessoal: false };
-  }
-  return {
-    semCodigoBtg: !p.codigoAssessorBtg && deveTerCodigoBtg(p.cargoFamilia),
-    // Aceita a linha já projetada por listPessoas (booleanos) ou a linha crua.
-    semTelefone: p.semTelefone ?? !p.telefone,
-    emailPessoal: p.emailPessoal ?? !isEmailCorporativo(p.email),
-  };
-}
-
-export function temPendencia(p: Parameters<typeof pendenciasDe>[0]): boolean {
-  const d = pendenciasDe(p);
-  return d.semCodigoBtg || d.semTelefone || d.emailPessoal;
-}
+export {
+  CARGOS_COM_VINCULO_BTG,
+  deveTerCodigoBtg,
+  pendenciasDe,
+  temPendencia,
+  TIPOS_PENDENCIA,
+  isTipoPendencia,
+  casaPendencia,
+  type PendenciasCadastro,
+  type TipoPendencia,
+} from "./pendencias-cadastro";
 
 export type ResumoPendencias = {
   /** Pessoas ativas com AO MENOS uma pendência. */

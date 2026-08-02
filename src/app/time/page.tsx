@@ -19,7 +19,10 @@ import {
   getCadenciaReuniaoPorAssessor,
   contarPendenciasCadastro,
   pendenciasDe,
-  temPendencia,
+  casaPendencia,
+  isTipoPendencia,
+  TIPOS_PENDENCIA,
+  type TipoPendencia,
   labelCargo,
   labelTeamRole,
   pessoaIniciais,
@@ -53,7 +56,12 @@ export default async function TimePage({
   const filialId = params.filial || undefined;
   const departamentoId = params.departamento || undefined;
   const busca = params.busca || undefined;
-  const soPendencia = params.pendencia === "1";
+  // `pendencia` aceita "1" (todas) ou um tipo específico. Valor desconhecido
+  // vira "sem filtro" em vez de lista vazia — URL torta não deve parecer
+  // "nenhuma pendência".
+  const tipoPendencia: TipoPendencia | undefined = isTipoPendencia(params.pendencia)
+    ? params.pendencia
+    : undefined;
 
   const [todasPessoas, filiais, departamentos, stats, totalPendencias] = await Promise.all([
     listPessoas({ status, filialId, departamentoId, busca }),
@@ -66,7 +74,9 @@ export default async function TimePage({
   // Filtro em memória: `emailPessoal` depende de casar domínio, o que não se
   // expressa em SQL. Como a lista já vem recortada pelos outros filtros, o
   // custo é percorrer dezenas de linhas.
-  const pessoas = soPendencia ? todasPessoas.filter((p) => temPendencia(p)) : todasPessoas;
+  const pessoas = tipoPendencia
+    ? todasPessoas.filter((p) => casaPendencia(p, tipoPendencia))
+    : todasPessoas;
 
   // Depende de `pessoas` (precisa dos códigos), por isso fora do Promise.all.
   // Uma query só para a listagem inteira — nunca uma por card.
@@ -144,10 +154,7 @@ export default async function TimePage({
             // Substitui "Departamentos" (número estático, que o Eduardo sabe de
             // cor) por um indicador que MUDA e cobra ação. Só para quem pode
             // editar — quem não pode não tem o que fazer com ele.
-            <Link
-              href={totalPendencias.total > 0 ? "/time?pendencia=1" : "/time"}
-              className="rounded-xl border border-border bg-card p-4 flex items-center gap-3 hover:border-primary/40 transition-colors"
-            >
+            <div className="rounded-xl border border-border bg-card p-4 flex items-start gap-3">
               <div
                 className={cn(
                   "h-10 w-10 rounded-lg flex items-center justify-center shrink-0",
@@ -168,23 +175,34 @@ export default async function TimePage({
                     : "Pendências de cadastro"}
                 </div>
                 {totalPendencias.total > 0 && (
-                  // A quebra é o que torna o número acionável: sem ela, "19 de
-                  // 19" não diz por onde começar.
-                  <div className="text-[10px] text-muted-foreground/80 mt-0.5 truncate">
+                  // Cada tipo é um LINK, não texto: com 17 telefones e 12
+                  // códigos misturados, uma fila só não é fila, é ruído. Três
+                  // filas separadas dão por onde começar e onde parar.
+                  <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] mt-1">
                     {[
-                      totalPendencias.semCodigoBtg > 0 &&
-                        `${totalPendencias.semCodigoBtg} sem código BTG`,
-                      totalPendencias.semTelefone > 0 &&
-                        `${totalPendencias.semTelefone} sem telefone`,
-                      totalPendencias.emailPessoal > 0 &&
-                        `${totalPendencias.emailPessoal} e-mail pessoal`,
+                      { n: totalPendencias.semCodigoBtg, tipo: "codigo", label: "sem código BTG" },
+                      { n: totalPendencias.semTelefone, tipo: "telefone", label: "sem telefone" },
+                      { n: totalPendencias.emailPessoal, tipo: "email", label: "e-mail pessoal" },
                     ]
-                      .filter(Boolean)
-                      .join(" · ")}
+                      .filter((f) => f.n > 0)
+                      .map((f) => (
+                        <Link
+                          key={f.tipo}
+                          href={`/time?pendencia=${f.tipo}`}
+                          className={cn(
+                            "hover:underline",
+                            tipoPendencia === f.tipo
+                              ? "font-semibold text-amber-700 dark:text-amber-400"
+                              : "text-muted-foreground/80"
+                          )}
+                        >
+                          {f.n} {f.label}
+                        </Link>
+                      ))}
                   </div>
                 )}
               </div>
-            </Link>
+            </div>
           ) : (
             <StatCard
               icon={Briefcase}
@@ -257,20 +275,22 @@ export default async function TimePage({
 
           {canManage && (
             // Os outros filtros recortam por ORGANOGRAMA; este recorta por
-            // TRABALHO A FAZER. Enquanto o saneamento do código BTG estiver
-            // aberto, é o único que interessa.
-            <label className="md:col-span-12 flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
-              <input
-                type="checkbox"
+            // TRABALHO A FAZER — e por QUAL trabalho, já que os três tipos de
+            // pendência se resolvem de formas diferentes.
+            <label className="md:col-span-12 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+              Pendência de cadastro:
+              <select
                 name="pendencia"
-                value="1"
-                defaultChecked={soPendencia}
-                className="h-4 w-4 rounded border-border accent-amber-500"
-              />
-              Só quem tem pendência de cadastro
-              <span className="text-xs">
-                (sem código BTG, sem telefone ou e-mail pessoal)
-              </span>
+                defaultValue={tipoPendencia ?? ""}
+                className="px-3 py-1.5 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+              >
+                <option value="">qualquer (sem filtrar)</option>
+                {TIPOS_PENDENCIA.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
             </label>
           )}
         </form>
@@ -378,6 +398,19 @@ export default async function TimePage({
                               : cadencia.atencao > 0
                                 ? `${cadencia.atencao} de ${cadencia.clientes} em atenção`
                                 : `carteira em dia (${cadencia.clientes})`}
+                          </span>
+                        )}
+                        {p.codigoAssessorBtg && !cadencia && canManage && !isArquivado && (
+                          // Código gravado e NENHUM cliente com ele na base.
+                          // Antes isso só aparecia abrindo a ficha; é o estado
+                          // de quem saiu da Onix (carteira migrada, código
+                          // mantido) ou de código digitado errado. Nos dois
+                          // casos a régua desta pessoa zera em silêncio.
+                          <span
+                            className="px-1.5 py-0.5 rounded bg-destructive/15 text-destructive font-medium"
+                            title={`Código ${p.codigoAssessorBtg} não tem nenhum cliente na base — código errado, carteira migrada, ou Base BTG desatualizada`}
+                          >
+                            carteira não encontrada
                           </span>
                         )}
                         {pend.semCodigoBtg && (
