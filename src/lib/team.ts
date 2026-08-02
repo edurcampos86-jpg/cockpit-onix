@@ -61,6 +61,31 @@ export type MotivoSaidaValue = (typeof MOTIVOS_SAIDA)[number]["value"];
 export type TipoAcordoValue = (typeof TIPOS_ACORDO)[number]["value"];
 export type CategoriaReuniaoValue = (typeof CATEGORIAS_REUNIAO)[number]["value"];
 
+/**
+ * Famílias de cargo que atendem cliente no BTG e, portanto, DEVEM ter
+ * `codigoAssessorBtg` preenchido.
+ *
+ * A lista é `socio` + `assessor_investimentos`, e não só "assessor", porque é
+ * o que os dados dizem: dos 12 assessores da Base BTG que constam de
+ * recover-team-data.ts, os 12 estão cadastrados como `socio`. Só uma pessoa no
+ * /time tem `assessor_investimentos`, e ela não aparece na Base BTG. Filtrar
+ * por "assessor" acusaria justamente quem não tem carteira e deixaria passar
+ * os 12 que têm.
+ *
+ * Fora da lista ficam imobiliária, corretora, qualidade e administrativo — que
+ * não têm vínculo com o BTG e não precisam ter (confirmado pelo Eduardo). Para
+ * essas, a ausência de código é o estado correto, não uma pendência.
+ */
+export const CARGOS_COM_VINCULO_BTG: readonly string[] = [
+  "socio",
+  "assessor_investimentos",
+];
+
+/** Esta pessoa deveria ter código de assessor no BTG? */
+export function deveTerCodigoBtg(cargoFamilia: string | null | undefined): boolean {
+  return CARGOS_COM_VINCULO_BTG.includes(cargoFamilia ?? "");
+}
+
 export function labelCargo(v: string | null | undefined): string {
   return CARGO_FAMILIAS.find((c) => c.value === v)?.label ?? "—";
 }
