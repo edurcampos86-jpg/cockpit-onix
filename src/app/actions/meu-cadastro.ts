@@ -2,7 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { getAuthContext } from "@/lib/auth-helpers";
+import { headers } from "next/headers";
+import { getAuthContext, isAdmin } from "@/lib/auth-helpers";
+import {
+  dispararLembreteCadastro,
+  type ResultadoLembrete,
+} from "@/lib/lembrete-cadastro";
 import { uploadContrato } from "@/lib/b2/upload";
 import { chaveFotoPessoa } from "@/lib/time-foto";
 
@@ -130,4 +135,51 @@ export async function atualizarMinhaFoto(
   revalidatePath("/time");
   revalidatePath(`/time/${ctx.pessoa.id}`);
   return { ok: true };
+}
+
+
+/* ──────────────────────────────────────────────────────────────────────────
+   LEMBRETE DE CADASTRO (admin) — mora aqui porque é a outra ponta do mesmo
+   assunto: um lado pede o preenchimento, o outro preenche.
+   ────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Preview e disparo do lembrete, para o botão do /time.
+ *
+ * O endpoint POST /api/time/lembrete-cadastro continua existindo (serve para
+ * cron e para chamada externa), mas endpoint que só se alcança por curl não
+ * vira rotina — e esta é justamente a que precisa repetir até zerar.
+ *
+ * `enviar: false` é o padrão em toda chamada da tela: primeiro se vê quem
+ * receberia, depois se confirma. Disparo de WhatsApp + e-mail para o time
+ * inteiro não tem desfazer.
+ */
+export async function lembrarCadastroPendente(params: {
+  enviar: boolean;
+  forcar?: boolean;
+}): Promise<
+  { ok: true; resultado: ResultadoLembrete; modo: "dry-run" | "enviado" } | { ok: false; error: string }
+> {
+  const ctx = await getAuthContext();
+  if (!isAdmin(ctx)) {
+    return { ok: false, error: "Só admin dispara lembrete para o time" };
+  }
+
+  // O link precisa ser clicável fora do Cockpit (WhatsApp, e-mail), então tem
+  // de ser absoluto. `headers()` dá o host real da requisição, o que acompanha
+  // produção e preview sem variável nova.
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "";
+  const proto = h.get("x-forwarded-proto") ?? "https";
+  const baseUrl = host ? `${proto}://${host}` : "";
+
+  const resultado = await dispararLembreteCadastro({
+    userIdRemetente: ctx.userId,
+    baseUrl,
+    dryRun: !params.enviar,
+    forcar: params.forcar,
+  });
+
+  if (params.enviar) revalidatePath("/time");
+  return { ok: true, resultado, modo: params.enviar ? "enviado" : "dry-run" };
 }

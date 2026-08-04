@@ -21,7 +21,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "apenas_admin" }, { status: 403 });
   }
 
-  const enviar = new URL(req.url).searchParams.get("enviar") === "1";
+  const sp = new URL(req.url).searchParams;
+  const enviar = sp.get("enviar") === "1";
+  // Ignora a janela de dedupe. Existe para reenvio deliberado (mensagem
+  // corrigida), nunca como padrão.
+  const forcar = sp.get("forcar") === "1";
 
   // O link do lembrete precisa ser clicável fora do Cockpit (WhatsApp, e-mail),
   // então tem de ser absoluto. A origem do próprio request é a fonte mais
@@ -32,6 +36,7 @@ export async function POST(req: Request) {
     userIdRemetente: ctx.userId,
     baseUrl,
     dryRun: !enviar,
+    forcar,
   });
 
   return NextResponse.json({
