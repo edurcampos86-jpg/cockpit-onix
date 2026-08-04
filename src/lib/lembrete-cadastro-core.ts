@@ -15,7 +15,18 @@ export type PendenciaPessoa = {
   apelido: string | null;
   semTelefone: boolean;
   emailPessoal: boolean;
+  /** Quantas vezes já foi cobrada. 0 = nunca. */
+  vezes?: number;
 };
+
+/**
+ * A partir de quantas cobranças o problema deixa de ser de sistema.
+ *
+ * Contagem, e não prazo, porque a janela de dedupe de 72h já embute tempo: três
+ * cobranças significam pelo menos ~6 dias. Um limite por prazo puro puniria
+ * quem entrou no time ontem tanto quanto quem ignora há duas semanas.
+ */
+export const LIMITE_COBRANCAS = 3;
 
 /** Como chamar a pessoa: apelido quando existe, senão o primeiro nome. */
 export function tratamento(p: { nomeCompleto: string; apelido: string | null }): string {
@@ -78,11 +89,27 @@ export function resumoSlack(pendentes: PendenciaPessoa[], baseUrl: string): stri
     const faltas = [p.semTelefone && "telefone", p.emailPessoal && "e-mail pessoal"]
       .filter(Boolean)
       .join(" + ");
-    return `• ${tratamento(p)} — ${faltas}`;
+    const cobrancas = p.vezes && p.vezes > 1 ? ` (${p.vezes}ª cobrança)` : "";
+    return `• ${tratamento(p)} — ${faltas}${cobrancas}`;
   });
+
+  // ESCALAÇÃO. O lembrete resolve quem esquece; não resolve quem ignora. Sem
+  // um limite, o loop roda para sempre e o Eduardo só descobre olhando ficha
+  // por ficha. Aos LIMITE_COBRANCAS, o problema deixa de ser de sistema e vira
+  // conversa dele com a pessoa — e o Slack é onde isso precisa aparecer.
+  const reincidentes = pendentes.filter((p) => (p.vezes ?? 0) >= LIMITE_COBRANCAS);
+  const bloco = reincidentes.length
+    ? [
+        "",
+        `⚠️ ${reincidentes.length} ${reincidentes.length === 1 ? "pessoa" : "pessoas"} já ${reincidentes.length === 1 ? "foi cobrada" : "foram cobradas"} ${LIMITE_COBRANCAS}+ vezes sem resolver:`,
+        ...reincidentes.map((p) => `• ${tratamento(p)} (${p.vezes}×) — lembrete não está funcionando, vale conversa direta`),
+      ]
+    : [];
+
   return [
     `📋 ${pendentes.length} ${pendentes.length === 1 ? "pessoa" : "pessoas"} com cadastro pendente:`,
     ...linhas,
+    ...bloco,
     "",
     `Cada um resolve em ${baseUrl}/time/eu`,
   ].join("\n");

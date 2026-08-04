@@ -26,6 +26,7 @@ import {
   formatCpf,
   getCarteiraBtg,
   deveTerCodigoBtg,
+  getLembreteCadastro,
 } from "@/lib/team";
 import { cn } from "@/lib/utils";
 import { formatBRL } from "@/lib/painel-utils";
@@ -65,6 +66,11 @@ export default async function PessoaPage({
   const isArquivado = pessoa.status === "arquivado";
   // Só na PRÓPRIA ficha, e só enquanto a pessoa está ativa.
   const ehMinhaFicha = ctx.pessoa?.id === pessoa.id && !isArquivado;
+
+  // Histórico de cobrança: só para quem administra. É informação sobre a
+  // pessoa, não para a pessoa — ver "você foi cobrado 3x" na própria ficha
+  // constrange sem ajudar.
+  const lembrete = canManage ? await getLembreteCadastro(pessoa.id) : null;
 
   return (
     <div className="min-h-screen">
@@ -167,6 +173,19 @@ export default async function PessoaPage({
             }
           />
           {canManage && <Row label="CPF" value={formatCpf(pessoa.cpf)} />}
+          {canManage && lembrete && (
+            // Responde "não recebi nada" sem abrir o banco, e escancara quem
+            // está sendo cobrado repetidamente sem resolver.
+            <Row
+              label="Lembrete de cadastro"
+              value={`${lembrete.vezes}× · último em ${new Date(lembrete.enviadoEm).toLocaleDateString("pt-BR")} (${lembrete.canais})`}
+              aviso={
+                lembrete.vezes >= 3
+                  ? `Cobrado ${lembrete.vezes} vezes sem resolver — vale conversa direta`
+                  : undefined
+              }
+            />
+          )}
           {/* Self-service: o dono da ficha edita o próprio telefone sem depender
               do admin. É o que viabiliza "cada um preenche o seu" — 17 das 19
               pessoas ativas estão sem número. */}

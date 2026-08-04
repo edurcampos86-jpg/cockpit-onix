@@ -105,3 +105,49 @@ test("time completo tem mensagem própria, não placar vazio", () => {
   assert.match(s, /completo/);
   assert.ok(!s.includes("•"), s);
 });
+
+// ── Escalação: o lembrete resolve quem esquece, não quem ignora.
+
+test("cobrança repetida aparece na linha da pessoa", () => {
+  const s = resumoSlack([{ ...SO_TELEFONE, vezes: 2 }], URL);
+  assert.match(s, /2ª cobrança/);
+});
+
+test("primeira cobrança não polui a linha", () => {
+  const s = resumoSlack([{ ...SO_TELEFONE, vezes: 1 }], URL);
+  assert.ok(!s.includes("cobrança"), s);
+});
+
+test("sem contador não quebra nem escala", () => {
+  const s = resumoSlack([SO_TELEFONE], URL);
+  assert.ok(!s.includes("⚠️"), s);
+});
+
+test("3 cobranças disparam o bloco de escalação", () => {
+  const s = resumoSlack([{ ...SO_TELEFONE, vezes: 3 }], URL);
+  assert.match(s, /⚠️/);
+  assert.match(s, /3\+ vezes sem resolver/);
+  assert.match(s, /conversa direta/);
+});
+
+test("2 cobranças ainda NÃO escalam — é o limite, não o caminho até ele", () => {
+  const s = resumoSlack([{ ...SO_TELEFONE, vezes: 2 }], URL);
+  assert.ok(!s.includes("⚠️"), s);
+});
+
+test("escalação só lista quem passou do limite", () => {
+  const s = resumoSlack(
+    [
+      { ...SO_TELEFONE, apelido: "Ana", vezes: 4 },
+      { ...SO_EMAIL, vezes: 1 },
+    ],
+    URL,
+  );
+  const bloco = s.slice(s.indexOf("⚠️"));
+  assert.ok(bloco.includes("Ana"));
+  assert.ok(!bloco.includes("Bruno"), bloco);
+});
+
+test("time em dia não ganha bloco de escalação", () => {
+  assert.ok(!resumoSlack([], URL).includes("⚠️"));
+});
