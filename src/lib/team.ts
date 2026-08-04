@@ -224,22 +224,24 @@ export async function listLiderancaCandidates(excludeId?: string) {
 }
 
 /** Estatísticas para o painel de /time. */
+/**
+ * Contagem de ativos e arquivados para os cards do topo.
+ *
+ * Já devolveu também `porFilial` e `porDepartamento` (dois groupBy), que
+ * NINGUÉM lia: o único consumidor é /time, e lá os cards de filial e
+ * departamento usam `filiais.length` e `departamentos.length` — as listas que a
+ * página já carrega para os selects de filtro. Eram duas agregações por render
+ * cujo resultado ia direto para o lixo.
+ *
+ * Se um dia a distribuição por filial/departamento for realmente exibida, ela
+ * volta como função própria — não escondida num "stats" genérico.
+ */
 export async function getTimeStats() {
-  const [ativos, arquivados, porFilial, porDepartamento] = await Promise.all([
+  const [ativos, arquivados] = await Promise.all([
     prisma.pessoa.count({ where: { status: "ativo" } }),
     prisma.pessoa.count({ where: { status: "arquivado" } }),
-    prisma.pessoa.groupBy({
-      by: ["filialId"],
-      where: { status: "ativo" },
-      _count: { _all: true },
-    }),
-    prisma.pessoa.groupBy({
-      by: ["departamentoId"],
-      where: { status: "ativo" },
-      _count: { _all: true },
-    }),
   ]);
-  return { ativos, arquivados, porFilial, porDepartamento };
+  return { ativos, arquivados };
 }
 
 /* ──────────────────────────────────────────────────────────────────────────
@@ -370,6 +372,20 @@ export async function getCarteiraBtg(
     porClasse: classe,
     semReuniaoAgendada: semReuniao,
   };
+}
+
+/**
+ * Histórico de cobrança de cadastro de uma pessoa.
+ *
+ * O log já era escrito pelo disparo (#281) e só o botão o lia. Na ficha ele
+ * responde a pergunta que sempre aparece — "não recebi nada" — sem ninguém ter
+ * de abrir o banco, e escancara quem está sendo cobrado repetidamente.
+ */
+export async function getLembreteCadastro(pessoaId: string) {
+  return prisma.lembreteCadastroLog.findUnique({
+    where: { pessoaId },
+    select: { enviadoEm: true, vezes: true, canais: true, pendencias: true },
+  });
 }
 
 /* ──────────────────────────────────────────────────────────────────────────

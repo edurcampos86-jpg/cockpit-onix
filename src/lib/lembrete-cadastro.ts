@@ -181,13 +181,25 @@ export async function dispararLembreteCadastro(params: {
     }
   }
 
+  // O placar leva o CONTADOR de cada um: é o que permite a escalação de quem
+  // já foi cobrado LIMITE_COBRANCAS vezes sem resolver. `+1` para quem recebeu
+  // agora, porque o upsert acima já incrementou no banco mas o log em memória é
+  // o de antes do disparo.
   const textoSlack = resumoSlack(
-    pendentes.map(({ pessoa, semTelefone, emailPessoal }) => ({
-      nomeCompleto: pessoa.nomeCompleto,
-      apelido: pessoa.apelido,
-      semTelefone,
-      emailPessoal,
-    })),
+    pendentes.map(({ pessoa, semTelefone, emailPessoal }) => {
+      const log = logPorPessoa.get(pessoa.id);
+      const jaTinha = log?.vezes ?? 0;
+      const pulado = resultado.pulados.some((x) => x.nome === pessoa.nomeCompleto);
+      const semCanal = resultado.semCanal.includes(pessoa.nomeCompleto);
+      const incremento = params.dryRun || pulado || semCanal ? 0 : 1;
+      return {
+        nomeCompleto: pessoa.nomeCompleto,
+        apelido: pessoa.apelido,
+        semTelefone,
+        emailPessoal,
+        vezes: jaTinha + incremento,
+      };
+    }),
     params.baseUrl,
   );
   resultado.slackEnviado = params.dryRun ? true : await sendSlackMessage(textoSlack);
