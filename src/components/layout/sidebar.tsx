@@ -305,12 +305,24 @@ export function Sidebar() {
     return initial;
   });
 
-  // Auto-open the section when route changes to a different module
-  useEffect(() => {
+  // Auto-open the section when route changes to a different module.
+  //
+  // Ajuste DURANTE o render, não em useEffect. O efeito equivalente chamava
+  // setState de forma síncrona no corpo do effect: o React renderizava a
+  // seção fechada, o efeito rodava, e um segundo render a abria — cascata
+  // visível como piscada na navegação, e erro de lint
+  // (react-hooks/set-state-in-effect) que deixava o arquivo inteiro vermelho
+  // no CI, bloqueando qualquer mudança no menu.
+  //
+  // O padrão de "ajustar estado quando uma prop muda" é guardar o valor
+  // anterior e comparar no render (react.dev/learn/you-might-not-need-an-effect).
+  const [moduloAnterior, setModuloAnterior] = useState(activeModuleId);
+  if (activeModuleId !== moduloAnterior) {
+    setModuloAnterior(activeModuleId);
     if (activeModuleId) {
       setOpenSections((prev) => ({ ...prev, [activeModuleId]: true }));
     }
-  }, [activeModuleId]);
+  }
 
   const toggleSection = (id: string) => {
     setOpenSections((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -556,6 +568,20 @@ export function Sidebar() {
             </div>
           </div>
         )}
+        {/* Atalho global para a própria ficha: /time/eu resolve em um clique o
+            que antes exigia achar o próprio nome entre 19 cards. É o caminho do
+            self-service de telefone e foto. */}
+        <Link
+          href="/time/eu"
+          className={cn(
+            "flex items-center py-2 rounded-lg text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors mb-1.5",
+            collapsed ? "justify-center w-full" : "px-2"
+          )}
+          title="Meu cadastro"
+        >
+          <UserCircle className="h-4 w-4" />
+          {!collapsed && <span className="ml-2 text-sm">Meu cadastro</span>}
+        </Link>
         <div className="flex gap-1.5">
           <button
             onClick={() => startTransition(() => logout())}

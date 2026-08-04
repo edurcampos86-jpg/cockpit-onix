@@ -9,7 +9,6 @@ import {
   Briefcase,
   Archive,
   AlertTriangle,
-  UserCircle,
 } from "lucide-react";
 import { getAuthContext, canManageTeam } from "@/lib/auth-helpers";
 import {
@@ -31,6 +30,7 @@ import {
   type CadenciaCarteira,
 } from "@/lib/team";
 import { cn } from "@/lib/utils";
+import { LembreteButton } from "./_components/lembrete-button";
 
 export const metadata = {
   title: "Time — Cockpit Onix",
@@ -113,19 +113,6 @@ export default async function TimePage({
         title="Time"
         description="Pessoas que constroem a Onix — perfil, hierarquia, acordos e reuniões"
       >
-        {/* Atalho para a própria ficha. O caminho até ela tinha três passos —
-            /time, achar o próprio nome entre 19 cards, clicar — e o segundo é
-            o que trava: procurar-se numa grade é atrito suficiente para deixar
-            para depois, e aí o "cada um preenche o seu" não acontece.
-            /time/eu é URL estável, igual para todo mundo: dá para colar uma
-            frase só no grupo do time. */}
-        <Link
-          href="/time/eu"
-          className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted transition-colors"
-        >
-          <UserCircle className="h-4 w-4" />
-          Meu cadastro
-        </Link>
         {canManage ? (
           <Link
             href="/time/nova"
@@ -215,6 +202,7 @@ export default async function TimePage({
                       ))}
                   </div>
                 )}
+                {totalPendencias.total > 0 && <LembreteButton />}
               </div>
             </div>
           ) : (

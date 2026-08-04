@@ -153,6 +153,32 @@ model AlertaClienteLog {
   @@index([clienteId])
 }
 
+model LembreteCadastroLog {
+  id       String @id @default(cuid())
+  pessoaId String @unique
+
+  /// Último disparo BEM-SUCEDIDO (algum canal saiu). Tentativa que falhou em
+  /// todos os canais não carimba: senão o dedupe bloquearia a próxima tentativa
+  /// justamente de quem não recebeu nada.
+  enviadoEm DateTime
+
+  /// Canais que saíram nesse disparo — "whatsapp", "email" ou os dois.
+  canais String
+
+  /// O que estava pendente quando o lembrete saiu. Sem isso não dá para
+  /// responder "cobrei ele de quê?" depois que a pendência muda.
+  pendencias String
+
+  /// Quantas vezes já foi cobrado. Cinco lembretes sem resposta é problema de
+  /// pessoa, não de sistema — e o número é o que torna isso visível.
+  vezes Int @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([enviadoEm])
+}
+
 // ============================================
 // CALENDÁRIO EDITORIAL E CONTEÚDO
 // ============================================
