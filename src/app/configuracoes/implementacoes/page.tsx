@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getAuthContext, isAdmin } from "@/lib/auth-helpers";
 import { opcoesFiltroEmpresa } from "@/lib/empresas-config";
+import { calcularMetricasBacklog } from "@/lib/implementacoes/metricas";
 import { ImplementacoesList, type ImplementacaoDTO } from "./implementacoes-list";
 
 export const dynamic = "force-dynamic";
@@ -25,7 +26,7 @@ export default async function ImplementacoesPage() {
   // `select` explícito em vez de `include`: `como` e `createdAt` estavam no
   // payload sem nenhuma célula os renderizando. Campo de texto livre que a
   // tabela não mostra é peso puro no HTML serializado do RSC.
-  const [total, itens] = await Promise.all([
+  const [total, itens, paraMetrica] = await Promise.all([
     prisma.implementacao.count(),
     prisma.implementacao.findMany({
       orderBy: [{ score: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
@@ -52,7 +53,21 @@ export default async function ImplementacoesPage() {
         },
       },
     }),
+    // Query PRÓPRIA da métrica, sem `take`: o teto acima corta as linhas de
+    // menor score, e "quantas ideias viraram entrega" sobre uma amostra
+    // truncada seria um número errado apresentado com cara de certo. São 4
+    // campos escalares por linha — barato mesmo com a fila inteira.
+    prisma.implementacao.findMany({
+      select: {
+        createdAt: true,
+        prNumero: true,
+        prStatus: true,
+        prMergedAt: true,
+      },
+    }),
   ]);
+
+  const metricas = calcularMetricasBacklog(paraMetrica);
 
   const dto: ImplementacaoDTO[] = itens;
 
@@ -65,6 +80,7 @@ export default async function ImplementacoesPage() {
       itens={dto}
       empresas={empresas}
       ocultadas={Math.max(0, total - itens.length)}
+      metricas={metricas}
     />
   );
 }

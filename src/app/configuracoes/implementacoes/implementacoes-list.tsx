@@ -15,6 +15,7 @@ import {
 import { cn } from "@/lib/utils";
 import { calcRiceScore } from "@/lib/rice";
 import { parsePrEntrada } from "@/lib/implementacoes/parse-pr";
+import type { MetricasBacklog } from "@/lib/implementacoes/metricas";
 import {
   atualizarRice,
   atualizarStatus,
@@ -199,6 +200,44 @@ function JustificativaTip({ texto }: { texto: string }) {
   );
 }
 
+/**
+ * ROI de backlog. Existe porque o rastreio do PR, sem uma tela que o leia, vira
+ * coluna que se preenche e ninguém consulta — o dado não vira decisão.
+ *
+ * Some quando não há nenhuma entrega ainda: três zeros no topo da página não
+ * informam nada e só empurram a fila para baixo. A métrica aparece quando passa
+ * a ter o que dizer.
+ */
+function MetricasBacklogBloco({ m }: { m: MetricasBacklog }) {
+  if (m.entregues === 0) return null;
+
+  const itens = [
+    { valor: `${m.entregues}/${m.total}`, label: "ideias viraram entrega" },
+    { valor: `${m.taxaEntrega}%`, label: "da fila entregue" },
+    {
+      valor:
+        m.leadTimeMedianoDias == null ? "—" : `${m.leadTimeMedianoDias}d`,
+      label: "lead time mediano",
+    },
+    { valor: String(m.comPr - m.entregues), label: "PRs em aberto" },
+  ];
+
+  return (
+    <div className="mb-4 grid grid-cols-2 gap-3 rounded-lg border border-border bg-muted/30 p-3 sm:grid-cols-4">
+      {itens.map((i) => (
+        <div key={i.label}>
+          <p className="text-lg font-bold tabular-nums text-foreground">
+            {i.valor}
+          </p>
+          <p className="text-[11px] leading-tight text-muted-foreground">
+            {i.label}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 const PR_STATUS_STYLE: Record<string, string> = {
   aberta: "bg-blue-500/15 text-blue-600 dark:text-blue-400",
   merged: "bg-green-500/15 text-green-600 dark:text-green-400",
@@ -329,11 +368,14 @@ export function ImplementacoesList({
   itens,
   empresas,
   ocultadas = 0,
+  metricas,
 }: {
   itens: ImplementacaoDTO[];
   empresas: { id: string; nome: string }[];
   /** Linhas que existem no banco mas não vieram por causa do teto da página. */
   ocultadas?: number;
+  /** ROI de backlog — calculado sobre a fila INTEIRA, não sobre o recorte. */
+  metricas: MetricasBacklog;
 }) {
   const [rows, setRows] = useState<ImplementacaoDTO[]>(itens);
   const [fEmpresa, setFEmpresa] = useState<string>("todas");
@@ -659,6 +701,8 @@ export function ImplementacoesList({
           Nova
         </Link>
       </div>
+
+      <MetricasBacklogBloco m={metricas} />
 
       {/* Filtros */}
       <div className="mb-4 flex flex-wrap gap-2">
