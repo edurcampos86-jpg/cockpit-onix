@@ -223,6 +223,80 @@ export async function atualizarStatus(id: string, status: string): Promise<void>
   revalidatePath("/configuracoes/implementacoes");
 }
 
+/** Estados do PR que uma sugestão originou. */
+const PR_STATUSES = ["aberta", "merged", "fechada"] as const;
+export type PrStatus = (typeof PR_STATUSES)[number];
+
+export type VincularPrState = { ok: boolean; error?: string };
+
+/**
+ * Vincula (ou desvincula) uma sugestão ao PR que ela originou.
+ *
+ * Fecha o loop da fila: sem isto, "concluída" é digitado à mão e não há como
+ * saber quantas ideias viraram entrega nem em quanto tempo. Com prNumero +
+ * prMergedAt, o lead time "ideia → merge" vira uma subtração.
+ *
+ * Preenchimento MANUAL de propósito: não há webhook do GitHub apontando para
+ * cá, e inventar um só para isto seria infra nova para um dado que o Eduardo
+ * já tem na mão no momento em que mergeia.
+ *
+ * Passar `numero: null` limpa o vínculo inteiro — inclusive prMergedAt, senão
+ * sobraria data de merge de um PR que não está mais vinculado.
+ */
+export async function vincularPr(
+  id: string,
+  input: { numero: number | null; url?: string | null; status?: string | null },
+): Promise<VincularPrState> {
+  const ctx = await getAuthContext();
+  if (!isAdmin(ctx)) return { ok: false, error: "Sem permissão." };
+
+  if (input.numero == null) {
+    await prisma.implementacao.update({
+      where: { id },
+      data: { prNumero: null, prUrl: null, prStatus: null, prMergedAt: null },
+    });
+    revalidatePath("/configuracoes/implementacoes");
+    return { ok: true };
+  }
+
+  const numero = Math.trunc(input.numero);
+  if (!Number.isFinite(numero) || numero <= 0) {
+    return { ok: false, error: "Número de PR inválido." };
+  }
+
+  const status = input.status ?? "aberta";
+  if (!PR_STATUSES.includes(status as PrStatus)) {
+    return { ok: false, error: "Status de PR inválido." };
+  }
+
+  // prMergedAt é carimbado pelo SERVIDOR na primeira vez que o status vira
+  // "merged". Duas defesas da métrica de lead time:
+  //  - o cliente não manda a data (não daria para confiar em lead time negativo);
+  //  - re-salvar um PR já merged NÃO recarimba, senão editar a URL meses depois
+  //    reescreveria a data de merge e o lead time viraria ficção.
+  // Sair de "merged" limpa a data: PR revertido não tem data de merge válida.
+  const atual = await prisma.implementacao.findUnique({
+    where: { id },
+    select: { prMergedAt: true },
+  });
+  if (!atual) return { ok: false, error: "Não encontrado." };
+
+  const prMergedAt =
+    status === "merged" ? (atual.prMergedAt ?? new Date()) : null;
+
+  await prisma.implementacao.update({
+    where: { id },
+    data: {
+      prNumero: numero,
+      prUrl: sOrNull(input.url ?? null),
+      prStatus: status,
+      prMergedAt,
+    },
+  });
+  revalidatePath("/configuracoes/implementacoes");
+  return { ok: true };
+}
+
 /**
  * Loga o RESULTADO de uma sugestão de RICE da IA ("confirmada" | "descartada"),
  * correlacionado à sugestão original via sugestaoLogId. Admin-only (a central é

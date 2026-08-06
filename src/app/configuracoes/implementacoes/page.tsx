@@ -43,6 +43,9 @@ export default async function ImplementacoesPage() {
         effort: true,
         score: true,
         status: true,
+        prNumero: true,
+        prUrl: true,
+        prStatus: true,
         anexos: {
           select: { id: true, nomeArquivo: true, contentType: true },
           orderBy: { ordem: "asc" },
