@@ -2,6 +2,7 @@ import "server-only";
 import { redirect } from "next/navigation";
 import { getSession, type SessionPayload } from "./session";
 import { prisma } from "./prisma";
+import { isAdmin, isLideranca } from "./rbac-papeis";
 
 /**
  * Contexto de autenticação enriquecido com dados da Pessoa (time) quando existe.
@@ -59,15 +60,12 @@ export async function getAuthContext(): Promise<AuthContext> {
   };
 }
 
-/** Admin é quem tem User.role === "admin" OU Pessoa.teamRole === "admin". */
-export function isAdmin(ctx: AuthContext): boolean {
-  return ctx.role === "admin" || ctx.pessoa?.teamRole === "admin";
-}
-
-/** Liderança = admin OU pessoa com teamRole === "lideranca". */
-export function isLideranca(ctx: AuthContext): boolean {
-  return isAdmin(ctx) || ctx.pessoa?.teamRole === "lideranca";
-}
+/**
+ * A régua de papéis mora em `@/lib/rbac-papeis` (módulo puro, testável — este
+ * arquivo abre com `server-only` e não carrega no test runner). Re-exportada
+ * aqui para que todo chamador de `@/lib/auth-helpers` siga funcionando igual.
+ */
+export { isAdmin, isLideranca };
 
 export async function requireAdmin(): Promise<AuthContext> {
   const ctx = await getAuthContext();

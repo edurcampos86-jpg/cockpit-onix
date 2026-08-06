@@ -302,12 +302,23 @@ function badgeValidade(
   return "connected";
 }
 
+type ChaveVisivel = { configurada: boolean; mascara?: string };
+
+type RespostaConfig = {
+  admin: boolean;
+  chaves: Record<string, ChaveVisivel>;
+};
+
 export default function IntegracoesPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [statusMap, setStatusMap] = useState<Record<string, string>>({});
-  const [maskedKeys, setMaskedKeys] = useState<Record<string, string>>({});
+  // Formato novo do GET /api/integracoes/config: `configurada` sempre,
+  // `mascara` só quando a sessão é admin. Não-admin nunca recebe fragmento do
+  // token, então a tela mostra "Chave configurada" sem sufixo.
+  const [chaves, setChaves] = useState<Record<string, ChaveVisivel>>({});
+  const [ehAdmin, setEhAdmin] = useState(false);
   const [actionResult, setActionResult] = useState<{ id: string; msg: string; ok: boolean } | null>(null);
   const [googleUser, setGoogleUser] = useState<GoogleUserStatus | null>(null);
   const [googleLoading, setGoogleLoading] = useState(false);
@@ -361,8 +372,12 @@ export default function IntegracoesPage() {
     refreshMicrosoftUserStatus();
     // Carregar chaves mascaradas para mostrar quais já estão configuradas
     fetch("/api/integracoes/config")
-      .then((r) => r.json())
-      .then((data: Record<string, string>) => setMaskedKeys(data))
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: RespostaConfig | null) => {
+        if (!data) return;
+        setChaves(data.chaves ?? {});
+        setEhAdmin(Boolean(data.admin));
+      })
       .catch(() => {});
     // Mostrar erros/sucessos vindos do callback OAuth via querystring
     const params = new URLSearchParams(window.location.search);
@@ -490,21 +505,44 @@ export default function IntegracoesPage() {
     }
   };
 
+  /** Recarrega o estado das chaves. Silencioso: erro aqui não some com a tela. */
+  const recarregarChaves = async () => {
+    try {
+      const res = await fetch("/api/integracoes/config");
+      if (!res.ok) return;
+      const data = (await res.json()) as RespostaConfig;
+      setChaves(data.chaves ?? {});
+      setEhAdmin(Boolean(data.admin));
+    } catch {
+      /* mantém o estado anterior */
+    }
+  };
+
   const handleSaveKey = async (integrationId: string, envKey: string) => {
     setSaving(true);
     setActionResult(null);
     try {
-      await fetch("/api/integracoes/config", {
+      const res = await fetch("/api/integracoes/config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ key: envKey, value: apiKeys[integrationId] }),
       });
+      // `fetch` NÃO rejeita em 4xx/5xx: sem esta checagem o 403 de não-admin
+      // caía no caminho feliz e a tela dizia "Chave salva com sucesso!" sem
+      // nada ter sido salvo — o pior resultado possível para uma tela de
+      // segredo, porque some com o sintoma.
+      if (!res.ok) {
+        const erro = (await res.json().catch(() => null)) as { error?: string } | null;
+        setActionResult({
+          id: integrationId,
+          msg: erro?.error || `Não foi possível salvar (HTTP ${res.status}).`,
+          ok: false,
+        });
+        return;
+      }
       setActionResult({ id: integrationId, msg: "Chave salva com sucesso!", ok: true });
-      // Atualizar status e chaves mascaradas
       await refreshStatus();
-      const configRes = await fetch("/api/integracoes/config");
-      const configData = await configRes.json();
-      setMaskedKeys(configData);
+      await recarregarChaves();
       // Limpar campo de input após salvar
       setApiKeys((prev) => ({ ...prev, [integrationId]: "" }));
     } catch {
@@ -774,12 +812,28 @@ export default function IntegracoesPage() {
                         </div>
                       ) : integration.envKey ? (
                         <div className="space-y-3">
+                          {/* O servidor recusa a gravação de não-admin com 403.
+                              O aviso existe para o botão desabilitado ter um
+                              motivo visível — botão morto sem explicação lê como
+                              tela quebrada, e a pessoa tenta de novo. */}
+                          {!ehAdmin && (
+                            <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-amber-500/5 border border-amber-500/20">
+                              <AlertCircle className="h-3.5 w-3.5 text-amber-400 shrink-0 mt-0.5" />
+                              <span className="text-xs text-amber-400">
+                                Só administradores alteram chaves de integração. Você
+                                vê quais estão configuradas, não os valores.
+                              </span>
+                            </div>
+                          )}
                           {/* Indicador de chave já configurada */}
-                          {maskedKeys[integration.envKey] && (
+                          {chaves[integration.envKey]?.configurada && (
                             <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/5 border border-emerald-500/15">
                               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
                               <span className="text-xs text-emerald-400 font-medium">
-                                Chave configurada: {maskedKeys[integration.envKey]}
+                                Chave configurada
+                                {chaves[integration.envKey]?.mascara
+                                  ? `: ${chaves[integration.envKey]!.mascara}`
+                                  : ""}
                               </span>
                             </div>
                           )}
@@ -789,9 +843,12 @@ export default function IntegracoesPage() {
                                 <Key className="h-3 w-3" />
                                 {integration.extraEnvKey}
                               </label>
-                              {maskedKeys[integration.extraEnvKey] && (
+                              {chaves[integration.extraEnvKey]?.configurada && (
                                 <div className="text-[10px] text-emerald-400">
-                                  Configurado: {maskedKeys[integration.extraEnvKey]}
+                                  Configurado
+                                  {chaves[integration.extraEnvKey]?.mascara
+                                    ? `: ${chaves[integration.extraEnvKey]!.mascara}`
+                                    : ""}
                                 </div>
                               )}
                               <input
@@ -801,7 +858,7 @@ export default function IntegracoesPage() {
                                   setApiKeys((prev) => ({ ...prev, [`${integration.id}__extra`]: e.target.value }))
                                 }
                                 placeholder={
-                                  maskedKeys[integration.extraEnvKey]
+                                  chaves[integration.extraEnvKey]?.configurada
                                     ? "Substituir..."
                                     : `Informe o ${integration.extraEnvLabel ?? "Client ID"}…`
                                 }
@@ -811,17 +868,27 @@ export default function IntegracoesPage() {
                                 onClick={async () => {
                                   const v = apiKeys[`${integration.id}__extra`];
                                   if (!v) return;
-                                  await fetch("/api/integracoes/config", {
+                                  const res = await fetch("/api/integracoes/config", {
                                     method: "POST",
                                     headers: { "Content-Type": "application/json" },
                                     body: JSON.stringify({ key: integration.extraEnvKey, value: v }),
                                   });
+                                  if (!res.ok) {
+                                    const erro = (await res.json().catch(() => null)) as
+                                      | { error?: string }
+                                      | null;
+                                    setActionResult({
+                                      id: integration.id,
+                                      msg: erro?.error || `Não foi possível salvar (HTTP ${res.status}).`,
+                                      ok: false,
+                                    });
+                                    return;
+                                  }
                                   setApiKeys((p) => ({ ...p, [`${integration.id}__extra`]: "" }));
                                   await refreshStatus();
-                                  const c = await (await fetch("/api/integracoes/config")).json();
-                                  setMaskedKeys(c);
+                                  await recarregarChaves();
                                 }}
-                                disabled={!apiKeys[`${integration.id}__extra`]}
+                                disabled={!ehAdmin || !apiKeys[`${integration.id}__extra`]}
                                 className="px-3 py-1.5 text-xs font-medium rounded-lg border border-border text-foreground hover:bg-accent disabled:opacity-50"
                               >
                                 Salvar {integration.extraEnvLabel ?? "Client ID"}
@@ -839,17 +906,25 @@ export default function IntegracoesPage() {
                               onChange={(e) =>
                                 setApiKeys((prev) => ({ ...prev, [integration.id]: e.target.value }))
                               }
-                              placeholder={maskedKeys[integration.envKey] ? "Substituir chave existente..." : "Cole sua API key aqui..."}
+                              placeholder={
+                                chaves[integration.envKey]?.configurada
+                                  ? "Substituir chave existente..."
+                                  : "Cole sua API key aqui..."
+                              }
                               className="w-full px-3 py-2 bg-background border border-input rounded-lg text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
                             />
                           </div>
                           <div className="flex items-center gap-3 flex-wrap">
                             <button
                               onClick={() => handleSaveKey(integration.id, integration.envKey!)}
-                              disabled={saving || !apiKeys[integration.id]}
+                              disabled={saving || !ehAdmin || !apiKeys[integration.id]}
                               className="px-4 py-2 bg-primary text-primary-foreground text-sm font-medium rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
                             >
-                              {saving ? "Salvando..." : maskedKeys[integration.envKey!] ? "Atualizar Chave" : "Salvar Chave"}
+                              {saving
+                                ? "Salvando..."
+                                : chaves[integration.envKey!]?.configurada
+                                  ? "Atualizar Chave"
+                                  : "Salvar Chave"}
                             </button>
                             {/* ManyChat: Testar + Sincronizar */}
                             {integration.id === "manychat" && statusMap.manychat === "connected" && (

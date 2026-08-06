@@ -1,12 +1,16 @@
 import { prisma } from "@/lib/prisma";
 import { NextResponse } from "next/server";
 import * as manychat from "@/lib/integrations/manychat";
+import { guardAdminApi } from "@/lib/api-admin-guard";
 
 /**
  * POST /api/integracoes/manychat/sync
  * Importa leads do ManyChat para o pipeline do Ecossistema
  */
 export async function POST() {
+  const negado = await guardAdminApi("manychat/sync");
+  if (negado) return negado;
+
   try {
     const result = await manychat.getSubscribers();
     const subscribers = result.data || [];

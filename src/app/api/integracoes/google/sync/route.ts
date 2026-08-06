@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { NextResponse } from "next/server";
 import { syncPostToCalendar } from "@/lib/integrations/google-calendar";
-import { getSession } from "@/lib/session";
+import { guardAdminApi } from "@/lib/api-admin-guard";
 
 /**
  * POST /api/integracoes/google/sync
@@ -11,13 +11,14 @@ import { getSession } from "@/lib/session";
  * (UserGoogleAuth). Posts cujo autor nao conectou Google sao pulados.
  */
 export async function POST() {
-  const session = await getSession();
-  if (!session) {
-    return NextResponse.json(
-      { success: false, message: "Não autenticado" },
-      { status: 401 },
-    );
-  }
+  // A varredura NÃO é per-user: o findMany abaixo pega TODO post da janela,
+  // sem filtro por autor, e grava evento no Google Calendar de cada autor
+  // (createCalendarEvent(post.authorId, ...)) além de atualizar a linha Post.
+  // Com só `if (!session)`, qualquer pessoa do time disparava escrita na
+  // agenda alheia. A rota irmã de Outlook (outlook-web/sync) já exigia admin —
+  // esta era a inconsistente.
+  const negado = await guardAdminApi("google/sync");
+  if (negado) return negado;
 
   const now = new Date();
   const fourWeeksLater = new Date(now);
