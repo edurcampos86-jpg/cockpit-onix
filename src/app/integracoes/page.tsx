@@ -17,6 +17,7 @@ import {
   Settings,
   Key,
   Landmark,
+  GitPullRequest,
 } from "lucide-react";
 
 interface IntegrationConfig {
@@ -27,6 +28,12 @@ interface IntegrationConfig {
   status: "connected" | "disconnected" | "coming_soon";
   envKey?: string;
   extraEnvKey?: string;
+  /**
+   * Rótulo do campo extra. O texto era fixo em "Client ID" (só o Google usava
+   * extraEnvKey); GITHUB_REPO não é Client ID nenhum, e placeholder mentindo o
+   * que o campo espera é o caminho mais curto pra chave gravada errada.
+   */
+  extraEnvLabel?: string;
   docsUrl?: string;
   features: string[];
 }
@@ -167,6 +174,25 @@ const INTEGRATIONS: IntegrationConfig[] = [
       "Funil de conversão e matriz de CAC por sub-persona",
       "Ingestão de eventos do Pixel via /api/integracoes/meta/ingest",
       "Painel em /pixel-trafego (flag NEXT_PUBLIC_PIXEL_TRAFEGO)",
+    ],
+  },
+  {
+    id: "github",
+    name: "GitHub — status dos PRs",
+    description:
+      "Fecha o loop da Central de Implementações: mantém o status do PR de cada sugestão em dia, sem ninguém voltar na tela para marcar \"merged\"",
+    icon: <GitPullRequest className="h-6 w-6" />,
+    status: "disconnected",
+    envKey: "GITHUB_TOKEN",
+    extraEnvKey: "GITHUB_REPO",
+    extraEnvLabel: "repositório (dono/repo)",
+    docsUrl:
+      "https://docs.github.com/pt/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens",
+    features: [
+      "Cron a cada 30min atualiza aberta → merged/fechada",
+      "Somente LEITURA — não comenta, não fecha e não mergeia nada",
+      "Basta escopo de leitura de PR (repo público: nenhum escopo)",
+      "Sem a chave nada quebra: o vínculo do PR segue manual",
     ],
   },
 ];
@@ -774,7 +800,11 @@ export default function IntegracoesPage() {
                                 onChange={(e) =>
                                   setApiKeys((prev) => ({ ...prev, [`${integration.id}__extra`]: e.target.value }))
                                 }
-                                placeholder={maskedKeys[integration.extraEnvKey] ? "Substituir..." : "Cole o Client ID aqui..."}
+                                placeholder={
+                                  maskedKeys[integration.extraEnvKey]
+                                    ? "Substituir..."
+                                    : `Informe o ${integration.extraEnvLabel ?? "Client ID"}…`
+                                }
                                 className="w-full px-3 py-2 bg-background border border-input rounded-lg text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
                               />
                               <button
@@ -794,7 +824,7 @@ export default function IntegracoesPage() {
                                 disabled={!apiKeys[`${integration.id}__extra`]}
                                 className="px-3 py-1.5 text-xs font-medium rounded-lg border border-border text-foreground hover:bg-accent disabled:opacity-50"
                               >
-                                Salvar Client ID
+                                Salvar {integration.extraEnvLabel ?? "Client ID"}
                               </button>
                             </div>
                           )}

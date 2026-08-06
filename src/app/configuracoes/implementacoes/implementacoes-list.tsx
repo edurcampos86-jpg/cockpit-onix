@@ -83,6 +83,18 @@ function eixosEditados(d: RiceDraft): Eixo[] {
 
 const GOLD = "#FFB114";
 
+/**
+ * Teto de itens por rodada do lote de sugestão da IA.
+ *
+ * Cada item é uma chamada de visão que baixa os anexos do B2 e leva até ~1 min.
+ * Sem teto, um clique com a fila cheia vira dezenas de minutos de chamadas
+ * pagas que ninguém consegue interromper no meio. 20 mantém o pior caso em
+ * torno de 20 min e ainda resolve a fila de um dia ruim em poucas rodadas —
+ * repetir o clique retoma de onde parou, porque o que já foi pontuado sai do
+ * filtro sozinho.
+ */
+const MAX_LOTE = 20;
+
 const STATUSES = [
   "triagem",
   "aprovada",
@@ -385,6 +397,10 @@ export function ImplementacoesList({
   // Lote de sugestão da IA: trava o botão e mostra progresso item a item.
   const [loteAtivo, setLoteAtivo] = useState(false);
   const [loteFeitos, setLoteFeitos] = useState(0);
+  // Quantas o lote em curso vai chamar — pode ser MENOS que aPontuarNoRecorte
+  // quando o teto por rodada corta. O progresso tem que contar sobre o que
+  // realmente vai rodar, senão a barra para em "12/47" e parece travada.
+  const [loteTotal, setLoteTotal] = useState(0);
   const [, startTransition] = useTransition();
 
   // Rascunhos da IA por linha (NÃO salvos), loading e erro da sugestão por linha.
@@ -598,10 +614,34 @@ export function ImplementacoesList({
    */
   async function sugerirRiceEmLote() {
     if (loteAtivo) return;
-    const alvos = visiveis.filter((r) => r.score == null && !drafts[r.id]);
-    if (alvos.length === 0) return;
+    const candidatos = visiveis.filter((r) => r.score == null && !drafts[r.id]);
+    if (candidatos.length === 0) return;
+
+    // Teto por rodada. Sem ele, um clique com a fila cheia dispara N chamadas
+    // pagas de visão em sequência, cada uma baixando anexos do B2 — dezenas de
+    // minutos de trabalho que ninguém consegue interromper depois de começar.
+    // Com teto, o pior caso é limitado e previsível, e repetir o clique retoma
+    // de onde parou (as já pontuadas saem do filtro sozinhas).
+    const alvos = candidatos.slice(0, MAX_LOTE);
+    const sobra = candidatos.length - alvos.length;
+
+    // Confirmação com a CONTA na frente. O gesto é 1 clique e o custo não é
+    // óbvio pelo botão; confirmar é o único ponto em que dá para desistir.
+    const aviso = [
+      `Sugerir RICE para ${alvos.length} ${alvos.length === 1 ? "sugestão" : "sugestões"}?`,
+      "",
+      "Cada uma é uma chamada à IA que lê o conteúdo e os anexos — leva até ~1 min por item, em sequência.",
+      sobra > 0
+        ? `\nAs outras ${sobra} ficam para a próxima rodada (teto de ${MAX_LOTE} por vez).`
+        : "",
+      "\nNada é salvo: tudo vira rascunho até você confirmar linha a linha.",
+    ]
+      .filter(Boolean)
+      .join("\n");
+    if (!confirm(aviso)) return;
 
     setLoteAtivo(true);
+    setLoteTotal(alvos.length);
     setLoteFeitos(0);
     try {
       for (const r of alvos) {
@@ -766,12 +806,15 @@ export function ImplementacoesList({
             {loteAtivo ? (
               <>
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Sugerindo {loteFeitos}/{aPontuarNoRecorte}…
+                Sugerindo {loteFeitos}/{loteTotal}…
               </>
             ) : (
               <>
                 <Sparkles className="h-3.5 w-3.5" />
-                Sugerir RICE para as {aPontuarNoRecorte}
+                Sugerir RICE para{" "}
+                {aPontuarNoRecorte > MAX_LOTE
+                  ? `${MAX_LOTE} de ${aPontuarNoRecorte}`
+                  : `as ${aPontuarNoRecorte}`}
               </>
             )}
           </button>
