@@ -38,9 +38,10 @@ export type ImplementacaoDTO = {
   empresaId: string;
   tipo: string;
   porQue: string;
-  como: string | null;
   oQue: string;
   printUrl: string | null;
+  // `como` e `createdAt` existem no modelo mas NÃO entram aqui: nenhuma célula
+  // desta tabela os renderiza, e a página serializa o DTO inteiro em todo acesso.
   anexos: AnexoDTO[];
   reach: number | null;
   impact: number | null;
@@ -48,7 +49,6 @@ export type ImplementacaoDTO = {
   effort: number | null;
   score: number | null;
   status: string;
-  createdAt: string;
 };
 
 type Eixo = "reach" | "impact" | "confidence" | "effort";
@@ -196,13 +196,18 @@ function JustificativaTip({ texto }: { texto: string }) {
 export function ImplementacoesList({
   itens,
   empresas,
+  ocultadas = 0,
 }: {
   itens: ImplementacaoDTO[];
   empresas: { id: string; nome: string }[];
+  /** Linhas que existem no banco mas não vieram por causa do teto da página. */
+  ocultadas?: number;
 }) {
   const [rows, setRows] = useState<ImplementacaoDTO[]>(itens);
   const [fEmpresa, setFEmpresa] = useState<string>("todas");
   const [fStatus, setFStatus] = useState<string>("todos");
+  // Recorte "ainda sem RICE". Não é um status — é a ausência dos 4 fatores.
+  const [soSemRice, setSoSemRice] = useState(false);
   const [, startTransition] = useTransition();
 
   // Rascunhos da IA por linha (NÃO salvos), loading e erro da sugestão por linha.
@@ -218,20 +223,38 @@ export function ImplementacoesList({
   // payloads parciais (com fatores ainda nulos) sobrescrevam uns aos outros.
   const rowsRef = useRef(rows);
 
+  /**
+   * Linhas do recorte atual de empresa/status, ANTES do recorte "sem RICE" —
+   * é sobre esta base que o aviso conta quantas faltam pontuar, senão ligar o
+   * recorte zeraria o próprio contador que levou a ligá-lo.
+   */
+  const noRecorte = useMemo(
+    () =>
+      rows.filter(
+        (r) =>
+          (fEmpresa === "todas" || r.empresaId === fEmpresa) &&
+          (fStatus === "todos" || r.status === fStatus),
+      ),
+    [rows, fEmpresa, fStatus],
+  );
+
+  const semRice = useMemo(
+    () => noRecorte.filter((r) => r.score == null).length,
+    [noRecorte],
+  );
+
   const visiveis = useMemo(() => {
-    const filtered = rows.filter(
-      (r) =>
-        (fEmpresa === "todas" || r.empresaId === fEmpresa) &&
-        (fStatus === "todos" || r.status === fStatus),
-    );
-    return filtered.sort((a, b) => {
+    const filtered = soSemRice
+      ? noRecorte.filter((r) => r.score == null)
+      : noRecorte;
+    return [...filtered].sort((a, b) => {
       // score desc, nulls por último
       if (a.score == null && b.score == null) return 0;
       if (a.score == null) return 1;
       if (b.score == null) return -1;
       return b.score - a.score;
     });
-  }, [rows, fEmpresa, fStatus]);
+  }, [noRecorte, soSemRice]);
 
   function commitRice(id: string, patch: Partial<ImplementacaoDTO>) {
     // Compõe a partir do estado MAIS RECENTE (ref), não do snapshot do closure.
@@ -450,7 +473,41 @@ export function ImplementacoesList({
             </option>
           ))}
         </select>
+
+        {/* Recorte "sem RICE". A ordenação da tabela é score desc com nulls por
+         * último, então sugestão recém-criada nasce no RODAPÉ — exatamente onde
+         * ninguém olha. Sem este atalho, a ideia nova só é vista por quem rola
+         * a fila inteira, e a fila só tende a crescer. */}
+        {semRice > 0 && (
+          <button
+            type="button"
+            onClick={() => setSoSemRice((v) => !v)}
+            aria-pressed={soSemRice}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
+              soSemRice
+                ? "border-[#FFB114] bg-[#FFB114]/10 text-foreground"
+                : "border-border text-muted-foreground hover:bg-accent",
+            )}
+          >
+            <Sparkles className="h-3.5 w-3.5 text-[#FFB114]" />
+            {semRice} sem RICE
+            {soSemRice && <X className="h-3.5 w-3.5" />}
+          </button>
+        )}
       </div>
+
+      {ocultadas > 0 && (
+        <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            <strong>{ocultadas}</strong>{" "}
+            {ocultadas === 1 ? "sugestão mais antiga não está" : "sugestões mais antigas não estão"}{" "}
+            nesta tela — a página traz as {rows.length} de maior score. Os filtros
+            abaixo só enxergam o que está carregado.
+          </span>
+        </div>
+      )}
 
       {visiveis.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
