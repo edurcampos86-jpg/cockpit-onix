@@ -2226,6 +2226,12 @@ model Implementacao {
 
   // Golden Circle
   porQue  String  @db.Text // Why
+  // "Como" é OBRIGATÓRIO no formulário desde o fluxo guiado, mas segue nullable
+  // AQUI de propósito. As sugestões criadas antes do fluxo guiado legitimamente
+  // não têm um "como" — preencher com placeholder na migration inventaria dado
+  // que nenhuma leitura futura conseguiria distinguir de uma resposta real (e a
+  // IA leria o placeholder como contexto). A obrigatoriedade é regra de PRODUTO
+  // para submissão nova, aplicada na Server Action; não é invariante de storage.
   como    String? @db.Text // How
   oQue    String  @db.Text // What (o pedido concreto)
   printUrl String? // key do objeto no Backblaze B2
@@ -2238,6 +2244,27 @@ model Implementacao {
   score      Float? // reach*impact*confidence/effort (calc no app)
 
   status String @default("triagem") // triagem|aprovada|em-andamento|concluida|recusada
+
+  // ── Fluxo guiado: prompt de execução gerado pela IA ──
+  // promptGerado guarda o texto FINAL entregue ao usuário (o que ele copiou),
+  // não um rascunho — é o registro de auditoria do que foi de fato pedido.
+  // versaoTemplate diz com qual régua da metodologia ele foi produzido; sem
+  // isso, um prompt de 6 meses atrás parece ter nascido sob as regras de hoje.
+  promptGerado   String? @db.Text
+  versaoTemplate Int? // VERSAO do template-entrega-onix.md vigente na geração
+
+  // Log estruturado da elicitação: [{ pergunta, resposta }] + sinais técnicos.
+  // Só o essencial para reconstruir o prompt — nada de transcrição bruta.
+  conversaIA Json?
+
+  // ── Fechamento do loop: da ideia ao PR que ela originou ──
+  // Preenchido à mão hoje (não há webhook do GitHub para cá). Permite medir
+  // quantas ideias da fila viraram entrega e em quanto tempo — a métrica que
+  // hoje não existe porque "concluída" é digitado sem lastro.
+  prNumero   Int?
+  prUrl      String?
+  prStatus   String? // "aberta" | "merged" | "fechada"
+  prMergedAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
