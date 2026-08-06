@@ -5,6 +5,24 @@ import { getConfig } from "@/lib/config-db";
 const CONFIG_PATH = path.resolve(process.cwd(), ".integrations.json");
 
 /**
+ * Chaves cujo store canônico é o Config DB, não o `.integrations.json`.
+ *
+ * O arquivo é EFÊMERO no Railway (vive no filesystem do container e some no
+ * redeploy). Chave gravada só nele volta a "não configurada" no próximo deploy,
+ * em silêncio — e pior: quem a lê por `getConfig()` nunca a encontra, nem antes
+ * do redeploy, porque `getConfig` consulta o banco e não o arquivo.
+ *
+ * Toda chave nova consumida via `getConfig()` PRECISA entrar aqui. As demais
+ * seguem no arquivo por compatibilidade com o que já estava lá.
+ */
+export const CHAVES_CONFIG_DB = new Set([
+  "ANTHROPIC_API_KEY",
+  // Sincronia de status dos PRs da Central de Implementações (leitura apenas).
+  "GITHUB_TOKEN",
+  "GITHUB_REPO",
+]);
+
+/**
  * Retorna config mesclando: variáveis de ambiente (Railway) + .integrations.json (local/UI)
  * Prioridade: .integrations.json sobrescreve env vars (permite atualizar via UI)
  */
@@ -36,12 +54,14 @@ export async function getIntegrationConfig(): Promise<Record<string, string>> {
     }
   } catch { /* ignore */ }
 
-  // ANTHROPIC_API_KEY é padronizada no Config DB (escrita pela UI via setConfig,
-  // lida por getConfig/extrair, persistente entre deploys). DB tem prioridade; o
-  // .integrations.json segue como fallback legado pra chaves salvas antes desta
+  // As chaves do Config DB têm PRIORIDADE sobre env e arquivo: é lá que a UI
+  // grava e de lá que getConfig lê, e é o único store que sobrevive a redeploy.
+  // O .integrations.json segue como fallback legado pra chave salva antes desta
   // unificação. Mantém display "Chave configurada" e testConnection coerentes.
-  const anthropicDb = await getConfig("ANTHROPIC_API_KEY");
-  if (anthropicDb) config["ANTHROPIC_API_KEY"] = anthropicDb;
+  for (const chave of CHAVES_CONFIG_DB) {
+    const doBanco = await getConfig(chave);
+    if (doBanco) config[chave] = doBanco;
+  }
 
   return config;
 }

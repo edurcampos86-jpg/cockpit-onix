@@ -94,6 +94,18 @@ schedule = "*/30 * * * *"
 command = "curl -fsS -H \"Authorization: Bearer $CRON_SECRET\" $RAILWAY_PUBLIC_DOMAIN/api/cron/implementacoes-pr-status"
 
 # ────────────────────────────────────────────────────────────────────────
+# Anexos órfãos da Central de Implementações — objeto no B2 sem linha no banco.
+# Dia 1 de cada mês, 06:00 Bahia = 09:00 UTC.
+# MODO RELATÓRIO: sem ?apagar=1 a rota só CONTA e loga. A limpeza é chamada
+# deliberada depois de ler o relatório — rotina que apaga arquivo sozinha, todo
+# mês, sem ninguém olhar, é a forma mais cara de descobrir um bug.
+# ────────────────────────────────────────────────────────────────────────
+[[crons]]
+name = "implementacoes-anexos-orfaos"
+schedule = "0 9 1 * *"
+command = "curl -fsS -H \"Authorization: Bearer $CRON_SECRET\" $RAILWAY_PUBLIC_DOMAIN/api/cron/implementacoes-anexos-orfaos"
+
+# ────────────────────────────────────────────────────────────────────────
 # Outlook ICS polling — reuniões marcadas no Outlook (calendário publicado).
 # A cada 30min. Lookahead 60 dias / lookback 7 dias. Pré-requisito:
 # OUTLOOK_ICS_URL configurada em Config (URL pública do .ics).

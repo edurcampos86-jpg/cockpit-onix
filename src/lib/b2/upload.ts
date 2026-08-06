@@ -5,6 +5,7 @@ import {
   DeleteObjectCommand,
   HeadObjectCommand,
   CopyObjectCommand,
+  ListObjectsV2Command,
   NoSuchKey,
 } from "@aws-sdk/client-s3";
 import type { Readable } from "node:stream";
@@ -91,6 +92,42 @@ export async function deleteContrato(key: string): Promise<void> {
   const client = getB2ClientContratos();
   const bucket = bucketContratos();
   await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+}
+
+/**
+ * Lista objetos do bucket de contratos sob um prefixo, paginando até o fim.
+ *
+ * Espelha listBackups() do outro bucket. Usada pela varredura de anexos órfãos,
+ * que precisa comparar o conteúdo real do bucket com as linhas do banco — e
+ * para isso precisa enxergar TUDO sob o prefixo, não só a primeira página de
+ * 1000 (é justamente o objeto que ninguém vê que vira órfão pago).
+ */
+export async function listContratos(
+  prefix: string,
+): Promise<Array<{ key: string; size: number; lastModified: Date }>> {
+  const client = getB2ClientContratos();
+  const bucket = bucketContratos();
+  const all: Array<{ key: string; size: number; lastModified: Date }> = [];
+  let continuationToken: string | undefined;
+
+  do {
+    const result = await client.send(
+      new ListObjectsV2Command({
+        Bucket: bucket,
+        Prefix: prefix,
+        ContinuationToken: continuationToken,
+      }),
+    );
+    for (const obj of result.Contents ?? []) {
+      if (!obj.Key || obj.Size == null || !obj.LastModified) continue;
+      all.push({ key: obj.Key, size: obj.Size, lastModified: obj.LastModified });
+    }
+    continuationToken = result.IsTruncated
+      ? result.NextContinuationToken
+      : undefined;
+  } while (continuationToken);
+
+  return all;
 }
 
 /** Verifica se uma key existe — usado pra recuperação de upload incompleto. */

@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getIntegrationConfig, setIntegrationConfig } from "@/lib/integrations/config";
+import {
+  CHAVES_CONFIG_DB,
+  getIntegrationConfig,
+  setIntegrationConfig,
+} from "@/lib/integrations/config";
 import { setConfig } from "@/lib/config-db";
 
 export async function GET() {
@@ -18,10 +22,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Key and value required" }, { status: 400 });
   }
 
-  // ANTHROPIC_API_KEY: store unificado no Config DB — é o que getConfig/extrair
-  // leem e sobrevive a redeploy (o .integrations.json é efêmero no Railway). As
-  // demais chaves seguem no arquivo via setIntegrationConfig.
-  if (key === "ANTHROPIC_API_KEY") {
+  // CHAVES_CONFIG_DB: store unificado no Config DB — é o que getConfig lê e o
+  // único que sobrevive a redeploy (o .integrations.json é efêmero no Railway).
+  // As demais chaves seguem no arquivo via setIntegrationConfig, por
+  // compatibilidade com o que já estava salvo lá.
+  if (CHAVES_CONFIG_DB.has(key)) {
     await setConfig(key, value);
   } else {
     await setIntegrationConfig(key, value);
