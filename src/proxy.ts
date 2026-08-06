@@ -1,18 +1,15 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { jwtVerify } from "jose";
+import { ehEstaticoSemAuth, ehRotaPublica } from "@/lib/proxy-rotas";
 
-const publicRoutes = [
-  "/login",
-  "/recriar-senha",                    // Reset de senha — protegido por PASSWORD_RESET_SECRET
-  "/onboarding/",                      // Rota pública de onboarding por token (Fase 2C — gestão do time)
-  "/api/cron/",                        // Crons do Painel do Dia — autenticam via Bearer CRON_SECRET
-  "/api/health",                       // Health check do smoke pós-deploy — sem dados sensíveis
-  "/api/integracoes/zapier/webhook",
-  "/api/onix-corretora/ingest",
-  "/api/webhooks/btg",                 // Webhook BTG — autentica via x-webhook-secret se configurado
-  "/api/integracoes/meta/ingest",      // Ingest de eventos do MSP — Bearer META_INGEST_TOKEN (timing-safe; ausente = 503)
-];
+/**
+ * As duas regras de path vivem em `@/lib/proxy-rotas` (módulo puro, testado).
+ * Este arquivo importa `jose` e `next/server`, então a lógica que decide quem
+ * pula a autenticação não tinha como ter teste — e foi exatamente ali que o
+ * furo do `path.includes(".")` morou sem ninguém notar. Comentário de cada
+ * rota pública está no módulo.
+ */
 const secretKey = process.env.SESSION_SECRET;
 const encodedKey = new TextEncoder().encode(secretKey);
 
@@ -54,17 +51,8 @@ async function drenarCorpoRequest(request: NextRequest) {
 export async function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;
 
-  // Allow public routes
-  if (publicRoutes.some((route) => path.startsWith(route))) {
-    return NextResponse.next();
-  }
-
-  // Allow static files and Next.js internals
-  if (
-    path.startsWith("/_next") ||
-    path.startsWith("/favicon") ||
-    path.includes(".")
-  ) {
+  // Rotas públicas (cada uma com autenticação própria) e estáticos/internos.
+  if (ehRotaPublica(path) || ehEstaticoSemAuth(path)) {
     return NextResponse.next();
   }
 

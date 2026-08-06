@@ -15,11 +15,29 @@ import {
   extrairAcoes,
 } from "@/lib/claude-analisar";
 import { identificarVendedorDoPayload } from "@/lib/integrations/zapier";
+import { guardAdminApi } from "@/lib/api-admin-guard";
+
+/**
+ * Mensagem de erro a partir de `unknown`. Os catch deste arquivo usavam
+ * `err: any` só para alcançar `.message` — o `any` desligava a checagem do
+ * bloco inteiro, não só do acesso à propriedade.
+ */
+function msgErro(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/** Elemento devolvido por fetchConversas — evita `any[]` no acumulador. */
+type Conversa = Awaited<ReturnType<typeof fetchConversas>>[number];
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // 5 minutes timeout
 
 export async function GET(req: NextRequest) {
+  // Rota de DIAGNÓSTICO: expõe estado de credencial e inventário de ambiente.
+  // Era alcançável por qualquer sessão — o proxy garante login, nunca role.
+  const negado = await guardAdminApi("onix-corretora/analisar");
+  if (negado) return negado;
+
   const test = req.nextUrl.searchParams.get("test");
   const tokenFromEnv = process.env.DATACRAZY_TOKEN ?? "";
   const tokenFromDb = await getConfig("DATACRAZY_TOKEN") ?? "";
@@ -39,25 +57,29 @@ export async function GET(req: NextRequest) {
         bodyLen: body.length,
         bodyPreview: body.substring(0, 200),
       });
-    } catch (err: any) {
-      return NextResponse.json({ test: "datacrazy", error: err.message });
+    } catch (err: unknown) {
+      return NextResponse.json({ test: "datacrazy", error: msgErro(err) });
     }
   }
 
-  const customKeys = Object.keys(process.env)
-    .filter(k => !k.startsWith("RAILWAY_") && !k.startsWith("npm_") && !k.startsWith("NODE"))
-    .sort();
-
+  // O diagnóstico responde PRESENÇA, nunca conteúdo. O que saiu daqui:
+  //  - anthropicKeyPrefix: os 10 primeiros caracteres REAIS da chave da
+  //    Anthropic. Prefixo de chave identifica a organização emissora e o tipo
+  //    do token — é a metade útil de um segredo para quem quer confirmar um
+  //    vazamento parcial ou montar engenharia social convincente.
+  //  - anthropicKeyLen / datacrazyLen: comprimento exato de cada segredo,
+  //    que estreita busca offline.
+  //  - envKeys: o inventário COMPLETO dos nomes de variáveis do container —
+  //    SESSION_SECRET, CRON_SECRET, PASSWORD_RESET_SECRET, chaves do B2.
+  //    Não é o valor, é o mapa de onde eles estão; é assim que se escolhe
+  //    o alvo antes de procurar o furo.
+  // Nada disso é necessário para diagnosticar "a integração está de pé".
   return NextResponse.json({
     status: "ok",
     hasDatacrazyToken: !!token,
-    datacrazyLen: token.length,
     tokenSource: tokenFromEnv ? "env" : tokenFromDb ? "db" : "none",
     hasAnthropicKey: !!process.env.ANTHROPIC_API_KEY,
-    anthropicKeyLen: (process.env.ANTHROPIC_API_KEY ?? "").length,
-    anthropicKeyPrefix: (process.env.ANTHROPIC_API_KEY ?? "").substring(0, 10),
     plaudViaZapier: true,
-    envKeys: customKeys,
   });
 }
 
@@ -114,16 +136,16 @@ export async function POST(req: NextRequest) {
       }
 
       // 1. Fetch conversations from all instances for this vendedor (max 1 page = 100 per instance)
-      let todasConversas: any[] = [];
+      let todasConversas: Conversa[] = [];
       for (let ii = 0; ii < config.instanceIds.length; ii++) {
         const instanceId = config.instanceIds[ii];
         if (ii > 0) await new Promise((r) => setTimeout(r, 2000));
         try {
           const conversas = await fetchConversas(instanceId, token, 1);
           todasConversas = todasConversas.concat(conversas);
-        } catch (err: any) {
+        } catch (err: unknown) {
           errors.push(
-            `${vendedor} (instance ${instanceId}): ${err.message}`
+            `${vendedor} (instance ${instanceId}): ${msgErro(err)}`
           );
         }
       }
@@ -183,10 +205,10 @@ export async function POST(req: NextRequest) {
             "Contato";
           const transcricao = buildTranscricao(mensagens, nomeContato);
           transcricoes.push(transcricao);
-        } catch (err: any) {
+        } catch (err: unknown) {
           // Log but continue with other conversations
           errors.push(
-            `${vendedor} (conversa ${conversa.id}): ${err.message}`
+            `${vendedor} (conversa ${conversa.id}): ${msgErro(err)}`
           );
         }
       }
@@ -232,9 +254,9 @@ export async function POST(req: NextRequest) {
         if (meetingsDoVendedor.length > 0) {
           console.log(`[Plaud/Zapier] ${vendedor}: ${meetingsDoVendedor.length} gravacao(es) no periodo`);
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         // Plaud é opcional — apenas loga, não interrompe
-        console.warn(`[Plaud/Zapier] Falha ao buscar gravacoes para ${vendedor}: ${err.message}`);
+        console.warn(`[Plaud/Zapier] Falha ao buscar gravacoes para ${vendedor}: ${msgErro(err)}`);
       }
 
       // 7. Get last report's secao5 for retomada
@@ -305,8 +327,8 @@ export async function POST(req: NextRequest) {
       });
 
       relatoriosGerados.push({ vendedor, id: relatorio.id, periodo });
-    } catch (err: any) {
-      errors.push(`${vendedor}: ${err.message}`);
+    } catch (err: unknown) {
+      errors.push(`${vendedor}: ${msgErro(err)}`);
     }
   }
 
