@@ -5,7 +5,7 @@ import { getAuthContext, isAdmin } from "@/lib/auth-helpers";
 import { getConfig } from "@/lib/config-db";
 import { downloadContrato } from "@/lib/b2/upload";
 import { calcRiceScore } from "@/lib/rice";
-import { EMPRESAS } from "@/lib/empresas-config";
+import { nomeEmpresa } from "@/lib/empresas-config";
 import { logSugestaoRiceSugerida } from "@/lib/implementacoes/rice-audit";
 
 /**
@@ -191,8 +191,9 @@ export async function POST(
     }
   }
 
-  const empresaNome =
-    EMPRESAS.find((e) => e.id === impl.empresaId)?.nome ?? impl.empresaId;
+  // nomeEmpresa resolve contra TODAS as empresas conhecidas: uma sugestão de
+  // empresa fora da fase inicial ainda chega na IA com nome, não com o id cru.
+  const empresaNome = nomeEmpresa(impl.empresaId);
 
   const userText = [
     "Sugira o RICE inicial para esta implementação.",

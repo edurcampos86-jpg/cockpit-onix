@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getAuthContext, isAdmin } from "@/lib/auth-helpers";
-import { EMPRESAS } from "@/lib/empresas-config";
+import { opcoesFiltroEmpresa } from "@/lib/empresas-config";
 import { ImplementacoesList, type ImplementacaoDTO } from "./implementacoes-list";
 
 export const dynamic = "force-dynamic";
@@ -39,7 +39,9 @@ export default async function ImplementacoesPage() {
     createdAt: i.createdAt.toISOString(),
   }));
 
-  const empresas = EMPRESAS.map((e) => ({ id: e.id, nome: e.nome }));
+  // Opções derivadas da fase inicial UNIDA aos empresaId realmente gravados —
+  // assim nenhuma linha visível na tabela fica sem opção correspondente no filtro.
+  const empresas = opcoesFiltroEmpresa(itens.map((i) => i.empresaId));
 
   return <ImplementacoesList itens={dto} empresas={empresas} />;
 }

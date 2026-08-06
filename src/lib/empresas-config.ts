@@ -18,9 +18,13 @@ export type EmpresaConfig = {
   abas: AbaEmpresa[];
 };
 
+/* O `id` "investimentos" é a chave gravada em Implementacao.empresaId desde o
+ * início e NÃO muda — só o rótulo passou a ser "Onix Capital". Renomear o id
+ * exigiria um UPDATE em massa nas linhas existentes sem ganho nenhum: o id é
+ * interno, o nome é o que aparece na tela. Mesma lógica em "imobiliaria". */
 const investimentos: EmpresaConfig = {
   id: "investimentos",
-  nome: "Onix Investimentos",
+  nome: "Onix Capital",
   abas: [
     { label: "Onboard", icon: "UserPlus", emBreve: true },
     { label: "Rotina", icon: "CalendarCheck", href: "/empresas/investimentos/painel-do-dia" },
@@ -72,8 +76,14 @@ const planejamento: EmpresaConfig = {
 
 const imobiliaria: EmpresaConfig = {
   id: "imobiliaria",
-  nome: "Onix Imobiliária",
+  nome: "Onix Imob",
   abas: abasPadrao("imobiliaria"),
+};
+
+const educacao: EmpresaConfig = {
+  id: "educacao",
+  nome: "Onix Educação",
+  abas: abasPadrao("educacao"),
 };
 
 const corporate: EmpresaConfig = {
@@ -95,3 +105,78 @@ const NAV_V2 = process.env.NEXT_PUBLIC_NAV_V2 === "true";
 export const EMPRESAS: EmpresaConfig[] = NAV_V2
   ? [investimentos, corretora, planejamento, imobiliaria, corporate, tech]
   : [investimentos];
+
+/* ──────────────────────────────────────────────────────────────
+ * Alvos da Central de Implementações — fase inicial.
+ *
+ * Lista PRÓPRIA, separada de EMPRESAS de propósito, por dois motivos:
+ *
+ * 1. EMPRESAS depende de NEXT_PUBLIC_NAV_V2. Com a flag desligada ela colapsa
+ *    para [investimentos] — e o seletor de "Nova implementação" ficava com uma
+ *    empresa só. A fila de melhorias não tem por que esperar o rollout da
+ *    navegação: quem tem ideia para a Corretora tem hoje, com a flag off.
+ * 2. EMPRESAS é a config de NAVEGAÇÃO (abas, rotas, shell). "planejamento" e
+ *    "corporate" seguem lá porque têm rotas em /empresas/* que continuam
+ *    funcionando; só não são alvo de sugestão nova nesta fase.
+ *
+ * As abas aqui são irrelevantes — esta lista só alimenta seletor e filtro.
+ * ────────────────────────────────────────────────────────────── */
+export const EMPRESAS_IMPLEMENTACOES: EmpresaConfig[] = [
+  investimentos,
+  corretora,
+  imobiliaria,
+  educacao,
+  tech,
+];
+
+/** Todas as configs conhecidas, independente de flag ou de fase. */
+const TODAS: EmpresaConfig[] = [
+  investimentos,
+  corretora,
+  planejamento,
+  imobiliaria,
+  corporate,
+  tech,
+  educacao,
+];
+
+/**
+ * Rótulo de uma empresa a partir do id gravado no banco.
+ *
+ * Resolve contra TODAS (não contra EMPRESAS), então empresa fora da fase
+ * inicial — ou escondida pela flag de navegação — ainda aparece com nome de
+ * gente. O fallback para o próprio id existe só para dado inesperado: melhor
+ * mostrar "corporate" do que uma célula vazia.
+ */
+export function nomeEmpresa(id: string): string {
+  return TODAS.find((e) => e.id === id)?.nome ?? id;
+}
+
+/** Um id é alvo válido para criar sugestão nova nesta fase? */
+export function empresaAceitaImplementacao(id: string): boolean {
+  return EMPRESAS_IMPLEMENTACOES.some((e) => e.id === id);
+}
+
+/**
+ * Opções do filtro de empresa da Central de Implementações: a fase inicial MAIS
+ * qualquer empresaId que exista de fato no banco.
+ *
+ * Sem a união, uma sugestão gravada para uma empresa fora da lista (histórico,
+ * empresa despromovida de fase, flag de nav mudando debaixo do dado) continua
+ * ocupando linha na tabela mas some do dropdown — e o filtro passa a mentir:
+ * "todas" mostra um conjunto que nenhuma opção individual consegue reproduzir.
+ * O extra aparece marcado para deixar claro que não é alvo de sugestão nova.
+ */
+export function opcoesFiltroEmpresa(
+  idsPresentes: readonly string[],
+): { id: string; nome: string }[] {
+  const daFase = EMPRESAS_IMPLEMENTACOES.map((e) => ({ id: e.id, nome: e.nome }));
+  const jaListados = new Set(daFase.map((e) => e.id));
+
+  const extras = [...new Set(idsPresentes)]
+    .filter((id) => !jaListados.has(id))
+    .sort()
+    .map((id) => ({ id, nome: `${nomeEmpresa(id)} (fora da fase)` }));
+
+  return [...daFase, ...extras];
+}

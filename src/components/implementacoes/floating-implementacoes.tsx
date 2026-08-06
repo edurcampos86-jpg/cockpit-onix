@@ -4,7 +4,7 @@ import { useEffect, useState, useActionState } from "react";
 import { usePathname } from "next/navigation";
 import { Lightbulb, X, HelpCircle, Cog, Target, CheckCircle2 } from "lucide-react";
 import { criarImplementacao, type CriarState } from "@/app/actions/implementacao";
-import { EMPRESAS } from "@/lib/empresas-config";
+import { EMPRESAS_IMPLEMENTACOES } from "@/lib/empresas-config";
 import { AnexosInput } from "@/components/implementacoes/anexos-input";
 
 const initial: CriarState = { ok: false };
@@ -67,10 +67,10 @@ function SugestaoForm({
         <label className="mb-1.5 block text-sm font-semibold text-foreground">Empresa</label>
         <select
           name="empresaId"
-          defaultValue={EMPRESAS[0]?.id}
+          defaultValue={EMPRESAS_IMPLEMENTACOES[0].id}
           className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
         >
-          {EMPRESAS.map((e) => (
+          {EMPRESAS_IMPLEMENTACOES.map((e) => (
             <option key={e.id} value={e.id}>
               {e.nome}
             </option>
