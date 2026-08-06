@@ -5,7 +5,8 @@ import { getAuthContext, isAdmin } from "@/lib/auth-helpers";
 import { getConfig } from "@/lib/config-db";
 import { downloadContrato } from "@/lib/b2/upload";
 import { calcRiceScore } from "@/lib/rice";
-import { EMPRESAS } from "@/lib/empresas-config";
+import { nomeEmpresa } from "@/lib/empresas-config";
+import { buscarSimilares, textoSimilares } from "@/lib/implementacoes/similares";
 import { logSugestaoRiceSugerida } from "@/lib/implementacoes/rice-audit";
 
 /**
@@ -191,8 +192,39 @@ export async function POST(
     }
   }
 
-  const empresaNome =
-    EMPRESAS.find((e) => e.id === impl.empresaId)?.nome ?? impl.empresaId;
+  // nomeEmpresa resolve contra TODAS as empresas conhecidas: uma sugestão de
+  // empresa fora da fase inicial ainda chega na IA com nome, não com o id cru.
+  const empresaNome = nomeEmpresa(impl.empresaId);
+
+  // Ideias PARECIDAS que já viraram entrega. Sem isto, a IA pontua cada
+  // sugestão como se fosse inédita: com a fila crescendo, ela repontua
+  // variações da mesma ideia sem saber que aquilo já foi feito — e a
+  // confidence sai alta justamente onde deveria sair baixa.
+  //
+  // Só linhas COM prMergedAt: "entregue" tem que ser a data carimbada pelo
+  // servidor, não o prStatus digitado à mão, senão o histórico que calibra a
+  // estimativa é o próprio otimismo de quem preencheu.
+  //
+  // Falha aqui não derruba a sugestão — o histórico é calibragem, não
+  // requisito. Sem ele a IA responde como respondia antes.
+  let blocoSimilares = "";
+  try {
+    const entregues = await prisma.implementacao.findMany({
+      where: { prMergedAt: { not: null }, id: { not: id } },
+      select: {
+        oQue: true,
+        effort: true,
+        prNumero: true,
+        createdAt: true,
+        prMergedAt: true,
+      },
+      orderBy: { prMergedAt: "desc" },
+      take: 200,
+    });
+    blocoSimilares = textoSimilares(buscarSimilares(impl.oQue, entregues));
+  } catch (err) {
+    console.error("[sugerir-rice] falha ao buscar similares", err);
+  }
 
   const userText = [
     "Sugira o RICE inicial para esta implementação.",
@@ -202,6 +234,7 @@ export async function POST(
     `O quê (o pedido): ${impl.oQue}`,
     `Como: ${impl.como ?? "(não informado)"}`,
     `Por quê (motivação): ${impl.porQue}`,
+    blocoSimilares,
     anexosIgnorados.length
       ? `\n(Anexos não enviados por tipo/erro: ${anexosIgnorados.join(", ")})`
       : "",
