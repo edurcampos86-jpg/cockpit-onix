@@ -275,6 +275,12 @@ export const FLAGS_REGISTRADAS: readonly FlagRegistrada[] = [
     onde: "src/app/api/backoffice/backfill-conversas/route.ts",
     tipo: "valor",
   },
+  {
+    key: "CONFIG_AUDIT_RETENCAO_DIAS",
+    rotulo: "Retenção do histórico de flags, em dias (default 730 = 2 anos; piso de 365)",
+    onde: "src/lib/flags/retencao.ts",
+    tipo: "valor",
+  },
 ] as const;
 
 /** As chaves do registro — é ESTA lista que limita o que se lê do Config. */

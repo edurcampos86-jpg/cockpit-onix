@@ -30,6 +30,15 @@ import {
   compararComLista,
   type ComparacaoEsperado,
 } from "@/lib/flags/esperadas";
+import { chavesLigadasDe } from "@/lib/flags/ligadas";
+
+type DetalheHistorico = {
+  key: string;
+  carregando: boolean;
+  mudancas: MudancaFlag[];
+  truncado: boolean;
+  erro: string | null;
+};
 
 /* ──────────────────────────────────────────────────────────────
  * Tabela de flags com toggle.
@@ -59,7 +68,40 @@ export function FlagsTabela({
   const [gravando, setGravando] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [confirmando, setConfirmando] = useState<{ flag: EstadoFlag; ligar: boolean } | null>(null);
+  const [detalhe, setDetalhe] = useState<DetalheHistorico | null>(null);
   const [, startTransition] = useTransition();
+
+  /** Abre o histórico completo de uma chave. Busca sob demanda: carregar o
+   *  histórico das 18 no load da tela seria pagar por dado que quase nunca é
+   *  olhado. */
+  async function abrirHistorico(key: string) {
+    setDetalhe({ key, carregando: true, mudancas: [], truncado: false, erro: null });
+    try {
+      const resposta = await fetch(
+        `/api/configuracoes/flags/${encodeURIComponent(key)}/historico`,
+      );
+      if (!resposta.ok) {
+        setDetalhe({
+          key,
+          carregando: false,
+          mudancas: [],
+          truncado: false,
+          erro: `Não deu para carregar (${resposta.status}).`,
+        });
+        return;
+      }
+      const dados = (await resposta.json()) as { mudancas: MudancaFlag[]; truncado: boolean };
+      setDetalhe({ key, carregando: false, ...dados, erro: null });
+    } catch (e) {
+      setDetalhe({
+        key,
+        carregando: false,
+        mudancas: [],
+        truncado: false,
+        erro: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
 
   async function gravar(key: string, ligar: boolean) {
     setGravando(key);
@@ -105,10 +147,7 @@ export function FlagsTabela({
   /* Recalcula a cada toggle. A comparação chega pronta do servidor, mas
    * envelhece assim que o usuário vira uma chave — e um aviso que não acompanha
    * a própria ação seria pior que nenhum. A lista ESPERADA é que é fixa. */
-  const divergencia = compararComLista(
-    flags.filter((f) => f.ligada === true).map((f) => f.key),
-    esperado.esperadas,
-  );
+  const divergencia = compararComLista(chavesLigadasDe(flags), esperado.esperadas);
   const foraDoEsperado = new Set([...divergencia.faltando, ...divergencia.sobrando]);
 
   return (
@@ -136,6 +175,7 @@ export function FlagsTabela({
               desabilitado={gravando !== null}
               foraDoEsperado={foraDoEsperado.has(flag.key)}
               aoVirar={(ligar) => aoVirar(flag, ligar)}
+              aoAbrirHistorico={() => void abrirHistorico(flag.key)}
             />
           ))}
         </div>
@@ -152,7 +192,7 @@ export function FlagsTabela({
           {valores.map((flag) => (
             <div key={flag.key} className="flex items-center justify-between gap-4 bg-card px-4 py-3">
               <div className="min-w-0">
-                <p className="font-mono text-xs font-semibold text-foreground">{flag.key}</p>
+                <ChaveClicavel chave={flag.key} aoClicar={() => void abrirHistorico(flag.key)} />
                 <p className="mt-0.5 text-xs text-muted-foreground">{flag.rotulo}</p>
               </div>
               <div className="flex shrink-0 items-center gap-3">
@@ -206,7 +246,111 @@ export function FlagsTabela({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <DialogoHistorico detalhe={detalhe} aoFechar={() => setDetalhe(null)} />
     </div>
+  );
+}
+
+/**
+ * A chave da flag, clicável para abrir o histórico dela.
+ *
+ * Botão de verdade (não `<div onClick>`) para chegar por teclado — a tela é
+ * administrativa e quem investiga costuma navegar assim.
+ */
+function ChaveClicavel({ chave, aoClicar }: { chave: string; aoClicar: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={aoClicar}
+      className="rounded font-mono text-xs font-semibold text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      title={`Ver o histórico de ${chave}`}
+    >
+      {chave}
+    </button>
+  );
+}
+
+/** Histórico completo de UMA flag, sob demanda. */
+function DialogoHistorico({
+  detalhe,
+  aoFechar,
+}: {
+  detalhe: DetalheHistorico | null;
+  aoFechar: () => void;
+}) {
+  return (
+    <Dialog
+      open={detalhe !== null}
+      onOpenChange={(aberto) => {
+        if (!aberto) aoFechar();
+      }}
+    >
+      <DialogContent className="sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <History className="h-4 w-4 text-muted-foreground" />
+            <span className="font-mono text-sm">{detalhe?.key}</span>
+          </DialogTitle>
+          <DialogDescription>
+            Todas as mudanças registradas desta flag, da mais recente para a mais antiga.
+          </DialogDescription>
+        </DialogHeader>
+
+        {detalhe?.carregando && (
+          <p className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Carregando…
+          </p>
+        )}
+
+        {detalhe?.erro && (
+          <p className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {detalhe.erro}
+          </p>
+        )}
+
+        {detalhe && !detalhe.carregando && !detalhe.erro && (
+          <>
+            {detalhe.mudancas.length === 0 ? (
+              <p className="py-6 text-sm text-muted-foreground">
+                Esta flag nunca foi mudada pela tela. Se o valor dela não é o padrão, veio do
+                banco direto ou de variável de ambiente — nos dois casos não há registro de
+                autor.
+              </p>
+            ) : (
+              <div className="max-h-80 space-y-1 overflow-y-auto">
+                {detalhe.mudancas.map((m, i) => (
+                  <div
+                    key={`${m.quando}-${i}`}
+                    className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-lg border border-border px-3 py-2"
+                  >
+                    <span className="text-xs text-muted-foreground">
+                      <code>{m.de ?? "ausente"}</code> →{" "}
+                      <code className="font-semibold text-foreground">{m.para}</code>
+                    </span>
+                    <span className="text-[0.7rem] text-muted-foreground">
+                      {m.quemEmail ?? "autor não registrado"} · {formatarQuando(m.quando)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {detalhe.truncado && (
+              <p className="text-xs text-muted-foreground">
+                Mostrando as mais recentes — há mais histórico além destas.
+              </p>
+            )}
+          </>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" onClick={aoFechar}>
+            Fechar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -334,12 +478,14 @@ function LinhaFlag({
   desabilitado,
   foraDoEsperado,
   aoVirar,
+  aoAbrirHistorico,
 }: {
   flag: EstadoFlag;
   gravando: boolean;
   desabilitado: boolean;
   foraDoEsperado: boolean;
   aoVirar: (ligar: boolean) => void;
+  aoAbrirHistorico: () => void;
 }) {
   const travadoPorEnv = flag.origem === "env";
 
@@ -347,7 +493,7 @@ function LinhaFlag({
     <div className="flex items-center justify-between gap-4 bg-card px-4 py-3">
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
-          <p className="font-mono text-xs font-semibold text-foreground">{flag.key}</p>
+          <ChaveClicavel chave={flag.key} aoClicar={aoAbrirHistorico} />
           {flag.impacto === "alto" && (
             <span className="inline-flex items-center gap-1 rounded-full border border-destructive/40 px-1.5 py-px text-[0.6rem] font-medium uppercase tracking-wide text-destructive">
               <AlertTriangle className="h-2.5 w-2.5" />

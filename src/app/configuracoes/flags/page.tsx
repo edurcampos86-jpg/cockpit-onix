@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { ComoFunciona } from "@/components/layout/como-funciona";
 import { resolverEstadoDasFlags, ultimasMudancas } from "@/lib/flags/estado";
 import { EXPECTED_FLAGS_ON_KEY, compararComEsperado } from "@/lib/flags/esperadas";
+import { chavesLigadasDe } from "@/lib/flags/ligadas";
 import { FlagsTabela } from "./flags-tabela";
 
 export const dynamic = "force-dynamic";
@@ -27,10 +28,7 @@ export default async function FlagsPage() {
    * CÓPIA da variável do GitHub (onde o smoke de fato lê) — ver o cabeçalho de
    * `lib/flags/esperadas.ts`. Só para avisar: a tela nunca escreve a
    * expectativa, atualizar continua manual no GitHub. */
-  const esperado = compararComEsperado(
-    flags.filter((f) => f.ligada === true).map((f) => f.key),
-    process.env[EXPECTED_FLAGS_ON_KEY],
-  );
+  const esperado = compararComEsperado(chavesLigadasDe(flags), process.env[EXPECTED_FLAGS_ON_KEY]);
 
   return (
     <div>

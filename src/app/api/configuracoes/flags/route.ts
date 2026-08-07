@@ -5,6 +5,7 @@ import { checkRateLimit, rateLimitHeaders } from "@/lib/rate-limit";
 import { resolverEstadoDasFlags, ultimasMudancas } from "@/lib/flags/estado";
 import { gravarFlagComAuditoria } from "@/lib/flags/auditoria";
 import { flagAlternavel, flagLigada, valorParaGravar } from "@/lib/flags/registro";
+import { chavesLigadasDe } from "@/lib/flags/ligadas";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +35,7 @@ export async function GET() {
     flags,
     historico,
     // Atalhos para leitura rápida no terminal, sem jq.
-    ligadas: flags.filter((f) => f.ligada === true).map((f) => f.key).sort(),
+    ligadas: chavesLigadasDe(flags),
     total: flags.length,
     timestamp: new Date().toISOString(),
   });

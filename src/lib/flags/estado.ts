@@ -1,6 +1,7 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { envUtilizavel } from "@/lib/config-db";
+import { chavesLigadasDe } from "@/lib/flags/ligadas";
 import {
   CHAVES_REGISTRADAS,
   FLAGS_REGISTRADAS,
@@ -74,8 +75,8 @@ export type MudancaFlag = {
  * Seq Scan + Sort, NÃO o índice `(key, quando DESC)` — com pouquíssimas chaves
  * distintas para muitas linhas, varrer sai mais barato que passear pelo índice.
  * Custa 18ms nesse volume, e o volume real é ordens de grandeza menor (a tabela
- * só cresce quando alguém vira uma flag na mão). O índice composto segue
- * valendo para a consulta por UMA chave, não para esta.
+ * só cresce quando alguém vira uma flag na mão). Quem de fato usa o índice
+ * composto é `historicoDaFlag` (Bitmap Index Scan confirmado), não esta.
  */
 async function ultimaMudancaPorFlag(): Promise<Map<string, MudancaFlag>> {
   const linhas = await prisma.configAudit.findMany({
@@ -101,6 +102,46 @@ export async function ultimasMudancas(limite = 5): Promise<MudancaFlag[]> {
     select: { key: true, de: true, para: true, quemEmail: true, quando: true },
   });
   return linhas.map((l) => ({ ...l, quando: l.quando.toISOString() }));
+}
+
+/**
+ * Teto de linhas devolvidas no histórico de UMA flag.
+ *
+ * Existe porque a tabela não tem teto: sem `take`, uma chave que alguém ficou
+ * virando num dia de teste devolveria milhares de linhas para um diálogo que
+ * cabe umas 20. 200 é folgado para qualquer investigação real e mantém a
+ * resposta pequena. Quando trunca, a tela DIZ que truncou.
+ */
+export const HISTORICO_FLAG_LIMITE = 200;
+
+/**
+ * Histórico completo de UMA flag, do mais recente para o mais antigo.
+ *
+ * É a consulta que justifica o índice `(key, quando DESC)`: filtra por chave e
+ * ordena por data, exatamente o prefixo do índice.
+ *
+ * A chave é validada contra a allowlist pelo CHAMADOR (a rota). Aqui o `where`
+ * não confia: filtra por `in CHAVES_REGISTRADAS` junto, para que nem um bug de
+ * validação futura consiga puxar histórico de uma chave fora do registro.
+ */
+export async function historicoDaFlag(
+  key: string,
+  limite = HISTORICO_FLAG_LIMITE,
+): Promise<{ mudancas: MudancaFlag[]; truncado: boolean }> {
+  const linhas = await prisma.configAudit.findMany({
+    where: { key, AND: { key: { in: [...CHAVES_REGISTRADAS] } } },
+    orderBy: { quando: "desc" },
+    take: limite + 1, // +1 só para saber se havia mais, sem um count() extra
+    select: { key: true, de: true, para: true, quemEmail: true, quando: true },
+  });
+
+  const truncado = linhas.length > limite;
+  return {
+    mudancas: linhas
+      .slice(0, limite)
+      .map((l) => ({ ...l, quando: l.quando.toISOString() })),
+    truncado,
+  };
 }
 
 /** Estado de todas as flags registradas, na ordem do registro. */
@@ -149,9 +190,5 @@ export async function resolverEstadoDasFlags(): Promise<EstadoFlag[]> {
  * registro mudaria a string sem nada ter mudado no ambiente.
  */
 export async function chavesLigadas(): Promise<string[]> {
-  const flags = await resolverEstadoDasFlags();
-  return flags
-    .filter((f) => f.ligada === true)
-    .map((f) => f.key)
-    .sort();
+  return chavesLigadasDe(await resolverEstadoDasFlags());
 }

@@ -470,16 +470,18 @@ model ConfigAudit {
 
   quando DateTime @default(now())
 
-  /// MEDIDO em Postgres 16 com 20k linhas semeadas sobre 16 chaves:
-  ///   - `(quando DESC)` é usado de fato — atende "últimas N mudanças" com
-  ///     Index Scan + Limit, e o planner até o prefere para o histórico de UMA
-  ///     chave com LIMIT (varre por data e filtra);
-  ///   - `(key, quando DESC)` NÃO é escolhido nessas formas: com poucas chaves
-  ///     distintas para muitas linhas, Seq Scan + Sort sai mais barato.
-  /// Fica porque o custo de escrita é irrelevante (a tabela só cresce quando
-  /// alguém vira uma flag na mão) e ele é o índice certo quando a distribuição
-  /// mudar ou a consulta por chave deixar de ter LIMIT. Registrado aqui para
-  /// ninguém "descobrir" depois que era só suposição.
+  /// MEDIDO em Postgres 16 com 20k linhas semeadas sobre 16 chaves — os dois
+  /// índices têm consumidor comprovado, cada um o seu:
+  ///   - `(quando DESC)`      → Index Scan em "últimas N mudanças" (painel da
+  ///                            tela) e no DELETE da retenção mensal;
+  ///   - `(key, quando DESC)` → Bitmap Index Scan em `historicoDaFlag`, o
+  ///                            histórico completo de UMA chave.
+  /// Uma consulta NÃO usa índice: o `DISTINCT ON (key)` que traz a última
+  /// mudança de cada flag escolhe Seq Scan + Sort (poucas chaves distintas para
+  /// muitas linhas — varrer sai mais barato). Custa 18ms nesse volume e o
+  /// volume real é ordens de grandeza menor, então fica como está. Registrado
+  /// aqui porque a primeira versão deste comentário afirmava, por suposição,
+  /// que o composto servia àquela consulta — e não serve.
   @@index([key, quando(sort: Desc)])
   @@index([quando(sort: Desc)])
 }
