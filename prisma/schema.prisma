@@ -433,6 +433,47 @@ model Config {
   updatedAt DateTime @updatedAt
 }
 
+/// Histórico de mudanças em `Config` — uma linha por escrita bem-sucedida.
+///
+/// `Config` só guarda o valor ATUAL e um `updatedAt`, então "quem ligou isso, e
+/// o que havia antes?" não tinha resposta. Enquanto mexer em flag exigia `psql`
+/// isso passava; com o toggle da tela /configuracoes/flags a um clique, vira
+/// pergunta frequente — e o `console.info` do servidor rotaciona.
+///
+/// Só a rota de flags escreve aqui, e ela só aceita chaves da allowlist de
+/// `lib/flags/registro.ts`. É isso que mantém SEGREDO fora desta tabela: `de` e
+/// `para` guardam o valor cru, então gravar aqui uma escrita de
+/// DATACRAZY_TOKEN eternizaria o token em texto plano. Qualquer novo chamador
+/// precisa respeitar a mesma allowlist.
+///
+/// Sem FK para User de propósito (mesmo padrão soft-ref de `IntegracaoAuditoria`
+/// e `AlertaClienteLog`): com `onDelete: Restrict` o banco passaria a BLOQUEAR a
+/// remoção de quem já virou uma flag, e com `Cascade` a auditoria sumiria junto
+/// com o usuário — os dois desfechos piores que guardar o id solto. O
+/// `quemEmail` é um SNAPSHOT do momento da mudança, para a linha continuar
+/// legível mesmo sem o usuário.
+model ConfigAudit {
+  id String @id @default(cuid())
+
+  /// `Config.key` alterada. Sempre uma flag do registro.
+  key String
+
+  /// Valor anterior. `null` quando não existia linha (primeira escrita).
+  de   String? @db.Text
+  /// Valor gravado.
+  para String  @db.Text
+
+  /// `User.id` de quem mudou. `null` só se o contexto não resolveu.
+  quemId    String?
+  /// Email no momento da mudança — snapshot, não vai atrás do User.
+  quemEmail String?
+
+  quando DateTime @default(now())
+
+  @@index([key, quando(sort: Desc)])
+  @@index([quando(sort: Desc)])
+}
+
 // ============================================
 // ANALYTICS E FEEDBACK LOOP
 // ============================================

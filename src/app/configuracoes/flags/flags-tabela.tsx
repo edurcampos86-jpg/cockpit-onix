@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, CircleDashed, Database, HardDrive, Loader2 } from "lucide-react";
+import { AlertTriangle, CircleDashed, Database, HardDrive, Loader2, ShieldQuestion } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,6 +16,11 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { EstadoFlag } from "@/lib/flags/estado";
+import {
+  EXPECTED_FLAGS_ON_KEY,
+  compararComLista,
+  type ComparacaoEsperado,
+} from "@/lib/flags/esperadas";
 
 /* ──────────────────────────────────────────────────────────────
  * Tabela de flags com toggle.
@@ -30,7 +35,13 @@ import type { EstadoFlag } from "@/lib/flags/estado";
  * em vez de mostrar um estado que não existe.
  * ────────────────────────────────────────────────────────────── */
 
-export function FlagsTabela({ flagsIniciais }: { flagsIniciais: EstadoFlag[] }) {
+export function FlagsTabela({
+  flagsIniciais,
+  esperado,
+}: {
+  flagsIniciais: EstadoFlag[];
+  esperado: ComparacaoEsperado;
+}) {
   const router = useRouter();
   const [flags, setFlags] = useState(flagsIniciais);
   const [gravando, setGravando] = useState<string | null>(null);
@@ -75,6 +86,15 @@ export function FlagsTabela({ flagsIniciais }: { flagsIniciais: EstadoFlag[] }) 
   const booleanas = flags.filter((f) => f.tipo === "booleana");
   const valores = flags.filter((f) => f.tipo === "valor");
 
+  /* Recalcula a cada toggle. A comparação chega pronta do servidor, mas
+   * envelhece assim que o usuário vira uma chave — e um aviso que não acompanha
+   * a própria ação seria pior que nenhum. A lista ESPERADA é que é fixa. */
+  const divergencia = compararComLista(
+    flags.filter((f) => f.ligada === true).map((f) => f.key),
+    esperado.esperadas,
+  );
+  const foraDoEsperado = new Set([...divergencia.faltando, ...divergencia.sobrando]);
+
   return (
     <div className="space-y-8">
       {erro && (
@@ -82,6 +102,8 @@ export function FlagsTabela({ flagsIniciais }: { flagsIniciais: EstadoFlag[] }) 
           {erro}
         </p>
       )}
+
+      <AvisoSmoke comparacao={divergencia} />
 
       <section className="space-y-2">
         <h2 className="text-sm font-semibold text-foreground">
@@ -94,6 +116,7 @@ export function FlagsTabela({ flagsIniciais }: { flagsIniciais: EstadoFlag[] }) 
               flag={flag}
               gravando={gravando === flag.key}
               desabilitado={gravando !== null}
+              foraDoEsperado={foraDoEsperado.has(flag.key)}
               aoVirar={(ligar) => aoVirar(flag, ligar)}
             />
           ))}
@@ -169,15 +192,78 @@ export function FlagsTabela({ flagsIniciais }: { flagsIniciais: EstadoFlag[] }) 
   );
 }
 
+/**
+ * Aviso de divergência com o que o smoke pós-deploy espera.
+ *
+ * SÓ LEITURA, de propósito: não oferece atualizar a variável. A expectativa
+ * mora no GitHub (Settings → Variables), FORA do ambiente auditado — se a tela
+ * pudesse mudá-la, quem alterasse a config alteraria a expectativa junto e o
+ * smoke deixaria de provar qualquer coisa. Aqui só se avisa.
+ *
+ * O que a tela lê é a CÓPIA da variável no env deste ambiente. Por isso o texto
+ * diz de onde veio: as duas podem sair de sincronia, e apresentar isto como
+ * verdade absoluta seria mentir com confiança.
+ */
+function AvisoSmoke({ comparacao }: { comparacao: ComparacaoEsperado }) {
+  if (comparacao.esperadas === null) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        <code className="rounded bg-secondary px-1.5 py-0.5">{EXPECTED_FLAGS_ON_KEY}</code>{" "}
+        não está definida neste ambiente — o smoke pós-deploy só registra a configuração,
+        sem cobrar nada dela.
+      </p>
+    );
+  }
+
+  if (!comparacao.diverge) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        Configuração confere com o que o smoke espera (
+        <code className="rounded bg-secondary px-1.5 py-0.5">{EXPECTED_FLAGS_ON_KEY}</code>).
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-2 rounded-lg border border-primary/40 bg-primary/5 px-4 py-3">
+      <p className="flex items-center gap-2 text-sm font-semibold text-foreground">
+        <ShieldQuestion className="h-4 w-4 text-primary" />
+        Diverge do que o smoke pós-deploy espera
+      </p>
+      {comparacao.sobrando.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          <strong className="text-foreground">Ligadas sem estar na lista:</strong>{" "}
+          <code className="text-foreground">{comparacao.sobrando.join(", ")}</code>
+        </p>
+      )}
+      {comparacao.faltando.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          <strong className="text-foreground">Esperadas e desligadas:</strong>{" "}
+          <code className="text-foreground">{comparacao.faltando.join(", ")}</code>
+        </p>
+      )}
+      <p className="text-xs text-muted-foreground">
+        Enquanto durar, o smoke fica vermelho e abre issue de incidente a cada
+        execução. Ajustar a expectativa é manual, no GitHub (Settings → Variables →{" "}
+        <code className="rounded bg-secondary px-1 py-0.5">{EXPECTED_FLAGS_ON_KEY}</code>) — a
+        tela não mexe nisso de propósito, porque a expectativa precisa viver fora do
+        ambiente que ela audita.
+      </p>
+    </div>
+  );
+}
+
 function LinhaFlag({
   flag,
   gravando,
   desabilitado,
+  foraDoEsperado,
   aoVirar,
 }: {
   flag: EstadoFlag;
   gravando: boolean;
   desabilitado: boolean;
+  foraDoEsperado: boolean;
   aoVirar: (ligar: boolean) => void;
 }) {
   return (
@@ -189,6 +275,12 @@ function LinhaFlag({
             <span className="inline-flex items-center gap-1 rounded-full border border-destructive/40 px-1.5 py-px text-[0.6rem] font-medium uppercase tracking-wide text-destructive">
               <AlertTriangle className="h-2.5 w-2.5" />
               Efeito pesado
+            </span>
+          )}
+          {foraDoEsperado && (
+            <span className="inline-flex items-center gap-1 rounded-full border border-primary/50 px-1.5 py-px text-[0.6rem] font-medium uppercase tracking-wide text-primary">
+              <ShieldQuestion className="h-2.5 w-2.5" />
+              Diverge do smoke
             </span>
           )}
         </div>

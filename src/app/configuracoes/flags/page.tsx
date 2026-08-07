@@ -3,6 +3,7 @@ import { getAuthContext, isAdmin } from "@/lib/auth-helpers";
 import { PageHeader } from "@/components/layout/page-header";
 import { ComoFunciona } from "@/components/layout/como-funciona";
 import { resolverEstadoDasFlags } from "@/lib/flags/estado";
+import { EXPECTED_FLAGS_ON_KEY, compararComEsperado } from "@/lib/flags/esperadas";
 import { FlagsTabela } from "./flags-tabela";
 
 export const dynamic = "force-dynamic";
@@ -22,6 +23,15 @@ export default async function FlagsPage() {
 
   const flags = await resolverEstadoDasFlags();
 
+  /* O que o smoke pós-deploy espera. Lido do ENV deste ambiente, que é uma
+   * CÓPIA da variável do GitHub (onde o smoke de fato lê) — ver o cabeçalho de
+   * `lib/flags/esperadas.ts`. Só para avisar: a tela nunca escreve a
+   * expectativa, atualizar continua manual no GitHub. */
+  const esperado = compararComEsperado(
+    flags.filter((f) => f.ligada === true).map((f) => f.key),
+    process.env[EXPECTED_FLAGS_ON_KEY],
+  );
+
   return (
     <div>
       <PageHeader
@@ -36,7 +46,7 @@ export default async function FlagsPage() {
           comoAjuda="Tira o psql do caminho crítico de operar o sistema, e deixa registrado quem mudou o quê no log do servidor."
         />
 
-        <FlagsTabela flagsIniciais={flags} />
+        <FlagsTabela flagsIniciais={flags} esperado={esperado} />
       </div>
     </div>
   );

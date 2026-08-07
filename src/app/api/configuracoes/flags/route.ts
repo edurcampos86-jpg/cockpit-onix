@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { guardAdminApi } from "@/lib/api-admin-guard";
 import { getAuthContext } from "@/lib/auth-helpers";
-import { getConfig, setConfig } from "@/lib/config-db";
+import { checkRateLimit, rateLimitHeaders } from "@/lib/rate-limit";
 import { resolverEstadoDasFlags } from "@/lib/flags/estado";
+import { gravarFlagComAuditoria } from "@/lib/flags/auditoria";
 import { flagAlternavel, flagLigada, valorParaGravar } from "@/lib/flags/registro";
 
 export const dynamic = "force-dynamic";
@@ -51,26 +52,54 @@ export async function GET() {
  *
  * Grava sempre "1"/"0" (`valorParaGravar`), aceitos pelos DOIS dialetos.
  *
- * Sem tabela de auditoria ainda: o registro do que mudou vai para o log do
- * Railway, com quem, qual chave e o valor anterior. É o suficiente para
- * responder "quem ligou isso?" numa investigação, e não custa migration.
+ * Toda escrita bem-sucedida vira uma linha em `ConfigAudit` (key, de, para,
+ * quem, quando), na MESMA transação da mudança — ver `lib/flags/auditoria.ts`.
+ * O `console.info` continua, como sinal imediato no log do Railway; a tabela é
+ * o que sobrevive à rotação do log.
+ *
+ * CSRF — herda a proteção do projeto, sem mecanismo novo:
+ *   • o cookie de sessão é `sameSite: "lax"` (`lib/session.ts`), e Lax NÃO
+ *     acompanha POST cross-site — nem de `<form>`, nem de `fetch`. Sem cookie,
+ *     `guardAdminApi` recusa antes de qualquer leitura de corpo;
+ *   • a rota exige corpo JSON, que um `<form>` cross-origin não consegue
+ *     emitir (só urlencoded/multipart/text-plain) sem virar requisição
+ *     pré-verificada, barrada pela ausência de CORS.
+ * É a mesma dupla que protege as demais rotas POST autenticadas do Cockpit —
+ * nenhuma delas usa token de CSRF, e inventar um só aqui criaria um segundo
+ * padrão para manter.
+ *
+ * Rate limit por usuário (`lib/rate-limit.ts`), como nas outras rotas de
+ * mutação: 30/hora é folgado para um humano virar chave e estreito o bastante
+ * para que uma sessão de admin sequestrada não vire uma metralhadora de
+ * `RBAC_ENFORCEMENT` on/off.
  */
 export async function POST(request: Request) {
   const negado = await guardAdminApi("POST /api/configuracoes/flags");
   if (negado) return negado;
 
+  // Depois do gate: só quem passou tem userId para servir de chave do balde.
+  const ctx = await getAuthContext().catch(() => null);
+  const limite = checkRateLimit(ctx?.userId ?? "desconhecido", "configuracoes.flags.mutate", 30);
+  if (!limite.ok) {
+    return NextResponse.json(
+      { error: "rate_limit", resetAt: limite.resetAt },
+      { status: 429, headers: rateLimitHeaders(limite) },
+    );
+  }
+  const headers = rateLimitHeaders(limite);
+
   let corpo: unknown;
   try {
     corpo = await request.json();
   } catch {
-    return NextResponse.json({ error: "json_invalido" }, { status: 400 });
+    return NextResponse.json({ error: "json_invalido" }, { status: 400, headers });
   }
 
   const { key, ligada } = (corpo ?? {}) as { key?: unknown; ligada?: unknown };
   if (typeof key !== "string" || typeof ligada !== "boolean") {
     return NextResponse.json(
-      { error: "corpo_invalido", esperado: '{ key: string, ligada: boolean }' },
-      { status: 400 },
+      { error: "corpo_invalido", esperado: "{ key: string, ligada: boolean }" },
+      { status: 400, headers },
     );
   }
 
@@ -79,17 +108,20 @@ export async function POST(request: Request) {
     // Log porque uma chave fora do registro só chega aqui por engano de código
     // ou por tentativa deliberada — nos dois casos vale saber.
     console.warn(`[flags] POST recusado · chave fora do registro: ${key}`);
-    return NextResponse.json({ error: "flag_desconhecida", key }, { status: 400 });
+    return NextResponse.json({ error: "flag_desconhecida", key }, { status: 400, headers });
   }
 
-  const anterior = await getConfig(key);
   const valor = valorParaGravar(ligada);
-  await setConfig(key, valor);
+  const { de } = await gravarFlagComAuditoria({
+    key,
+    valor,
+    quemId: ctx?.userId ?? null,
+    quemEmail: ctx?.email ?? null,
+  });
 
-  const ctx = await getAuthContext().catch(() => null);
   console.info(
-    `[flags] ${key}: ${flagLigada(anterior, flag.dialeto) ? "ON" : "OFF"} → ` +
-      `${ligada ? "ON" : "OFF"} (valor "${anterior ?? "<ausente>"}" → "${valor}")` +
+    `[flags] ${key}: ${flagLigada(de ?? undefined, flag.dialeto) ? "ON" : "OFF"} → ` +
+      `${ligada ? "ON" : "OFF"} (valor "${de ?? "<ausente>"}" → "${valor}")` +
       ` · por ${ctx?.email ?? "?"} · ${new Date().toISOString()}`,
   );
 
@@ -97,9 +129,12 @@ export async function POST(request: Request) {
   // com precedência inesperada, escrita que não pegou), a tela mostra a
   // verdade em vez do otimismo.
   const flags = await resolverEstadoDasFlags();
-  return NextResponse.json({
-    ok: true,
-    flag: flags.find((f) => f.key === key) ?? null,
-    flags,
-  });
+  return NextResponse.json(
+    {
+      ok: true,
+      flag: flags.find((f) => f.key === key) ?? null,
+      flags,
+    },
+    { headers },
+  );
 }
