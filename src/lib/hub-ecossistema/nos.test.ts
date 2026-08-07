@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   ANGULO_ENTRE_NOS_GRAUS,
   NOS_ECOSSISTEMA,
+  emConstrucao,
   posicaoOrbital,
 } from "./nos";
 
@@ -41,11 +42,35 @@ test("id de nó não se repete", () => {
   assert.equal(new Set(ids).size, ids.length);
 });
 
-test("só as empresas sem rota em src/app/empresas/* nascem em construção", () => {
+test("só Onix Capital entrega conteúdo hoje — as outras 7 estão em construção", () => {
+  // Conferido contra src/app/empresas/*: investimentos tem páginas de verdade,
+  // corretora/corporate/imobiliaria/tech caem em EmpresaPlaceholder, e
+  // agro/educacao/contabil não têm página nenhuma.
   assert.deepEqual(
-    NOS_ECOSSISTEMA.filter((n) => n.emConstrucao).map((n) => n.id),
+    NOS_ECOSSISTEMA.filter((n) => n.maturidade === "pronta").map((n) => n.id),
+    ["investimentos"],
+  );
+  assert.equal(NOS_ECOSSISTEMA.filter(emConstrucao).length, 7);
+});
+
+test("as 4 shells-placeholder são 'shell', não 'sem-rota'", () => {
+  // A tela mostra as duas iguais, mas o dado tem de saber a diferença: shell é
+  // o que precisa de recheio, sem-rota é o que precisa nascer.
+  assert.deepEqual(
+    NOS_ECOSSISTEMA.filter((n) => n.maturidade === "shell").map((n) => n.id),
+    ["corretora", "corporate", "imobiliaria", "tech"],
+  );
+  assert.deepEqual(
+    NOS_ECOSSISTEMA.filter((n) => n.maturidade === "sem-rota").map((n) => n.id),
     ["agro", "educacao", "contabil"],
   );
+});
+
+test("shell e sem-rota mostram a mesma tag; pronta não mostra nenhuma", () => {
+  const porId = (id: string) => NOS_ECOSSISTEMA.find((n) => n.id === id)!;
+  assert.equal(emConstrucao(porId("corretora")), true);
+  assert.equal(emConstrucao(porId("agro")), true);
+  assert.equal(emConstrucao(porId("investimentos")), false);
 });
 
 test("todo nó aponta para uma rota absoluta", () => {

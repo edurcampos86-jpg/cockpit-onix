@@ -65,7 +65,11 @@ import { useTheme } from "@/components/theme-provider";
 const PIXEL_TRAFEGO_ON = process.env.NEXT_PUBLIC_PIXEL_TRAFEGO === "true";
 
 const mktNavigation = [
-  { name: "Painel", href: "/", icon: LayoutDashboard },
+  /* Aponta para `/painel`, não para a raiz: com a flag `HUB_ECOSSISTEMA`
+   * ligada a raiz vira o hub, e um item chamado "Painel" levando ao hub
+   * mentiria. Com a flag desligada os dois endereços renderizam o mesmo
+   * painel, então a troca não muda nada hoje. */
+  { name: "Painel", href: "/painel", icon: LayoutDashboard },
   { name: "Calendário", href: "/calendario", icon: CalendarDays },
   { name: "Roteiros", href: "/roteiros", icon: FileText },
   { name: "Planejamento", href: "/planejamento", icon: Wand2 },

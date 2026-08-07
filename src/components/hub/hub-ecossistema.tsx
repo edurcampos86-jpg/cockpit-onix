@@ -8,6 +8,7 @@ import {
   Cpu,
   GraduationCap,
   Home,
+  LayoutDashboard,
   Lock,
   Moon,
   ShieldCheck,
@@ -18,7 +19,11 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useTheme } from "@/components/theme-provider";
 import { AsaOnix } from "@/components/hub/asa-onix";
-import { posicaoOrbital, type NoEcossistemaResolvido } from "@/lib/hub-ecossistema/nos";
+import {
+  emConstrucao,
+  posicaoOrbital,
+  type NoEcossistemaResolvido,
+} from "@/lib/hub-ecossistema/nos";
 import { cn } from "@/lib/utils";
 
 /* ──────────────────────────────────────────────────────────────
@@ -73,7 +78,18 @@ export function HubEcossistema({ nos }: { nos: NoEcossistemaResolvido[] }) {
     <div className="@container flex min-h-full w-full flex-col">
       <h1 className="sr-only">Ecossistema Onix</h1>
 
-      <div className="flex justify-end px-4 pt-4">
+      <div className="flex items-center justify-end gap-1 px-4 pt-4">
+        {/* Com o hub na raiz, este vira o único caminho para o Painel de
+          * Comando dentro da própria tela — a sidebar já aponta para `/painel`,
+          * mas ela some no mobile. */}
+        <Link
+          href="/painel"
+          className="flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+          <LayoutDashboard className="h-4 w-4" />
+          Painel de Comando
+        </Link>
+
         <Tooltip>
           <TooltipTrigger
             type="button"
@@ -194,7 +210,8 @@ function NucleoOnix({ compacto = false }: { compacto?: boolean }) {
 /**
  * Um nó. Bloqueado vira botão inerte com tooltip; liberado vira link — mesmo
  * quando está "em construção", porque a rota pode não existir ainda e o 404
- * padrão do Next é o comportamento combinado para esta fase.
+ * padrão do Next é o comportamento combinado para esta fase (`maturidade`
+ * "sem-rota"; em "shell" o clique abre o placeholder da empresa).
  */
 function NoDoHub({ no }: { no: NoEcossistemaResolvido }) {
   if (no.locked) {
@@ -232,12 +249,13 @@ function NoDoHub({ no }: { no: NoEcossistemaResolvido }) {
  */
 function CartaoNo({ no }: { no: NoEcossistemaResolvido }) {
   const Icone = ICONS[no.icon] ?? Circle;
+  const construindo = emConstrucao(no);
 
   return (
     <span
       className={cn(
         "flex w-full flex-col items-center gap-2 rounded-2xl border bg-card px-2 py-3.5 text-center transition-all duration-200",
-        no.emConstrucao ? "border-dashed" : "border-solid",
+        construindo ? "border-dashed" : "border-solid",
         no.locked
           ? "border-border opacity-45"
           : "border-border hover:-translate-y-0.5 hover:border-[#C9A227] hover:shadow-md",
@@ -254,7 +272,7 @@ function CartaoNo({ no }: { no: NoEcossistemaResolvido }) {
 
       <span className="text-xs font-semibold leading-tight text-foreground">{no.nome}</span>
 
-      {no.emConstrucao && (
+      {construindo && (
         <span className="rounded-full border border-dashed border-border px-2 py-0.5 text-[0.58rem] font-medium uppercase tracking-wide text-muted-foreground">
           Em construção
         </span>

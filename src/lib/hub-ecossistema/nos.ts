@@ -11,6 +11,23 @@
  * dentro de config de dados.
  * ────────────────────────────────────────────────────────────── */
 
+/**
+ * Quanto a empresa realmente entrega hoje, em três degraus:
+ *
+ *   • `pronta`   — tem página com conteúdo de verdade;
+ *   • `shell`    — a rota existe e responde, mas cai em `EmpresaPlaceholder`
+ *                  ("já tem endereço, falta o recheio");
+ *   • `sem-rota` — não existe página nenhuma; o clique cai no 404 do Next.
+ *
+ * Na TELA os dois últimos aparecem igual ("Em construção"), porque para quem
+ * usa o hub a diferença entre "abriu vazio" e "não abriu" não muda a decisão —
+ * nos dois casos não há nada para fazer ali. A distinção fica guardada no dado
+ * porque ela É diferente para quem constrói: `sem-rota` é a lista do que
+ * precisa nascer, `shell` é a lista do que precisa de recheio. Separar os dois
+ * visualmente depois é trocar `emConstrucao` por uma comparação.
+ */
+export type MaturidadeNo = "pronta" | "shell" | "sem-rota";
+
 export type NoEcossistema = {
   /**
    * Id interno e ESTÁVEL. Onde existe empresa correspondente em
@@ -31,11 +48,11 @@ export type NoEcossistema = {
   /** Nome do ícone lucide-react (resolvido em `hub-ecossistema.tsx`). */
   icon: string;
   /**
-   * Empresa sem rota própria ainda → borda tracejada + tag "Em construção".
-   * INDEPENDENTE de acesso: um nó pode estar em construção e liberado, ou
-   * pronto e bloqueado. São dois eixos diferentes e a UI mostra os dois.
+   * O que a empresa entrega hoje. INDEPENDENTE de acesso: um nó pode estar em
+   * construção e liberado, ou pronto e bloqueado. São dois eixos diferentes e
+   * a UI mostra os dois.
    */
-  emConstrucao?: boolean;
+  maturidade: MaturidadeNo;
 };
 
 /**
@@ -43,28 +60,40 @@ export type NoEcossistema = {
  * visual da órbita (o índice alimenta `posicaoOrbital`), então reordenar aqui
  * gira o desenho — é o único lugar que decide a posição de cada empresa.
  *
- * Quem tem rota: as 5 shells já entregues em `src/app/empresas/*` (elas
- * funcionam com NEXT_PUBLIC_NAV_V2 ligado ou desligado — a flag só controla a
- * barra de abas, não a existência da página).
+ * A `maturidade` de cada uma foi conferida contra `src/app/empresas/*`, não
+ * assumida: `investimentos` é a única com páginas de verdade (btg, cadencia,
+ * clientes, grupos, indicacoes, painel-do-dia, performance, receita,
+ * storyselling); corretora, corporate, imobiliaria e tech têm rota que responde
+ * mas o corpo é `EmpresaPlaceholder`; agro, educacao e contabil não têm página
+ * nenhuma. Todas as rotas existentes funcionam com NEXT_PUBLIC_NAV_V2 ligado ou
+ * desligado — a flag só controla a barra de abas.
  *
- * Quem NÃO tem rota (agro, educacao, contabil) nasce marcado `emConstrucao`.
- * Quando a página de cada uma entrar em `src/app/empresas/<slug>/`, basta
- * remover a marca — o href já aponta para o lugar certo.
+ * Quando uma empresa ganhar conteúdo, é UMA palavra aqui — o href já aponta
+ * para o lugar certo.
  */
 export const NOS_ECOSSISTEMA: readonly NoEcossistema[] = [
-  { id: "investimentos", nome: "Onix Capital", href: "/empresas/investimentos", icon: "TrendingUp" },
-  { id: "agro", nome: "Onix Agro", href: "/empresas/agro", icon: "Sprout", emConstrucao: true },
-  { id: "corretora", nome: "Onix Corretora", href: "/empresas/corretora", icon: "ShieldCheck" },
-  { id: "corporate", nome: "Onix Corporate", href: "/empresas/corporate", icon: "Building2" },
-  { id: "imobiliaria", nome: "Onix Imob", href: "/empresas/imobiliaria", icon: "Home" },
-  { id: "tech", nome: "Onix Tech", href: "/empresas/tech", icon: "Cpu" },
+  { id: "investimentos", nome: "Onix Capital", href: "/empresas/investimentos", icon: "TrendingUp", maturidade: "pronta" },
+  { id: "agro", nome: "Onix Agro", href: "/empresas/agro", icon: "Sprout", maturidade: "sem-rota" },
+  { id: "corretora", nome: "Onix Corretora", href: "/empresas/corretora", icon: "ShieldCheck", maturidade: "shell" },
+  { id: "corporate", nome: "Onix Corporate", href: "/empresas/corporate", icon: "Building2", maturidade: "shell" },
+  { id: "imobiliaria", nome: "Onix Imob", href: "/empresas/imobiliaria", icon: "Home", maturidade: "shell" },
+  { id: "tech", nome: "Onix Tech", href: "/empresas/tech", icon: "Cpu", maturidade: "shell" },
   /* Id `educacao` para casar com `empresas-config.ts`; o rótulo aqui é
    * "Onix Educacional" (protótipo aprovado do hub) enquanto a Central de
    * Implementações ainda chama de "Onix Educação". Divergência consciente:
    * unificar o nome é decisão de produto, não de layout. */
-  { id: "educacao", nome: "Onix Educacional", href: "/empresas/educacao", icon: "GraduationCap", emConstrucao: true },
-  { id: "contabil", nome: "Onix Contábil", href: "/empresas/contabil", icon: "Calculator", emConstrucao: true },
+  { id: "educacao", nome: "Onix Educacional", href: "/empresas/educacao", icon: "GraduationCap", maturidade: "sem-rota" },
+  { id: "contabil", nome: "Onix Contábil", href: "/empresas/contabil", icon: "Calculator", maturidade: "sem-rota" },
 ] as const;
+
+/**
+ * Mostra a tag "Em construção"? Vale para tudo que ainda não entrega conteúdo,
+ * exista rota ou não — é o único lugar que colapsa `shell` e `sem-rota` numa
+ * coisa só. Para separar os dois na tela, é aqui que se mexe.
+ */
+export function emConstrucao(no: NoEcossistema): boolean {
+  return no.maturidade !== "pronta";
+}
 
 /**
  * Nó com o estado de acesso já resolvido — o formato que o componente recebe.
