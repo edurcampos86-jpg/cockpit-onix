@@ -2,7 +2,16 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, CircleDashed, Database, HardDrive, Loader2, ShieldQuestion } from "lucide-react";
+import {
+  AlertTriangle,
+  CircleDashed,
+  Database,
+  HardDrive,
+  History,
+  Loader2,
+  Lock,
+  ShieldQuestion,
+} from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,7 +24,7 @@ import {
 } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import type { EstadoFlag } from "@/lib/flags/estado";
+import type { EstadoFlag, MudancaFlag } from "@/lib/flags/estado";
 import {
   EXPECTED_FLAGS_ON_KEY,
   compararComLista,
@@ -38,12 +47,15 @@ import {
 export function FlagsTabela({
   flagsIniciais,
   esperado,
+  historicoInicial,
 }: {
   flagsIniciais: EstadoFlag[];
   esperado: ComparacaoEsperado;
+  historicoInicial: MudancaFlag[];
 }) {
   const router = useRouter();
   const [flags, setFlags] = useState(flagsIniciais);
+  const [historico, setHistorico] = useState(historicoInicial);
   const [gravando, setGravando] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [confirmando, setConfirmando] = useState<{ flag: EstadoFlag; ligar: boolean } | null>(null);
@@ -63,8 +75,12 @@ export function FlagsTabela({
         setErro(`Não deu para gravar ${key}: ${corpo.error ?? resposta.status}`);
         return;
       }
-      const { flags: atualizadas } = (await resposta.json()) as { flags: EstadoFlag[] };
+      const { flags: atualizadas, historico: novoHistorico } = (await resposta.json()) as {
+        flags: EstadoFlag[];
+        historico: MudancaFlag[];
+      };
       setFlags(atualizadas);
+      setHistorico(novoHistorico);
       // As telas gateadas por flag são server components — sem o refresh, o
       // resto do app continua renderizado com a configuração antiga.
       startTransition(() => router.refresh());
@@ -104,6 +120,8 @@ export function FlagsTabela({
       )}
 
       <AvisoSmoke comparacao={divergencia} />
+
+      <Historico mudancas={historico} />
 
       <section className="space-y-2">
         <h2 className="text-sm font-semibold text-foreground">
@@ -192,6 +210,63 @@ export function FlagsTabela({
   );
 }
 
+/** dd/mm/aa hh:mm — formato curto, o mesmo usado na coluna de cada linha. */
+function formatarQuando(iso: string): string {
+  return new Date(iso).toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/**
+ * Últimas mudanças registradas em `ConfigAudit`.
+ *
+ * A tabela já gravava, mas só se lia por `psql` — o mesmo problema que a tela
+ * resolveu para o estado atual. Cinco linhas bastam: quem opera quer saber "o
+ * que mexeram agora há pouco", não auditar o ano.
+ *
+ * Vazio não é erro: é o estado de quem nunca mudou flag pela tela, e o texto
+ * diz isso em vez de sumir — sumir faria parecer que o registro não existe.
+ */
+function Historico({ mudancas }: { mudancas: MudancaFlag[] }) {
+  return (
+    <section className="space-y-2">
+      <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+        <History className="h-4 w-4 text-muted-foreground" />
+        Últimas mudanças
+      </h2>
+      {mudancas.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          Nenhuma mudança registrada ainda. Toda vez que uma flag for virada por aqui, a
+          linha aparece nesta lista.
+        </p>
+      ) : (
+        <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
+          {mudancas.map((m) => (
+            <div
+              key={`${m.key}-${m.quando}`}
+              className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 bg-card px-4 py-2.5"
+            >
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <code className="text-xs font-semibold text-foreground">{m.key}</code>
+                <span className="text-xs text-muted-foreground">
+                  <code>{m.de ?? "ausente"}</code> → <code className="text-foreground">{m.para}</code>
+                </span>
+              </div>
+              <span className="text-[0.7rem] text-muted-foreground">
+                {m.quemEmail ?? "autor não registrado"} · {formatarQuando(m.quando)}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 /**
  * Aviso de divergência com o que o smoke pós-deploy espera.
  *
@@ -266,6 +341,8 @@ function LinhaFlag({
   foraDoEsperado: boolean;
   aoVirar: (ligar: boolean) => void;
 }) {
+  const travadoPorEnv = flag.origem === "env";
+
   return (
     <div className="flex items-center justify-between gap-4 bg-card px-4 py-3">
       <div className="min-w-0">
@@ -290,19 +367,41 @@ function LinhaFlag({
 
       <div className="flex shrink-0 items-center gap-3">
         {flag.atualizadoEm && (
-          <span className="hidden text-[0.65rem] text-muted-foreground sm:inline">
-            {new Date(flag.atualizadoEm).toLocaleString("pt-BR", {
-              day: "2-digit",
-              month: "2-digit",
-              year: "2-digit",
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
+          <span className="hidden text-right text-[0.65rem] leading-tight text-muted-foreground sm:block">
+            {formatarQuando(flag.atualizadoEm)}
+            <br />
+            {/* Autor ausente com data presente NÃO é falha: é mudança feita
+              * fora da tela (psql direto, ou antes da auditoria existir). Dizer
+              * isso vale mais que deixar o campo em branco. */}
+            <span className={cn(!flag.ultimoAutor && "italic")}>
+              {flag.ultimoAutor ?? "fora da tela"}
+            </span>
           </span>
         )}
         <Origem flag={flag} />
         {gravando ? (
           <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        ) : travadoPorEnv ? (
+          /* Origem `env` TRAVA o toggle. Gravar funcionaria (banco tem
+           * precedência sobre env no `getConfig`), e é justamente esse o
+           * problema: a flag passaria a ter DUAS fontes, e a próxima pessoa a
+           * ler a variável no Railway acharia que ela manda — quando não manda
+           * mais. Melhor obrigar a mudança a acontecer onde ela já está. */
+          <Tooltip>
+            <TooltipTrigger
+              type="button"
+              aria-disabled="true"
+              className="flex h-5 w-9 cursor-not-allowed items-center justify-center rounded-full border border-border bg-muted"
+              aria-label={`${flag.key} é controlada por variável de ambiente`}
+            >
+              <Lock className="h-2.5 w-2.5 text-muted-foreground" />
+            </TooltipTrigger>
+            <TooltipContent side="left">
+              Controlada pela variável de ambiente <code>{flag.key}</code>, não pelo banco.
+              Mudar exige editar a variável no Railway (o que dispara redeploy) — a tela não
+              grava por cima para a flag não passar a ter duas fontes.
+            </TooltipContent>
+          </Tooltip>
         ) : (
           <Switch
             checked={flag.ligada === true}
@@ -318,8 +417,8 @@ function LinhaFlag({
 
 /**
  * De onde veio o valor. Importa porque a precedência do `getConfig` é banco →
- * env: uma flag vinda do ENV não muda pela tela, e sem este selo o toggle
- * pareceria simplesmente não funcionar.
+ * env, e flag de origem `env` fica com o toggle TRAVADO: sem este selo, a
+ * chave cadeada pareceria um bug em vez de uma decisão.
  */
 function Origem({ flag }: { flag: EstadoFlag }) {
   const rotulo =
@@ -340,7 +439,7 @@ function Origem({ flag }: { flag: EstadoFlag }) {
       </TooltipTrigger>
       <TooltipContent side="left">
         {flag.origem === "env"
-          ? "Valor vem de variável de ambiente. O banco tem precedência: gravar pela tela passa a valer sobre o env."
+          ? "Valor vem de variável de ambiente — o toggle fica travado. Mudar só editando a variável no Railway."
           : flag.origem === "db"
             ? "Valor gravado na tabela Config."
             : "Sem linha no banco e sem env — vale o default (desligada)."}

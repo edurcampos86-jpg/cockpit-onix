@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { getAuthContext, isAdmin } from "@/lib/auth-helpers";
 import { PageHeader } from "@/components/layout/page-header";
 import { ComoFunciona } from "@/components/layout/como-funciona";
-import { resolverEstadoDasFlags } from "@/lib/flags/estado";
+import { resolverEstadoDasFlags, ultimasMudancas } from "@/lib/flags/estado";
 import { EXPECTED_FLAGS_ON_KEY, compararComEsperado } from "@/lib/flags/esperadas";
 import { FlagsTabela } from "./flags-tabela";
 
@@ -21,7 +21,7 @@ export default async function FlagsPage() {
   if (!ctx) redirect("/login");
   if (!isAdmin(ctx)) redirect("/");
 
-  const flags = await resolverEstadoDasFlags();
+  const [flags, historico] = await Promise.all([resolverEstadoDasFlags(), ultimasMudancas()]);
 
   /* O que o smoke pós-deploy espera. Lido do ENV deste ambiente, que é uma
    * CÓPIA da variável do GitHub (onde o smoke de fato lê) — ver o cabeçalho de
@@ -42,11 +42,11 @@ export default async function FlagsPage() {
       <div className="space-y-8 p-8">
         <ComoFunciona
           proposito="Mostra, em uma tela, qual é a configuração deste ambiente: o que está ligado, de onde veio o valor e quando mudou. Antes disso só dava para saber abrindo o banco."
-          comoUsar="Vire a chave da flag que quer ligar. As de efeito pesado (escrita, scheduler, controle de acesso) pedem confirmação e explicam o que vai acontecer. A mudança vale na hora, sem redeploy."
-          comoAjuda="Tira o psql do caminho crítico de operar o sistema, e deixa registrado quem mudou o quê no log do servidor."
+          comoUsar="Vire a chave da flag que quer ligar. As de efeito pesado (escrita, scheduler, controle de acesso) pedem confirmação e explicam o que vai acontecer. Flag controlada por variável de ambiente aparece travada — essa só muda no Railway. A mudança vale na hora, sem redeploy."
+          comoAjuda="Tira o psql do caminho crítico de operar o sistema, e registra cada mudança em ConfigAudit — quem, o quê, de e para — visível aqui mesmo."
         />
 
-        <FlagsTabela flagsIniciais={flags} esperado={esperado} />
+        <FlagsTabela flagsIniciais={flags} esperado={esperado} historicoInicial={historico} />
       </div>
     </div>
   );

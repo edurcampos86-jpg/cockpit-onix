@@ -57,7 +57,25 @@ export type FlagRegistrada = {
   /** Arquivo que consome — para achar o dono sem grep. */
   onde: string;
   tipo: TipoFlag;
-  /** Só para `booleana`. */
+  /**
+   * Só para `booleana`.
+   *
+   * @deprecated OBSOLETO — em vias de sumir. A duplicação de PARSERS já acabou
+   * (os 15 pontos de uso passam por `flagLigada`), mas os dois dialetos ainda
+   * EXISTEM porque colapsá-los é mudança de COMPORTAMENTO, não de código: as 4
+   * flags estritas passariam a aceitar `yes`/`sim`, e duas delas
+   * (`PERFIL_FATO_WRITE`, `PERFIL_FATO_RICO_WRITE`) abrem escrita em
+   * `ClienteFato`, que é ledger APPEND-ONLY — ligar por engano grava fato que
+   * não tem desfazer.
+   *
+   * Para remover com segurança, nesta ordem:
+   *   1. conferir no banco de cada ambiente que nenhuma das 4 chaves estritas
+   *      guarda `yes`/`sim` (`SELECT key, value FROM "Config" WHERE key IN (...)`);
+   *   2. trocar os 4 `flagLigada(..., "estrito")` por `flagLigada(...)`;
+   *   3. apagar este campo, o tipo `DialetoBooleano` e o mapa `ACEITOS.estrito`;
+   *   4. `flags/dialeto-paridade.test.ts` vai falhar de propósito no último
+   *      teste — é o sinal de que a decisão foi tomada, não um efeito colateral.
+   */
   dialeto?: DialetoBooleano;
   /** Só para `booleana` — flags de valor não são alternáveis pela tela. */
   impacto?: ImpactoFlag;

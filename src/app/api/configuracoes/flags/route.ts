@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { guardAdminApi } from "@/lib/api-admin-guard";
 import { getAuthContext } from "@/lib/auth-helpers";
 import { checkRateLimit, rateLimitHeaders } from "@/lib/rate-limit";
-import { resolverEstadoDasFlags } from "@/lib/flags/estado";
+import { resolverEstadoDasFlags, ultimasMudancas } from "@/lib/flags/estado";
 import { gravarFlagComAuditoria } from "@/lib/flags/auditoria";
 import { flagAlternavel, flagLigada, valorParaGravar } from "@/lib/flags/registro";
 
@@ -28,10 +28,11 @@ export async function GET() {
   const negado = await guardAdminApi("/api/configuracoes/flags");
   if (negado) return negado;
 
-  const flags = await resolverEstadoDasFlags();
+  const [flags, historico] = await Promise.all([resolverEstadoDasFlags(), ultimasMudancas()]);
 
   return NextResponse.json({
     flags,
+    historico,
     // Atalhos para leitura rápida no terminal, sem jq.
     ligadas: flags.filter((f) => f.ligada === true).map((f) => f.key).sort(),
     total: flags.length,
@@ -128,12 +129,16 @@ export async function POST(request: Request) {
   // Devolve o estado recalculado, não o que foi pedido: se algo divergir (env
   // com precedência inesperada, escrita que não pegou), a tela mostra a
   // verdade em vez do otimismo.
-  const flags = await resolverEstadoDasFlags();
+  const [flags, historico] = await Promise.all([resolverEstadoDasFlags(), ultimasMudancas()]);
   return NextResponse.json(
     {
       ok: true,
       flag: flags.find((f) => f.key === key) ?? null,
       flags,
+      // Vai junto para o painel de histórico da tela não envelhecer enquanto o
+      // resto atualiza — a mudança que o usuário acabou de fazer é a primeira
+      // linha que ele espera ver.
+      historico,
     },
     { headers },
   );

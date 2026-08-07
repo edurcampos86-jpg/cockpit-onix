@@ -1,4 +1,5 @@
 import { getConfig } from "@/lib/config-db";
+import { flagLigada } from "@/lib/flags/registro";
 
 /**
  * Gate (Config DB) do hub "Ecossistema Onix" na rota raiz `/`. Flag PRÓPRIA,
@@ -20,12 +21,7 @@ import { getConfig } from "@/lib/config-db";
  */
 export const HUB_ECOSSISTEMA_FLAG = "HUB_ECOSSISTEMA";
 
-function parseBoolFlag(v: string | undefined): boolean {
-  if (!v) return false;
-  return ["1", "true", "on", "yes", "sim"].includes(v.trim().toLowerCase());
-}
-
 /** Hub "Ecossistema Onix" habilitado? Lê a flag do Config DB a cada chamada. Default OFF. */
 export async function hubEcossistemaHabilitado(): Promise<boolean> {
-  return parseBoolFlag(await getConfig(HUB_ECOSSISTEMA_FLAG));
+  return flagLigada(await getConfig(HUB_ECOSSISTEMA_FLAG));
 }
