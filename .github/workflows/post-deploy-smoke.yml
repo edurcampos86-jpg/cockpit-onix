@@ -97,6 +97,80 @@ jobs:
             exit 1
           fi
 
+      # ─────────────────────────────────────────────────────────────────
+      # Configuração do ambiente: quais feature flags estão ligadas.
+      #
+      # Step SEPARADO do health anônimo de propósito. O body daquele step vai
+      # INTEIRO para dentro da issue de incidente; a lista de flags não pode ir
+      # junto (ver o comentário em src/app/api/health/route.ts). Aqui o detalhe
+      # fica só no summary do run, e a issue recebe apenas ok/drift.
+      #
+      # Só FALHA quando a variável EXPECTED_FLAGS_ON existe — é opt-in. Sem ela,
+      # o step apenas registra o que encontrou, e o smoke segue verde.
+      #   Settings → Variables → EXPECTED_FLAGS_ON
+      #   valor: lista separada por vírgula, ex. "COCKPIT_REUNIAO,RBAC_ENFORCEMENT"
+      #   valor: "none" para afirmar que NENHUMA flag deve estar ligada
+      # Depois de definida, ligar uma flag em produção sem atualizar a variável
+      # deixa o smoke vermelho — que é o ponto: mudança de configuração passa a
+      # ter sinal.
+      - name: Confirma flags do ambiente
+        id: flags
+        if: always() && steps.health.outputs.code == '200'
+        env:
+          BASE: ${{ steps.base.outputs.url }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          ESPERADO: ${{ vars.EXPECTED_FLAGS_ON }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "CRON_SECRET não configurado — pulando conferência de flags."
+            echo "status=pulado" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          CODE=$(curl -sS -o /tmp/health-auth.json -w "%{http_code}" --max-time 30 \
+            -H "Authorization: Bearer $CRON_SECRET" "$BASE/api/health")
+          if [ "$CODE" != "200" ]; then
+            echo "::error::/api/health autenticado retornou HTTP $CODE"
+            echo "status=erro" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          # `flags` ausente = deploy anterior à mudança, ou CRON_SECRET do
+          # Railway divergindo do secret do GitHub. Não falha: nesse caso o
+          # próprio cron.yml já acusaria a divergência com 403.
+          if ! jq -e 'has("flags")' /tmp/health-auth.json > /dev/null; then
+            echo "::warning::/api/health não trouxe 'flags' — versão antiga no ar ou CRON_SECRET divergente."
+            echo "status=indisponivel" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          ATUAL=$(jq -r '.flags | sort | join(",")' /tmp/health-auth.json)
+          [ -n "$ATUAL" ] || ATUAL="none"
+          echo "Flags ligadas: $ATUAL"
+          {
+            echo "### Flags ligadas no ambiente"
+            echo ""
+            echo "\`$ATUAL\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -z "$ESPERADO" ]; then
+            echo "EXPECTED_FLAGS_ON não definida — só registrando, sem comparar."
+            echo "status=registrado" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Normaliza a variável do mesmo jeito que o lado do app: ordena e tira
+          # espaço. Assim "b, a" e "a,b" são a mesma coisa.
+          NORM=$(echo "$ESPERADO" | tr ',' '\n' | tr -d '[:space:]' | grep -v '^$' | sort | paste -sd, -)
+          [ -n "$NORM" ] || NORM="none"
+          if [ "$ATUAL" != "$NORM" ]; then
+            echo "::error::Flags do ambiente divergem do esperado. Esperado: $NORM · Atual: $ATUAL"
+            echo "status=drift" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "Configuração confere com EXPECTED_FLAGS_ON."
+          echo "status=ok" >> "$GITHUB_OUTPUT"
+
       - name: Probe GET /login
         id: login
         env:
@@ -125,6 +199,7 @@ jobs:
             echo ""
             echo "- \`GET /login\` ✅ (proxy)"
             echo "- \`GET /api/health\` ✅ (DB up)"
+            echo "- flags do ambiente: ${{ steps.flags.outputs.status }}"
             echo "- \`GET /login\` ✅ (render OK)"
             echo ""
             echo "Base: $BASE"
@@ -178,6 +253,7 @@ jobs:
           HEALTH_CODE: ${{ steps.health.outputs.code }}
           HEALTH_BODY: ${{ steps.health.outputs.body }}
           LOGIN_CODE: ${{ steps.login.outputs.code }}
+          FLAGS_STATUS: ${{ steps.flags.outputs.status }}
         run: |
           RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           TITLE="🚨 Smoke FAIL — $(date -u '+%Y-%m-%d %H:%M UTC')"
@@ -201,6 +277,7 @@ jobs:
           | \`GET /login\` (root proxy) | $ROOT_CODE | 200 |
           | \`GET /api/health\` | $HEALTH_CODE | 200 + db:up |
           | \`GET /login\` (render) | $LOGIN_CODE | 200 + "Acesse sua conta" |
+          | Flags do ambiente | $FLAGS_STATUS | ok / registrado / pulado |
 
           ### /api/health body (truncado)
 
@@ -213,7 +290,10 @@ jobs:
           1. Abrir o Run no link acima e ver qual step falhou.
           2. Se DB down → checar Railway → Postgres service.
           3. Se app down → checar último deploy em Railway → Deployments.
-          4. Para rollback, ver \`docs/DISASTER_RECOVERY.md\` cenário 1.
+          4. Se flags = \`drift\` → alguém mudou a config do ambiente. O Run
+             mostra quais estão ligadas (a lista NÃO é publicada aqui de
+             propósito); confira contra a variável \`EXPECTED_FLAGS_ON\`.
+          5. Para rollback, ver \`docs/DISASTER_RECOVERY.md\` cenário 1.
           EOF
           )
           # Cria issue via API (gh CLI não está disponível no runner remoto)

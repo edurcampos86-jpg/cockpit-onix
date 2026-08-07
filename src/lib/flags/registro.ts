@@ -1,0 +1,218 @@
+/* ──────────────────────────────────────────────────────────────
+ * Registro das flags do Config DB — módulo PURO.
+ *
+ * Sem prisma, sem `server-only`, sem env: só a lista e as regras de leitura.
+ * O estado de verdade (o que está ligado AGORA) mora em `estado.ts`, que é o
+ * lado que toca banco. Esta separação é o que permite testar as regras.
+ *
+ * Por que existe: as flags nasceram cada uma no seu módulo
+ * (`lib/<modulo>/flag.ts`, `instrumentation.ts`, rotas), e não havia lugar
+ * nenhum que respondesse "quais existem e quais estão ligadas". A única forma
+ * de saber era abrir `psql`. Este arquivo é essa lista.
+ *
+ * ALLOWLIST, e isso é uma regra de segurança, não organização: a tabela
+ * `Config` guarda também SEGREDOS (DATACRAZY_TOKEN, ANTHROPIC_API_KEY,
+ * DATACRAZY_WEBHOOK_SECRET, OUTLOOK_ICS_URL) e estado interno
+ * (PIXEL_CAC_MATRIX, checkpoints do backfill). Nada disso entra aqui, e quem
+ * lê o estado NUNCA varre a tabela — só busca estas chaves. Uma chave nova só
+ * é exposta se alguém a escrever nesta lista de propósito.
+ * ────────────────────────────────────────────────────────────── */
+
+/**
+ * Como o valor vira booleano. Os dois dialetos existem MESMO no código de hoje:
+ *
+ *   • `amplo`   — `1 | true | on | yes | sim`, a régua de `parseBoolFlag`,
+ *                 copiada em 8 módulos `lib/<modulo>/flag.ts`;
+ *   • `estrito` — `1 | true | on`, escrito inline em 4 lugares
+ *                 (`instrumentation.ts`, `actions/reuniao-estruturada.ts`),
+ *                 que NÃO aceitam `yes` nem `sim`.
+ *
+ * A diferença é real e silenciosa: gravar `sim` em `PERFIL_FATO_WRITE` deixa a
+ * flag DESLIGADA, enquanto o mesmo `sim` em `HUB_ECOSSISTEMA` a liga. Guardar o
+ * dialeto por flag é o que impede este registro de responder uma coisa
+ * enquanto o código faz outra — se ele usasse uma régua só, mentiria em 4 das
+ * 15. Unificar os dois dialetos é backlog próprio; enquanto não acontece, o
+ * registro descreve a realidade em vez de a idealizar.
+ */
+export type DialetoBooleano = "amplo" | "estrito";
+
+export type TipoFlag = "booleana" | "valor";
+
+export type FlagRegistrada = {
+  /** Chave em `Config.key`. */
+  key: string;
+  /** O que ela liga, em uma linha. */
+  rotulo: string;
+  /** Arquivo que consome — para achar o dono sem grep. */
+  onde: string;
+  tipo: TipoFlag;
+  /** Só para `booleana`. */
+  dialeto?: DialetoBooleano;
+};
+
+const ACEITOS: Record<DialetoBooleano, readonly string[]> = {
+  amplo: ["1", "true", "on", "yes", "sim"],
+  estrito: ["1", "true", "on"],
+};
+
+/**
+ * A flag está ligada? Reproduz EXATAMENTE o que o módulo dono faz — inclusive
+ * o `trim().toLowerCase()` que os dois dialetos aplicam antes de comparar.
+ * Ausente, vazia ou valor não reconhecido ⇒ desligada (default OFF em todas).
+ */
+export function flagLigada(
+  valor: string | undefined,
+  dialeto: DialetoBooleano = "amplo",
+): boolean {
+  if (!valor) return false;
+  return ACEITOS[dialeto].includes(valor.trim().toLowerCase());
+}
+
+/** Valores que cada dialeto aceita — exposto para o teste e para a UI explicar. */
+export function valoresAceitos(dialeto: DialetoBooleano): readonly string[] {
+  return ACEITOS[dialeto];
+}
+
+/**
+ * Todas as flags do Config DB. Conferida contra o código em 2026-08: cada
+ * entrada tem um `getConfig(<key>)` real no arquivo apontado em `onde`.
+ */
+export const FLAGS_REGISTRADAS: readonly FlagRegistrada[] = [
+  // ── Telas atrás de gate ──────────────────────────────────────
+  {
+    key: "HUB_ECOSSISTEMA",
+    rotulo: "Hub Ecossistema Onix na rota raiz",
+    onde: "src/lib/hub-ecossistema/flag.ts",
+    tipo: "booleana",
+    dialeto: "amplo",
+  },
+  {
+    key: "COCKPIT_REUNIAO",
+    rotulo: "Aba Cockpit de Reunião na ficha do cliente",
+    onde: "src/lib/cockpit-reuniao/flag.ts",
+    tipo: "booleana",
+    dialeto: "amplo",
+  },
+  {
+    key: "PERMISSOES_UI",
+    rotulo: "Tela Configurações › Permissões",
+    onde: "src/lib/permissoes/flag.ts",
+    tipo: "booleana",
+    dialeto: "amplo",
+  },
+  {
+    key: "IMPLEMENTACOES_INLINE",
+    rotulo: "Botão flutuante 'Sugerir implementação'",
+    onde: "src/lib/implementacoes/inline-flag.ts",
+    tipo: "booleana",
+    dialeto: "amplo",
+  },
+  {
+    /* O nome sugere um número, mas é booleana: liga/desliga a 2ª linha
+     * "parado há Xd" na coluna Saldo Conta. Registrado assim de propósito —
+     * é justamente o tipo de chave que alguém tentaria preencher com "30". */
+    key: "CLIENTES_SALDO_PARADO_DIAS",
+    rotulo: "Exibe 'parado há X dias' na coluna Saldo Conta (booleana, apesar do nome)",
+    onde: "src/lib/backoffice/saldo-parado-flag.ts",
+    tipo: "booleana",
+    dialeto: "amplo",
+  },
+  {
+    key: "CLIENTES_ATENCAO_INLINE",
+    rotulo: "Fusão do estado de atenção na coluna Presença",
+    onde: "src/lib/painel-atencao/service.ts",
+    tipo: "booleana",
+    dialeto: "amplo",
+  },
+
+  // ── Comportamento de backend ─────────────────────────────────
+  {
+    key: "RBAC_ENFORCEMENT",
+    rotulo: "Enforcement de escopo RBAC por CGE",
+    onde: "src/lib/rbac.ts",
+    tipo: "booleana",
+    dialeto: "amplo",
+  },
+  {
+    key: "PAINEL_ATENCAO_BACKEND",
+    rotulo: "Backend do Painel de Atenção ao Cliente",
+    onde: "src/lib/painel-atencao/service.ts",
+    tipo: "booleana",
+    dialeto: "amplo",
+  },
+  {
+    key: "PERFIL_FATO_LEITURA",
+    rotulo: "Leitura de fatos de perfil na ficha",
+    onde: "src/lib/cockpit-reuniao/perfil-leitura-flag.ts",
+    tipo: "booleana",
+    dialeto: "amplo",
+  },
+  {
+    key: "PENDENCIAS_ABERTAS",
+    rotulo: "Pendências abertas de reunião",
+    onde: "src/lib/cockpit-reuniao/pendencias-flag.ts",
+    tipo: "booleana",
+    dialeto: "amplo",
+  },
+  {
+    key: "IMPORT_REUNIAO_IDEMPOTENTE",
+    rotulo: "Reimportar reunião atualiza em vez de duplicar",
+    onde: "src/lib/cockpit-reuniao/import-idempotencia-flag.ts",
+    tipo: "booleana",
+    dialeto: "amplo",
+  },
+  {
+    key: "BACKFILL_CONVERSAS_ENABLED",
+    rotulo: "Rota de backfill de conversas DataCrazy",
+    onde: "src/app/api/backoffice/backfill-conversas/route.ts",
+    tipo: "booleana",
+    dialeto: "amplo",
+  },
+
+  // ── Dialeto ESTRITO: não aceitam `yes` nem `sim` ─────────────
+  {
+    key: "PERFIL_FATO_WRITE",
+    rotulo: "Escrita de fatos de perfil (patrimônio)",
+    onde: "src/app/actions/reuniao-estruturada.ts",
+    tipo: "booleana",
+    dialeto: "estrito",
+  },
+  {
+    key: "PERFIL_FATO_RICO_WRITE",
+    rotulo: "Escrita dos fatos ricos de perfil",
+    onde: "src/app/actions/reuniao-estruturada.ts",
+    tipo: "booleana",
+    dialeto: "estrito",
+  },
+  {
+    key: "DATACRAZY_POLL_INPROCESS",
+    rotulo: "Scheduler in-process do poll DataCrazy",
+    onde: "src/instrumentation.ts",
+    tipo: "booleana",
+    dialeto: "estrito",
+  },
+  {
+    key: "BTG_FRESHNESS_INPROCESS",
+    rotulo: "Scheduler in-process do freshness BTG",
+    onde: "src/instrumentation.ts",
+    tipo: "booleana",
+    dialeto: "estrito",
+  },
+
+  // ── Tunáveis (valor, não liga/desliga) ───────────────────────
+  {
+    key: "LIMIAR_VACUO_DIAS",
+    rotulo: "Teto de vácuo em dias (default 3650 = sem teto)",
+    onde: "src/lib/painel-atencao/service.ts",
+    tipo: "valor",
+  },
+  {
+    key: "BACKFILL_CONVERSAS_LOCK_TTL_MIN",
+    rotulo: "TTL do lock do backfill, em minutos (default 10)",
+    onde: "src/app/api/backoffice/backfill-conversas/route.ts",
+    tipo: "valor",
+  },
+] as const;
+
+/** As chaves do registro — é ESTA lista que limita o que se lê do Config. */
+export const CHAVES_REGISTRADAS: readonly string[] = FLAGS_REGISTRADAS.map((f) => f.key);
