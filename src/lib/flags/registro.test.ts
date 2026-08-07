@@ -3,7 +3,9 @@ import { test } from "node:test";
 import {
   CHAVES_REGISTRADAS,
   FLAGS_REGISTRADAS,
+  flagAlternavel,
   flagLigada,
+  valorParaGravar,
   valoresAceitos,
 } from "./registro";
 
@@ -11,15 +13,73 @@ test("chave de flag não se repete", () => {
   assert.equal(new Set(CHAVES_REGISTRADAS).size, CHAVES_REGISTRADAS.length);
 });
 
-test("toda booleana declara o dialeto; nenhuma 'valor' declara", () => {
+test("toda booleana declara dialeto e impacto; nenhuma 'valor' declara", () => {
   // Sem o dialeto explícito, `flagLigada` cairia no default "amplo" e passaria
-  // a mentir sobre as 4 flags estritas em silêncio.
+  // a mentir sobre as 4 flags estritas em silêncio. Sem o impacto, a tela
+  // deixaria virar sem confirmação uma chave que abre caminho de escrita.
   for (const f of FLAGS_REGISTRADAS) {
     if (f.tipo === "booleana") {
       assert.ok(f.dialeto, `flag booleana sem dialeto: ${f.key}`);
+      assert.ok(f.impacto, `flag booleana sem impacto: ${f.key}`);
     } else {
       assert.equal(f.dialeto, undefined, `flag de valor com dialeto: ${f.key}`);
+      assert.equal(f.impacto, undefined, `flag de valor com impacto: ${f.key}`);
     }
+  }
+});
+
+test("toda flag de impacto alto explica o que acontece", () => {
+  // O aviso é o corpo do diálogo de confirmação. Sem texto, a tela pediria
+  // confirmação de uma coisa sem dizer do quê — pior que não perguntar.
+  for (const f of FLAGS_REGISTRADAS) {
+    if (f.impacto === "alto") {
+      assert.ok(f.aviso && f.aviso.length > 40, `aviso ausente ou raso em ${f.key}`);
+    } else {
+      assert.equal(f.aviso, undefined, `aviso em flag que não é de impacto alto: ${f.key}`);
+    }
+  }
+});
+
+test("são de impacto alto exatamente as de escrita, scheduler e controle de acesso", () => {
+  assert.deepEqual(
+    FLAGS_REGISTRADAS.filter((f) => f.impacto === "alto").map((f) => f.key).sort(),
+    [
+      "BACKFILL_CONVERSAS_ENABLED",
+      "BTG_FRESHNESS_INPROCESS",
+      "DATACRAZY_POLL_INPROCESS",
+      "IMPORT_REUNIAO_IDEMPOTENTE",
+      "PERFIL_FATO_RICO_WRITE",
+      "PERFIL_FATO_WRITE",
+      "RBAC_ENFORCEMENT",
+    ],
+  );
+});
+
+test("flagAlternavel recusa tudo que não é flag booleana registrada", () => {
+  // Esta é a fronteira de segurança da rota de escrita: `Config` é a MESMA
+  // tabela dos segredos. Sem a recusa, um POST com key "DATACRAZY_TOKEN"
+  // sobrescreveria o token com "1".
+  assert.equal(flagAlternavel("DATACRAZY_TOKEN"), null);
+  assert.equal(flagAlternavel("ANTHROPIC_API_KEY"), null);
+  assert.equal(flagAlternavel("PIXEL_CAC_MATRIX"), null);
+  assert.equal(flagAlternavel(""), null);
+  assert.equal(flagAlternavel("hub_ecossistema"), null, "a comparação é sensível a caixa");
+
+  // Flags de VALOR também são recusadas: gravar "1" em LIMIAR_VACUO_DIAS
+  // mudaria o teto de vácuo para 1 dia em vez de ligar coisa nenhuma.
+  assert.equal(flagAlternavel("LIMIAR_VACUO_DIAS"), null);
+  assert.equal(flagAlternavel("BACKFILL_CONVERSAS_LOCK_TTL_MIN"), null);
+
+  assert.equal(flagAlternavel("HUB_ECOSSISTEMA")?.key, "HUB_ECOSSISTEMA");
+});
+
+test("a tela grava 1/0, que os DOIS dialetos entendem", () => {
+  // Gravar "sim" ligaria uma flag ampla e deixaria uma estrita desligada.
+  assert.equal(valorParaGravar(true), "1");
+  assert.equal(valorParaGravar(false), "0");
+  for (const dialeto of ["amplo", "estrito"] as const) {
+    assert.equal(flagLigada(valorParaGravar(true), dialeto), true);
+    assert.equal(flagLigada(valorParaGravar(false), dialeto), false);
   }
 });
 

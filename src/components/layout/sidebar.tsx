@@ -42,6 +42,7 @@ import {
   PieChart,
   Scale,
   Shield,
+  ToggleLeft,
   Database,
   PackagePlus,
   Mail,
@@ -130,6 +131,7 @@ const sharedNavigation = [
   { name: "Glossário", href: "/glossario", icon: BookMarked },
   { name: "Integrações", href: "/integracoes", icon: Plug },
   { name: "Implementações", href: "/configuracoes/implementacoes", icon: Lightbulb },
+  { name: "Flags", href: "/configuracoes/flags", icon: ToggleLeft },
 ];
 
 /* ── Definição dos módulos / empresas ───────────────── */
@@ -207,6 +209,7 @@ const operacoesItemsV2 = [
   { name: "Glossário", href: "/glossario", icon: BookMarked },
   { name: "Implementações", href: "/configuracoes/implementacoes", icon: Lightbulb },
   { name: "Permissões", href: "/configuracoes/permissoes", icon: Shield },
+  { name: "Flags", href: "/configuracoes/flags", icon: ToggleLeft },
 ];
 
 // F4 — shells das demais empresas: um item "Painel" por empresa; as demais
@@ -262,7 +265,7 @@ const configItemV2 = { name: "Configurações", href: "/configuracoes", icon: Se
 // Hrefs visíveis só pra admin (gate COSMÉTICO do nav — a segurança real é o
 // redirect na própria página, ex.: /configuracoes/implementacoes). O isAdmin
 // COMPLETO (role OU teamRole) vem de /api/auth/is-admin.
-const ADMIN_ONLY_HREFS = ["/configuracoes/implementacoes", "/configuracoes/permissoes"];
+const ADMIN_ONLY_HREFS = ["/configuracoes/implementacoes", "/configuracoes/permissoes", "/configuracoes/flags"];
 
 function getActiveModuleIdV2(pathname: string): string {
   if (pathname.startsWith("/onix-corretora")) return "onix-corretora";
@@ -280,7 +283,7 @@ function getActiveModuleIdV2(pathname: string): string {
   )
     return "juridico";
   if (
-    ["/admin/backups", "/integracoes", "/metodo", "/glossario", "/configuracoes/implementacoes", "/configuracoes/permissoes"].some((p) =>
+    ["/admin/backups", "/integracoes", "/metodo", "/glossario", "/configuracoes/implementacoes", "/configuracoes/permissoes", "/configuracoes/flags"].some((p) =>
       pathname.startsWith(p),
     )
   )

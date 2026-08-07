@@ -38,6 +38,17 @@ export type DialetoBooleano = "amplo" | "estrito";
 
 export type TipoFlag = "booleana" | "valor";
 
+/**
+ * Peso de virar a chave — o que decide se a tela pede confirmação.
+ *
+ * `alto` é toda flag cujo efeito NÃO é desfeito desligando de volta: as que
+ * abrem caminho de ESCRITA (fatos de perfil, backfill em massa), as que ligam
+ * SCHEDULER que sai chamando API externa, e a de CONTROLE DE ACESSO
+ * (`RBAC_ENFORCEMENT`), onde errar esconde carteira de gente ou abre a de
+ * todo mundo. Gate de UI é `normal`: liga, olha, desliga, nada aconteceu.
+ */
+export type ImpactoFlag = "alto" | "normal";
+
 export type FlagRegistrada = {
   /** Chave em `Config.key`. */
   key: string;
@@ -48,6 +59,10 @@ export type FlagRegistrada = {
   tipo: TipoFlag;
   /** Só para `booleana`. */
   dialeto?: DialetoBooleano;
+  /** Só para `booleana` — flags de valor não são alternáveis pela tela. */
+  impacto?: ImpactoFlag;
+  /** Só quando `impacto: "alto"`: o que exatamente acontece ao ligar. */
+  aviso?: string;
 };
 
 const ACEITOS: Record<DialetoBooleano, readonly string[]> = {
@@ -85,6 +100,7 @@ export const FLAGS_REGISTRADAS: readonly FlagRegistrada[] = [
     onde: "src/lib/hub-ecossistema/flag.ts",
     tipo: "booleana",
     dialeto: "amplo",
+    impacto: "normal",
   },
   {
     key: "COCKPIT_REUNIAO",
@@ -92,6 +108,7 @@ export const FLAGS_REGISTRADAS: readonly FlagRegistrada[] = [
     onde: "src/lib/cockpit-reuniao/flag.ts",
     tipo: "booleana",
     dialeto: "amplo",
+    impacto: "normal",
   },
   {
     key: "PERMISSOES_UI",
@@ -99,6 +116,7 @@ export const FLAGS_REGISTRADAS: readonly FlagRegistrada[] = [
     onde: "src/lib/permissoes/flag.ts",
     tipo: "booleana",
     dialeto: "amplo",
+    impacto: "normal",
   },
   {
     key: "IMPLEMENTACOES_INLINE",
@@ -106,6 +124,7 @@ export const FLAGS_REGISTRADAS: readonly FlagRegistrada[] = [
     onde: "src/lib/implementacoes/inline-flag.ts",
     tipo: "booleana",
     dialeto: "amplo",
+    impacto: "normal",
   },
   {
     /* O nome sugere um número, mas é booleana: liga/desliga a 2ª linha
@@ -116,6 +135,7 @@ export const FLAGS_REGISTRADAS: readonly FlagRegistrada[] = [
     onde: "src/lib/backoffice/saldo-parado-flag.ts",
     tipo: "booleana",
     dialeto: "amplo",
+    impacto: "normal",
   },
   {
     key: "CLIENTES_ATENCAO_INLINE",
@@ -123,6 +143,7 @@ export const FLAGS_REGISTRADAS: readonly FlagRegistrada[] = [
     onde: "src/lib/painel-atencao/service.ts",
     tipo: "booleana",
     dialeto: "amplo",
+    impacto: "normal",
   },
 
   // ── Comportamento de backend ─────────────────────────────────
@@ -132,6 +153,9 @@ export const FLAGS_REGISTRADAS: readonly FlagRegistrada[] = [
     onde: "src/lib/rbac.ts",
     tipo: "booleana",
     dialeto: "amplo",
+    impacto: "alto",
+    aviso:
+      "Passa a FILTRAR clientes por CGE em todas as listas e fichas. Ligado com carteira mal configurada, some cliente da tela de quem deveria ver; desligado, todo mundo volta a ver tudo.",
   },
   {
     key: "PAINEL_ATENCAO_BACKEND",
@@ -139,6 +163,7 @@ export const FLAGS_REGISTRADAS: readonly FlagRegistrada[] = [
     onde: "src/lib/painel-atencao/service.ts",
     tipo: "booleana",
     dialeto: "amplo",
+    impacto: "normal",
   },
   {
     key: "PERFIL_FATO_LEITURA",
@@ -146,6 +171,7 @@ export const FLAGS_REGISTRADAS: readonly FlagRegistrada[] = [
     onde: "src/lib/cockpit-reuniao/perfil-leitura-flag.ts",
     tipo: "booleana",
     dialeto: "amplo",
+    impacto: "normal",
   },
   {
     key: "PENDENCIAS_ABERTAS",
@@ -153,6 +179,7 @@ export const FLAGS_REGISTRADAS: readonly FlagRegistrada[] = [
     onde: "src/lib/cockpit-reuniao/pendencias-flag.ts",
     tipo: "booleana",
     dialeto: "amplo",
+    impacto: "normal",
   },
   {
     key: "IMPORT_REUNIAO_IDEMPOTENTE",
@@ -160,6 +187,9 @@ export const FLAGS_REGISTRADAS: readonly FlagRegistrada[] = [
     onde: "src/lib/cockpit-reuniao/import-idempotencia-flag.ts",
     tipo: "booleana",
     dialeto: "amplo",
+    impacto: "alto",
+    aviso:
+      "Muda a semântica do import: reimportar a MESMA reunião passa a atualizar o registro existente em vez de criar outro.",
   },
   {
     key: "BACKFILL_CONVERSAS_ENABLED",
@@ -167,6 +197,9 @@ export const FLAGS_REGISTRADAS: readonly FlagRegistrada[] = [
     onde: "src/app/api/backoffice/backfill-conversas/route.ts",
     tipo: "booleana",
     dialeto: "amplo",
+    impacto: "alto",
+    aviso:
+      "Abre a rota de backfill, que varre a API da DataCrazy e ESCREVE conversas e mensagens em massa. Rodada indevida polui a base e consome cota da API.",
   },
 
   // ── Dialeto ESTRITO: não aceitam `yes` nem `sim` ─────────────
@@ -176,6 +209,9 @@ export const FLAGS_REGISTRADAS: readonly FlagRegistrada[] = [
     onde: "src/app/actions/reuniao-estruturada.ts",
     tipo: "booleana",
     dialeto: "estrito",
+    impacto: "alto",
+    aviso:
+      "Passa a GRAVAR fatos de perfil a cada reunião estruturada. Desligar depois não apaga o que já foi escrito.",
   },
   {
     key: "PERFIL_FATO_RICO_WRITE",
@@ -183,6 +219,9 @@ export const FLAGS_REGISTRADAS: readonly FlagRegistrada[] = [
     onde: "src/app/actions/reuniao-estruturada.ts",
     tipo: "booleana",
     dialeto: "estrito",
+    impacto: "alto",
+    aviso:
+      "Passa a GRAVAR os fatos ricos de perfil. Desligar depois não apaga o que já foi escrito.",
   },
   {
     key: "DATACRAZY_POLL_INPROCESS",
@@ -190,6 +229,9 @@ export const FLAGS_REGISTRADAS: readonly FlagRegistrada[] = [
     onde: "src/instrumentation.ts",
     tipo: "booleana",
     dialeto: "estrito",
+    impacto: "alto",
+    aviso:
+      "Liga o scheduler dentro do processo: passa a chamar a API da DataCrazy em intervalo fixo e a escrever no banco, sem passar por cron.",
   },
   {
     key: "BTG_FRESHNESS_INPROCESS",
@@ -197,6 +239,9 @@ export const FLAGS_REGISTRADAS: readonly FlagRegistrada[] = [
     onde: "src/instrumentation.ts",
     tipo: "booleana",
     dialeto: "estrito",
+    impacto: "alto",
+    aviso:
+      "Liga o scheduler de freshness BTG dentro do processo, com chamada externa e escrita a cada 30 min.",
   },
 
   // ── Tunáveis (valor, não liga/desliga) ───────────────────────
@@ -216,3 +261,30 @@ export const FLAGS_REGISTRADAS: readonly FlagRegistrada[] = [
 
 /** As chaves do registro — é ESTA lista que limita o que se lê do Config. */
 export const CHAVES_REGISTRADAS: readonly string[] = FLAGS_REGISTRADAS.map((f) => f.key);
+
+/**
+ * A flag booleana com esta chave, ou `null`.
+ *
+ * É a FRONTEIRA DE SEGURANÇA da escrita: sem esta checagem, um POST em
+ * `/api/configuracoes/flags` com `{ key: "DATACRAZY_TOKEN" }` sobrescreveria o
+ * segredo com "1" — a tabela `Config` é a mesma. Devolver `null` fora do
+ * registro é o que torna a rota incapaz de tocar em qualquer coisa que não
+ * seja uma flag conhecida.
+ *
+ * Recusa também `tipo: "valor"`: `LIMIAR_VACUO_DIAS` é um número, e gravar "1"
+ * ali mudaria o teto de vácuo para 1 dia em vez de "ligar" coisa nenhuma.
+ */
+export function flagAlternavel(key: string): FlagRegistrada | null {
+  const flag = FLAGS_REGISTRADAS.find((f) => f.key === key);
+  if (!flag || flag.tipo !== "booleana") return null;
+  return flag;
+}
+
+/**
+ * Valor a gravar para ligar/desligar. Sempre `"1"`/`"0"` porque os DOIS
+ * dialetos os aceitam — a tela nunca escreve `sim`, que ligaria uma flag ampla
+ * e deixaria uma estrita desligada.
+ */
+export function valorParaGravar(ligada: boolean): "1" | "0" {
+  return ligada ? "1" : "0";
+}

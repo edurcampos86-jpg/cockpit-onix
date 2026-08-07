@@ -5,6 +5,8 @@ import {
   CHAVES_REGISTRADAS,
   FLAGS_REGISTRADAS,
   flagLigada,
+  type DialetoBooleano,
+  type ImpactoFlag,
   type TipoFlag,
 } from "@/lib/flags/registro";
 
@@ -35,6 +37,12 @@ export type EstadoFlag = {
   ligada: boolean | null;
   /** `Config.updatedAt` quando a origem é o banco. */
   atualizadoEm: string | null;
+  /** Só para `booleana` — a tela usa para decidir se pede confirmação. */
+  impacto: ImpactoFlag | null;
+  /** Só quando `impacto: "alto"` — texto do diálogo de confirmação. */
+  aviso: string | null;
+  /** Só para `booleana` — a tela mostra quais valores aquela flag aceita. */
+  dialeto: DialetoBooleano | null;
 };
 
 /** Estado de todas as flags registradas, na ordem do registro. */
@@ -64,6 +72,9 @@ export async function resolverEstadoDasFlags(): Promise<EstadoFlag[]> {
       valor,
       ligada: flag.tipo === "booleana" ? flagLigada(valor ?? undefined, flag.dialeto) : null,
       atualizadoEm: origem === "db" ? (linha?.updatedAt.toISOString() ?? null) : null,
+      impacto: flag.impacto ?? null,
+      aviso: flag.aviso ?? null,
+      dialeto: flag.dialeto ?? null,
     };
   });
 }

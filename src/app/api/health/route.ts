@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { cronAutorizado } from "@/lib/painel-do-dia/cron-guard";
 import { chavesLigadas } from "@/lib/flags/estado";
+import { versaoDeploy } from "@/lib/versao-deploy";
 
 // Health check público. Usado por:
 //   - .github/workflows/post-deploy-smoke.yml (após deploy + cron 15min)
@@ -12,8 +13,15 @@ import { chavesLigadas } from "@/lib/flags/estado";
 // com { status:'degraded', db:'down', dbError } quando o ping ao Postgres
 // falha — assim o smoke test detecta DB down separado de app down.
 //
-// ── Estado das flags (`flags`) ──────────────────────────────────────────
-// Acrescentado APENAS para quem apresenta `Authorization: Bearer $CRON_SECRET`.
+// ── Configuração do ambiente (`flags` + `versao`) ───────────────────────
+// Acrescentados APENAS para quem apresenta `Authorization: Bearer $CRON_SECRET`.
+//
+// `versao` responde QUAL commit está no ar. Sem isso o smoke provava só que
+// "alguma coisa" respondia: um deploy que falhou em subir deixa a versão
+// anterior servindo, e todos os probes passam verdes contra código velho —
+// falha silenciosa exatamente no momento em que se quer conferir um deploy.
+// `versao.ambiente` (RAILWAY_ENVIRONMENT_NAME) responde de quebra "em qual
+// ambiente eu bati?", sem depender de decorar URLs.
 // A resposta anônima segue byte-idêntica à de antes, e isso não é zelo
 // decorativo: o body deste endpoint é colado dentro da issue de incidente que
 // o smoke abre quando falha (post-deploy-smoke.yml). Publicar ali quais
@@ -36,8 +44,10 @@ export async function GET(request: Request) {
     // Só depois do ping: com o banco de pé, ler as flags é uma query a mais.
     // O try/catch é para o diagnóstico NUNCA derrubar o health — uma falha ao
     // listar flags viraria 503 e abriria incidente com a app perfeitamente no ar.
+    const autorizado = cronAutorizado(request);
+
     let flags: string[] | undefined;
-    if (cronAutorizado(request)) {
+    if (autorizado) {
       try {
         flags = await chavesLigadas();
       } catch (error) {
@@ -56,6 +66,10 @@ export async function GET(request: Request) {
         // Ausente para chamador anônimo; `[]` autenticado significa "nenhuma
         // flag ligada", que é diferente de "não perguntei".
         ...(flags ? { flags } : {}),
+        // `versao` não depende do banco (só de env), então sai mesmo que a
+        // leitura das flags tenha falhado — é justamente nesse cenário que
+        // saber qual commit está no ar mais ajuda.
+        ...(autorizado ? { versao: versaoDeploy() } : {}),
       },
       { status: 200 },
     );
