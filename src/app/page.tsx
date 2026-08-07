@@ -17,8 +17,21 @@ import {
 import { riscoEvasaoReuniao } from "@/lib/cadencia-core";
 import { rbacEnforcementHabilitado, resolverCgesVisiveis } from "@/lib/rbac";
 import { getAuthContext } from "@/lib/auth-helpers";
+import { hubEcossistemaHabilitado } from "@/lib/hub-ecossistema/flag";
+import { resolverNosDoHub } from "@/lib/hub-ecossistema/acesso";
+import { HubEcossistema } from "@/components/hub/hub-ecossistema";
 
 export default async function DashboardPage() {
+  /* Hub "Ecossistema Onix" atrás da flag Config DB `HUB_ECOSSISTEMA`
+   * (default OFF, ligável sem rebuild — ver `lib/hub-ecossistema/flag.ts`).
+   *
+   * O early return vem ANTES de qualquer conta ou query: com a flag ON o
+   * Painel de Comando não é montado nem consultado, e com ela OFF esta função
+   * segue byte-idêntica ao que era. Só uma leitura da tabela Config a mais. */
+  if (await hubEcossistemaHabilitado()) {
+    return <HubEcossistema nos={await resolverNosDoHub()} />;
+  }
+
   const now = new Date();
   const dayOfWeek = now.getDay();
   const startOfWeek = new Date(now);
