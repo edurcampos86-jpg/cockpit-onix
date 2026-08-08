@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { chavesLigadasDe, chavesNaoReconhecidasDe } from "./ligadas";
+import { chavesLigadasDe, chavesNaoReconhecidasDe, planejarConserto } from "./ligadas";
 import { compararComEsperado } from "./esperadas";
 
 /* Este arquivo trava a divergência entre o que o SMOKE cobra
@@ -101,4 +101,59 @@ test("suspeita e ligada são eixos independentes", () => {
   const flags = [{ key: "A", ligada: true, valorNaoReconhecido: true }];
   assert.deepEqual(chavesLigadasDe(flags), ["A"]);
   assert.deepEqual(chavesNaoReconhecidasDe(flags), ["A"]);
+});
+
+/* ── `planejarConserto`: as três recusas do botão em lote ────────────────── */
+
+const suspeita = (key, extra = {}) => ({
+  key, ligada: false, valorNaoReconhecido: true, intencao: true, ...extra,
+});
+
+test("aplica só as suspeitas com intenção clara, sem env e sem efeito pesado", () => {
+  const plano = planejarConserto([
+    suspeita("SIMPLES_ON"),
+    suspeita("SIMPLES_OFF", { intencao: false }),
+    { key: "SAUDAVEL", ligada: true, valorNaoReconhecido: false, intencao: null },
+  ]);
+  assert.deepEqual(plano.aplicar, [
+    { key: "SIMPLES_ON", ligar: true },
+    { key: "SIMPLES_OFF", ligar: false },
+  ]);
+  assert.deepEqual(plano.deFora, []);
+});
+
+test("flag de EFEITO PESADO fica de fora — o lote não pula N confirmações", () => {
+  // É a recusa mais tentadora de esquecer: são justamente essas que dá vontade
+  // de arrumar de uma vez. Cada uma tem um aviso próprio que precisa ser lido.
+  const plano = planejarConserto([suspeita("PESADA", { impacto: "alto" })]);
+  assert.deepEqual(plano.aplicar, []);
+  assert.deepEqual(plano.deFora, [{ key: "PESADA", motivo: "efeito_pesado" }]);
+});
+
+test("flag vinda do ENV fica de fora — gravar criaria a segunda fonte", () => {
+  const plano = planejarConserto([suspeita("DO_ENV", { origem: "env" })]);
+  assert.deepEqual(plano.aplicar, []);
+  assert.deepEqual(plano.deFora, [{ key: "DO_ENV", motivo: "env" }]);
+});
+
+test("intenção ambígua fica de fora — consertar para o lado errado é pior", () => {
+  const plano = planejarConserto([suspeita("LIXO", { intencao: null })]);
+  assert.deepEqual(plano.aplicar, []);
+  assert.deepEqual(plano.deFora, [{ key: "LIXO", motivo: "ambigua" }]);
+});
+
+test("env vence efeito pesado na hora de explicar o motivo", () => {
+  // Uma flag pode cair em mais de uma recusa. `origem: env` é a primeira
+  // testada porque é a que muda ONDE se conserta — dizer "efeito pesado" para
+  // algo que nem se conserta pela tela mandaria a pessoa para o lugar errado.
+  const plano = planejarConserto([suspeita("AMBAS", { origem: "env", impacto: "alto" })]);
+  assert.deepEqual(plano.deFora, [{ key: "AMBAS", motivo: "env" }]);
+});
+
+test("flag saudável nunca entra no plano, nem para aplicar nem para explicar", () => {
+  const plano = planejarConserto([
+    { key: "OK", ligada: true, valorNaoReconhecido: false, intencao: true },
+    { key: "SEM_CAMPO", ligada: null, intencao: null },
+  ]);
+  assert.deepEqual(plano, { aplicar: [], deFora: [] });
 });

@@ -4,7 +4,13 @@ import { getAuthContext } from "@/lib/auth-helpers";
 import { checkRateLimit, rateLimitHeaders } from "@/lib/rate-limit";
 import { resolverEstadoDasFlags, ultimasMudancas } from "@/lib/flags/estado";
 import { gravarFlagComAuditoria } from "@/lib/flags/auditoria";
-import { flagAlternavel, flagLigada, valorParaGravar } from "@/lib/flags/registro";
+import {
+  flagAlternavel,
+  flagLigada,
+  valorParaGravar,
+  valorReconhecido,
+  valoresAceitos,
+} from "@/lib/flags/registro";
 import { chavesLigadasDe } from "@/lib/flags/ligadas";
 
 export const dynamic = "force-dynamic";
@@ -114,6 +120,35 @@ export async function POST(request: Request) {
   }
 
   const valor = valorParaGravar(ligada);
+
+  /* Rede de segurança: nunca gravar valor que o dialeto DESTA flag não
+   * reconhece.
+   *
+   * Hoje é inalcançável por construção — `valorParaGravar` só devolve `1`/`0`,
+   * aceitos pelos dois dialetos, e há teste travando isso. A guarda existe para
+   * o dia em que a rota ganhar um caminho que aceite valor livre (importar
+   * config, copiar de outro ambiente, um PATCH). Sem ela, esse caminho novo
+   * gravaria em silêncio uma flag que fica DESLIGADA parecendo ligada — o
+   * mesmo defeito que o selo da tela e o smoke pós-deploy existem para caçar,
+   * reintroduzido pela porta da frente.
+   *
+   * Fica na ROTA, e não em `gravarFlagComAuditoria`, porque aqui existe
+   * fronteira HTTP: dá para responder 400 com o motivo. Lá dentro só daria
+   * para lançar, e o chamador veria 500 sem saber o que fazer. */
+  if (!valorReconhecido(valor, flag.dialeto)) {
+    console.warn(`[flags] POST recusado · valor fora do dialeto ${flag.dialeto}: ${key}=${valor}`);
+    return NextResponse.json(
+      {
+        error: "valor_fora_do_dialeto",
+        key,
+        valor,
+        dialeto: flag.dialeto ?? "amplo",
+        aceitos: valoresAceitos(flag.dialeto ?? "amplo"),
+      },
+      { status: 400, headers },
+    );
+  }
+
   const { de, mudou } = await gravarFlagComAuditoria({
     key,
     valor,

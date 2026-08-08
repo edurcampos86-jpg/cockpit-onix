@@ -30,7 +30,7 @@ import {
   compararComLista,
   type ComparacaoEsperado,
 } from "@/lib/flags/esperadas";
-import { chavesLigadasDe } from "@/lib/flags/ligadas";
+import { chavesLigadasDe, planejarConserto } from "@/lib/flags/ligadas";
 import {
   flagAlternavel,
   flagLigada,
@@ -109,7 +109,8 @@ export function FlagsTabela({
     }
   }
 
-  async function gravar(key: string, ligar: boolean) {
+  /** `true` = gravou. O laço do conserto em lote para no primeiro `false`. */
+  async function gravar(key: string, ligar: boolean): Promise<boolean> {
     setGravando(key);
     setErro(null);
     try {
@@ -121,7 +122,7 @@ export function FlagsTabela({
       if (!resposta.ok) {
         const corpo = await resposta.json().catch(() => ({}));
         setErro(`Não deu para gravar ${key}: ${corpo.error ?? resposta.status}`);
-        return;
+        return false;
       }
       const { flags: atualizadas, historico: novoHistorico } = (await resposta.json()) as {
         flags: EstadoFlag[];
@@ -132,8 +133,10 @@ export function FlagsTabela({
       // As telas gateadas por flag são server components — sem o refresh, o
       // resto do app continua renderizado com a configuração antiga.
       startTransition(() => router.refresh());
+      return true;
     } catch (e) {
       setErro(`Falha de rede ao gravar ${key}: ${e instanceof Error ? e.message : String(e)}`);
+      return false;
     } finally {
       setGravando(null);
     }
@@ -156,6 +159,39 @@ export function FlagsTabela({
   const divergencia = compararComLista(chavesLigadasDe(flags), esperado.esperadas);
   const foraDoEsperado = new Set([...divergencia.faltando, ...divergencia.sobrando]);
 
+  /* Plano do conserto em lote. A regra de quem entra é pura e testada
+   * (`planejarConserto`), porque as recusas dela são de segurança e não de
+   * layout. Aqui só se resolve a intenção de cada valor e se pinta o botão. */
+  const suspeitas = flags.filter((f) => f.valorNaoReconhecido);
+  const plano = planejarConserto(
+    suspeitas.map((f) => ({
+      key: f.key,
+      ligada: f.ligada,
+      valorNaoReconhecido: f.valorNaoReconhecido,
+      origem: f.origem,
+      impacto: f.impacto,
+      intencao: intencaoProvavel(f.valor ?? undefined, f.dialeto ?? "amplo"),
+    })),
+  );
+
+  /**
+   * Aplica o plano UMA flag por vez, em série.
+   *
+   * Sequencial de propósito: cada POST devolve o estado recalculado das 18
+   * flags e o componente troca o estado inteiro por ele. Disparar em paralelo
+   * faria a última resposta a chegar sobrescrever as demais, e a tela mostraria
+   * menos consertos do que aconteceram — mentira difícil de perceber, porque o
+   * banco estaria certo.
+   *
+   * Para na primeira falha: `gravar` já escreve o erro na tela, e insistir
+   * depois de um 429 ou de um banco fora só gera mais erro.
+   */
+  async function aplicarPlano() {
+    for (const { key, ligar } of plano.aplicar) {
+      if (!(await gravar(key, ligar))) return;
+    }
+  }
+
   return (
     <div className="space-y-8">
       {erro && (
@@ -167,6 +203,56 @@ export function FlagsTabela({
       <AvisoSmoke comparacao={divergencia} />
 
       <Historico mudancas={historico} />
+
+      {/* Só a partir de DUAS suspeitas. Com uma, o selo da própria linha já
+        * resolve em um clique e um botão no topo seria um segundo caminho para
+        * a mesma ação — mais coisa na tela, nada a mais feito. Duas ou mais é
+        * o cenário de restore de banco ou seed errado, em que consertar uma a
+        * uma vira trabalho. */}
+      {suspeitas.length > 1 && (
+        <section className="space-y-2 rounded-xl border border-destructive/40 bg-destructive/5 px-4 py-3">
+          <p className="flex items-center gap-2 text-sm font-semibold text-foreground">
+            <AlertTriangle className="h-4 w-4 text-destructive" />
+            {suspeitas.length} flags com valor que o dialeto delas não reconhece
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Cada uma está valendo <strong>OFF</strong>, independente do que o valor
+            aparenta.
+          </p>
+
+          {plano.aplicar.length > 0 && (
+            <Button
+              size="sm"
+              variant="destructive"
+              disabled={gravando !== null}
+              onClick={() => void aplicarPlano()}
+            >
+              {gravando !== null && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+              Corrigir {plano.aplicar.length}{" "}
+              {plano.aplicar.length === 1 ? "flag" : "flags"} de intenção clara
+            </Button>
+          )}
+
+          {/* As de fora aparecem NOMEADAS e com o motivo. Um botão que conserta
+            * "as que dá" sem dizer quais ficaram deixaria a pessoa achando que
+            * acabou — e o smoke reprovaria o deploy seguinte sem ela entender
+            * por quê. */}
+          {plano.deFora.length > 0 && (
+            <ul className="space-y-0.5 text-xs text-muted-foreground">
+              {plano.deFora.map(({ key, motivo }) => (
+                <li key={key}>
+                  <code className="text-foreground">{key}</code>{" "}
+                  {motivo === "env"
+                    ? "— vem do ambiente: conserte no Railway, não aqui."
+                    : motivo === "efeito_pesado"
+                      ? "— efeito pesado: vire a chave na linha e leia o aviso antes de confirmar."
+                      : "— não dá para deduzir a intenção do valor: decida na linha."}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
 
       <section className="space-y-2">
         <h2 className="text-sm font-semibold text-foreground">

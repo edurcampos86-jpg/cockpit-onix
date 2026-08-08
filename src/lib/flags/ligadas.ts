@@ -65,3 +65,55 @@ export function chavesNaoReconhecidasDe(flags: readonly FlagComEstado[]): string
     .map((f) => f.key)
     .sort();
 }
+
+/** Uma flag suspeita, já com a leitura de intenção resolvida. */
+export type FlagParaConserto = FlagComEstado & {
+  origem?: string;
+  impacto?: string | null;
+  /** `true` ligar, `false` desligar, `null` não dá para saber. */
+  intencao: boolean | null;
+};
+
+export type PlanoDeConserto = {
+  /** O que o botão em lote aplica: `{key, ligar}`. */
+  aplicar: { key: string; ligar: boolean }[];
+  /** Suspeitas deixadas de fora, com o motivo — a tela DIZ quais e por quê. */
+  deFora: { key: string; motivo: "ambigua" | "env" | "efeito_pesado" }[];
+};
+
+/**
+ * Divide as flags suspeitas entre "conserta em lote" e "fica para decisão
+ * manual".
+ *
+ * Puro e separado da tela porque a regra é de SEGURANÇA, não de layout — as
+ * três recusas abaixo são o que impede um botão de um clique de virar um
+ * estrago de um clique:
+ *
+ *   ambigua        `tru`, `2`, `xyz`. Consertar para o lado errado é pior que
+ *                  não consertar; duas das flags em jogo abrem escrita em
+ *                  `ClienteFato`, que é ledger append-only.
+ *   env            gravar daria à flag uma SEGUNDA fonte, exatamente o que o
+ *                  toggle travado da tela existe para impedir.
+ *   efeito_pesado  cada uma tem um aviso PRÓPRIO que a pessoa precisa ler. O
+ *                  conserto individual passa pelo diálogo de confirmação; um
+ *                  lote que as incluísse estaria pulando N confirmações de
+ *                  uma vez — o oposto do que o diálogo existe para fazer.
+ *
+ * A última é a que mais tenta: são justamente as de efeito pesado que dá
+ * vontade de arrumar de uma vez. É por isso que ela está escrita aqui, com
+ * teste, e não como um `if` no meio do JSX.
+ */
+export function planejarConserto(flags: readonly FlagParaConserto[]): PlanoDeConserto {
+  const aplicar: PlanoDeConserto["aplicar"] = [];
+  const deFora: PlanoDeConserto["deFora"] = [];
+
+  for (const f of flags) {
+    if (f.valorNaoReconhecido !== true) continue;
+    if (f.origem === "env") deFora.push({ key: f.key, motivo: "env" });
+    else if (f.impacto === "alto") deFora.push({ key: f.key, motivo: "efeito_pesado" });
+    else if (f.intencao === null) deFora.push({ key: f.key, motivo: "ambigua" });
+    else aplicar.push({ key: f.key, ligar: f.intencao });
+  }
+
+  return { aplicar, deFora };
+}
