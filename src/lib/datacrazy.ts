@@ -54,12 +54,62 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Contratos da API Datacrazy (api.g1.datacrazy.io). Modelados a partir dos
+ * campos efetivamente lidos aqui e pelos consumidores. O payload carrega
+ * campos adicionais não modelados — daí o index signature `[key: string]:
+ * unknown` (NÃO `any`: força narrowing explícito em quem ler os extras).
+ */
+export interface DatacrazyContact {
+  phone?: string;
+  number?: string;
+  name?: string;
+  pushName?: string;
+  email?: string;
+  contactId?: string;
+  [key: string]: unknown;
+}
+
+export interface DatacrazyConversa {
+  /** id da conversa — usado como conversaId em fetchMensagens. */
+  id: string;
+  /** fallback estilo Mongo visto em algumas respostas. */
+  _id?: string;
+  name?: string;
+  isGroup?: boolean;
+  status?: string;
+  phone?: string;
+  contactName?: string;
+  contact?: DatacrazyContact | null;
+  lastMessageDate?: string;
+  updatedAt?: string;
+  lastMessage?: { createdAt?: string; [key: string]: unknown } | null;
+  [key: string]: unknown;
+}
+
+export interface DatacrazyMensagem {
+  createdAt?: string;
+  timestamp?: string | number;
+  type?: string;
+  messageType?: string;
+  received?: boolean;
+  fromMe?: boolean;
+  body?: string;
+  text?: string;
+  message?: {
+    conversation?: string;
+    extendedTextMessage?: { text?: string; [key: string]: unknown };
+    [key: string]: unknown;
+  } | null;
+  [key: string]: unknown;
+}
+
 export async function fetchConversas(
   instanceId: string,
   token: string,
   maxPages: number = 3 // Limita a 3 páginas (300 conversas) — API retorna as mais recentes primeiro
-): Promise<any[]> {
-  const allConversas: any[] = [];
+): Promise<DatacrazyConversa[]> {
+  const allConversas: DatacrazyConversa[] = [];
   let skip = 0;
   const take = 100;
   const maxRetries = 2;
@@ -100,7 +150,7 @@ export async function fetchConversas(
     }
 
     const data = await res.json();
-    const items: any[] = Array.isArray(data) ? data : data.data ?? data.items ?? [];
+    const items: DatacrazyConversa[] = Array.isArray(data) ? data : data.data ?? data.items ?? [];
 
     if (items.length === 0) break;
 
@@ -141,8 +191,8 @@ export async function fetchMensagens(
   conversaId: string,
   token: string,
   maxPages: number = 1 // 1 pagina = 50 msgs max (suficiente para analise)
-): Promise<any[]> {
-  const allMensagens: any[] = [];
+): Promise<DatacrazyMensagem[]> {
+  const allMensagens: DatacrazyMensagem[] = [];
   let skip = 0;
   const take = 50;
   const maxRetries = 2;
@@ -186,7 +236,7 @@ export async function fetchMensagens(
     }
 
     const data = await res.json();
-    const items: any[] = Array.isArray(data)
+    const items: DatacrazyMensagem[] = Array.isArray(data)
       ? data
       : data.messages ?? data.data ?? data.items ?? [];
 
@@ -210,10 +260,10 @@ export async function fetchMensagens(
 }
 
 export function filtrarConversasPorPeriodo(
-  conversas: any[],
+  conversas: DatacrazyConversa[],
   inicio: Date,
   fim: Date
-): any[] {
+): DatacrazyConversa[] {
   // Buffer de 7 dias apos o fim do periodo para capturar conversas que
   // continuaram apos o periodo mas tinham atividade durante ele.
   // Sem esse buffer, conversas ativas durante o periodo mas com mensagens
@@ -260,6 +310,25 @@ export interface DatacrazyLead {
   name: string | null;
   phone: string | null;
   email: string | null;
+}
+
+/** Shape cru de uma atividade vinda do GET /activities, antes de normalizar
+ *  para DatacrazyAtividade. Campos opcionais + extras não modelados (unknown). */
+export interface DatacrazyAtividadeRaw {
+  id?: string | number;
+  startDate?: string;
+  scheduledDate?: string;
+  endDate?: string;
+  title?: string | null;
+  description?: string | null;
+  isCompleted?: boolean;
+  leadId?: string;
+  attendantId?: string;
+  activityTypeId?: string;
+  lead?: { id?: string | number; name?: string | null; [key: string]: unknown } | null;
+  attendant?: { id?: string; [key: string]: unknown } | null;
+  activityType?: { id?: string; [key: string]: unknown } | null;
+  [key: string]: unknown;
 }
 
 /**
@@ -325,7 +394,7 @@ export async function fetchAtividades(
     }
 
     const data = await res.json();
-    const items: any[] = Array.isArray(data) ? data : data.data ?? data.items ?? [];
+    const items: DatacrazyAtividadeRaw[] = Array.isArray(data) ? data : data.data ?? data.items ?? [];
     if (items.length === 0) break;
 
     for (const a of items) {
@@ -402,7 +471,7 @@ export async function fetchLead(
 }
 
 export function buildTranscricao(
-  mensagens: any[],
+  mensagens: DatacrazyMensagem[],
   nomeContato: string
 ): string {
   const linhas: string[] = [`[Conversa com ${nomeContato}]`];
