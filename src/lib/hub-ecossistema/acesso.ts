@@ -19,6 +19,12 @@ import { HUB_LOCKED_DEMO_KEY, idsTravadosParaDemo } from "@/lib/hub-ecossistema/
  * ─────────────────────────────────────────────────────────────────────────
  * TODO(RBAC) — ligar no RBAC existente quando houver mapeamento empresa→permissão
  * ─────────────────────────────────────────────────────────────────────────
+ * Já implementado, em PR PRÓPRIA e em revisão à parte (tabela `PessoaEmpresa`
+ * + `lib/empresas/acesso-core.ts` + gate de página). Foi separado desta PR de
+ * propósito: o hub é mudança de navegação atrás de flag, o RBAC é modelo novo
+ * de permissão — misturar os dois faria uma revisão só decidir as duas coisas.
+ * Quando aquela PR entrar, este arquivo passa a ler `PessoaEmpresa` e o
+ * `locked-demo.ts` some junto com o TODO. O roteiro abaixo é o que ela segue.
  * O que JÁ existe (`src/lib/rbac.ts`) resolve escopo de CLIENTE por CGE:
  *   • `rbacEnforcementHabilitado()` — flag `RBAC_ENFORCEMENT`, default OFF;
  *   • `resolverCgesVisiveis(ctx)`   — `string[]` de CGEs ou `null` = vê tudo;

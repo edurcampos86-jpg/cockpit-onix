@@ -329,19 +329,81 @@ function lerTelaEstreitaNoServidor(): boolean {
   return false;
 }
 
+/* ── Preferência MANUAL, persistida ──────────────────
+ *
+ * Sem isto, a escolha do usuário morria a cada recarga. Antes do recolhimento
+ * automático ninguém sentia — o padrão era sempre expandido, então "voltou ao
+ * padrão" e "esqueceu minha escolha" eram indistinguíveis. Com o padrão agora
+ * dependendo da TELA, a escolha manual virou decisão de verdade: quem recolhe
+ * de propósito num monitor largo via a barra reabrir sozinha, e isso lê como
+ * defeito, não como design.
+ *
+ * `localStorage`, a mesma casa de `onix-theme`. Ausente = segue a tela.
+ *
+ * NÃO há script inline anti-flash aqui, ao contrário do tema: a largura vem de
+ * classe Tailwind no `<aside>`, não de classe no `<html>`, então pré-aplicar
+ * exigiria mover a largura para CSS de raiz. A correção acontece em um frame e
+ * o `<aside>` já tem `transition-all`, então ela sai animada em vez de piscar.
+ */
+const CHAVE_SIDEBAR = "onix-sidebar";
+
+const ouvintesSidebar = new Set<() => void>();
+
+function assinarPreferenciaSidebar(aoMudar: () => void): () => void {
+  ouvintesSidebar.add(aoMudar);
+  const aoStorage = (e: StorageEvent) => {
+    if (e.key === CHAVE_SIDEBAR) aoMudar();
+  };
+  window.addEventListener("storage", aoStorage);
+  return () => {
+    ouvintesSidebar.delete(aoMudar);
+    window.removeEventListener("storage", aoStorage);
+  };
+}
+
+/** `null` = sem preferência salva, segue a largura da tela. */
+function lerPreferenciaSidebar(): boolean | null {
+  try {
+    const salvo = localStorage.getItem(CHAVE_SIDEBAR);
+    if (salvo === "recolhida") return true;
+    if (salvo === "expandida") return false;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function lerPreferenciaSidebarNoServidor(): boolean | null {
+  return null;
+}
+
+function gravarPreferenciaSidebar(recolhida: boolean) {
+  try {
+    localStorage.setItem(CHAVE_SIDEBAR, recolhida ? "recolhida" : "expandida");
+  } catch {
+    // Sem persistência a escolha ainda vale nesta sessão.
+  }
+  for (const ouvinte of ouvintesSidebar) ouvinte();
+}
+
 /* ── Componente Sidebar ─────────────────────────────── */
 
 export function Sidebar() {
   const pathname = usePathname();
   /* `null` = segue a largura da tela; booleano = o usuário decidiu na mão e a
-   * escolha dele passa a valer em qualquer largura. */
-  const [collapsedManual, setCollapsedManual] = useState<boolean | null>(null);
+   * escolha dele passa a valer em qualquer largura, inclusive depois de
+   * recarregar (mora no localStorage). */
+  const preferenciaManual = useSyncExternalStore(
+    assinarPreferenciaSidebar,
+    lerPreferenciaSidebar,
+    lerPreferenciaSidebarNoServidor,
+  );
   const telaEstreita = useSyncExternalStore(
     assinarLarguraDaTela,
     lerTelaEstreita,
     lerTelaEstreitaNoServidor,
   );
-  const collapsed = collapsedManual ?? telaEstreita;
+  const collapsed = preferenciaManual ?? telaEstreita;
   const [isPending, startTransition] = useTransition();
   const { theme, toggleTheme } = useTheme();
 
@@ -659,8 +721,14 @@ export function Sidebar() {
               {theme === "dark" ? "Tema claro" : "Tema escuro"}
             </TooltipContent>
           </Tooltip>
+          {/* O botão só tinha um ícone: para leitor de tela era "botão", sem
+            * nome. Agora que ele guarda uma PREFERÊNCIA (e não só um estado da
+            * sessão), vale ainda mais dizer o que ele faz. */}
           <button
-            onClick={() => setCollapsedManual(!collapsed)}
+            type="button"
+            onClick={() => gravarPreferenciaSidebar(!collapsed)}
+            aria-label={collapsed ? "Expandir o menu lateral" : "Recolher o menu lateral"}
+            title={collapsed ? "Expandir o menu lateral" : "Recolher o menu lateral"}
             className="flex items-center justify-center py-2 px-2 rounded-lg text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
           >
             {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
