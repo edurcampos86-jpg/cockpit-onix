@@ -1,4 +1,5 @@
 import { getConfig } from "@/lib/config-db";
+import { flagLigada } from "@/lib/flags/registro";
 
 /**
  * Gate (Config DB) da idempotência do import de reunião (Tarefas pós-reunião ·
@@ -14,12 +15,7 @@ import { getConfig } from "@/lib/config-db";
  */
 export const IMPORT_REUNIAO_IDEMPOTENTE_FLAG = "IMPORT_REUNIAO_IDEMPOTENTE";
 
-function parseBoolFlag(v: string | undefined): boolean {
-  if (!v) return false;
-  return ["1", "true", "on", "yes", "sim"].includes(v.trim().toLowerCase());
-}
-
 /** Import idempotente habilitado? Lê a flag do Config DB. Default OFF. */
 export async function importReuniaoIdempotenteHabilitado(): Promise<boolean> {
-  return parseBoolFlag(await getConfig(IMPORT_REUNIAO_IDEMPOTENTE_FLAG));
+  return flagLigada(await getConfig(IMPORT_REUNIAO_IDEMPOTENTE_FLAG));
 }

@@ -10,5 +10,15 @@ export default defineConfig({
   },
   datasource: {
     url: process.env["DATABASE_URL"],
+    // Banco descartável que o `migrate dev` / `migrate diff` usa para calcular o
+    // SQL de uma migration nova. Sem isto, o Prisma CRIA E DERRUBA um banco
+    // temporário no MESMO servidor de `DATABASE_URL` — se o .env estiver
+    // apontando para produção, é DDL em produção só por gerar migration.
+    //
+    // Ausente (o caso do Railway, que só roda `migrate deploy`), fica
+    // `undefined` e nada muda: deploy não usa shadow.
+    //
+    // Local: SHADOW_DATABASE_URL=postgresql://.../cockpit_shadow no .env.
+    shadowDatabaseUrl: process.env["SHADOW_DATABASE_URL"],
   },
 });

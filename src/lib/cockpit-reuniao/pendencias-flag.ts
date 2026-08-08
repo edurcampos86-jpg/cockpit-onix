@@ -1,4 +1,5 @@
 import { getConfig } from "@/lib/config-db";
+import { flagLigada } from "@/lib/flags/registro";
 
 /**
  * Gate (Config DB) da tela GLOBAL de pendências de reunião abertas (Tarefas
@@ -14,12 +15,7 @@ import { getConfig } from "@/lib/config-db";
  */
 export const PENDENCIAS_ABERTAS_FLAG = "PENDENCIAS_ABERTAS";
 
-function parseBoolFlag(v: string | undefined): boolean {
-  if (!v) return false;
-  return ["1", "true", "on", "yes", "sim"].includes(v.trim().toLowerCase());
-}
-
 /** Tela de pendências abertas habilitada? Lê a flag do Config DB. Default OFF. */
 export async function pendenciasAbertasHabilitado(): Promise<boolean> {
-  return parseBoolFlag(await getConfig(PENDENCIAS_ABERTAS_FLAG));
+  return flagLigada(await getConfig(PENDENCIAS_ABERTAS_FLAG));
 }

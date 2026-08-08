@@ -1,4 +1,5 @@
 import { getConfig } from "@/lib/config-db";
+import { flagLigada } from "@/lib/flags/registro";
 
 /**
  * Gate (Config DB) da tela Configurações > Permissões (RBAC Fase 3 UI). Flag
@@ -13,12 +14,7 @@ import { getConfig } from "@/lib/config-db";
  */
 export const PERMISSOES_UI_FLAG = "PERMISSOES_UI";
 
-function parseBoolFlag(v: string | undefined): boolean {
-  if (!v) return false;
-  return ["1", "true", "on", "yes", "sim"].includes(v.trim().toLowerCase());
-}
-
 /** Tela de Permissões habilitada? Lê a flag do Config DB a cada chamada. Default OFF. */
 export async function permissoesUiHabilitado(): Promise<boolean> {
-  return parseBoolFlag(await getConfig(PERMISSOES_UI_FLAG));
+  return flagLigada(await getConfig(PERMISSOES_UI_FLAG));
 }

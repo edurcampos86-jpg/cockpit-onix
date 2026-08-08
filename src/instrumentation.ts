@@ -18,11 +18,13 @@ export async function register() {
   const [
     { schedule },
     { getConfig },
+    { flagLigada },
     { runDatacrazyPollLogged, checkDatacrazyPollFreshness },
     { verificarFreshnessBtg },
   ] = await Promise.all([
     import("node-cron"),
     import("@/lib/config-db"),
+    import("@/lib/flags/registro"),
     import("@/lib/integrations/datacrazy-poll-runner"),
     import("@/lib/backoffice/btg-freshness"),
   ]);
@@ -33,8 +35,9 @@ export async function register() {
     try {
       // Gate por Config DB, DEFAULT OFF: só roda se a flag estiver ligada.
       // Lido a cada tick → ligar/desligar é reversível SEM deploy.
-      const flag = (await getConfig("DATACRAZY_POLL_INPROCESS"))?.trim().toLowerCase();
-      if (flag !== "on" && flag !== "true" && flag !== "1") return;
+      // Dialeto "estrito" preserva EXATAMENTE a régua que estava inline aqui
+      // (on|true|1, sem yes/sim). Ver a nota de obsolescência em flags/registro.ts.
+      if (!flagLigada(await getConfig("DATACRAZY_POLL_INPROCESS"), "estrito")) return;
 
       const { result, skipped } = await runDatacrazyPollLogged("in-process");
       if (skipped) {
@@ -62,8 +65,8 @@ export async function register() {
   // em Config DB), agnóstico de origem — GHA e tick compartilham a janela.
   schedule("*/30 * * * *", async () => {
     try {
-      const flag = (await getConfig("BTG_FRESHNESS_INPROCESS"))?.trim().toLowerCase();
-      if (flag !== "on" && flag !== "true" && flag !== "1") return;
+      // Dialeto "estrito": mesma régua de antes, agora centralizada.
+      if (!flagLigada(await getConfig("BTG_FRESHNESS_INPROCESS"), "estrito")) return;
 
       // Mesma ordem da rota /api/cron/btg-freshness: dados BTG, depois poll.
       const r = await verificarFreshnessBtg();

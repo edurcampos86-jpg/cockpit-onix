@@ -1,4 +1,5 @@
 import { getConfig } from "@/lib/config-db";
+import { flagLigada } from "@/lib/flags/registro";
 
 /**
  * Gate (Config DB) da aba "Perfil" (leitura read-only dos `ClienteFato` na ficha
@@ -15,12 +16,7 @@ import { getConfig } from "@/lib/config-db";
  */
 export const PERFIL_FATO_LEITURA_FLAG = "PERFIL_FATO_LEITURA";
 
-function parseBoolFlag(v: string | undefined): boolean {
-  if (!v) return false;
-  return ["1", "true", "on", "yes", "sim"].includes(v.trim().toLowerCase());
-}
-
 /** Aba "Perfil" (leitura de fatos) habilitada? Lê a flag do Config DB. Default OFF. */
 export async function perfilFatoLeituraHabilitado(): Promise<boolean> {
-  return parseBoolFlag(await getConfig(PERFIL_FATO_LEITURA_FLAG));
+  return flagLigada(await getConfig(PERFIL_FATO_LEITURA_FLAG));
 }

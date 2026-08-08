@@ -121,8 +121,13 @@ jobs:
               "0 7 * * *")
                 PATHS="/api/cron/backup-daily"
                 ;;
+              # Faxina mensal. Aproveita o schedule que já existe em vez de
+              # criar um novo: mesma cadência, mesma natureza (housekeeping
+              # off-peak), e cada `cron:` novo dispara o workflow inteiro.
+              # config-audit-retencao termina em milissegundos — não estica a
+              # janela do restore-test, que é quem manda no timeout deste job.
               "0 8 1 * *")
-                PATHS="/api/cron/backup-restore-test"
+                PATHS="/api/cron/backup-restore-test /api/cron/config-audit-retencao"
                 ;;
               "0 13 * * 1-5")
                 PATHS="/api/cron/btg-freshness"

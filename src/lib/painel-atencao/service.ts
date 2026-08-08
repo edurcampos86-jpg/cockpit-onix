@@ -1,6 +1,7 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { getConfig } from "@/lib/config-db";
+import { flagLigada } from "@/lib/flags/registro";
 import {
   classificarEstadoAtencao,
   type EstadoAtencao,
@@ -27,14 +28,9 @@ export const LIMIAR_VACUO_DIAS_KEY = "LIMIAR_VACUO_DIAS";
 // 3650 (10 anos) >> maior cadência (C=180), então por padrão a cadência manda.
 const LIMIAR_VACUO_DIAS_PADRAO = 3650;
 
-function parseBoolFlag(v: string | undefined): boolean {
-  if (!v) return false;
-  return ["1", "true", "on", "yes", "sim"].includes(v.trim().toLowerCase());
-}
-
 /** Backend habilitado? Lê a flag do Config DB a cada chamada. Default OFF. */
 export async function painelAtencaoBackendHabilitado(): Promise<boolean> {
-  return parseBoolFlag(await getConfig(PAINEL_ATENCAO_FLAG));
+  return flagLigada(await getConfig(PAINEL_ATENCAO_FLAG));
 }
 
 /**
@@ -47,7 +43,7 @@ export const CLIENTES_ATENCAO_INLINE_FLAG = "CLIENTES_ATENCAO_INLINE";
 
 /** Fusão inline habilitada? Lê a flag do Config DB a cada chamada. Default OFF. */
 export async function atencaoInlineHabilitado(): Promise<boolean> {
-  return parseBoolFlag(await getConfig(CLIENTES_ATENCAO_INLINE_FLAG));
+  return flagLigada(await getConfig(CLIENTES_ATENCAO_INLINE_FLAG));
 }
 
 /** Teto de vácuo (cap) tunável sem deploy (Config DB). Default desligado (cadência pura). */

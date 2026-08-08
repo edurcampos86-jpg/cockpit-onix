@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { getAuthContext, isAdmin } from "@/lib/auth-helpers";
 import { getConfig, setConfig } from "@/lib/config-db";
+import { flagLigada } from "@/lib/flags/registro";
 import { VENDEDORES_CONFIG, CONTATOS_INTERNOS, fetchMensagens } from "@/lib/datacrazy";
 import {
   ingestConversa,
@@ -51,8 +52,6 @@ const TAKE = 100; // página da API de /conversations
 const DELAY_CONVERSA_MS = 250; // throttle gentil entre conversas
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const parseBool = (v: string | undefined): boolean =>
-  !!v && ["1", "true", "on", "yes", "sim"].includes(v.trim().toLowerCase());
 
 interface Acumulado {
   processadas: number;
@@ -198,7 +197,7 @@ function ehIngerivel(conv: Record<string, unknown>): boolean {
 
 export async function GET(req: NextRequest) {
   // 1. Flag OFF → finge não existir (deploy inerte).
-  if (!parseBool(await getConfig(FLAG))) {
+  if (!flagLigada(await getConfig(FLAG))) {
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
   // 2. Sessão (precede getAuthContext p/ evitar redirect 307 em rota de API).
@@ -218,7 +217,11 @@ export async function GET(req: NextRequest) {
   }
 
   const batchSize = Math.min(Math.max(Number(req.nextUrl.searchParams.get("batchSize") ?? 150), 1), 300);
-  const reset = parseBool(req.nextUrl.searchParams.get("reset") ?? undefined);
+  // `reset` é QUERY-PARAM, não flag do Config — mas usa a mesma régua de
+  // "string que significa sim" do projeto (`?reset=1`, `?reset=true`, `?reset=sim`),
+  // que era o que o `parseBool` local fazia. Reusar `flagLigada` mantém uma
+  // definição só de verdadeiro em vez de deixar uma cópia para divergir.
+  const reset = flagLigada(req.nextUrl.searchParams.get("reset") ?? undefined);
 
   // 🔒 single-flight: adquire ANTES de QUALQUER escrita; 409 se outro run fresco
   // segura. reset NÃO destrava o lock aqui fora — blankar K_LOCK fora do CAS

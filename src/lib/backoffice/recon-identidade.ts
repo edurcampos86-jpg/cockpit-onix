@@ -517,7 +517,7 @@ export async function coletarMetricasIdentidade(
  *
  * O valor efetivo vem do MESMO helper que a aplicação usa
  * (`rbacEnforcementHabilitado`), não de leitura direta da tabela, para
- * respeitar o fallback DB -> env de `getConfig` (src/lib/config-db.ts:19-32).
+ * respeitar o fallback DB -> env de `getConfig` (src/lib/config-db.ts).
  *
  * A procedência existe porque `getConfig` cai para o env em silêncio: sem ela,
  * um valor vindo do ambiente pareceria vir da tabela `Config` e a flag seria
