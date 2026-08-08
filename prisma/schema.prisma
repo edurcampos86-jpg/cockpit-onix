@@ -1487,6 +1487,43 @@ model PainelEmailAI {
 }
 
 // ============================================
+// EMPRESAS DO GRUPO — HIERARQUIA (Onix Co, PR-A)
+// ============================================
+// Estrutura APENAS. Nesta fase nada lê esta tabela: `empresas-config.ts`
+// segue sendo a fonte da navegação, e `Implementacao.empresaId` segue string
+// solta, SEM FK. Ligar as duas pontas é PR própria.
+//
+// `id` é o SLUG ("investimentos", "corretora", "onix-co"), não cuid como o
+// resto do schema. Escolha deliberada: os valores já gravados em
+// `Implementacao.empresaId` são exatamente esses slugs (ver comentário lá em
+// cima), então o dia em que a FK entrar não haverá UPDATE em massa para
+// reescrever chave — as linhas existentes já casam. Um cuid aqui obrigaria a
+// mapear slug→id e reescrever a tabela inteira.
+//
+// A hierarquia é auto-relação N níveis DE PROPÓSITO. A regra de negócio hoje
+// é de 2 níveis (raiz "Onix Co" + as empresas), mas ela vive como VALIDAÇÃO
+// em código (src/lib/empresas/hierarquia.ts), não como constraint de banco:
+// uma constraint de profundidade em SQL exigiria trigger ou CHECK recursivo,
+// e mudar a régua depois viraria migration em tabela viva. O schema aguenta
+// mais níveis; o app é quem recusa.
+model Empresa {
+  /// Slug estável, igual ao id em `src/lib/empresas-config.ts`.
+  id   String @id
+  nome String
+
+  /// NULL = raiz. A "Onix Co" é a raiz; as demais empresas apontam para ela
+  /// numa PR seguinte (o reparenting NÃO acontece nesta).
+  parentId String?
+  parent   Empresa?  @relation("EmpresaHierarquia", fields: [parentId], references: [id])
+  children Empresa[] @relation("EmpresaHierarquia")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([parentId])
+}
+
+// ============================================
 // TIME — ORGANIZAÇÃO E PESSOAS (Fase 1)
 // Fases futuras adicionarão: PAT, AcordoComercial, ReuniaoTime
 // ============================================
