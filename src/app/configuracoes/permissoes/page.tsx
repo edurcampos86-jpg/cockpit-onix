@@ -9,6 +9,8 @@ import {
   type CarteiraDTO,
   type PessoaDTO,
   type ApoioDTO,
+  type EmpresaDTO,
+  type AcessoEmpresaDTO,
 } from "./permissoes-tabs";
 
 export const dynamic = "force-dynamic";
@@ -96,6 +98,22 @@ export default async function PermissoesPage() {
     carteiraId: a.carteiraId,
   }));
 
+  /* Acesso por EMPRESA — escopo separado do de carteiras. A árvore inteira vai
+   * junto porque a aba precisa saber quem tem filhas para decidir se o toggle
+   * de herança faz sentido naquela linha. */
+  const [empresasRaw, acessosEmpresaRaw] = await Promise.all([
+    prisma.empresa.findMany({
+      orderBy: [{ parentId: "asc" }, { nome: "asc" }],
+      select: { id: true, nome: true, parentId: true },
+    }),
+    prisma.pessoaEmpresa.findMany({
+      select: { id: true, pessoaId: true, empresaId: true, incluiDescendentes: true },
+    }),
+  ]);
+
+  const empresasDTO: EmpresaDTO[] = empresasRaw;
+  const acessosEmpresaDTO: AcessoEmpresaDTO[] = acessosEmpresaRaw;
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -108,6 +126,8 @@ export default async function PermissoesPage() {
           carteiras={carteirasDTO}
           pessoas={pessoasDTO}
           apoios={apoiosDTO}
+          empresas={empresasDTO}
+          acessosEmpresa={acessosEmpresaDTO}
         />
       </div>
     </div>
