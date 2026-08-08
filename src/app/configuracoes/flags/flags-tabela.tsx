@@ -31,7 +31,7 @@ import {
   type ComparacaoEsperado,
 } from "@/lib/flags/esperadas";
 import { chavesLigadasDe } from "@/lib/flags/ligadas";
-import { flagAlternavel, flagLigada } from "@/lib/flags/registro";
+import { flagAlternavel, flagLigada, valoresAceitos } from "@/lib/flags/registro";
 
 type DetalheHistorico = {
   key: string;
@@ -420,6 +420,48 @@ function ValorAuditado({
   );
 }
 
+/**
+ * Lacuna a partir da qual duas mudanças deixam de ser "a mesma virada".
+ *
+ * Cinco minutos, escolhido pelo comportamento real de quem opera: virar 3 ou 4
+ * chaves durante um incidente acontece em segundos, uma atrás da outra. O que
+ * separa dois EPISÓDIOS é o intervalo entre eles, não a data — duas mudanças do
+ * mesmo dia às 09h e às 17h não têm relação nenhuma, e a lista as encosta.
+ */
+const LACUNA_EPISODIO_MS = 5 * 60_000;
+
+/**
+ * Lacuna em prosa curta. Recebe ms, nunca `Date.now()` — ver `Historico`.
+ *
+ * "ANTES", não "depois": a lista desce do mais recente para o mais antigo, e o
+ * separador fica logo ACIMA do episódio mais velho. Quem lê descendo está
+ * andando para trás no tempo. A primeira versão dizia "3 h depois" e foi
+ * pega na validação ao vivo — o texto contava a história ao contrário.
+ */
+function descreverLacuna(ms: number): string {
+  const min = Math.round(ms / 60_000);
+  if (min < 60) return `${min} min antes`;
+  const h = Math.round(min / 60);
+  if (h < 24) return `${h} h antes`;
+  const d = Math.round(h / 24);
+  return `${d} ${d === 1 ? "dia" : "dias"} antes`;
+}
+
+/**
+ * A trilha, agrupada por EPISÓDIO.
+ *
+ * A lista vem do mais recente para o mais antigo e mistura todas as flags. Numa
+ * virada de incidente com 3 ou 4 chaves seguidas isso vira uma coluna só, e
+ * quem lê depois não consegue ver o que aconteceu NAQUELE minuto — que é
+ * exatamente a pergunta de quem abre esta tela durante um incidente.
+ *
+ * O separador só aparece onde há lacuna real. Sem lacuna, a lista continua
+ * corrida: agrupar tudo criaria caixinhas de um item e pioraria a leitura.
+ *
+ * SEM `Date.now()`: a lacuna é a diferença entre dois carimbos FIXOS, igual no
+ * servidor e no cliente. Escrever "há 2 horas" exigiria a hora atual e o texto
+ * divergiria entre o HTML renderizado e a primeira pintura no browser.
+ */
 function Historico({ mudancas }: { mudancas: MudancaFlag[] }) {
   return (
     <section className="space-y-2">
@@ -434,23 +476,44 @@ function Historico({ mudancas }: { mudancas: MudancaFlag[] }) {
         </p>
       ) : (
         <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
-          {mudancas.map((m) => (
-            <div
-              key={`${m.key}-${m.quando}`}
-              className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 bg-card px-4 py-2.5"
-            >
-              <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <code className="text-xs font-semibold text-foreground">{m.key}</code>
-                <span className="text-xs text-muted-foreground">
-                  <ValorAuditado chave={m.key} valor={m.de} /> →{" "}
-                  <ValorAuditado chave={m.key} valor={m.para} destacado />
-                </span>
+          {mudancas.map((m, i) => {
+            // Lista do mais recente para o mais antigo: a anterior NA TELA é a
+            // seguinte no tempo, então a lacuna se mede contra `i - 1`.
+            const maisRecente = i > 0 ? mudancas[i - 1] : null;
+            const lacuna = maisRecente
+              ? new Date(maisRecente.quando).getTime() - new Date(m.quando).getTime()
+              : 0;
+            const separa = lacuna > LACUNA_EPISODIO_MS;
+
+            return (
+              <div key={`${m.key}-${m.quando}`}>
+                {separa && (
+                  <div
+                    className="flex items-center gap-2 bg-muted/40 px-4 py-1"
+                    aria-hidden="true"
+                  >
+                    <span className="h-px flex-1 bg-border" />
+                    <span className="text-[0.65rem] uppercase tracking-wide text-muted-foreground">
+                      {descreverLacuna(lacuna)}
+                    </span>
+                    <span className="h-px flex-1 bg-border" />
+                  </div>
+                )}
+                <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 bg-card px-4 py-2.5">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <code className="text-xs font-semibold text-foreground">{m.key}</code>
+                    <span className="text-xs text-muted-foreground">
+                      <ValorAuditado chave={m.key} valor={m.de} /> →{" "}
+                      <ValorAuditado chave={m.key} valor={m.para} destacado />
+                    </span>
+                  </div>
+                  <span className="text-[0.7rem] text-muted-foreground">
+                    {m.quemEmail ?? "autor não registrado"} · {formatarQuando(m.quando)}
+                  </span>
+                </div>
               </div>
-              <span className="text-[0.7rem] text-muted-foreground">
-                {m.quemEmail ?? "autor não registrado"} · {formatarQuando(m.quando)}
-              </span>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </section>
@@ -551,6 +614,29 @@ function LinhaFlag({
               <ShieldQuestion className="h-2.5 w-2.5" />
               Diverge do smoke
             </span>
+          )}
+          {/* O selo mais alto da linha, e de propósito: os outros dois avisam
+            * sobre o que a flag FAZ; este avisa que ela não faz o que quem
+            * gravou achou que fazia. Leva o valor no rótulo porque é o valor —
+            * não a chave — que precisa ser corrigido. */}
+          {flag.valorNaoReconhecido && (
+            <Tooltip>
+              <TooltipTrigger
+                type="button"
+                className="inline-flex items-center gap-1 rounded-full border border-destructive bg-destructive/10 px-1.5 py-px text-[0.6rem] font-medium uppercase tracking-wide text-destructive"
+              >
+                <AlertTriangle className="h-2.5 w-2.5" />
+                Valor não reconhecido
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                O valor gravado é <code>{flag.valor}</code>, e o dialeto{" "}
+                <strong>{flag.dialeto}</strong> desta flag não o reconhece — ela está
+                valendo <strong>OFF</strong>. Aceita:{" "}
+                <code>{valoresAceitos(flag.dialeto ?? "amplo").join(" · ")}</code> para
+                ligar, <code>0</code> para desligar. Virar a chave aqui na tela grava{" "}
+                <code>1</code>/<code>0</code> e resolve.
+              </TooltipContent>
+            </Tooltip>
           )}
         </div>
         <p className="mt-0.5 text-xs text-muted-foreground">{flag.rotulo}</p>

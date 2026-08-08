@@ -107,6 +107,44 @@ export function valoresAceitos(dialeto: DialetoBooleano): readonly string[] {
 }
 
 /**
+ * Grafias que qualquer humano escreveria querendo DESLIGAR.
+ *
+ * Os dialetos definem só o lado ON: `flagLigada` devolve `false` para tudo que
+ * não está em `ACEITOS`, inclusive lixo. Esta lista não muda comportamento
+ * nenhum — ela existe só para `valorReconhecido` saber diferenciar "escreveu 0,
+ * queria desligar" de "escreveu algo que não faz o que ele acha".
+ */
+const DESLIGAM: readonly string[] = ["0", "false", "off", "no", "nao", "não"];
+
+/**
+ * O valor gravado significa o que quem escreveu queria?
+ *
+ * `flagLigada` responde SE está ligada. Esta responde se dá para confiar na
+ * resposta — e as duas divergem exatamente no caso perigoso: `sim` numa flag do
+ * dialeto ESTRITO devolve `false`, indistinguível de um `0` deliberado. Quem
+ * gravou quis ligar; a flag ficou desligada; nada avisa.
+ *
+ * Não é hipótese: duas das 4 estritas (`PERFIL_FATO_WRITE`,
+ * `PERFIL_FATO_RICO_WRITE`) abrem escrita em `ClienteFato`, que é ledger
+ * append-only. Achar que ligou quando não ligou custa dias de fato não gravado.
+ *
+ *   reconhecido   -> `1`, `true`, `on` (e `yes`/`sim` no amplo); `0`, `false`,
+ *                    `off`, `no`, `nao`; ausente ou vazio (o default é OFF)
+ *   NÃO reconhec. -> `sim`/`yes` no estrito, `tru`, `ligado`, `S`, qualquer
+ *                    coisa que não caiu nas duas listas
+ */
+export function valorReconhecido(
+  valor: string | undefined,
+  dialeto: DialetoBooleano = "amplo",
+): boolean {
+  // Ausente e vazio são o estado NORMAL de uma flag nunca tocada — o default de
+  // todas é OFF. Marcar isso seria acusar 18 linhas por dia zero.
+  if (!valor || !valor.trim()) return true;
+  const v = valor.trim().toLowerCase();
+  return ACEITOS[dialeto].includes(v) || DESLIGAM.includes(v);
+}
+
+/**
  * Todas as flags do Config DB. Conferida contra o código em 2026-08: cada
  * entrada tem um `getConfig(<key>)` real no arquivo apontado em `onde`.
  */

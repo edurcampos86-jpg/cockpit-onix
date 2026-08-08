@@ -6,6 +6,7 @@ import {
   CHAVES_REGISTRADAS,
   FLAGS_REGISTRADAS,
   flagLigada,
+  valorReconhecido,
   type DialetoBooleano,
   type ImpactoFlag,
   type TipoFlag,
@@ -44,6 +45,19 @@ export type EstadoFlag = {
   aviso: string | null;
   /** Só para `booleana` — a tela mostra quais valores aquela flag aceita. */
   dialeto: DialetoBooleano | null;
+  /**
+   * O valor gravado não é reconhecido pelo dialeto DESTA flag.
+   *
+   * O caso que motiva o campo: `sim` numa flag do dialeto estrito. `ligada`
+   * devolve `false` e a linha fica idêntica a um `0` deliberado — quem gravou
+   * quis ligar, a flag ficou desligada, e nada avisa. A anotação ON/OFF do
+   * histórico mostra o EFEITO; este campo denuncia a INTENÇÃO frustrada, que é
+   * outra pergunta.
+   *
+   * `false` também para flags de valor e para valor ausente: nos dois casos não
+   * há dialeto a violar (ver `valorReconhecido`).
+   */
+  valorNaoReconhecido: boolean;
   /**
    * Email de quem fez a última mudança REGISTRADA (`ConfigAudit`).
    *
@@ -177,6 +191,8 @@ export async function resolverEstadoDasFlags(): Promise<EstadoFlag[]> {
       impacto: flag.impacto ?? null,
       aviso: flag.aviso ?? null,
       dialeto: flag.dialeto ?? null,
+      valorNaoReconhecido:
+        flag.tipo === "booleana" && !valorReconhecido(valor ?? undefined, flag.dialeto),
       ultimoAutor: autores.get(flag.key)?.quemEmail ?? null,
     };
   });

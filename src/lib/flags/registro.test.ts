@@ -6,6 +6,7 @@ import {
   flagAlternavel,
   flagLigada,
   valorParaGravar,
+  valorReconhecido,
   valoresAceitos,
 } from "./registro";
 
@@ -227,4 +228,65 @@ test("flag de VALOR não recebe anotação — não há ON/OFF a dizer", () => {
 test("chave fora do registro aparece crua, sem anotação inventada", () => {
   // Mudança antiga de uma flag já removida continua no ConfigAudit.
   assert.equal(flagAlternavel("FLAG_QUE_NAO_EXISTE_MAIS"), null);
+});
+
+/* ── `valorReconhecido`: o selo da tela ───────────────────────────────────
+ *
+ * `flagLigada` responde SE está ligada; esta responde se dá para confiar na
+ * resposta. As duas divergem exatamente no caso perigoso. */
+
+test("valor que liga é reconhecido, em cada dialeto", () => {
+  for (const v of ["1", "true", "on", "yes", "sim", " SIM ", "\tTrue\n"]) {
+    assert.equal(valorReconhecido(v, "amplo"), true, `amplo recusou "${v}"`);
+  }
+  for (const v of ["1", "true", "on", "ON", " true "]) {
+    assert.equal(valorReconhecido(v, "estrito"), true, `estrito recusou "${v}"`);
+  }
+});
+
+test("valor que desliga é reconhecido — 0 deliberado não vira alarme", () => {
+  // A tela grava "0" (`valorParaGravar`); acusar isso marcaria metade da lista.
+  for (const v of ["0", "false", "off", "no", "nao", "não", "FALSE"]) {
+    assert.equal(valorReconhecido(v, "amplo"), true, `"${v}" virou alarme`);
+    assert.equal(valorReconhecido(v, "estrito"), true, `"${v}" virou alarme`);
+  }
+});
+
+test("ausente e vazio são o estado NORMAL, não um valor errado", () => {
+  // Default de todas é OFF. Sem isto, dia zero acusaria as 18 linhas.
+  for (const v of [undefined, "", "   ", "\n"]) {
+    assert.equal(valorReconhecido(v, "amplo"), true);
+    assert.equal(valorReconhecido(v, "estrito"), true);
+  }
+});
+
+test('"sim" no dialeto ESTRITO é o caso que o selo existe para pegar', () => {
+  // Quem gravou quis LIGAR. A flag ficou desligada. `ligada` devolve false,
+  // indistinguível de um "0" deliberado — só este campo separa os dois.
+  for (const v of ["sim", "yes", "SIM", " Yes "]) {
+    assert.equal(flagLigada(v, "estrito"), false, `"${v}" deveria estar OFF no estrito`);
+    assert.equal(valorReconhecido(v, "estrito"), false, `"${v}" passou batido no estrito`);
+    // No amplo a mesma grafia LIGA, e por isso é reconhecida.
+    assert.equal(flagLigada(v, "amplo"), true);
+    assert.equal(valorReconhecido(v, "amplo"), true);
+  }
+});
+
+test("lixo é não reconhecido nos dois dialetos", () => {
+  for (const v of ["tru", "ligado", "S", "enabled", "2", "-1"]) {
+    assert.equal(valorReconhecido(v, "amplo"), false, `"${v}" passou batido`);
+    assert.equal(valorReconhecido(v, "estrito"), false, `"${v}" passou batido`);
+  }
+});
+
+test("o que a tela grava nunca dispara o selo", () => {
+  for (const flag of FLAGS_REGISTRADAS.filter((f) => f.tipo === "booleana")) {
+    for (const ligada of [true, false]) {
+      assert.equal(
+        valorReconhecido(valorParaGravar(ligada), flag.dialeto),
+        true,
+        `${flag.key} acusaria o próprio valor da tela`,
+      );
+    }
+  }
 });
