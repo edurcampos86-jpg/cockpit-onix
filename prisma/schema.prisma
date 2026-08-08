@@ -1520,7 +1520,45 @@ model Empresa {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  acessos PessoaEmpresa[]
+
   @@index([parentId])
+}
+
+/// Quem enxerga qual empresa. É a peça que faltava entre `Pessoa` e `Empresa`.
+///
+/// A hierarquia (`Empresa.parentId`) é a árvore SOCIETÁRIA e não carrega
+/// permissão de propósito: se carregasse, reorganizar o organograma passaria a
+/// conceder e revogar acesso, e são duas coisas que precisam mudar em separado.
+/// A árvore serve só para HERDAR, e mesmo isso é opcional por concessão.
+///
+/// Postura NÃO-DISRUPTIVA (a mesma de `rbac.ts`): pessoa SEM linha nenhuma aqui
+/// vê tudo. A tabela nasce vazia, então no dia do deploy ninguém passa a ver
+/// cadeado — a restrição só começa para quem GANHAR uma linha. A regra completa
+/// e os testes estão em `src/lib/empresas/acesso-core.ts`.
+///
+/// Sem `onDelete: Cascade` na Pessoa de propósito: remover alguém do time não
+/// deve apagar em silêncio o registro de quem tinha acesso a quê. `Restrict`
+/// obriga a revogar antes, que é a ordem certa.
+model PessoaEmpresa {
+  id String @id @default(cuid())
+
+  pessoaId String
+  pessoa   Pessoa @relation(fields: [pessoaId], references: [id], onDelete: Restrict)
+
+  empresaId String
+  empresa   Empresa @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+
+  /// Estende a concessão às empresas abaixo desta na árvore. `true` é a
+  /// leitura intuitiva de holding (acesso à Onix Co alcança o grupo); `false`
+  /// concede só a empresa exata. A escolha é POR CONCESSÃO porque "herda ou
+  /// não?" é decisão de produto e as duas respostas precisam caber.
+  incluiDescendentes Boolean @default(true)
+
+  criadoEm DateTime @default(now())
+
+  @@unique([pessoaId, empresaId])
+  @@index([pessoaId])
 }
 
 // ============================================
@@ -1658,6 +1696,7 @@ model Pessoa {
   papel             Papel?           @relation(fields: [papelId], references: [id])
   carteirasComoDono Carteira[]       @relation("CarteiraDono")
   acessosCarteira   AcessoCarteira[]
+  acessosEmpresa    PessoaEmpresa[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

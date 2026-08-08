@@ -1,62 +1,81 @@
 import "server-only";
-import { getConfig } from "@/lib/config-db";
+import { prisma } from "@/lib/prisma";
+import { getAuthContext } from "@/lib/auth-helpers";
+import { isAdmin } from "@/lib/rbac-papeis";
+import { empresasVisiveis } from "@/lib/empresas/acesso-core";
 import { NOS_ECOSSISTEMA, type NoEcossistemaResolvido } from "@/lib/hub-ecossistema/nos";
-import { HUB_LOCKED_DEMO_KEY, idsTravadosParaDemo } from "@/lib/hub-ecossistema/locked-demo";
 
 /**
  * Hub "Ecossistema Onix" — resolução do estado de ACESSO de cada nó.
  *
- * Ponto de costura ÚNICO entre o hub e o RBAC. Hoje devolve tudo liberado
- * (`locked: false` estático, como combinado nesta fase); quando o RBAC de
- * empresa existir, ele entra AQUI e mais em lugar nenhum — o componente já
- * consome `locked` e não precisa mudar uma linha.
+ * Ponto de costura ÚNICO entre o hub e o RBAC de empresa. A regra pura mora em
+ * `lib/empresas/acesso-core.ts` (com teste, inclusive de ciclo na árvore); aqui
+ * fica só a leitura de banco e a tradução para o formato do componente.
  *
- * É `server-only` desde já, mesmo sem tocar em banco ainda, porque o corpo
- * definitivo vai chamar `getAuthContext()` (que é `server-only`) e Prisma. Sem
- * a marca, alguém importaria isto de um componente `'use client'` hoje e só
- * descobriria o problema no dia em que a função virasse real.
+ * ── DE ONDE VEM A PERMISSÃO ──────────────────────────────────────────────
+ * Da tabela `PessoaEmpresa`, não da hierarquia. `Empresa.parentId` é a árvore
+ * SOCIETÁRIA: se ela carregasse permissão, mexer no organograma passaria a
+ * conceder e revogar acesso. A árvore só serve para HERDAR, e mesmo isso é
+ * opcional por concessão (`incluiDescendentes`).
  *
- * ─────────────────────────────────────────────────────────────────────────
- * TODO(RBAC) — ligar no RBAC existente quando houver mapeamento empresa→permissão
- * ─────────────────────────────────────────────────────────────────────────
- * O que JÁ existe (`src/lib/rbac.ts`) resolve escopo de CLIENTE por CGE:
- *   • `rbacEnforcementHabilitado()` — flag `RBAC_ENFORCEMENT`, default OFF;
- *   • `resolverCgesVisiveis(ctx)`   — `string[]` de CGEs ou `null` = vê tudo;
- *   • `assertClienteVisivel(id, ctx)` — autorização de UMA ficha.
- * Nenhuma delas responde "esta PESSOA pode entrar na empresa X" — a granularidade
- * é CGE de carteira, não empresa do grupo. Essa é exatamente a peça que falta.
+ * O `NoEcossistema.id` é o mesmo slug de `empresas-config.ts` e de `Empresa.id`
+ * — é essa igualdade, coberta por teste em `nos.test.ts`, que faz a junção
+ * sair direta.
  *
- * Quando ela existir, o corpo desta função vira:
+ * ── POR QUE ISTO NÃO QUEBRA NADA NO DIA DO DEPLOY ────────────────────────
+ * `PessoaEmpresa` nasce vazia, e pessoa sem concessão nenhuma vê TUDO
+ * (`empresasVisiveis` devolve `null` = sem filtro). Ninguém passa a ver cadeado
+ * por omissão; a restrição só começa para quem ganhar uma linha. É a mesma
+ * postura não-disruptiva de `resolverCgesVisiveisPorPessoa` no `rbac.ts`.
  *
- *   1. `if (!(await rbacEnforcementHabilitado())) return tudoLiberado();`
- *      Postura NÃO-DISRUPTIVA idêntica à do resto do RBAC: enforcement OFF ⇒
- *      nada bloqueado, o hub segue como hoje.
- *   2. `const ctx = await getAuthContext();`
- *      `if (isAdmin(ctx)) return tudoLiberado();`  (`@/lib/rbac-papeis`)
- *   3. Resolver as empresas permitidas para `ctx.pessoa` e marcar
- *      `locked: !permitidas.has(no.id)`. `NoEcossistema.id` foi escolhido igual
- *      ao `EmpresaConfig.id` de `empresas-config.ts` justamente para essa
- *      junção sair direta (`investimentos`, `corretora`, `imobiliaria`,
- *      `corporate`, `tech`, `educacao`); `agro` e `contabil` ainda não têm
- *      contraparte e precisarão ser criados lá primeiro.
- *   4. Na dúvida (sem Pessoa, sem papel, config incompleta) devolver LIBERADO,
- *      nunca bloqueado — é a mesma regra não-disruptiva do `rbac.ts`, e aqui
- *      um falso bloqueio esconde a empresa inteira do dono do grupo.
+ * NÃO é gateado por `RBAC_ENFORCEMENT`. Aquela flag é documentada como escopo
+ * de leitura de CLIENTES; pendurar o hub nela acoplaria duas coisas sem
+ * relação — e obrigaria a ligar o RBAC de clientes inteiro só para conferir um
+ * cadeado na tela inicial. Aqui o gate é o próprio dado: sem linha, sem efeito.
  *
- * Fora de escopo desta função: `locked` é só ESTADO VISUAL. Ele não protege
- * rota nenhuma — quem digitar `/empresas/corretora` na barra de endereço não
- * passa por aqui. O gate de verdade continua sendo o de cada página/rota.
+ * ── LIMITE, e ele importa ────────────────────────────────────────────────
+ * `locked` é ESTADO VISUAL. Não protege rota nenhuma: quem digitar
+ * `/empresas/corretora` na barra de endereço não passa por aqui. O gate de
+ * verdade continua sendo o de cada página. Esta função decide o que o hub
+ * MOSTRA, não o que o sistema PERMITE.
+ *
+ * Falha fechada ao contrário, de propósito: qualquer erro ao resolver (sem
+ * sessão, banco fora, tabela ainda não migrada) devolve tudo LIBERADO. Numa
+ * tela de navegação, esconder o grupo inteiro por causa de uma query que falhou
+ * é pior que mostrar um atalho a mais — e o acesso real está nas páginas.
  */
 export async function resolverNosDoHub(): Promise<NoEcossistemaResolvido[]> {
-  /* Enquanto o RBAC não existe, esta chave é o ÚNICO jeito de ver o estado
-   * "sem acesso" no app rodando — ele tinha ido para produção sem nunca ter
-   * sido visto fora de um componente isolado. Ausente (o padrão) ⇒ conjunto
-   * vazio ⇒ tudo liberado, byte-idêntico ao que era. Ver `locked-demo.ts`.
-   *
-   * Some junto com o TODO acima quando o RBAC real entrar: os dois respondem a
-   * mesma pergunta, e manter os dois seria deixar uma porta de aparência ao
-   * lado da porta de verdade. */
-  const travados = idsTravadosParaDemo(await getConfig(HUB_LOCKED_DEMO_KEY));
-
+  const travados = await idsSemAcesso();
   return NOS_ECOSSISTEMA.map((no) => ({ ...no, locked: travados.has(no.id) }));
+}
+
+/** Ids de nó a mostrar travados. Vazio = nada travado. */
+async function idsSemAcesso(): Promise<Set<string>> {
+  const nenhum = new Set<string>();
+
+  try {
+    const ctx = await getAuthContext().catch(() => null);
+    // Sem sessão ou sem Pessoa vinculada não há a quem aplicar regra. Admin
+    // enxerga o grupo inteiro por definição.
+    if (!ctx?.pessoa || isAdmin(ctx)) return nenhum;
+
+    const [concessoes, empresas] = await Promise.all([
+      prisma.pessoaEmpresa.findMany({
+        where: { pessoaId: ctx.pessoa.id },
+        select: { empresaId: true, incluiDescendentes: true },
+      }),
+      prisma.empresa.findMany({ select: { id: true, parentId: true } }),
+    ]);
+
+    const visiveis = empresasVisiveis(concessoes, empresas);
+    if (visiveis === null) return nenhum; // sem filtro
+
+    return new Set(NOS_ECOSSISTEMA.filter((no) => !visiveis.has(no.id)).map((no) => no.id));
+  } catch (erro) {
+    console.warn(
+      `[hub] falha ao resolver acesso — mostrando tudo liberado: ` +
+        `${erro instanceof Error ? erro.message : String(erro)}`,
+    );
+    return nenhum;
+  }
 }
