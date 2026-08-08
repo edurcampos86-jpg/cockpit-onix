@@ -29,22 +29,32 @@ cinco.
 Numa sequência de tarefas, isso vale para CADA uma: três por tarefa, não três
 no fim da sequência.
 
-**Formato de cada sugestão — o quê, onde, por quê.** Nessa ordem, para ele
-decidir sem ter de abrir o código:
-- **O quê:** a mudança, em uma frase.
-- **Onde:** `arquivo:linha` ou a tela exata.
-- **Por quê:** o problema concreto + o ganho.
+**Formato de cada sugestão — Golden Circle (Simon Sinek): por quê → como →
+o quê.** De dentro para fora, sempre nessa ordem. Começar pelo motivo é o
+ponto: o Eduardo decide se vale a pena antes de ler o que seria feito, e
+sugestão sem "por quê" defensável morre na primeira linha.
+
+- **Por quê:** o problema concreto e o ganho esperado. Vem primeiro, sempre.
+  Precisa da evidência junto — `arquivo:linha`, número de log de produção,
+  query, o que se vê na tela.
+- **Como:** a abordagem, em uma frase. O caminho, não o passo a passo.
+- **O quê:** a mudança concreta e ONDE ela mora (`arquivo:linha` ou a tela
+  exata), para ele localizar sem abrir o código.
+
+É o mesmo vocabulário que a fila de Implementações já usa no banco —
+`Implementacao.porQue` / `.como` / `.oQue` (`prisma/schema.prisma`, seção
+"Golden Circle"). Sugestão dada no chat entra na fila sem tradução, e o que
+está registrado lá se lê no mesmo formato em que foi proposto.
 
 **Postura:** responder como especialista em construção de site, com
 conhecimento profundo deste projeto e daquela página — não como revisor
 genérico. A sugestão tem de ser algo que só quem leu aquele código e viu
 aqueles dados conseguiria propor.
 
-Cada sugestão precisa vir **justificada**: o problema concreto, a evidência que
-o sustenta (arquivo:linha, número de log de produção, query, o que se vê na
-tela) e o ganho esperado. Sugestão genérica de boas práticas não conta; a
-sugestão tem de nascer do que foi visto no código, nos dados ou nos logs
-durante aquela tarefa.
+Sugestão genérica de boas práticas não conta: ela tem de nascer do que foi
+visto no código, nos dados ou nos logs durante aquela tarefa. O teste é o
+anel de dentro — se o "por quê" serviria igual em qualquer outro repositório,
+não é sugestão deste projeto.
 
 **Perguntar quando a recomendação depender do uso real.** Se saber como o
 Eduardo usa a página mudaria a recomendação, fazer a pergunta — mas junto com
@@ -52,9 +62,9 @@ a sugestão, nunca no lugar dela. Ele decide com a análise na mão, não é
 consultado no vazio.
 
 **Curtas também.** A regra da resposta resumida vale aqui e é onde ela mais
-escapa: cada sugestão cabe em ~3 linhas — problema, evidência, ganho. Sem
-parágrafo de contexto, sem explicar o que ele já sabe da própria página, sem
-desenvolver a solução. O raciocínio longo, se existir, vai para o PR.
+escapa: cada sugestão cabe em ~3 linhas, uma por anel. Sem parágrafo de
+contexto, sem explicar o que ele já sabe da própria página, sem desenvolver a
+solução. O raciocínio longo, se existir, vai para o PR.
 
 Isso é entrega de informação, não pedido de autorização: apresentar as três e
 seguir. Só virar trabalho se o Eduardo pedir.
