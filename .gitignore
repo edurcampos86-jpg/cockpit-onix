@@ -47,6 +47,10 @@ next-env.d.ts
 
 # database
 dev.db
+
+# backfill de conversas — checkpoint/manifest gerados pelo --execute (runtime)
+scripts/.backfill-conversas-checkpoint.json
+scripts/.backfill-conversas-manifest.jsonl
 dev.db-journal
 .pglite-dev/
 
