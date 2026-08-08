@@ -27,17 +27,22 @@
  *   npx tsx scripts/reparent-empresas.ts --aplicar    # executa
  */
 import "dotenv/config";
+import { RAIZ_DO_GRUPO, idsFilhasDaRaiz } from "../src/lib/empresas/catalogo";
 
 let clienteAberto: { $disconnect: () => Promise<void> } | null = null;
 
-/** A raiz. Mesmo id de `scripts/seed-empresas.ts`. */
-const RAIZ = "onix-co";
+/** A raiz. Mesmo id de `scripts/seed-empresas.ts` e do catálogo. */
+const RAIZ = RAIZ_DO_GRUPO;
 
 /**
- * Quem passa a pendurar na raiz. É a lista do seed MENOS a própria raiz —
- * repetida aqui de propósito em vez de importada: este script existe para
- * mover dado de produção, e a lista do que vai ser movido tem de estar visível
- * no arquivo que move, não a um import de distância.
+ * Quem passa a pendurar na raiz. É a lista do catálogo MENOS a própria raiz —
+ * repetida aqui de propósito em vez de só importada: este script move dado de
+ * produção, e a lista do que vai ser movido tem de estar VISÍVEL no arquivo que
+ * move, não a um import de distância. Ler o import não é ler a lista.
+ *
+ * O que o import faz é impedir que a cópia envelheça: `conferirContraCatalogo`
+ * aborta antes de qualquer UPDATE se as duas divergirem. Visibilidade e
+ * verdade única deixam de ser escolha — dá para ter as duas.
  */
 const FILHAS = [
   "investimentos",
@@ -48,6 +53,29 @@ const FILHAS = [
   "tech",
   "educacao",
 ] as const;
+
+/**
+ * Aborta se a lista acima divergir do catálogo.
+ *
+ * Roda ANTES do primeiro UPDATE, inclusive em dry-run: um dry-run que valida a
+ * lista errada dá um "plano aprovado" falso, e é justamente o plano que autoriza
+ * o `--aplicar`. Divergência aqui é sempre erro humano de sincronia — nunca é
+ * "só a produção estar diferente".
+ */
+function conferirContraCatalogo(): void {
+  const doCatalogo = idsFilhasDaRaiz();
+  const faltando = doCatalogo.filter((id) => !FILHAS.includes(id as (typeof FILHAS)[number]));
+  const sobrando = FILHAS.filter((id) => !doCatalogo.includes(id));
+
+  if (faltando.length === 0 && sobrando.length === 0) return;
+
+  throw new Error(
+    "A lista FILHAS deste script divergiu de src/lib/empresas/catalogo.ts.\n" +
+      (faltando.length ? `  faltando aqui: ${faltando.join(", ")}\n` : "") +
+      (sobrando.length ? `  sobrando aqui: ${sobrando.join(", ")}\n` : "") +
+      "Acerte a lista (ou o catálogo) antes de mover dado de produção.",
+  );
+}
 
 function descreverDestino(url: string): string {
   try {
@@ -66,6 +94,9 @@ async function main(): Promise<void> {
     );
   }
   const aplicar = process.argv.includes("--aplicar");
+
+  // Antes de abrir conexão: se a lista está errada, nem vale conectar.
+  conferirContraCatalogo();
 
   console.log(`Destino: ${descreverDestino(url)}`);
   console.log(`Modo:    ${aplicar ? "APLICAR (escreve no banco)" : "dry-run (não escreve nada)"}\n`);

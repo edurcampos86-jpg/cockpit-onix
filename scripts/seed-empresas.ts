@@ -1,7 +1,11 @@
 /**
  * Seed da tabela `Empresa` — IDEMPOTENTE.
  *
- * Cria a raiz "Onix Co" e as 7 empresas do grupo, TODAS com `parentId = null`.
+ * Cria a raiz "Onix Co" e as demais empresas do grupo, TODAS com
+ * `parentId = null`. QUEM entra na lista é decisão de
+ * `src/lib/empresas/catalogo.ts` (`cadastrada: true`), não deste arquivo —
+ * `agro` e `contabil` aparecem no hub e NÃO são semeadas de propósito, porque
+ * ainda não existem como operação.
  *
  * ── O QUE ESTE SEED NÃO FAZ ──────────────────────────────────────────────
  * NÃO faz reparenting. Nenhuma empresa passa a apontar para a raiz aqui — isso
@@ -35,28 +39,29 @@
  * construção — não os corrijo nesta PR.
  */
 import "dotenv/config";
+import { RAIZ_DO_GRUPO, empresasCadastradas } from "../src/lib/empresas/catalogo";
 
 /** Só o contrato de desconexão, para o `finally` não exigir import estático do tipo. */
 let clienteAberto: { $disconnect: () => Promise<void> } | null = null;
 
 /**
- * Os ids são os slugs de `src/lib/empresas-config.ts` — não invente nomes
- * novos aqui. Eles casam por VALOR com `Implementacao.empresaId`, que já tem
- * linhas gravadas em produção; divergir criaria empresa órfã no dia da FK.
+ * A lista NÃO mora mais aqui: vem de `src/lib/empresas/catalogo.ts`, que é a
+ * declaração única de quem existe no grupo e de onde cada uma aparece.
  *
- * "onix-co" é o único id que não vem daquele arquivo: a empresa-mãe não é uma
- * aba de navegação, então nunca precisou existir lá.
+ * Antes era um literal neste arquivo, e foi assim que ele passou a divergir do
+ * hub sem ninguém notar — `agro` e `contabil` orbitavam na tela inicial sem
+ * nunca terem sido semeadas, `planejamento` era semeada sem aparecer na tela.
+ * Um literal só é fonte de verdade enquanto é o ÚNICO; a partir do segundo,
+ * vira cópia.
+ *
+ * Os ids continuam sendo os slugs de `empresas-config.ts` e casam por VALOR com
+ * `Implementacao.empresaId`, que já tem linhas em produção — o catálogo
+ * documenta isso no tipo.
  */
-const EMPRESAS: Array<{ id: string; nome: string }> = [
-  { id: "onix-co", nome: "Onix Co" },
-  { id: "investimentos", nome: "Onix Capital" },
-  { id: "corretora", nome: "Onix Corretora" },
-  { id: "planejamento", nome: "Planejamento Patrimonial" },
-  { id: "imobiliaria", nome: "Onix Imob" },
-  { id: "corporate", nome: "Onix Corporate" },
-  { id: "tech", nome: "Onix Tech" },
-  { id: "educacao", nome: "Onix Educação" },
-];
+const EMPRESAS: Array<{ id: string; nome: string }> = empresasCadastradas().map((e) => ({
+  id: e.id,
+  nome: e.nome,
+}));
 
 /** Host de destino sem credencial — a URL do Postgres carrega usuário e senha. */
 function descreverDestino(url: string): string {
@@ -94,22 +99,24 @@ async function main(): Promise<void> {
   console.log(`Empresas depois:   ${depois}`);
 
   if (count === 0) {
-    console.log("\nNada a fazer — as 8 já existiam. (Rodar de novo é seguro.)");
+    console.log(`\nNada a fazer — as ${EMPRESAS.length} já existiam. (Rodar de novo é seguro.)`);
   }
 
   // Conferência: a raiz precisa existir e precisa ser raiz. Se alguém já
   // pendurou a "onix-co" em outra empresa, isso aqui grita — o reparenting
   // desta PR seria justamente o contrário.
   const raiz = await prisma.empresa.findUnique({
-    where: { id: "onix-co" },
+    where: { id: RAIZ_DO_GRUPO },
     select: { id: true, nome: true, parentId: true },
   });
   if (!raiz) {
-    throw new Error('A raiz "onix-co" não existe após o seed — investigue antes de seguir.');
+    throw new Error(
+      `A raiz "${RAIZ_DO_GRUPO}" não existe após o seed — investigue antes de seguir.`,
+    );
   }
   if (raiz.parentId !== null) {
     console.log(
-      `\nATENÇÃO: a raiz "onix-co" está com parentId="${raiz.parentId}". ` +
+      `\nATENÇÃO: a raiz "${RAIZ_DO_GRUPO}" está com parentId="${raiz.parentId}". ` +
         "Ela deveria ser raiz. Este seed não corrige vínculo — verifique à mão.",
     );
   } else {

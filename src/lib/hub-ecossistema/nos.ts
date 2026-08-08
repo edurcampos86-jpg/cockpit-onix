@@ -34,7 +34,11 @@ export type NoEcossistema = {
    * `empresas-config.ts`, o id é o MESMO (`investimentos`, `corretora`,
    * `imobiliaria`, `corporate`, `tech`, `educacao`) — é essa igualdade que
    * vai permitir casar nó → permissão quando o RBAC entrar (ver `acesso.ts`).
-   * `agro` e `contabil` ainda não existem em lugar nenhum do sistema.
+   *
+   * QUEM pode aparecer aqui é declarado em `lib/empresas/catalogo.ts`
+   * (`noHub: true`) e travado por `catalogo.test.ts`. Nó novo sem entrada lá
+   * fica invisível para o seed e para o RBAC — foi assim que `agro` e
+   * `contabil` chegaram à tela sem existir no resto do sistema.
    */
   id: string;
   /** Rótulo exibido no nó. */

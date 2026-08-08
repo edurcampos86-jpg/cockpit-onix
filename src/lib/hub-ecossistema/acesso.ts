@@ -72,11 +72,16 @@ async function idsSemAcesso(): Promise<Set<string>> {
 
     /* Só dá para julgar acesso de nó que EXISTE como empresa cadastrada.
      *
-     * `agro` e `contabil` estão no hub mas não em `scripts/seed-empresas.ts`
-     * (nem têm rota) — são empresas anunciadas, não cadastradas. Sem esta
-     * checagem elas cairiam em "não está no conjunto visível" e apareceriam
-     * TRAVADAS para qualquer pessoa com concessão restrita, dizendo "sem
-     * acesso" sobre algo que ninguém pode acessar porque ainda não existe.
+     * `agro` e `contabil` estão no hub e não no cadastro — são empresas
+     * ANUNCIADAS, e isso está declarado em `lib/empresas/catalogo.ts`
+     * (`cadastrada: false`), com teste travando o par. Sem esta checagem elas
+     * cairiam em "não está no conjunto visível" e apareceriam TRAVADAS para
+     * qualquer pessoa com concessão restrita, dizendo "sem acesso" sobre algo
+     * que ninguém pode acessar porque ainda não existe.
+     *
+     * A régua é a tabela `Empresa`, não o catálogo: o catálogo diz o que
+     * DEVERIA estar semeado, o banco diz o que ESTÁ. Se o seed ainda não rodou
+     * no ambiente, quem manda é o banco.
      *
      * Ausência de cadastro não é negação de acesso — é a mesma postura
      * não-disruptiva do resto: na dúvida, não trava. */
