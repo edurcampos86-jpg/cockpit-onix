@@ -32,13 +32,24 @@
  * na cabeça.
  *
  * ── QUEM CONSOME ─────────────────────────────────────────────────────────
- *   • `scripts/seed-empresas.ts` — deriva a lista de `empresasCadastradas()`
- *   • `catalogo.test.ts`         — trava o hub contra `idsNoHub()`
+ *   • `seed-hierarquia.ts` — deriva `ONIX_CO` / `EMPRESAS_DO_GRUPO` /
+ *     `TODAS_AS_EMPRESAS`, e por eles o script de terminal e
+ *     `POST /api/empresas/hierarquia`
+ *   • `catalogo.test.ts`   — trava o hub contra `idsNoHub()` e o seed contra
+ *     `idsCadastradas()`
  *
  * O RBAC por empresa (PR própria, em revisão à parte) apenas LÊ este arquivo e
  * acrescenta helpers derivados; ele não redeclara empresa nenhuma. O catálogo
  * mora aqui, e não lá, porque a lista de quem orbita é invariante do HUB: é
  * `catalogo.test.ts` que impede um nó nascer em `nos.ts` sem passar por aqui.
+ *
+ * ── SOBRE O NOME `CATALOGO_EMPRESAS` ─────────────────────────────────────
+ * A constante já se chamou `EMPRESAS_DO_GRUPO`. Foi renomeada quando a #291
+ * entrou na main com um símbolo homônimo em `seed-hierarquia.ts`, no MESMO
+ * diretório e com outro formato (7 entradas de `{id, nome}`, sem a raiz).
+ * Quem estava publicado ficou com o nome; esta, que ainda estava em revisão,
+ * mudou. Dois `EMPRESAS_DO_GRUPO` vizinhos com semânticas diferentes seriam
+ * uma armadilha de import.
  *
  * PURO de propósito (sem prisma, sem `server-only`, sem React): é importado
  * por script Node, por teste e — via o teste — pelo lado cliente do hub.
@@ -84,7 +95,7 @@ export type EmpresaDoGrupo = {
  * mora em `NOS_ECOSSISTEMA` e é decisão visual. Reordenar aqui não move nada
  * na tela.
  */
-export const EMPRESAS_DO_GRUPO: readonly EmpresaDoGrupo[] = [
+export const CATALOGO_EMPRESAS: readonly EmpresaDoGrupo[] = [
   {
     id: RAIZ_DO_GRUPO,
     nome: "Onix Co",
@@ -142,7 +153,7 @@ export const EMPRESAS_DO_GRUPO: readonly EmpresaDoGrupo[] = [
 ] as const;
 
 /** Índice id→empresa, para as buscas não serem O(n) dentro de laço. */
-const PorId = new Map(EMPRESAS_DO_GRUPO.map((e) => [e.id, e]));
+const PorId = new Map(CATALOGO_EMPRESAS.map((e) => [e.id, e]));
 
 export function empresaDoGrupo(id: string): EmpresaDoGrupo | undefined {
   return PorId.get(id);
@@ -153,7 +164,7 @@ export function empresaDoGrupo(id: string): EmpresaDoGrupo | undefined {
  * insere — inclusive a raiz.
  */
 export function empresasCadastradas(): EmpresaDoGrupo[] {
-  return EMPRESAS_DO_GRUPO.filter((e) => e.cadastrada);
+  return CATALOGO_EMPRESAS.filter((e) => e.cadastrada);
 }
 
 /** Só os ids de `empresasCadastradas()`. */
@@ -163,5 +174,5 @@ export function idsCadastradas(): string[] {
 
 /** Quem orbita no hub. Travado contra `NOS_ECOSSISTEMA` por teste. */
 export function idsNoHub(): string[] {
-  return EMPRESAS_DO_GRUPO.filter((e) => e.noHub).map((e) => e.id);
+  return CATALOGO_EMPRESAS.filter((e) => e.noHub).map((e) => e.id);
 }

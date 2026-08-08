@@ -1,11 +1,15 @@
 /**
  * Seed da tabela `Empresa` — IDEMPOTENTE.
  *
- * Cria a raiz "Onix Co" e as demais empresas do grupo, TODAS com
- * `parentId = null`. QUEM entra na lista é decisão de
- * `src/lib/empresas/catalogo.ts` (`cadastrada: true`), não deste arquivo —
- * `agro` e `contabil` aparecem no hub e NÃO são semeadas de propósito, porque
- * ainda não existem como operação.
+ * Cria a raiz "Onix Co" e as 7 empresas do grupo, TODAS com `parentId = null`.
+ *
+ * ── ONDE MORA A LÓGICA ───────────────────────────────────────────────────
+ * Não aqui. A lista canônica e a mecânica de idempotência vivem em
+ * `src/lib/empresas/seed-hierarquia.ts`, compartilhado com
+ * `POST /api/empresas/hierarquia`. A diferença entre os dois consumidores é só
+ * QUAIS empresas cada um passa: este script semeia as 8; o endpoint semeia
+ * apenas a raiz, porque criar as demais é decisão que merece conferência
+ * humana no terminal.
  *
  * ── O QUE ESTE SEED NÃO FAZ ──────────────────────────────────────────────
  * NÃO faz reparenting. Nenhuma empresa passa a apontar para a raiz aqui — isso
@@ -13,55 +17,36 @@
  * VÁLIDO segundo a régua (src/lib/empresas/hierarquia.ts): a validação recusa
  * o terceiro nível, não a ausência do segundo.
  *
- * ── POR QUE É IDEMPOTENTE POR CONSTRUÇÃO ─────────────────────────────────
- * Usa `createMany({ skipDuplicates: true })`: linha cuja PK já existe é
- * ignorada, e nenhuma linha existente é reescrita. Rodar duas vezes não
- * duplica NEM sobrescreve — se alguém já renomeou "Onix Imob" na mão, o nome
- * dele sobrevive ao segundo run. Um `upsert` teria o efeito contrário:
- * devolveria o nome ao valor deste arquivo, apagando a edição em silêncio.
- *
- * Este é o ÚNICO arquivo desta PR que escreve, e escreve só na tabela nova.
+ * A única escrita é um create condicional; não há UPDATE nem DELETE.
  *
  * Como rodar:
  *   npx tsx scripts/seed-empresas.ts
  */
+
 /*
- * Só `dotenv/config` é import estático. O cliente entra por import DINÂMICO
- * dentro de main(), depois do guard de DATABASE_URL: `src/lib/prisma.ts:10`
- * constrói o PrismaClient no momento do import usando
+ * Só `dotenv/config` e o módulo de semeadura são imports estáticos. O cliente
+ * entra por import DINÂMICO dentro de main(), depois do guard de DATABASE_URL:
+ * `src/lib/prisma.ts:10` constrói o PrismaClient no momento do import usando
  * `process.env.DATABASE_URL!`, então um import estático faria a falta da
  * variável estourar como erro do driver antes da nossa mensagem.
+ *
+ * O módulo de semeadura é seguro como import estático justamente porque NÃO
+ * importa `@/lib/prisma` — ele recebe o client por parâmetro.
  *
  * Reusa o singleton da aplicação em vez de montar um cliente próprio: no
  * Prisma 7 o `new PrismaClient()` sem opções LANÇA (é preciso passar o adapter
  * PrismaPg), e duplicar essa fiação aqui seria um segundo lugar para manter.
- * Vários scripts antigos deste repo ainda usam o construtor vazio e falham na
- * construção — não os corrijo nesta PR.
  */
 import "dotenv/config";
-import { RAIZ_DO_GRUPO, empresasCadastradas } from "../src/lib/empresas/catalogo";
+import {
+  ONIX_CO,
+  TODAS_AS_EMPRESAS,
+  conferirRaiz,
+  semearEmpresas,
+} from "../src/lib/empresas/seed-hierarquia";
 
 /** Só o contrato de desconexão, para o `finally` não exigir import estático do tipo. */
 let clienteAberto: { $disconnect: () => Promise<void> } | null = null;
-
-/**
- * A lista NÃO mora mais aqui: vem de `src/lib/empresas/catalogo.ts`, que é a
- * declaração única de quem existe no grupo e de onde cada uma aparece.
- *
- * Antes era um literal neste arquivo, e foi assim que ele passou a divergir do
- * hub sem ninguém notar — `agro` e `contabil` orbitavam na tela inicial sem
- * nunca terem sido semeadas, `planejamento` era semeada sem aparecer na tela.
- * Um literal só é fonte de verdade enquanto é o ÚNICO; a partir do segundo,
- * vira cópia.
- *
- * Os ids continuam sendo os slugs de `empresas-config.ts` e casam por VALOR com
- * `Implementacao.empresaId`, que já tem linhas em produção — o catálogo
- * documenta isso no tipo.
- */
-const EMPRESAS: Array<{ id: string; nome: string }> = empresasCadastradas().map((e) => ({
-  id: e.id,
-  nome: e.nome,
-}));
 
 /** Host de destino sem credencial — a URL do Postgres carrega usuário e senha. */
 function descreverDestino(url: string): string {
@@ -85,47 +70,38 @@ async function main(): Promise<void> {
   const { prisma } = await import("../src/lib/prisma");
   clienteAberto = prisma;
 
-  const antes = await prisma.empresa.count();
+  const r = await semearEmpresas(prisma, TODAS_AS_EMPRESAS);
 
-  const { count } = await prisma.empresa.createMany({
-    data: EMPRESAS.map((e) => ({ id: e.id, nome: e.nome })),
-    skipDuplicates: true,
-  });
+  console.log(`\nEmpresas antes:    ${r.totalAntes}`);
+  console.log(`Inseridas agora:   ${r.inseridas}`);
+  console.log(`Empresas depois:   ${r.totalDepois}`);
 
-  const depois = await prisma.empresa.count();
-
-  console.log(`\nEmpresas antes:    ${antes}`);
-  console.log(`Inseridas agora:   ${count}`);
-  console.log(`Empresas depois:   ${depois}`);
-
-  if (count === 0) {
-    console.log(`\nNada a fazer — as ${EMPRESAS.length} já existiam. (Rodar de novo é seguro.)`);
+  if (r.resultado === "ja_existia") {
+    console.log(
+      `\nNada a fazer — as ${TODAS_AS_EMPRESAS.length} já existiam. (Rodar de novo é seguro.)`,
+    );
   }
 
   // Conferência: a raiz precisa existir e precisa ser raiz. Se alguém já
-  // pendurou a "onix-co" em outra empresa, isso aqui grita — o reparenting
-  // desta PR seria justamente o contrário.
-  const raiz = await prisma.empresa.findUnique({
-    where: { id: RAIZ_DO_GRUPO },
-    select: { id: true, nome: true, parentId: true },
-  });
-  if (!raiz) {
+  // pendurou a "onix-co" em outra empresa, isso aqui grita — este seed não
+  // corrige vínculo, e corrigir em silêncio esconderia como aconteceu.
+  const raiz = conferirRaiz(r.arvore);
+  if (!raiz.existe) {
     throw new Error(
-      `A raiz "${RAIZ_DO_GRUPO}" não existe após o seed — investigue antes de seguir.`,
+      `A raiz "${ONIX_CO.id}" não existe após o seed — investigue antes de seguir.`,
     );
   }
-  if (raiz.parentId !== null) {
+  if (!raiz.ehRaiz) {
     console.log(
-      `\nATENÇÃO: a raiz "${RAIZ_DO_GRUPO}" está com parentId="${raiz.parentId}". ` +
+      `\nATENÇÃO: a raiz "${ONIX_CO.id}" está com parentId="${raiz.parentIdInesperado}". ` +
         "Ela deveria ser raiz. Este seed não corrige vínculo — verifique à mão.",
     );
   } else {
-    console.log(`\nRaiz confirmada: "${raiz.nome}" (id=${raiz.id}, parentId=null).`);
+    console.log(`\nRaiz confirmada: "${ONIX_CO.nome}" (id=${ONIX_CO.id}, parentId=null).`);
   }
 
-  const comPai = await prisma.empresa.count({ where: { parentId: { not: null } } });
   console.log(
-    `Empresas com pai:  ${comPai}   ` +
+    `Empresas com pai:  ${r.comPai}   ` +
       "(esperado 0 nesta fase — o reparenting é PR seguinte.)",
   );
 }
