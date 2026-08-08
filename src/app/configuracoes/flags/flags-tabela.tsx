@@ -31,6 +31,7 @@ import {
   type ComparacaoEsperado,
 } from "@/lib/flags/esperadas";
 import { chavesLigadasDe } from "@/lib/flags/ligadas";
+import { flagAlternavel, flagLigada } from "@/lib/flags/registro";
 
 type DetalheHistorico = {
   key: string;
@@ -326,8 +327,8 @@ function DialogoHistorico({
                     className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-lg border border-border px-3 py-2"
                   >
                     <span className="text-xs text-muted-foreground">
-                      <code>{m.de ?? "ausente"}</code> →{" "}
-                      <code className="font-semibold text-foreground">{m.para}</code>
+                      <ValorAuditado chave={m.key} valor={m.de} /> →{" "}
+                      <ValorAuditado chave={m.key} valor={m.para} destacado />
                     </span>
                     <span className="text-[0.7rem] text-muted-foreground">
                       {m.quemEmail ?? "autor não registrado"} · {formatarQuando(m.quando)}
@@ -375,6 +376,50 @@ function formatarQuando(iso: string): string {
  * Vazio não é erro: é o estado de quem nunca mudou flag pela tela, e o texto
  * diz isso em vez de sumir — sumir faria parecer que o registro não existe.
  */
+/**
+ * Um valor da trilha, com o efeito dele anotado ao lado.
+ *
+ * ── POR QUE O VALOR CRU NÃO BASTA ────────────────────────────────────────
+ * O histórico guarda o que foi gravado, e o que foi gravado nem sempre se lê.
+ * Existem DOIS dialetos de booleano no código (`registro.ts`): o amplo aceita
+ * `1 | true | on | yes | sim`, o estrito só `1 | true | on`. Nas 4 flags
+ * estritas, `sim` está DESLIGADA — e não há como saber isso olhando a linha.
+ *
+ * `flagLigada` é a mesma função que o resto do app usa para decidir, e recebe
+ * o dialeto da própria flag. A anotação não é interpretação da tela: é o
+ * veredito do runtime, exibido.
+ *
+ * Só anota flag BOOLEANA. `flagAlternavel` devolve `null` para as de valor
+ * (`LIMIAR_VACUO_DIAS` é um número), e ali "(ON)" seria invenção. Chave fora
+ * do registro — mudança antiga de flag já removida — cai no mesmo caminho e
+ * aparece crua, que é o honesto.
+ */
+function ValorAuditado({
+  chave,
+  valor,
+  destacado = false,
+}: {
+  chave: string;
+  valor: string | null;
+  destacado?: boolean;
+}) {
+  const flag = flagAlternavel(chave);
+  const rotulo = valor ?? "ausente";
+
+  return (
+    <>
+      <code className={cn(destacado && "font-semibold text-foreground")}>{rotulo}</code>
+      {flag && (
+        /* Ausente também é anotado: o default de TODAS é OFF, e dizer isso
+         * fecha a leitura em vez de deixar o leitor deduzir. */
+        <span className="ml-1 text-[0.65rem] font-medium uppercase tracking-wide">
+          ({flagLigada(valor ?? undefined, flag.dialeto) ? "on" : "off"})
+        </span>
+      )}
+    </>
+  );
+}
+
 function Historico({ mudancas }: { mudancas: MudancaFlag[] }) {
   return (
     <section className="space-y-2">
@@ -397,7 +442,8 @@ function Historico({ mudancas }: { mudancas: MudancaFlag[] }) {
               <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <code className="text-xs font-semibold text-foreground">{m.key}</code>
                 <span className="text-xs text-muted-foreground">
-                  <code>{m.de ?? "ausente"}</code> → <code className="text-foreground">{m.para}</code>
+                  <ValorAuditado chave={m.key} valor={m.de} /> →{" "}
+                  <ValorAuditado chave={m.key} valor={m.para} destacado />
                 </span>
               </div>
               <span className="text-[0.7rem] text-muted-foreground">
@@ -542,10 +588,17 @@ function LinhaFlag({
             >
               <Lock className="h-2.5 w-2.5 text-muted-foreground" />
             </TooltipTrigger>
+            {/* Nomeia a variável E o lugar, nesta ordem: quem abre este tooltip
+              * está tentando virar a chave AGORA e precisa da próxima ação, não
+              * da explicação. O porquê vem depois, em uma frase.
+              *
+              * A fricção do Railway é INTENCIONAL — decisão do Eduardo. O texto
+              * não sugere migrar a flag para o banco nem oferece atalho. */}
             <TooltipContent side="left">
-              Controlada pela variável de ambiente <code>{flag.key}</code>, não pelo banco.
-              Mudar exige editar a variável no Railway (o que dispara redeploy) — a tela não
-              grava por cima para a flag não passar a ter duas fontes.
+              Mude em <strong>Railway → Variables → <code>{flag.key}</code></strong> (o deploy
+              reinicia sozinho). A tela não grava por cima de propósito: o banco tem
+              precedência sobre o env, então gravar aqui daria DUAS fontes à flag — e quem
+              lesse a variável no Railway depois acharia que ela ainda manda.
             </TooltipContent>
           </Tooltip>
         ) : (

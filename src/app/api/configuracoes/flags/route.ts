@@ -114,17 +114,24 @@ export async function POST(request: Request) {
   }
 
   const valor = valorParaGravar(ligada);
-  const { de } = await gravarFlagComAuditoria({
+  const { de, mudou } = await gravarFlagComAuditoria({
     key,
     valor,
     quemId: ctx?.userId ?? null,
     quemEmail: ctx?.email ?? null,
   });
 
+  // Não-mudança não vira linha em `ConfigAudit` nem escrita em `Config` (ver
+  // `lib/flags/auditoria.ts`), e pelo mesmo motivo não vira "X → Y" no log: um
+  // log que anuncia transição inexistente engana quem lê o Railway durante um
+  // incidente. Fica um registro do pedido, dito como o que foi.
   console.info(
-    `[flags] ${key}: ${flagLigada(de ?? undefined, flag.dialeto) ? "ON" : "OFF"} → ` +
-      `${ligada ? "ON" : "OFF"} (valor "${de ?? "<ausente>"}" → "${valor}")` +
-      ` · por ${ctx?.email ?? "?"} · ${new Date().toISOString()}`,
+    mudou
+      ? `[flags] ${key}: ${flagLigada(de ?? undefined, flag.dialeto) ? "ON" : "OFF"} → ` +
+          `${ligada ? "ON" : "OFF"} (valor "${de ?? "<ausente>"}" → "${valor}")` +
+          ` · por ${ctx?.email ?? "?"} · ${new Date().toISOString()}`
+      : `[flags] ${key}: sem efeito — já estava em "${valor}"` +
+          ` · pedido por ${ctx?.email ?? "?"} · ${new Date().toISOString()}`,
   );
 
   // Devolve o estado recalculado, não o que foi pedido: se algo divergir (env

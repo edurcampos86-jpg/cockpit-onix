@@ -186,3 +186,45 @@ test("HUB_ECOSSISTEMA está registrada e é booleana ampla", () => {
   assert.equal(hub.dialeto, "amplo");
   assert.equal(hub.onde, "src/lib/hub-ecossistema/flag.ts");
 });
+
+/* ── O contrato que a anotação ON/OFF do histórico consome ────────────────
+ *
+ * `ValorAuditado` (flags-tabela.tsx) recebe só a CHAVE e o valor cru gravado —
+ * a linha de `ConfigAudit` não guarda dialeto. Ela resolve o dialeto por
+ * `flagAlternavel(key)?.dialeto` e chama `flagLigada`. Os testes abaixo travam
+ * essa resolução: se ela quebrar, a tela passa a anotar "(ON)" numa flag que o
+ * runtime lê como desligada, que é pior do que não anotar nada. */
+
+test("o dialeto é resolvível a partir da chave sozinha, para toda flag booleana", () => {
+  for (const flag of FLAGS_REGISTRADAS.filter((f) => f.tipo === "booleana")) {
+    const achada = flagAlternavel(flag.key);
+    assert.ok(achada, `"${flag.key}" é booleana e flagAlternavel não achou`);
+    assert.equal(achada.dialeto, flag.dialeto);
+  }
+});
+
+test('anotar "sim" pela chave: OFF nas estritas, ON nas amplas', () => {
+  // É a divergência que a tela precisa mostrar. Sem a anotação, as duas linhas
+  // aparecem idênticas no histórico — mesmo texto, efeitos opostos.
+  const efeito = (key: string, valor: string) =>
+    flagLigada(valor, flagAlternavel(key)?.dialeto) ? "ON" : "OFF";
+
+  assert.equal(efeito("PERFIL_FATO_WRITE", "sim"), "OFF");
+  assert.equal(efeito("HUB_ECOSSISTEMA", "sim"), "ON");
+  // "1" é o que a tela grava, e vale ON nos dois — por isso `valorParaGravar`
+  // nunca usa "sim".
+  assert.equal(efeito("PERFIL_FATO_WRITE", "1"), "ON");
+  assert.equal(efeito("HUB_ECOSSISTEMA", "1"), "ON");
+});
+
+test("flag de VALOR não recebe anotação — não há ON/OFF a dizer", () => {
+  // `flagAlternavel` devolve null, e `ValorAuditado` só anota quando ela acha.
+  for (const flag of FLAGS_REGISTRADAS.filter((f) => f.tipo === "valor")) {
+    assert.equal(flagAlternavel(flag.key), null, `"${flag.key}" é de valor e virou alternável`);
+  }
+});
+
+test("chave fora do registro aparece crua, sem anotação inventada", () => {
+  // Mudança antiga de uma flag já removida continua no ConfigAudit.
+  assert.equal(flagAlternavel("FLAG_QUE_NAO_EXISTE_MAIS"), null);
+});
