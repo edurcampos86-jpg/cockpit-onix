@@ -32,13 +32,18 @@
  * na cabeça.
  *
  * ── QUEM CONSOME ─────────────────────────────────────────────────────────
- *   • `scripts/seed-empresas.ts` — deriva a lista de `empresasCadastradas()`
- *   • `catalogo.test.ts`         — trava o hub contra `idsNoHub()`
+ *   • `scripts/seed-empresas.ts`     — deriva a lista de `empresasCadastradas()`
+ *   • `catalogo.test.ts`             — trava o hub contra `idsNoHub()`
+ *   • `scripts/reparent-empresas.ts` — confere a própria lista contra
+ *     `idsFilhasDaRaiz()` antes de escrever                        [RBAC]
+ *   • `api/configuracoes/permissoes/auditoria` — usa `divergencias()` para
+ *     explicar por que uma empresa concedida não aparece na tela   [RBAC]
  *
- * O RBAC por empresa (PR própria, em revisão à parte) apenas LÊ este arquivo e
- * acrescenta helpers derivados; ele não redeclara empresa nenhuma. O catálogo
- * mora aqui, e não lá, porque a lista de quem orbita é invariante do HUB: é
- * `catalogo.test.ts` que impede um nó nascer em `nos.ts` sem passar por aqui.
+ * A declaração acima é da PR do hub; os itens [RBAC] são acrescentados por
+ * esta PR, que só LÊ o catálogo e não redeclara empresa nenhuma. O catálogo
+ * mora aqui, e não do lado do RBAC, porque a lista de quem orbita é invariante
+ * do HUB: é `catalogo.test.ts` que impede um nó nascer em `nos.ts` sem passar
+ * por aqui.
  *
  * PURO de propósito (sem prisma, sem `server-only`, sem React): é importado
  * por script Node, por teste e — via o teste — pelo lado cliente do hub.
@@ -60,10 +65,10 @@ export type EmpresaDoGrupo = {
   /**
    * Ganha linha na tabela `Empresa` (via `scripts/seed-empresas.ts`).
    *
-   * Consequência de estar `false`: a empresa não existe como cadastro, então
-   * nada que dependa de `Empresa` a enxerga — nem hierarquia, nem qualquer
-   * permissão que venha a se pendurar nela. Ausência de cadastro é ausência,
-   * não negação: quem consumir isto tem de tratar os dois casos diferente.
+   * Consequência de estar `false`: a empresa é INVISÍVEL para o RBAC. A FK de
+   * `PessoaEmpresa` impede até conceder acesso a ela, e o hub nunca a mostra
+   * travada — ausência de cadastro não é negação de acesso (ver
+   * `hub-ecossistema/acesso.ts`).
    */
   cadastrada: boolean;
   /**
@@ -124,13 +129,12 @@ export const EMPRESAS_DO_GRUPO: readonly EmpresaDoGrupo[] = [
     nota:
       "ANUNCIADA, não operacional: aparece no hub (protótipo aprovado) e não " +
       "existe em lugar nenhum do sistema — sem rota, sem linha em `Empresa`. " +
-      "Consequência que já vale hoje: o clique cai no 404 do Next, e por isso " +
-      "ela é `maturidade: \"sem-rota\"` em `nos.ts`. Consequência para quem " +
-      "vier depois: nada que dependa de `Empresa` sabe que ela existe, então " +
-      "tratá-la como \"sem acesso\" seria dizer \"você não pode\" sobre algo " +
-      "que ninguém pode. Pergunta aberta: é empresa que já existe " +
-      "juridicamente e ainda não ganhou sistema, ou é plano? Se for a " +
-      "primeira, o conserto é `cadastrada: true` aqui + rodar o seed.",
+      "Por isso o hub tem a guarda `cadastradas` em `acesso.ts`: sem ela, " +
+      "apareceria TRAVADA (\"sem acesso\") para quem tem concessão restrita, " +
+      "dizendo \"você não pode\" sobre algo que ninguém pode. Pergunta aberta: " +
+      "é empresa que já existe juridicamente e ainda não ganhou sistema, ou é " +
+      "plano? Se for a primeira, o conserto é `cadastrada: true` aqui + rodar " +
+      "o seed.",
   },
   {
     id: "contabil",
@@ -164,4 +168,46 @@ export function idsCadastradas(): string[] {
 /** Quem orbita no hub. Travado contra `NOS_ECOSSISTEMA` por teste. */
 export function idsNoHub(): string[] {
   return EMPRESAS_DO_GRUPO.filter((e) => e.noHub).map((e) => e.id);
+}
+
+/* ── DAQUI PARA BAIXO: acrescentado pelo RBAC por empresa ─────────────────
+ *
+ * O catálogo em si é da PR do hub — é lá que a lista de quem orbita é
+ * invariante, e é lá que o teste impede um nó nascer sem declaração. Esta PR
+ * só LÊ o que já está declarado acima e deriva duas visões que só ela consome.
+ *
+ * Ficam neste arquivo, e não num módulo próprio, porque derivar do catálogo em
+ * outro lugar recria exatamente o problema que o catálogo resolveu: uma segunda
+ * casa capaz de discordar da primeira. */
+
+/**
+ * Quem o reparenting pendura na raiz: as cadastradas MENOS a própria raiz.
+ * A raiz não pode ser filha de si mesma (`validarParent` recusaria por
+ * `auto_referencia`).
+ */
+export function idsFilhasDaRaiz(): string[] {
+  return idsCadastradas().filter((id) => id !== RAIZ_DO_GRUPO);
+}
+
+/** As três caixas do catálogo, já separadas. */
+export type Divergencias = {
+  /** No hub e no cadastro — o caso saudável. */
+  nosDois: string[];
+  /** Anunciada no hub, ausente do cadastro: o RBAC não a enxerga. */
+  soNoHub: string[];
+  /** Cadastrada e fora do hub: existe, mas a tela inicial não a mostra. */
+  soNoCadastro: string[];
+};
+
+/**
+ * Divide o catálogo nas três caixas. Usado pelo teste e pela auditoria de
+ * permissões (`/api/configuracoes/permissoes/auditoria`), que precisa dizer
+ * ao admin POR QUE uma empresa concedida não aparece na tela inicial.
+ */
+export function divergencias(): Divergencias {
+  return {
+    nosDois: EMPRESAS_DO_GRUPO.filter((e) => e.cadastrada && e.noHub).map((e) => e.id),
+    soNoHub: EMPRESAS_DO_GRUPO.filter((e) => !e.cadastrada && e.noHub).map((e) => e.id),
+    soNoCadastro: EMPRESAS_DO_GRUPO.filter((e) => e.cadastrada && !e.noHub).map((e) => e.id),
+  };
 }

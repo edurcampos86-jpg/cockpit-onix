@@ -276,14 +276,6 @@ export const FLAGS_REGISTRADAS: readonly FlagRegistrada[] = [
     tipo: "valor",
   },
   {
-    /* Demonstração do estado visual "sem acesso" do hub, até o RBAC existir.
-     * Não é controle de acesso — `locked` não protege rota nenhuma. */
-    key: "HUB_LOCKED_DEMO",
-    rotulo: "Ids de nó do hub a mostrar travados, separados por vírgula (ex.: corporate,agro)",
-    onde: "src/lib/hub-ecossistema/locked-demo.ts",
-    tipo: "valor",
-  },
-  {
     key: "CONFIG_AUDIT_RETENCAO_DIAS",
     rotulo: "Retenção do histórico de flags, em dias (default 730 = 2 anos; piso de 365)",
     onde: "src/lib/flags/retencao.ts",

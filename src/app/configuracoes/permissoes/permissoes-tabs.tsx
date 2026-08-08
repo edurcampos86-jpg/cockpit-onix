@@ -14,6 +14,9 @@ import {
   atribuirPapel,
   adicionarApoio,
   removerApoio,
+  concederEmpresa,
+  revogarEmpresa,
+  alternarHerancaEmpresa,
 } from "@/app/actions/permissoes";
 
 export type PapelDTO = {
@@ -69,6 +72,7 @@ const TABS = [
   { id: "papeis", label: "Papéis" },
   { id: "carteiras", label: "Carteiras" },
   { id: "pessoas", label: "Pessoas & Acessos" },
+  { id: "empresas", label: "Empresas" },
 ] as const;
 type TabId = (typeof TABS)[number]["id"];
 
@@ -826,16 +830,237 @@ function PessoasTab({
   );
 }
 
+export type EmpresaDTO = { id: string; nome: string; parentId: string | null };
+export type AcessoEmpresaDTO = {
+  id: string;
+  pessoaId: string;
+  empresaId: string;
+  incluiDescendentes: boolean;
+};
+
+/* ── Aba Empresas: quem enxerga qual empresa do grupo ──
+ *
+ * Escopo DIFERENTE do de carteiras: carteira decide quais CLIENTES a pessoa vê;
+ * empresa decide quais EMPRESAS do grupo ela enxerga (nós do hub e páginas de
+ * `/empresas/*`). As duas coexistem sem se falar.
+ *
+ * A tela precisa dizer em voz alta a consequência da regra não-disruptiva:
+ * pessoa sem concessão nenhuma vê TUDO, então a PRIMEIRA concessão é o momento
+ * em que ela passa de "vê tudo" para "vê só isto". Sem esse aviso, conceder
+ * parece só somar — e na verdade também tira.
+ */
+function EmpresasTab({
+  pessoas,
+  empresas,
+  acessos,
+}: {
+  pessoas: PessoaDTO[];
+  empresas: EmpresaDTO[];
+  acessos: AcessoEmpresaDTO[];
+}) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [erro, setErro] = useState<string | null>(null);
+  const [pessoaId, setPessoaId] = useState<string>(pessoas[0]?.id ?? "");
+  const [novaEmpresaId, setNovaEmpresaId] = useState<string>("");
+  const [novaHeranca, setNovaHeranca] = useState(true);
+
+  const doPessoa = acessos.filter((a) => a.pessoaId === pessoaId);
+  const jaTem = new Set(doPessoa.map((a) => a.empresaId));
+  const disponiveis = empresas.filter((e) => !jaTem.has(e.id));
+  const nomeEmpresa = (id: string) => empresas.find((e) => e.id === id)?.nome ?? id;
+  const temFilhas = (id: string) => empresas.some((e) => e.parentId === id);
+
+  const rodar = (fn: () => Promise<{ ok: boolean; error?: string }>, queda: string) => {
+    setErro(null);
+    startTransition(async () => {
+      const res = await fn();
+      if (res.ok) router.refresh();
+      else setErro(res.error ?? queda);
+    });
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-xl border border-border bg-card p-4">
+        <p className="text-sm text-foreground">
+          Quem enxerga qual <strong>empresa</strong> do grupo — os nós do hub e as páginas de{" "}
+          <code className="text-xs">/empresas/*</code>. É escopo separado do de carteiras, que
+          decide quais <em>clientes</em> a pessoa vê.
+        </p>
+        <p className="mt-2 text-xs text-muted-foreground">
+          <strong className="text-foreground">Atenção:</strong> quem não tem nenhuma concessão vê{" "}
+          <strong>todas</strong> as empresas. A primeira concessão RESTRINGE a pessoa às empresas
+          concedidas — conceder não só soma, também tira.
+        </p>
+      </div>
+
+      {erro && (
+        <p className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {erro}
+        </p>
+      )}
+
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-muted-foreground">Pessoa</span>
+          <select
+            className={inputClass}
+            value={pessoaId}
+            onChange={(e) => setPessoaId(e.target.value)}
+            disabled={pending}
+          >
+            {pessoas.length === 0 && <option value="">Nenhuma pessoa ativa</option>}
+            {pessoas.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.nome}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      {pessoaId && (
+        <div className="space-y-4">
+          <div className="overflow-hidden rounded-xl border border-border">
+            <table className="w-full text-sm">
+              <thead className="bg-accent/50 text-xs uppercase tracking-wide text-muted-foreground">
+                <tr>
+                  <th className="px-4 py-2 text-left">Empresa</th>
+                  <th className="px-4 py-2 text-left">Alcança as empresas abaixo</th>
+                  <th className="px-4 py-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {doPessoa.length === 0 && (
+                  <tr>
+                    <td colSpan={3} className="px-4 py-6 text-center text-muted-foreground">
+                      Nenhuma concessão — esta pessoa vê todas as empresas.
+                    </td>
+                  </tr>
+                )}
+                {doPessoa.map((a) => (
+                  <tr key={a.id} className="border-b border-border last:border-0">
+                    <td className="px-4 py-3 font-medium text-foreground">
+                      {nomeEmpresa(a.empresaId)}
+                      <span className="ml-2 font-mono text-xs text-muted-foreground">
+                        {a.empresaId}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      {temFilhas(a.empresaId) ? (
+                        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <input
+                            type="checkbox"
+                            checked={a.incluiDescendentes}
+                            disabled={pending}
+                            onChange={(e) =>
+                              rodar(
+                                () =>
+                                  alternarHerancaEmpresa({
+                                    acessoId: a.id,
+                                    incluiDescendentes: e.target.checked,
+                                  }),
+                                "Erro ao alterar a herança.",
+                              )
+                            }
+                          />
+                          herda
+                        </label>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          — não tem empresas abaixo
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        type="button"
+                        disabled={pending}
+                        onClick={() =>
+                          rodar(() => revogarEmpresa({ acessoId: a.id }), "Erro ao revogar.")
+                        }
+                        className="text-xs font-medium text-destructive hover:underline disabled:opacity-50"
+                      >
+                        Revogar
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex flex-wrap items-end gap-3 rounded-xl border border-border bg-card p-4">
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-medium text-muted-foreground">Conceder empresa</span>
+              <select
+                className={inputClass}
+                value={novaEmpresaId}
+                onChange={(e) => setNovaEmpresaId(e.target.value)}
+                disabled={pending || disponiveis.length === 0}
+              >
+                <option value="">
+                  {disponiveis.length === 0 ? "Todas já concedidas" : "Escolha uma empresa"}
+                </option>
+                {disponiveis.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.nome}
+                    {e.parentId === null && temFilhas(e.id) ? " (raiz do grupo)" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="flex items-center gap-2 pb-2 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={novaHeranca}
+                disabled={pending}
+                onChange={(e) => setNovaHeranca(e.target.checked)}
+              />
+              alcança as empresas abaixo
+            </label>
+
+            <button
+              type="button"
+              disabled={pending || !novaEmpresaId}
+              onClick={() =>
+                rodar(async () => {
+                  const res = await concederEmpresa({
+                    pessoaId,
+                    empresaId: novaEmpresaId,
+                    incluiDescendentes: novaHeranca,
+                  });
+                  if (res.ok) setNovaEmpresaId("");
+                  return res;
+                }, "Erro ao conceder.")
+              }
+              className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+            >
+              Conceder
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function PermissoesTabs({
   papeis,
   carteiras,
   pessoas,
   apoios,
+  empresas,
+  acessosEmpresa,
 }: {
   papeis: PapelDTO[];
   carteiras: CarteiraDTO[];
   pessoas: PessoaDTO[];
   apoios: ApoioDTO[];
+  empresas: EmpresaDTO[];
+  acessosEmpresa: AcessoEmpresaDTO[];
 }) {
   const [tab, setTab] = useState<TabId>("papeis");
 
@@ -864,6 +1089,9 @@ export function PermissoesTabs({
       {tab === "carteiras" && <CarteirasTab carteiras={carteiras} pessoas={pessoas} />}
       {tab === "pessoas" && (
         <PessoasTab papeis={papeis} carteiras={carteiras} pessoas={pessoas} apoios={apoios} />
+      )}
+      {tab === "empresas" && (
+        <EmpresasTab pessoas={pessoas} empresas={empresas} acessos={acessosEmpresa} />
       )}
     </div>
   );
