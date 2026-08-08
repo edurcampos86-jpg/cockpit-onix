@@ -29,11 +29,19 @@ cinco.
 Numa sequência de tarefas, isso vale para CADA uma: três por tarefa, não três
 no fim da sequência.
 
-**Formato de cada sugestão — o quê, onde, por quê.** Nessa ordem, para ele
-decidir sem ter de abrir o código:
+**Formato de cada sugestão — Golden Circle do Simon Sinek: O quê? Como? Por quê?**
+Nessa ordem, para ele decidir sem ter de abrir o código:
 - **O quê:** a mudança, em uma frase.
-- **Onde:** `arquivo:linha` ou a tela exata.
-- **Por quê:** o problema concreto + o ganho.
+- **Como:** por onde ela entra — `arquivo:linha` ou a tela exata, mais o
+  caminho técnico em uma frase (o "onde" do formato antigo, agora junto do
+  meio).
+- **Por quê:** o problema concreto + a evidência + o ganho. É o **núcleo** do
+  Golden Circle: se o "por quê" não se sustenta sozinho, a sugestão não vale
+  ser feita — nem apresentada.
+
+O Sinek defende começar pelo "por quê"; aqui a ORDEM DE LEITURA é O quê → Como
+→ Por quê porque o Eduardo triava por título, mas o PESO continua no "por quê".
+Uma sugestão cujo "por quê" seja "é boa prática" está errada por definição.
 
 **Postura:** responder como especialista em construção de site, com
 conhecimento profundo deste projeto e daquela página — não como revisor
