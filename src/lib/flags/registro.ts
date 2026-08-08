@@ -144,6 +144,45 @@ export function valorReconhecido(
   return ACEITOS[dialeto].includes(v) || DESLIGAM.includes(v);
 }
 
+/* Grafias que denunciam INTENÇÃO, não sintaxe. Nenhum dialeto as aceita — elas
+ * existem só para o conserto de um clique saber para que lado virar a chave. */
+const INTENCAO_LIGAR: readonly string[] = [
+  ...ACEITOS.amplo, "ligado", "ligada", "ligar", "ativo", "ativa", "ativado",
+  "habilitado", "enabled", "enable", "y", "s", "v", "verdadeiro",
+];
+const INTENCAO_DESLIGAR: readonly string[] = [
+  ...DESLIGAM, "desligado", "desligada", "desligar", "inativo", "inativa",
+  "desativado", "desabilitado", "disabled", "disable", "n", "f", "falso",
+];
+
+/**
+ * Para que lado quem gravou este valor estava tentando virar a chave?
+ *
+ * Só faz sentido perguntar quando `valorReconhecido` já disse `false` — se o
+ * valor é reconhecido, não há intenção frustrada a adivinhar.
+ *
+ *   `true`  -> quis LIGAR   (`sim` numa estrita é o caso que motiva tudo isto)
+ *   `false` -> quis DESLIGAR (`desligado`, `inativo`)
+ *   `null`  -> não dá para saber (`tru`, `2`, `xyz`)
+ *
+ * `null` é resposta legítima e importante: a tela usa isto para oferecer o
+ * conserto de um clique, e oferecer o clique ERRADO numa flag que abre escrita
+ * em ledger append-only é pior que não oferecer nada. Na dúvida, a tela só
+ * explica e deixa a pessoa decidir.
+ */
+export function intencaoProvavel(
+  valor: string | undefined,
+  dialeto: DialetoBooleano = "amplo",
+): boolean | null {
+  if (!valor || !valor.trim()) return null;
+  const v = valor.trim().toLowerCase();
+  // Consulta o dialeto DELA primeiro: se ele aceita, não havia frustração.
+  if (ACEITOS[dialeto].includes(v)) return true;
+  if (INTENCAO_LIGAR.includes(v)) return true;
+  if (INTENCAO_DESLIGAR.includes(v)) return false;
+  return null;
+}
+
 /**
  * Todas as flags do Config DB. Conferida contra o código em 2026-08: cada
  * entrada tem um `getConfig(<key>)` real no arquivo apontado em `onde`.

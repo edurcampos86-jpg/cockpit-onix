@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { cronAutorizado } from "@/lib/painel-do-dia/cron-guard";
-import { chavesLigadas } from "@/lib/flags/estado";
+import { resolverEstadoDasFlags } from "@/lib/flags/estado";
+import { chavesLigadasDe, chavesNaoReconhecidasDe } from "@/lib/flags/ligadas";
 import { versaoDeploy } from "@/lib/versao-deploy";
 
 // Health check público. Usado por:
@@ -47,9 +48,19 @@ export async function GET(request: Request) {
     const autorizado = cronAutorizado(request);
 
     let flags: string[] | undefined;
+    /* Chaves cujo valor gravado o dialeto não reconhece. Vai junto de `flags`
+     * e sob o MESMO gate: as duas listas nomeiam chaves, e a resposta anônima
+     * segue byte-idêntica.
+     *
+     * É lista, não contagem: o consumidor é o smoke pós-deploy, que cola a
+     * resposta na issue de incidente. "2 flags com valor inválido" manda
+     * alguém procurar; os nomes mandam alguém consertar. */
+    let flagsValorInvalido: string[] | undefined;
     if (autorizado) {
       try {
-        flags = await chavesLigadas();
+        const estado = await resolverEstadoDasFlags();
+        flags = chavesLigadasDe(estado);
+        flagsValorInvalido = chavesNaoReconhecidasDe(estado);
       } catch (error) {
         console.warn(
           `[health] falha ao ler flags: ${error instanceof Error ? error.message : String(error)}`,
@@ -64,8 +75,12 @@ export async function GET(request: Request) {
         dbLatencyMs: Date.now() - start,
         timestamp,
         // Ausente para chamador anônimo; `[]` autenticado significa "nenhuma
-        // flag ligada", que é diferente de "não perguntei".
+        // flag ligada", que é diferente de "não perguntei". Vale igual para
+        // `flagsValorInvalido`: `[]` é o estado saudável e o smoke conta com
+        // essa diferença para não confundir "está tudo certo" com "versão
+        // antiga no ar".
         ...(flags ? { flags } : {}),
+        ...(flagsValorInvalido ? { flagsValorInvalido } : {}),
         // `versao` não depende do banco (só de env), então sai mesmo que a
         // leitura das flags tenha falhado — é justamente nesse cenário que
         // saber qual commit está no ar mais ajuda.

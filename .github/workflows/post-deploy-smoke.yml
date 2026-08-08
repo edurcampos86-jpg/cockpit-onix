@@ -168,6 +168,34 @@ jobs:
             echo "| Flags ligadas | \`$ATUAL\` |"
           } >> "$GITHUB_STEP_SUMMARY"
 
+          # ── Valor que o dialeto da flag não reconhece ───────────────────
+          #
+          # FALHA SEMPRE, sem depender de EXPECTED_FLAGS_ON — e por isso vem
+          # ANTES do bloco opt-in abaixo, que faz `exit 0` quando a variável
+          # não está definida.
+          #
+          # A diferença é de natureza: "drift" é comparativo (a config mudou em
+          # relação ao que alguém declarou), e mudar config é legítimo. Isto
+          # aqui é errado sozinho, em qualquer ambiente: `sim` numa flag do
+          # dialeto estrito deixa a flag DESLIGADA enquanto quem gravou acha
+          # que ligou. Duas das chaves em jogo abrem escrita em `ClienteFato`,
+          # que é ledger append-only — o custo de "achei que estava ligada" são
+          # dias de fato não gravado, sem como voltar atrás.
+          #
+          # Ausente = deploy anterior a esta mudança. Avisa e segue, mesmo
+          # critério de `flags` acima.
+          if ! jq -e 'has("flagsValorInvalido")' /tmp/health-auth.json > /dev/null; then
+            echo "::warning::/api/health não trouxe 'flagsValorInvalido' — versão antiga no ar."
+          else
+            INVALIDAS=$(jq -r '.flagsValorInvalido | join(",")' /tmp/health-auth.json)
+            if [ -n "$INVALIDAS" ]; then
+              echo "| Valor inválido | \`$INVALIDAS\` |" >> "$GITHUB_STEP_SUMMARY"
+              echo "::error::Flag com valor que o dialeto dela não reconhece: $INVALIDAS. Ela está valendo OFF, independente do que parece. Conserte em /configuracoes/flags (virar a chave grava 1/0) ou no Railway, se a origem for env."
+              echo "status=valor-invalido" >> "$GITHUB_OUTPUT"
+              exit 1
+            fi
+          fi
+
           # AVISO, não erro. O commit no ar divergir de $GITHUB_SHA é normal
           # durante uma janela de deploy e no cron de 15min (main anda sem
           # deploy). Falhar aqui abriria issue de incidente a cada push — o
@@ -305,6 +333,7 @@ jobs:
           | \`GET /api/health\` | $HEALTH_CODE | 200 + db:up |
           | \`GET /login\` (render) | $LOGIN_CODE | 200 + "Acesse sua conta" |
           | Flags do ambiente | $FLAGS_STATUS | ok / registrado / pulado |
+          | Valores de flag | ver step | nenhum \`valor-invalido\` |
 
           ### /api/health body (truncado)
 
@@ -320,7 +349,14 @@ jobs:
           4. Se flags = \`drift\` → alguém mudou a config do ambiente. O Run
              mostra quais estão ligadas (a lista NÃO é publicada aqui de
              propósito); confira contra a variável \`EXPECTED_FLAGS_ON\`.
-          5. Para rollback, ver \`docs/DISASTER_RECOVERY.md\` cenário 1.
+          5. Se flags = \`valor-invalido\` → alguém gravou numa flag um valor
+             que o dialeto DELA não aceita (o caso típico é \`sim\` numa das 4
+             estritas). A flag está valendo OFF, independente do que parece.
+             O Run nomeia quais; conserte virando a chave em
+             \`/configuracoes/flags\` (a tela grava \`1\`/\`0\`, aceitos pelos
+             dois dialetos) ou no Railway, se a origem for env. Isto reprova
+             SEMPRE — não depende de \`EXPECTED_FLAGS_ON\`.
+          6. Para rollback, ver \`docs/DISASTER_RECOVERY.md\` cenário 1.
           EOF
           )
           # Cria issue via API (gh CLI não está disponível no runner remoto)

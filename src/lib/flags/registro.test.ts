@@ -5,6 +5,7 @@ import {
   FLAGS_REGISTRADAS,
   flagAlternavel,
   flagLigada,
+  intencaoProvavel,
   valorParaGravar,
   valorReconhecido,
   valoresAceitos,
@@ -287,6 +288,64 @@ test("o que a tela grava nunca dispara o selo", () => {
         true,
         `${flag.key} acusaria o próprio valor da tela`,
       );
+    }
+  }
+});
+
+/* ── `intencaoProvavel`: para que lado o conserto de um clique vira ───────
+ *
+ * Só é consultada quando `valorReconhecido` já disse `false`. O `null` é
+ * resposta legítima: a tela não oferece o clique quando não sabe, e oferecer
+ * o lado errado numa flag que abre ledger append-only é pior que não oferecer. */
+
+test('"sim"/"yes" numa estrita: a intenção era LIGAR', () => {
+  // O caso que motiva tudo. `flagLigada` diz OFF; a pessoa quis ON.
+  for (const v of ["sim", "yes", "SIM", " Yes "]) {
+    assert.equal(valorReconhecido(v, "estrito"), false);
+    assert.equal(intencaoProvavel(v, "estrito"), true, `"${v}" deveria ler como LIGAR`);
+  }
+});
+
+test("grafias de desligar são lidas como DESLIGAR", () => {
+  for (const v of ["desligado", "inativo", "desativado", "disabled", "falso", "N"]) {
+    assert.equal(intencaoProvavel(v, "amplo"), false, `"${v}" deveria ler como DESLIGAR`);
+  }
+});
+
+test("grafias de ligar fora do dialeto são lidas como LIGAR", () => {
+  for (const v of ["ligado", "ativo", "habilitado", "enabled", "verdadeiro", "S"]) {
+    assert.equal(valorReconhecido(v, "amplo"), false);
+    assert.equal(intencaoProvavel(v, "amplo"), true, `"${v}" deveria ler como LIGAR`);
+  }
+});
+
+test("valor sem intenção legível devolve null — a tela não oferece clique", () => {
+  for (const v of ["tru", "2", "-1", "xyz", "??"]) {
+    assert.equal(intencaoProvavel(v, "amplo"), null, `"${v}" virou palpite`);
+    assert.equal(intencaoProvavel(v, "estrito"), null, `"${v}" virou palpite`);
+  }
+});
+
+test("ausente e vazio não têm intenção a adivinhar", () => {
+  for (const v of [undefined, "", "  "]) {
+    assert.equal(intencaoProvavel(v, "amplo"), null);
+  }
+});
+
+test("o conserto proposto sempre produz um valor RECONHECIDO", () => {
+  // A ação do selo grava `valorParaGravar(intencao)`. Se isso pudesse gerar um
+  // valor que o dialeto recusa, o selo consertaria para dentro do próprio bug.
+  const suspeitos = ["sim", "yes", "ligado", "desligado", "inativo", "enabled"];
+  for (const flag of FLAGS_REGISTRADAS.filter((f) => f.tipo === "booleana")) {
+    for (const v of suspeitos) {
+      const intencao = intencaoProvavel(v, flag.dialeto);
+      if (intencao === null) continue;
+      assert.equal(
+        valorReconhecido(valorParaGravar(intencao), flag.dialeto),
+        true,
+        `${flag.key}: consertar "${v}" geraria outro valor inválido`,
+      );
+      assert.equal(flagLigada(valorParaGravar(intencao), flag.dialeto), intencao);
     }
   }
 });

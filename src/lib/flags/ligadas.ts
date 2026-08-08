@@ -24,6 +24,8 @@ export type FlagComEstado = {
   key: string;
   /** `null` em flag de VALOR — não é "desligada", é "não se aplica". */
   ligada: boolean | null;
+  /** Valor gravado que o dialeto da flag não reconhece. Ver `registro.ts`. */
+  valorNaoReconhecido?: boolean;
 };
 
 /**
@@ -38,6 +40,28 @@ export type FlagComEstado = {
 export function chavesLigadasDe(flags: readonly FlagComEstado[]): string[] {
   return flags
     .filter((f) => f.ligada === true)
+    .map((f) => f.key)
+    .sort();
+}
+
+/**
+ * As chaves cujo valor gravado o dialeto NÃO reconhece, ordenadas.
+ *
+ * Mora aqui, ao lado de `chavesLigadasDe`, pelo mesmo motivo dela: a tela
+ * decide o selo no browser e o `/api/health` publica a lista para o smoke
+ * cobrar. Duas cópias da mesma condição divergiriam do mesmo jeito que a de
+ * "ligada" divergiu — e aqui o custo seria pior, porque a divergência seria
+ * entre "a tela avisa" e "o deploy reprova".
+ *
+ * Ordenada porque a comparação do smoke é textual, como a das ligadas.
+ *
+ * `=== true` de novo, e não truthy: o campo é opcional no tipo (a tela client
+ * já tinha `FlagComEstado` sem ele), então `undefined` precisa contar como
+ * "não suspeita", não como ausência de opinião.
+ */
+export function chavesNaoReconhecidasDe(flags: readonly FlagComEstado[]): string[] {
+  return flags
+    .filter((f) => f.valorNaoReconhecido === true)
     .map((f) => f.key)
     .sort();
 }
