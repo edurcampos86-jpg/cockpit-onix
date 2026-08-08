@@ -1,5 +1,7 @@
 import "server-only";
+import { getConfig } from "@/lib/config-db";
 import { NOS_ECOSSISTEMA, type NoEcossistemaResolvido } from "@/lib/hub-ecossistema/nos";
+import { HUB_LOCKED_DEMO_KEY, idsTravadosParaDemo } from "@/lib/hub-ecossistema/locked-demo";
 
 /**
  * Hub "Ecossistema Onix" — resolução do estado de ACESSO de cada nó.
@@ -46,5 +48,15 @@ import { NOS_ECOSSISTEMA, type NoEcossistemaResolvido } from "@/lib/hub-ecossist
  * passa por aqui. O gate de verdade continua sendo o de cada página/rota.
  */
 export async function resolverNosDoHub(): Promise<NoEcossistemaResolvido[]> {
-  return NOS_ECOSSISTEMA.map((no) => ({ ...no, locked: false }));
+  /* Enquanto o RBAC não existe, esta chave é o ÚNICO jeito de ver o estado
+   * "sem acesso" no app rodando — ele tinha ido para produção sem nunca ter
+   * sido visto fora de um componente isolado. Ausente (o padrão) ⇒ conjunto
+   * vazio ⇒ tudo liberado, byte-idêntico ao que era. Ver `locked-demo.ts`.
+   *
+   * Some junto com o TODO acima quando o RBAC real entrar: os dois respondem a
+   * mesma pergunta, e manter os dois seria deixar uma porta de aparência ao
+   * lado da porta de verdade. */
+  const travados = idsTravadosParaDemo(await getConfig(HUB_LOCKED_DEMO_KEY));
+
+  return NOS_ECOSSISTEMA.map((no) => ({ ...no, locked: travados.has(no.id) }));
 }

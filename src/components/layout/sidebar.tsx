@@ -53,7 +53,7 @@ import {
   Cpu,
   Radar,
 } from "lucide-react";
-import { useState, useTransition, useEffect } from "react";
+import { useState, useSyncExternalStore, useTransition, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { logout } from "@/app/actions/auth";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -292,11 +292,56 @@ function getActiveModuleIdV2(pathname: string): string {
   return "marketing";
 }
 
+/* ── Recolhimento automático em tela estreita ────────
+ *
+ * A sidebar tinha largura FIXA de 256px em qualquer viewport, e só recolhia no
+ * clique. Num celular de 420px isso deixava 144px de área útil para a página —
+ * medido, e vale para o app inteiro (o Painel de Comando a 420px também fica
+ * com 164px). O hub é a primeira tela, então é onde mais aparece.
+ *
+ * O corte é `lg` (1024px), o mesmo do Tailwind, e não um número inventado.
+ * Abaixo dele a sidebar nasce recolhida (64px); o botão de recolher continua
+ * mandando quando o usuário o usa.
+ *
+ * `useSyncExternalStore` e NÃO `useEffect` + `setState`: o repo já pagou por um
+ * `setState` dentro de efeito aqui (cascata de render + `react-hooks/
+ * set-state-in-effect` travando o CI — ver a nota em `moduloAnterior` abaixo).
+ * Esta é a API própria do React para ler valor externo do browser: o servidor
+ * responde `false` (idêntico ao comportamento de hoje) e o React corrige na
+ * hidratação, sem efeito e sem render em cascata.
+ */
+const CONSULTA_TELA_ESTREITA = "(max-width: 1023px)";
+
+function assinarLarguraDaTela(aoMudar: () => void): () => void {
+  const mql = window.matchMedia(CONSULTA_TELA_ESTREITA);
+  mql.addEventListener("change", aoMudar);
+  return () => mql.removeEventListener("change", aoMudar);
+}
+
+function lerTelaEstreita(): boolean {
+  return window.matchMedia(CONSULTA_TELA_ESTREITA).matches;
+}
+
+/* No servidor não existe viewport. `false` mantém o HTML inicial igual ao de
+ * antes desta mudança — quem estiver no celular vê a sidebar recolher logo
+ * após a hidratação, o que é preferível a renderizar recolhido no desktop. */
+function lerTelaEstreitaNoServidor(): boolean {
+  return false;
+}
+
 /* ── Componente Sidebar ─────────────────────────────── */
 
 export function Sidebar() {
   const pathname = usePathname();
-  const [collapsed, setCollapsed] = useState(false);
+  /* `null` = segue a largura da tela; booleano = o usuário decidiu na mão e a
+   * escolha dele passa a valer em qualquer largura. */
+  const [collapsedManual, setCollapsedManual] = useState<boolean | null>(null);
+  const telaEstreita = useSyncExternalStore(
+    assinarLarguraDaTela,
+    lerTelaEstreita,
+    lerTelaEstreitaNoServidor,
+  );
+  const collapsed = collapsedManual ?? telaEstreita;
   const [isPending, startTransition] = useTransition();
   const { theme, toggleTheme } = useTheme();
 
@@ -615,7 +660,7 @@ export function Sidebar() {
             </TooltipContent>
           </Tooltip>
           <button
-            onClick={() => setCollapsed(!collapsed)}
+            onClick={() => setCollapsedManual(!collapsed)}
             className="flex items-center justify-center py-2 px-2 rounded-lg text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
           >
             {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}

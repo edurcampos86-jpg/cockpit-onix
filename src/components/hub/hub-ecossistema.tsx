@@ -181,7 +181,11 @@ function NucleoOnix({ compacto = false }: { compacto?: boolean }) {
   return (
     <div
       className={cn(
-        "flex flex-col items-center justify-center rounded-full border bg-card text-center",
+        // `shrink-0`: o núcleo é item de um flex container. Sem isto ele
+        // encolhe na horizontal e SÓ na horizontal — a 420px de viewport foi
+        // medido 132x160, ou seja, uma elipse. Um círculo com `w-44 h-44` não
+        // é redondo por si só dentro de flex.
+        "flex shrink-0 flex-col items-center justify-center rounded-full border bg-card text-center",
         compacto ? "h-40 w-40" : "h-44 w-44 @min-[900px]:h-52 @min-[900px]:w-52",
       )}
       style={{
@@ -273,7 +277,11 @@ function CartaoNo({ no }: { no: NoEcossistemaResolvido }) {
       <span className="text-xs font-semibold leading-tight text-foreground">{no.nome}</span>
 
       {construindo && (
-        <span className="rounded-full border border-dashed border-border px-2 py-0.5 text-[0.58rem] font-medium uppercase tracking-wide text-muted-foreground">
+        // `max-w-full` + `truncate`: a tag tem largura própria (~85px) e o
+        // cartão encolhe com o container. Sem o teto ela transbordava a borda
+        // tracejada nos dois lados — medido 13px de cada lado a 420px de
+        // viewport. Cortar é feio; vazar é defeito.
+        <span className="max-w-full truncate rounded-full border border-dashed border-border px-2 py-0.5 text-[0.58rem] font-medium uppercase tracking-wide text-muted-foreground">
           Em construção
         </span>
       )}
