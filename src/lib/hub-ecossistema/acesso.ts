@@ -70,7 +70,23 @@ async function idsSemAcesso(): Promise<Set<string>> {
     const visiveis = empresasVisiveis(concessoes, empresas);
     if (visiveis === null) return nenhum; // sem filtro
 
-    return new Set(NOS_ECOSSISTEMA.filter((no) => !visiveis.has(no.id)).map((no) => no.id));
+    /* Só dá para julgar acesso de nó que EXISTE como empresa cadastrada.
+     *
+     * `agro` e `contabil` estão no hub mas não em `scripts/seed-empresas.ts`
+     * (nem têm rota) — são empresas anunciadas, não cadastradas. Sem esta
+     * checagem elas cairiam em "não está no conjunto visível" e apareceriam
+     * TRAVADAS para qualquer pessoa com concessão restrita, dizendo "sem
+     * acesso" sobre algo que ninguém pode acessar porque ainda não existe.
+     *
+     * Ausência de cadastro não é negação de acesso — é a mesma postura
+     * não-disruptiva do resto: na dúvida, não trava. */
+    const cadastradas = new Set(empresas.map((e) => e.id));
+
+    return new Set(
+      NOS_ECOSSISTEMA.filter((no) => cadastradas.has(no.id) && !visiveis.has(no.id)).map(
+        (no) => no.id,
+      ),
+    );
   } catch (erro) {
     console.warn(
       `[hub] falha ao resolver acesso — mostrando tudo liberado: ` +
