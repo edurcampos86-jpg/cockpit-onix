@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { chavesLigadasDe } from "./ligadas";
+import { chavesLigadasDe, chavesNaoReconhecidasDe } from "./ligadas";
 import { compararComEsperado } from "./esperadas";
 
 /* Este arquivo trava a divergência entre o que o SMOKE cobra
@@ -76,4 +76,29 @@ test("estado que o smoke reprova é o mesmo que a tela acusa", () => {
   assert.equal(comparacao.diverge, true);
   assert.deepEqual(comparacao.faltando, ["COCKPIT_REUNIAO"]);
   assert.deepEqual(comparacao.sobrando, ["HUB_ECOSSISTEMA", "RBAC_ENFORCEMENT"]);
+});
+
+test("chavesNaoReconhecidasDe: só quem tem o campo em true, ordenado", () => {
+  const flags = [
+    { key: "ZULU", ligada: true, valorNaoReconhecido: true },
+    { key: "ALFA", ligada: false, valorNaoReconhecido: true },
+    { key: "BRAVO", ligada: true, valorNaoReconhecido: false },
+    { key: "CHARLIE", ligada: null }, // flag de valor, campo ausente
+  ];
+  assert.deepEqual(chavesNaoReconhecidasDe(flags), ["ALFA", "ZULU"]);
+});
+
+test("campo ausente conta como NÃO suspeita, não como sem opinião", () => {
+  // `FlagComEstado` tem o campo opcional (a tela client já usava o tipo sem
+  // ele). `undefined` truthy-falsy daria o mesmo aqui, mas o `=== true` é o
+  // que impede um refactor futuro de transformar ausência em alarme.
+  assert.deepEqual(chavesNaoReconhecidasDe([{ key: "A", ligada: true }]), []);
+});
+
+test("suspeita e ligada são eixos independentes", () => {
+  // Uma flag pode estar LIGADA e ainda ter valor suspeito? Não pelo caminho
+  // normal — mas a função não pode assumir isso: ela filtra por um campo só.
+  const flags = [{ key: "A", ligada: true, valorNaoReconhecido: true }];
+  assert.deepEqual(chavesLigadasDe(flags), ["A"]);
+  assert.deepEqual(chavesNaoReconhecidasDe(flags), ["A"]);
 });

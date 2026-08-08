@@ -1,7 +1,7 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { envUtilizavel } from "@/lib/config-db";
-import { chavesLigadasDe } from "@/lib/flags/ligadas";
+import { chavesLigadasDe, chavesNaoReconhecidasDe } from "@/lib/flags/ligadas";
 import {
   CHAVES_REGISTRADAS,
   FLAGS_REGISTRADAS,
@@ -207,4 +207,31 @@ export async function resolverEstadoDasFlags(): Promise<EstadoFlag[]> {
  */
 export async function chavesLigadas(): Promise<string[]> {
   return chavesLigadasDe(await resolverEstadoDasFlags());
+}
+
+/**
+ * As chaves com valor que o dialeto delas não reconhece — o que o smoke
+ * pós-deploy cobra.
+ *
+ * ── POR QUE ISTO REPROVA O DEPLOY, E "ligadas" NÃO ───────────────────────
+ * A conferência de `EXPECTED_FLAGS_ON` é opt-in e comparativa: ela só sabe
+ * dizer que a configuração mudou, e mudar configuração é coisa legítima.
+ * Esta lista é diferente — ela não compara com expectativa nenhuma. Um valor
+ * fora do dialeto é errado sozinho, em qualquer ambiente, sem ninguém
+ * precisar declarar o que esperava.
+ *
+ * E é errado de um jeito SILENCIOSO: a flag fica desligada, o app não loga
+ * nada, e quem gravou acha que ligou. Duas das chaves em jogo
+ * (`PERFIL_FATO_WRITE`, `PERFIL_FATO_RICO_WRITE`) abrem escrita em
+ * `ClienteFato`, que é ledger append-only — o custo de "achei que estava
+ * ligada" são dias de fato não gravado, e não há como voltar e gravar depois.
+ *
+ * O selo na tela já avisa, mas exige alguém abrir a tela. Aqui o deploy avisa
+ * sozinho, e a lista sai nomeada na issue de incidente.
+ *
+ * Deriva de `resolverEstadoDasFlags()` como `chavesLigadas`, pelo mesmo
+ * motivo: a tela e o smoke têm de julgar pela MESMA régua.
+ */
+export async function chavesNaoReconhecidas(): Promise<string[]> {
+  return chavesNaoReconhecidasDe(await resolverEstadoDasFlags());
 }

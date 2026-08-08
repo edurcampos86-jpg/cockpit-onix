@@ -31,7 +31,12 @@ import {
   type ComparacaoEsperado,
 } from "@/lib/flags/esperadas";
 import { chavesLigadasDe } from "@/lib/flags/ligadas";
-import { flagAlternavel, flagLigada, valoresAceitos } from "@/lib/flags/registro";
+import {
+  flagAlternavel,
+  flagLigada,
+  intencaoProvavel,
+  valoresAceitos,
+} from "@/lib/flags/registro";
 
 type DetalheHistorico = {
   key: string;
@@ -598,6 +603,14 @@ function LinhaFlag({
 }) {
   const travadoPorEnv = flag.origem === "env";
 
+  /* Para que lado o selo conserta, ou `null` se ele não deve agir. Origem `env`
+   * zera a ação mesmo com intenção clara: gravar no banco por cima de uma flag
+   * que vive no ambiente cria a segunda fonte que o toggle travado impede. */
+  const acaoDoSelo =
+    flag.valorNaoReconhecido && !travadoPorEnv
+      ? intencaoProvavel(flag.valor ?? undefined, flag.dialeto ?? "amplo")
+      : null;
+
   return (
     <div className="flex items-center justify-between gap-4 bg-card px-4 py-3">
       <div className="min-w-0">
@@ -618,23 +631,66 @@ function LinhaFlag({
           {/* O selo mais alto da linha, e de propósito: os outros dois avisam
             * sobre o que a flag FAZ; este avisa que ela não faz o que quem
             * gravou achou que fazia. Leva o valor no rótulo porque é o valor —
-            * não a chave — que precisa ser corrigido. */}
+            * não a chave — que precisa ser corrigido.
+            *
+            * ── CLICÁVEL, quando dá para saber a intenção ──────────────────
+            * O selo dispara `aoVirar`, o MESMO caminho do switch. Isso importa:
+            * flag de efeito pesado continua passando pelo diálogo de "tem
+            * certeza", com o aviso próprio dela. O atalho pula a NAVEGAÇÃO até
+            * o controle (achar a linha, ler o tooltip, mirar o switch), nunca a
+            * confirmação.
+            *
+            * NÃO é clicável em dois casos, e os dois são deliberados:
+            *   • intenção ambíguo (`tru`, `2`) — um clique para o lado errado
+            *     numa flag que abre escrita em ledger append-only é pior que
+            *     clique nenhum;
+            *   • origem `env` — gravar daria à flag uma SEGUNDA fonte, que é
+            *     exatamente o que o toggle travado ao lado existe para impedir.
+            * Nos dois, o selo continua explicando; só não age. */}
           {flag.valorNaoReconhecido && (
             <Tooltip>
               <TooltipTrigger
                 type="button"
-                className="inline-flex items-center gap-1 rounded-full border border-destructive bg-destructive/10 px-1.5 py-px text-[0.6rem] font-medium uppercase tracking-wide text-destructive"
+                aria-disabled={acaoDoSelo === null ? "true" : undefined}
+                onClick={acaoDoSelo === null ? undefined : () => aoVirar(acaoDoSelo)}
+                className={cn(
+                  "inline-flex items-center gap-1 rounded-full border border-destructive bg-destructive/10 px-1.5 py-px text-[0.6rem] font-medium uppercase tracking-wide text-destructive",
+                  acaoDoSelo !== null && "hover:bg-destructive/20",
+                )}
+                aria-label={
+                  acaoDoSelo === null
+                    ? `${flag.key} tem valor não reconhecido`
+                    : `Corrigir ${flag.key}: ${acaoDoSelo ? "ligar" : "desligar"}`
+                }
               >
                 <AlertTriangle className="h-2.5 w-2.5" />
                 Valor não reconhecido
+                {acaoDoSelo !== null && (
+                  <span className="font-semibold">
+                    · {acaoDoSelo ? "ligar" : "desligar"}
+                  </span>
+                )}
               </TooltipTrigger>
               <TooltipContent side="right">
                 O valor gravado é <code>{flag.valor}</code>, e o dialeto{" "}
                 <strong>{flag.dialeto}</strong> desta flag não o reconhece — ela está
                 valendo <strong>OFF</strong>. Aceita:{" "}
                 <code>{valoresAceitos(flag.dialeto ?? "amplo").join(" · ")}</code> para
-                ligar, <code>0</code> para desligar. Virar a chave aqui na tela grava{" "}
-                <code>1</code>/<code>0</code> e resolve.
+                ligar, <code>0</code> para desligar.
+                {acaoDoSelo !== null ? (
+                  <>
+                    {" "}
+                    Parece que a intenção era <strong>
+                      {acaoDoSelo ? "ligar" : "desligar"}
+                    </strong>
+                    ; clique aqui para gravar <code>{acaoDoSelo ? "1" : "0"}</code>
+                    {flag.impacto === "alto" && " — a confirmação de efeito pesado continua valendo"}.
+                  </>
+                ) : travadoPorEnv ? (
+                  <> Como a origem é o ambiente, o conserto é no Railway.</>
+                ) : (
+                  <> Não dá para deduzir a intenção deste valor — vire a chave à direita.</>
+                )}
               </TooltipContent>
             </Tooltip>
           )}
