@@ -2,20 +2,30 @@
  * /api/empresas/hierarquia
  *
  *   GET  → contagem e árvore de `Empresa`. Read-only.
- *   POST → cria a raiz "Onix Co" se ela ainda não existir. Idempotente.
+ *   POST → duas ações, escolhidas por `acao` no corpo:
+ *            (padrão)   cria a raiz "Onix Co" se ainda não existir. Idempotente.
+ *            "reparent" pendura as 7 empresas na raiz — `modo: "dry-run"` mostra
+ *                       o plano sem escrever; `modo: "aplicar"` executa.
  *
- * Existe para que o bootstrap da hierarquia seja verificável (e executável)
+ * Existe para que o bootstrap E o reparenting sejam verificáveis e executáveis
  * pelo navegador, sem terminal e sem DATABASE_URL na mão.
  *
- * A lógica NÃO mora aqui: `src/lib/empresas/seed-hierarquia.ts` é a fonte
- * única, compartilhada com `scripts/seed-empresas.ts`. Esta rota autentica,
- * chama e serializa.
+ * A lógica NÃO mora aqui. `src/lib/empresas/seed-hierarquia.ts` é a fonte do
+ * seed (compartilhada com `scripts/seed-empresas.ts`) e
+ * `src/lib/empresas/reparent.ts` é a do reparenting (compartilhada com
+ * `scripts/reparent-empresas.ts`). Esta rota autentica, chama e serializa.
  *
  * ── O QUE O POST NÃO FAZ ─────────────────────────────────────────────────
- * Não faz reparenting: nenhuma empresa passa a apontar para a raiz por aqui.
- * Não cria as outras 7 — para isso existe o script, onde a conferência é
- * humana. Não há UPDATE nem DELETE em nenhum caminho desta rota; a única
- * escrita é um create condicional (`createMany` com `skipDuplicates`).
+ * A ação padrão não cria as outras 7 — para isso existe o script, onde a
+ * conferência é humana — e não faz reparenting. A ação "reparent" não cria
+ * empresa, não renomeia, não apaga e não toca em `PessoaEmpresa`: o único
+ * UPDATE que existe nesta rota é o `parentId`, e só no modo "aplicar".
+ * Nenhum caminho faz DELETE.
+ *
+ * ── COMPATIBILIDADE ──────────────────────────────────────────────────────
+ * `{ confirmar: true }` sem `acao` continua fazendo exatamente o que fazia:
+ * criar a raiz. A ação nova é opt-in por campo novo; nenhum chamador existente
+ * muda de comportamento.
  *
  * ── GATE DE AUTORIZAÇÃO ──────────────────────────────────────────────────
  * O mesmo de `api/backoffice/recon-identidade`: `isAdmin(ctx)` de
@@ -33,6 +43,14 @@ import {
   lerArvore,
   semearRaiz,
 } from "@/lib/empresas/seed-hierarquia";
+import { idsFilhasDaRaiz } from "@/lib/empresas/catalogo";
+import {
+  PreCondicaoReparent,
+  aplicarPlano,
+  carregarArvore,
+  conferirContraCatalogo,
+  planejarReparent,
+} from "@/lib/empresas/reparent";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -104,12 +122,14 @@ export async function POST(request: Request) {
   // escrita: sem isso, um POST acidental (form, retry de proxy, curl copiado
   // pela metade) criaria linha em produção sem ninguém ter decidido.
   let confirmar: unknown;
+  let acao: unknown;
+  let modo: unknown;
   try {
     const body: unknown = await request.json();
-    confirmar =
-      typeof body === "object" && body !== null
-        ? (body as Record<string, unknown>).confirmar
-        : undefined;
+    const obj = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
+    confirmar = obj.confirmar;
+    acao = obj.acao;
+    modo = obj.modo;
   } catch {
     // Corpo ausente ou JSON inválido cai no mesmo 400 de "não confirmado" —
     // para o chamador, ambos significam "esta requisição não vai escrever".
@@ -120,10 +140,28 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         error: "confirmacao_ausente",
-        mensagem: 'Envie { "confirmar": true } no corpo para criar a raiz.',
+        mensagem: 'Envie { "confirmar": true } no corpo. Para o reparenting, some ' +
+          '{ "acao": "reparent", "modo": "dry-run" | "aplicar" }.',
       },
       { status: 400 },
     );
+  }
+
+  // Ação desconhecida é erro do chamador, não "faz o padrão". Cair no default
+  // silenciosamente faria um `acao: "reparente"` (typo) criar a raiz sem avisar.
+  if (acao !== undefined && acao !== "reparent") {
+    return NextResponse.json(
+      {
+        error: "acao_desconhecida",
+        mensagem: `"${String(acao)}" não é uma ação. Omita o campo para criar a raiz, ` +
+          'ou use "reparent".',
+      },
+      { status: 400 },
+    );
+  }
+
+  if (acao === "reparent") {
+    return reparent(request, ctx, modo);
   }
 
   try {
@@ -189,5 +227,116 @@ export async function POST(request: Request) {
   } catch (e) {
     console.error("[empresas/hierarquia] POST falhou:", e);
     return NextResponse.json({ error: "erro ao criar a raiz" }, { status: 500 });
+  }
+}
+
+/**
+ * `acao: "reparent"` — pendura as 7 empresas na raiz.
+ *
+ * A lógica é a de `src/lib/empresas/reparent.ts`, a mesma que
+ * `scripts/reparent-empresas.ts` consome. Aqui só se traduz modo → chamada e
+ * resultado → JSON.
+ *
+ * ── O DRY-RUN NÃO PODE ESCREVER ──────────────────────────────────────────
+ * `planejarReparent` é função PURA e `aplicarPlano` é a única que escreve. No
+ * modo "dry-run" a segunda simplesmente não é chamada — não existe caminho em
+ * que ela escreva "por engano". Isso é propriedade do módulo, não deste if.
+ *
+ * ── AUTOR É O DA SESSÃO ──────────────────────────────────────────────────
+ * Diferente do script, que precisa de `--como`, aqui o autor já está
+ * autenticado: `ctx.userId`. É a vantagem de rodar pelo navegador — não há
+ * como informar um autor que não seja você.
+ */
+async function reparent(
+  request: Request,
+  ctx: { userId: string; pessoa: { id: string } | null },
+  modo: unknown,
+): Promise<Response> {
+  if (modo !== "dry-run" && modo !== "aplicar") {
+    return NextResponse.json(
+      {
+        error: "modo_invalido",
+        mensagem: 'Informe "modo": "dry-run" (mostra o plano, não escreve) ou "aplicar".',
+      },
+      { status: 400 },
+    );
+  }
+
+  try {
+    // Guardas de pré-condição: tabela ausente, tabela vazia e raiz ausente têm
+    // consertos diferentes, e cada uma responde com a instrução da sua.
+    const empresas = await carregarArvore(prisma);
+    conferirContraCatalogo(idsFilhasDaRaiz());
+
+    const plano = planejarReparent(empresas);
+
+    // Plano que produziria nível 3 é recusado ANTES de qualquer escrita — a
+    // régua é a mesma de `hierarquia.ts`, travada por hierarquia.test.ts.
+    if (plano.problemas.length > 0) {
+      return NextResponse.json(
+        {
+          error: "arvore_fora_da_regua",
+          mensagem: "O plano produziria uma árvore fora da régua de 2 níveis. Nada foi escrito.",
+          problemas: plano.problemas,
+          plano: plano.movimentos,
+        },
+        { status: 409 },
+      );
+    }
+
+    if (modo === "dry-run") {
+      return NextResponse.json({
+        acao: "reparent",
+        modo,
+        escreveu: false,
+        raiz: plano.raiz,
+        plano: plano.movimentos,
+        totais: plano.totais,
+        arvoreSimulada: plano.arvoreResultante,
+        observacao:
+          "Nada foi escrito. Para executar, repita com { \"modo\": \"aplicar\" }.",
+      });
+    }
+
+    const quando = new Date().toISOString();
+    console.log(
+      `[empresas/hierarquia] reparent APLICAR por userId=${ctx.userId} em ${quando} — ` +
+        `${plano.totais.mover} movimento(s) planejado(s)`,
+    );
+
+    const r = await aplicarPlano(prisma, plano, {
+      autorId: ctx.userId,
+      origem: "api/empresas/hierarquia",
+    });
+
+    return NextResponse.json({
+      acao: "reparent",
+      modo,
+      escreveu: true,
+      raiz: plano.raiz,
+      movidas: r.movidas,
+      plano: plano.movimentos,
+      totais: plano.totais,
+      // Relida do banco DEPOIS das escritas, não a simulada: se um UPDATE não
+      // pegou, é aqui que aparece.
+      arvoreFinal: r.arvoreFinal,
+      problemas: r.problemas,
+      auditadas: r.auditadas,
+      falhasDeLog: r.falhasDeLog,
+      executadoEm: quando,
+      observacao:
+        r.falhasDeLog > 0
+          ? "Reparenting aplicado, mas parte do rastro não gravou: o dado está correto e o histórico ficou incompleto."
+          : "Reparenting aplicado e auditado.",
+    });
+  } catch (e) {
+    // Pré-condição tem mensagem instrutiva e é segura de devolver — foi escrita
+    // para o operador ler. Qualquer outro erro pode carregar connection string,
+    // então vai só para o log do servidor.
+    if (e instanceof PreCondicaoReparent) {
+      return NextResponse.json({ error: e.codigo, mensagem: e.message }, { status: 409 });
+    }
+    console.error("[empresas/hierarquia] reparent falhou:", e);
+    return NextResponse.json({ error: "erro ao executar o reparenting" }, { status: 500 });
   }
 }
