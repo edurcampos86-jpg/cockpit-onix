@@ -82,3 +82,58 @@ jobs:
         if: always() && steps.install.outcome == 'success'
         # O heap padrão do Node não basta para o build desta app.
         run: NODE_OPTIONS=--max-old-space-size=8192 npm run build
+
+      # Guarda do drift do índice full-text de PainelEmailAI.
+      #
+      # A coluna gerada `tsv` vive em SQL bruto (20260519240000) e o schema a
+      # declara como Unsupported("tsvector"), então TODA rodada de
+      # `prisma migrate dev` injeta dois statements que ninguém pediu:
+      #
+      #     DROP INDEX "PainelEmailAI_tsv_idx";
+      #     ALTER TABLE "PainelEmailAI" ALTER COLUMN "tsv" DROP DEFAULT;
+      #
+      # Isso não é hipótese: o índice JÁ sumiu de produção uma vez e precisou
+      # de migration própria para voltar (20260613120000_painel_email_fts_index_recreate,
+      # que documenta "Reconciliacao read-only de 13/06/2026 confirmou: coluna
+      # tsv presente, indice ausente"). Vinte migrations carregam a nota de que
+      # a remoção foi feita à mão — o aviso mora em cabeçalho de migration, que
+      # só se lê depois do estrago.
+      #
+      # Este passo não depende do install: é grep puro sobre arquivos versionados,
+      # então roda mesmo se o `npm ci` falhar.
+      - name: Guarda do índice FTS (PainelEmailAI)
+        if: always()
+        run: |
+          # Linha iniciada por `--` é comentário SQL e é IGNORADA de propósito:
+          # as migrations documentam a remoção em comentário e precisam passar.
+          # O que reprova é o statement executável.
+          OFENSORES=$(find prisma/migrations -name '*.sql' -print0 \
+            | xargs -0 --no-run-if-empty awk '
+                /^[[:space:]]*--/ { next }
+                /DROP[[:space:]]+INDEX[^;]*PainelEmailAI_tsv_idx/ {
+                  print FILENAME ":" FNR ": " $0
+                }
+                /ALTER[[:space:]]+COLUMN[[:space:]]+"?tsv"?[[:space:]]+DROP[[:space:]]+DEFAULT/ {
+                  print FILENAME ":" FNR ": " $0
+                }
+              ')
+
+          if [ -n "$OFENSORES" ]; then
+            echo "::error::Migration derruba o índice full-text de PainelEmailAI."
+            echo ""
+            echo "Statements executáveis encontrados:"
+            echo "$OFENSORES" | sed 's/^/  /'
+            echo ""
+            echo "O QUE FAZER: apague essas linhas do migration.sql à mão."
+            echo "Elas são DRIFT — o \`prisma migrate dev\` as injeta sozinho porque"
+            echo "a coluna gerada \`tsv\` vive em SQL bruto (20260519240000) e o"
+            echo "schema a declara como Unsupported(\"tsvector\"). Não pertencem à"
+            echo "sua mudança, e o DROP INDEX destrói o índice FTS de PRODUÇÃO —"
+            echo "já aconteceu uma vez (ver 20260613120000_painel_email_fts_index_recreate)."
+            echo ""
+            echo "Deixe a explicação em COMENTÁRIO (linha começando com --), como"
+            echo "fazem as migrations existentes: comentário passa nesta guarda."
+            exit 1
+          fi
+
+          echo "OK: nenhum DROP executável do índice FTS em prisma/migrations/."
