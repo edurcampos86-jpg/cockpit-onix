@@ -102,23 +102,52 @@ export async function POST(request: Request) {
   }
 
   try {
-    // Rastro de QUEM e QUANDO. Esta rota escreve em produção; sem isto, "quem
-    // criou a raiz?" não teria resposta — e o schema de Empresa não tem campo
-    // de autoria para carregar esse dado.
     const quando = new Date().toISOString();
-    console.log(
-      `[empresas/hierarquia] POST bootstrap da raiz "${ONIX_CO.id}" ` +
-        `por userId=${ctx.userId} (${ctx.email || "sem email"}), pessoaId=${ctx.pessoa?.id ?? "sem pessoa"} em ${quando}`,
-    );
 
     const r = await semearRaiz(prisma);
 
-    console.log(
-      `[empresas/hierarquia] resultado=${r.resultado} inseridas=${r.inseridas} ` +
-        `total=${r.totalDepois} comPai=${r.comPai}`,
-    );
+    // Rastro imutável de QUEM e QUANDO, no padrão de ContratoAcessoLog. Antes
+    // isto era só `console.log`, que rotaciona e não é consultável pela tela:
+    // depois de a raiz existir, "quem criou e quando?" ficava sem resposta, e
+    // o model Empresa não tem campo de autoria para carregar o dado.
+    //
+    // Grava TODA chamada que passou pelo gate, inclusive a que não criou nada
+    // (resultado "ja_existia") — log só do caso feliz responderia "quem criou"
+    // mas nunca "quem tentou".
+    //
+    // DEFENSIVO: falha ao gravar o log NÃO derruba a resposta. A semeadura já
+    // aconteceu e é idempotente; devolver 500 aqui faria o chamador repetir uma
+    // operação que deu certo, e a repetição não corrige o log perdido. O erro
+    // vai para o stderr do servidor e a resposta sinaliza em `auditado`.
+    let auditado = true;
+    try {
+      await prisma.empresaBootstrapLog.create({
+        data: {
+          usuarioId: ctx.userId,
+          acao: "bootstrap_raiz",
+          resultado: r.resultado,
+          empresaId: ONIX_CO.id,
+          ipAddress:
+            request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+            request.headers.get("x-real-ip"),
+          userAgent: request.headers.get("user-agent"),
+          metadata: {
+            totalAntes: r.totalAntes,
+            totalDepois: r.totalDepois,
+            inseridas: r.inseridas,
+            comPai: r.comPai,
+            pessoaId: ctx.pessoa?.id ?? null,
+            executadoEm: quando,
+          },
+        },
+      });
+    } catch (erroLog) {
+      auditado = false;
+      console.error("[empresas/hierarquia] falha ao gravar EmpresaBootstrapLog:", erroLog);
+    }
 
     return NextResponse.json({
+      auditado,
       resultado: r.resultado,
       raizSolicitada: ONIX_CO,
       inseridas: r.inseridas,
