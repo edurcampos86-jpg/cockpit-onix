@@ -107,6 +107,11 @@ jobs:
           # Linha iniciada por `--` é comentário SQL e é IGNORADA de propósito:
           # as migrations documentam a remoção em comentário e precisam passar.
           # O que reprova é o statement executável.
+          #
+          # shellcheck disable=SC2016
+          # ^ O bloco entre aspas simples é um programa AWK, não shell: `$0` ali
+          #   é "a linha atual" para o awk. Expandir como variável de shell é
+          #   justamente o que NÃO se quer.
           OFENSORES=$(find prisma/migrations -name '*.sql' -print0 \
             | xargs -0 --no-run-if-empty awk '
                 /^[[:space:]]*--/ { next }
@@ -122,7 +127,7 @@ jobs:
             echo "::error::Migration derruba o índice full-text de PainelEmailAI."
             echo ""
             echo "Statements executáveis encontrados:"
-            echo "$OFENSORES" | sed 's/^/  /'
+            echo "$OFENSORES"
             echo ""
             echo "O QUE FAZER: apague essas linhas do migration.sql à mão."
             echo "Elas são DRIFT — o \`prisma migrate dev\` as injeta sozinho porque"
