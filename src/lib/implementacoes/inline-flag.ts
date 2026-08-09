@@ -1,4 +1,5 @@
 import { getConfig } from "@/lib/config-db";
+import { flagLigada } from "@/lib/flags/registro";
 
 /**
  * Gate (Config DB) do FAB global "Sugerir implementação" + modal. Flag PRÓPRIA,
@@ -11,12 +12,7 @@ import { getConfig } from "@/lib/config-db";
  */
 export const IMPLEMENTACOES_INLINE_FLAG = "IMPLEMENTACOES_INLINE";
 
-function parseBoolFlag(v: string | undefined): boolean {
-  if (!v) return false;
-  return ["1", "true", "on", "yes", "sim"].includes(v.trim().toLowerCase());
-}
-
 /** FAB de sugestão habilitado? Lê a flag do Config DB a cada chamada. Default OFF. */
 export async function implementacoesInlineHabilitado(): Promise<boolean> {
-  return parseBoolFlag(await getConfig(IMPLEMENTACOES_INLINE_FLAG));
+  return flagLigada(await getConfig(IMPLEMENTACOES_INLINE_FLAG));
 }

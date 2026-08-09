@@ -21,6 +21,25 @@ import { NextResponse } from "next/server";
  * valor) no .env para chamar essas rotas à mão. Isso é deliberado — uma
  * guarda que se desliga sozinha quando a config falta não é uma guarda.
  */
+/**
+ * O chamador apresentou o CRON_SECRET correto? Booleano, sem montar resposta.
+ *
+ * Serve quem precisa DECIDIR em vez de recusar: `/api/health` usa isto para
+ * acrescentar o estado das flags só a chamador autenticado, mantendo a resposta
+ * pública idêntica em vez de responder 403. `guardCron` continua sendo o
+ * caminho de quem deve recusar.
+ *
+ * Mesma falha fechada da guarda: sem CRON_SECRET configurado, ninguém é
+ * autorizado.
+ */
+export function cronAutorizado(request: Request): boolean {
+  const secret = process.env.CRON_SECRET?.trim();
+  if (!secret) return false;
+  const auth = request.headers.get("authorization");
+  const token = auth?.startsWith("Bearer ") ? auth.slice(7) : null;
+  return token === secret;
+}
+
 export function guardCron(request: Request): NextResponse | null {
   const secret = process.env.CRON_SECRET?.trim();
 

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getAuthContext } from "@/lib/auth-helpers";
 import { getConfig } from "@/lib/config-db";
+import { flagLigada } from "@/lib/flags/registro";
 import { gravarFatosPatrimonio } from "@/lib/cockpit-reuniao/fatos-patrimonio";
 import {
   gravarFatosRicos,
@@ -297,13 +298,18 @@ export async function importarReuniaoEstruturada(
   // Gate da escrita de fatos de perfil (Fase 1a). Default OFF. Lido ANTES da
   // transação; idioma idêntico aos schedulers in-process. OFF => comportamento
   // idêntico a hoje (zero fato escrito).
-  const f = (await getConfig("PERFIL_FATO_WRITE"))?.trim().toLowerCase();
-  const ligadoFatos = f === "on" || f === "true" || f === "1";
+  //
+  // Dialeto "estrito" (on|true|1, SEM yes/sim) — a mesma régua que estava
+  // escrita inline aqui, agora vinda de `flags/registro`. A escolha do dialeto
+  // é deliberada e não é detalhe: `ClienteFato` é ledger APPEND-ONLY, então
+  // uma flag que passasse a ler como ligada gravaria fatos sem desfazer. O
+  // teste `flags/dialeto-paridade.test.ts` fixa a equivalência com o código
+  // antigo entrada por entrada.
+  const ligadoFatos = flagLigada(await getConfig("PERFIL_FATO_WRITE"), "estrito");
 
   // Gate da escrita dos fatos RICOS (Fase 1b-2b) — FLAG PRÓPRIA, default OFF.
-  // Independente da 1a (patrimônio). Mesmo idioma on|true|1.
-  const fr = (await getConfig("PERFIL_FATO_RICO_WRITE"))?.trim().toLowerCase();
-  const ligadoFatosRicos = fr === "on" || fr === "true" || fr === "1";
+  // Independente da 1a (patrimônio). Mesmo dialeto estrito.
+  const ligadoFatosRicos = flagLigada(await getConfig("PERFIL_FATO_RICO_WRITE"), "estrito");
 
   // Idempotência do import (T2.5b, flag própria default OFF). ON → reimportar a
   // MESMA reunião (clienteId+data) atualiza o registro existente em vez de criar
