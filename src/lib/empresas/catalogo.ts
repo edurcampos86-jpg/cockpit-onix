@@ -60,6 +60,53 @@
  * por script Node, por teste e — via o teste — pelo lado cliente do hub.
  * ────────────────────────────────────────────────────────────── */
 
+/* ── QUEM É PESSOA JURÍDICA DO GRUPO — DECISÃO DO EDUARDO (PR-B4) ─────────
+ *
+ * A lista canônica das filhas diretas de `onix-co` é EXATAMENTE esta, e o
+ * critério é um só: existir juridicamente como empresa do grupo.
+ *
+ *   investimentos  "Onix Capital"
+ *   corretora      "Onix Corretora"
+ *   imobiliaria    "Onix Imobiliária"
+ *   corporate      "Onix Corporate"
+ *   tech           "Onix Tech"
+ *
+ * E, com o mesmo peso, quem FICOU DE FORA e por quê — porque a pergunta
+ * "cadê a Onix Agro?" volta a cada leitura da árvore, e a resposta tem de
+ * estar aqui e não na memória de quem decidiu:
+ *
+ *   • Onix Agro (`agro`)                — DEPARTAMENTO, não PJ.
+ *   • Planejamento Patrimonial (`planejamento`) — DEPARTAMENTO dentro da
+ *     Onix Capital, não PJ.
+ *   • Onix Contábil (`contabil`)        — NÃO EXISTE juridicamente. Estava
+ *     anunciada no hub como protótipo aprovado.
+ *   • Meu Sucesso Patrimonial (`educacao`) — PRODUTO, não PJ.
+ *   • Barreiras e Unaí                  — FILIAIS. Não são nós da hierarquia;
+ *     viram ATRIBUTO da empresa numa fase posterior. Nunca tiveram id aqui, e
+ *     é proposital que continuem sem — filial que vira nó reabre a régua de
+ *     2 níveis de `hierarquia.ts`, que é justamente o que não se quer.
+ *
+ * ── POR QUE OS IDS NÃO VIRARAM `onix-capital`, `onix-tech`… ──────────────
+ * A decisão chegou escrita com ids no padrão da raiz (`onix-capital`,
+ * `onix-corretora`, `onix-imobiliaria`, `onix-corporate`, `onix-tech`). Os
+ * NOMES foram adotados como vieram — inclusive "Onix Imobiliária", que aqui
+ * era "Onix Imob". Os IDS não, e o motivo é dado, não gosto:
+ *
+ *   • `Implementacao.empresaId` já tem linhas em produção com `investimentos`,
+ *     `corretora`, … (ver comentário em `empresas-config.ts:17`). Ids novos
+ *     criariam empresa órfã no dia em que a FK entrar.
+ *   • `PessoaEmpresa.empresaId` tem FK para `Empresa.id`: as concessões de
+ *     RBAC apontam para os ids atuais.
+ *   • `NOS_ECOSSISTEMA` (`hub-ecossistema/nos.ts`) e `EMPRESAS`
+ *     (`empresas-config.ts`) casam por VALOR com estes mesmos ids — é essa
+ *     igualdade que faz o RBAC funcionar sem tabela de-para.
+ *
+ * Trocar os ids seria coerente só mexendo nesses quatro lugares de uma vez, e
+ * a PR-B4 foi pedida explicitamente "sem tocar em outras rotas/ações". O id é
+ * interno; o nome é o que aparece na tela, e o nome é o que a decisão mudou.
+ * Se a renomeação for mesmo desejada, ela é PR própria — com UPDATE em massa
+ * de `Implementacao` e `PessoaEmpresa` no mesmo commit. */
+
 /** A empresa-mãe. Mesmo id em `seed-empresas.ts` e em `Empresa.id`. */
 export const RAIZ_DO_GRUPO = "onix-co";
 
@@ -114,23 +161,38 @@ export const CATALOGO_EMPRESAS: readonly EmpresaDoGrupo[] = [
   { id: "investimentos", nome: "Onix Capital", cadastrada: true, noHub: true },
   { id: "corretora", nome: "Onix Corretora", cadastrada: true, noHub: true },
   { id: "corporate", nome: "Onix Corporate", cadastrada: true, noHub: true },
-  { id: "imobiliaria", nome: "Onix Imob", cadastrada: true, noHub: true },
+  { id: "imobiliaria", nome: "Onix Imobiliária", cadastrada: true, noHub: true },
   { id: "tech", nome: "Onix Tech", cadastrada: true, noHub: true },
-  { id: "educacao", nome: "Onix Educação", cadastrada: true, noHub: true },
+  {
+    id: "educacao",
+    nome: "Onix Educação",
+    cadastrada: false,
+    noHub: true,
+    nota:
+      "FORA DA LISTA CANÔNICA por decisão do Eduardo (PR-B4): é PRODUTO — " +
+      '"Meu Sucesso Patrimonial" —, não pessoa jurídica do grupo. Estava ' +
+      "`cadastrada: true` desde a #291 sem que ninguém tivesse decidido que " +
+      "ela era empresa; era herança da lista original de 8, não uma escolha. " +
+      "Nada regride ao sair: ela não tem rota em `src/app/empresas/` (é " +
+      '`maturidade: "sem-rota"` em `nos.ts`), então não havia gate de RBAC a ' +
+      "perder. Continua orbitando o hub como anúncio, igual a `agro` e " +
+      "`contabil`. Se um dia virar PJ, o conserto é `cadastrada: true` aqui.",
+  },
   {
     id: "planejamento",
     nome: "Planejamento Patrimonial",
-    cadastrada: true,
+    cadastrada: false,
     noHub: false,
     nota:
-      "DIVERGÊNCIA REAL, não intencional. Tem rota que responde " +
-      "(`src/app/empresas/planejamento/`), link próprio na sidebar " +
-      "(`sidebar.tsx:231`) e cadastro no banco — mas ficou fora dos 8 nós do " +
-      "hub. Efeito prático: quem chega pela tela inicial não vê que ela " +
-      "existe, embora possa abri-la. Virar o 9º nó é decisão de produto " +
-      "pendente (muda o ângulo da órbita de 45° para 40°, o que a geometria já " +
-      "suporta: `posicaoOrbital` recebe o total). Enquanto não vier, fica " +
-      "declarado aqui em vez de esquecido.",
+      "FORA DA LISTA CANÔNICA por decisão do Eduardo (PR-B4): é DEPARTAMENTO " +
+      "dentro da Onix Capital, não pessoa jurídica — logo não pendura na raiz " +
+      "societária. A rota `src/app/empresas/planejamento/` e o link da sidebar " +
+      "(`sidebar.tsx:231`) continuam funcionando: a página é o " +
+      "`EmpresaPlaceholder` e NÃO usa `podeVerEmpresa` (não há layout com gate " +
+      "nessa pasta, diferente de investimentos/corretora/corporate/" +
+      "imobiliaria/tech), então sair do cadastro não abre nada que estivesse " +
+      "fechado. A divergência anterior — cadastrada e fora do hub — deixa de " +
+      "existir: agora ela está fora dos dois, coerente com ser departamento.",
   },
   {
     id: "agro",
@@ -200,7 +262,7 @@ export function idsFilhasDaRaiz(): string[] {
   return idsCadastradas().filter((id) => id !== RAIZ_DO_GRUPO);
 }
 
-/** As três caixas do catálogo, já separadas. */
+/** As quatro caixas do catálogo, já separadas. */
 export type Divergencias = {
   /** No hub e no cadastro — o caso saudável. */
   nosDois: string[];
@@ -208,17 +270,29 @@ export type Divergencias = {
   soNoHub: string[];
   /** Cadastrada e fora do hub: existe, mas a tela inicial não a mostra. */
   soNoCadastro: string[];
+  /**
+   * Em NENHUM dos dois eixos. Era caixa vazia até a PR-B4 e passou a ter
+   * ocupante: `planejamento`, que tem rota e link de sidebar mas não é PJ do
+   * grupo nem orbita o hub. A caixa existe para que esse estado seja
+   * DECLARADO — antes, uma linha assim seria confundida com esquecimento.
+   */
+  foraDosDois: string[];
 };
 
 /**
- * Divide o catálogo nas três caixas. Usado pelo teste e pela auditoria de
+ * Divide o catálogo nas quatro caixas. Usado pelo teste e pela auditoria de
  * permissões (`/api/configuracoes/permissoes/auditoria`), que precisa dizer
  * ao admin POR QUE uma empresa concedida não aparece na tela inicial.
+ *
+ * A auditoria consome só as três primeiras e continua correta: `foraDosDois`
+ * é, por definição, quem não está no cadastro — logo nunca deveria entrar em
+ * `faltandoSeed`.
  */
 export function divergencias(): Divergencias {
   return {
     nosDois: CATALOGO_EMPRESAS.filter((e) => e.cadastrada && e.noHub).map((e) => e.id),
     soNoHub: CATALOGO_EMPRESAS.filter((e) => !e.cadastrada && e.noHub).map((e) => e.id),
     soNoCadastro: CATALOGO_EMPRESAS.filter((e) => e.cadastrada && !e.noHub).map((e) => e.id),
+    foraDosDois: CATALOGO_EMPRESAS.filter((e) => !e.cadastrada && !e.noHub).map((e) => e.id),
   };
 }

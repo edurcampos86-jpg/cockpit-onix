@@ -111,7 +111,8 @@ export async function carregarArvore(db: ClienteReparent): Promise<NoEmpresa[]> 
       "tabela_vazia",
       'A tabela "Empresa" existe mas está VAZIA — nenhuma empresa foi semeada. ' +
         "Rode o seed antes: POST /api/empresas/hierarquia com { confirmar: true } " +
-        "cria a raiz, e `npx tsx scripts/seed-empresas.ts` cria as 8.",
+        "cria a raiz, `{ \"acao\": \"seed-filhas\" }` cria as 5 filhas, e " +
+        "`npx tsx scripts/seed-empresas.ts` cria as 6 de uma vez.",
     );
   }
 
@@ -331,7 +332,7 @@ export async function aplicarPlano(
  * Resolve o autor a partir de email ou id. `null` se não casar ninguém.
  *
  * Chamado ANTES do primeiro UPDATE pelos dois consumidores: identificador que
- * não casa ninguém deve parar com o banco intacto, em vez de mover 7 empresas
+ * não casa ninguém deve parar com o banco intacto, em vez de mover 5 empresas
  * e só então descobrir que o log não tem onde pendurar.
  */
 export async function resolverAutor(

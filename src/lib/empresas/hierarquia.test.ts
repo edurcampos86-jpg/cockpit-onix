@@ -10,16 +10,22 @@ import {
   type NoEmpresa,
 } from "./hierarquia.ts";
 
-/** Estado que a PR-A deixa no banco: raiz + as 7, todas ainda sem pai. */
+/**
+ * Árvore PLANA: todo mundo raiz solta.
+ *
+ * Era o estado que o seed deixava até a PR-B4 — de lá em diante as filhas
+ * nascem penduradas, e esta forma passou a representar o BANCO ANTIGO ou o
+ * banco que alguém desfez na mão. Continua sendo o fixture certo para exercitar
+ * a régua: é sobre ele que `validarParent` responde "pode pendurar?", que é a
+ * pergunta que o reparenting faz.
+ */
 const APOS_SEED: NoEmpresa[] = [
   { id: "onix-co", parentId: null },
   { id: "investimentos", parentId: null },
   { id: "corretora", parentId: null },
-  { id: "planejamento", parentId: null },
   { id: "imobiliaria", parentId: null },
   { id: "corporate", parentId: null },
   { id: "tech", parentId: null },
-  { id: "educacao", parentId: null },
 ];
 
 /** Estado que a PR de reparenting vai produzir. */

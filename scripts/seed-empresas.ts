@@ -1,21 +1,20 @@
 /**
  * Seed da tabela `Empresa` — IDEMPOTENTE.
  *
- * Cria a raiz "Onix Co" e as 7 empresas do grupo, TODAS com `parentId = null`.
+ * Cria a raiz "Onix Co" e as 5 empresas jurídicas do grupo — estas já com
+ * `parentId = "onix-co"`. Total: 6 linhas.
  *
  * ── ONDE MORA A LÓGICA ───────────────────────────────────────────────────
  * Não aqui. A lista canônica e a mecânica de idempotência vivem em
  * `src/lib/empresas/seed-hierarquia.ts`, compartilhado com
  * `POST /api/empresas/hierarquia`. A diferença entre os dois consumidores é só
- * QUAIS empresas cada um passa: este script semeia as 8; o endpoint semeia
- * apenas a raiz, porque criar as demais é decisão que merece conferência
- * humana no terminal.
+ * QUAIS empresas cada um passa: este script semeia as 6 de uma vez; o endpoint
+ * separa em duas ações (a raiz por padrão, as filhas em `acao: "seed-filhas"`).
  *
  * ── O QUE ESTE SEED NÃO FAZ ──────────────────────────────────────────────
- * NÃO faz reparenting. Nenhuma empresa passa a apontar para a raiz aqui — isso
- * é PR própria, com conferência antes do UPDATE. Oito raízes soltas é estado
- * VÁLIDO segundo a régua (src/lib/empresas/hierarquia.ts): a validação recusa
- * o terceiro nível, não a ausência do segundo.
+ * NÃO faz reparenting. Ele decide o pai de linha que NASCE; o pai de linha que
+ * JÁ EXISTE nunca é tocado aqui, nem quando está errado — para isso existe
+ * `scripts/reparent-empresas.ts`, com dry-run e conferência antes do UPDATE.
  *
  * A única escrita é um create condicional; não há UPDATE nem DELETE.
  *
