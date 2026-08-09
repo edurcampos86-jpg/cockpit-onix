@@ -219,3 +219,70 @@ export async function removerApoio(input: { acessoId: string }): Promise<Carteir
   revalidatePath("/configuracoes/permissoes");
   return { ok: true };
 }
+
+/* ──────────────────────────────────────────────────────────────
+ * Acesso por EMPRESA (`PessoaEmpresa`).
+ *
+ * Complementa — não substitui — o acesso por carteira/CGE acima. São escopos
+ * diferentes: carteira decide QUAIS CLIENTES a pessoa vê; empresa decide QUAIS
+ * EMPRESAS do grupo ela enxerga (nós do hub e páginas de `/empresas/*`).
+ *
+ * Até aqui a única forma de escrever nesta tabela era `psql` — exatamente o
+ * problema que a tela de flags existe para resolver, recriado num lugar mais
+ * sensível.
+ *
+ * Postura NÃO-DISRUPTIVA, e ela tem uma consequência de UX que a tela precisa
+ * dizer em voz alta: pessoa SEM concessão nenhuma vê TUDO. Conceder a primeira
+ * empresa a alguém RESTRINGE essa pessoa às empresas concedidas — é o momento
+ * em que ela passa de "vê tudo" para "vê só isto". A regra completa está em
+ * `lib/empresas/acesso-core.ts`.
+ * ────────────────────────────────────────────────────────────── */
+
+export async function concederEmpresa(input: {
+  pessoaId: string;
+  empresaId: string;
+  incluiDescendentes: boolean;
+}): Promise<CarteiraResult> {
+  const g = await gateAdmin();
+  if (!g.ok) return g;
+
+  // @@unique([pessoaId, empresaId]) — no máximo um vínculo por par.
+  const existente = await prisma.pessoaEmpresa.findUnique({
+    where: { pessoaId_empresaId: { pessoaId: input.pessoaId, empresaId: input.empresaId } },
+    select: { id: true },
+  });
+  if (existente) return { ok: false, error: "Esta pessoa já tem acesso a esta empresa." };
+
+  await prisma.pessoaEmpresa.create({
+    data: {
+      pessoaId: input.pessoaId,
+      empresaId: input.empresaId,
+      incluiDescendentes: input.incluiDescendentes,
+    },
+  });
+  revalidatePath("/configuracoes/permissoes");
+  return { ok: true };
+}
+
+export async function revogarEmpresa(input: { acessoId: string }): Promise<CarteiraResult> {
+  const g = await gateAdmin();
+  if (!g.ok) return g;
+  await prisma.pessoaEmpresa.delete({ where: { id: input.acessoId } });
+  revalidatePath("/configuracoes/permissoes");
+  return { ok: true };
+}
+
+/** Liga/desliga a herança de UMA concessão já existente. */
+export async function alternarHerancaEmpresa(input: {
+  acessoId: string;
+  incluiDescendentes: boolean;
+}): Promise<CarteiraResult> {
+  const g = await gateAdmin();
+  if (!g.ok) return g;
+  await prisma.pessoaEmpresa.update({
+    where: { id: input.acessoId },
+    data: { incluiDescendentes: input.incluiDescendentes },
+  });
+  revalidatePath("/configuracoes/permissoes");
+  return { ok: true };
+}
