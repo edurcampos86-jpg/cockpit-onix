@@ -42,6 +42,7 @@ import {
   PieChart,
   Scale,
   Shield,
+  ToggleLeft,
   Database,
   PackagePlus,
   Mail,
@@ -52,7 +53,7 @@ import {
   Cpu,
   Radar,
 } from "lucide-react";
-import { useState, useTransition, useEffect } from "react";
+import { useState, useSyncExternalStore, useTransition, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { logout } from "@/app/actions/auth";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -65,7 +66,11 @@ import { useTheme } from "@/components/theme-provider";
 const PIXEL_TRAFEGO_ON = process.env.NEXT_PUBLIC_PIXEL_TRAFEGO === "true";
 
 const mktNavigation = [
-  { name: "Painel", href: "/", icon: LayoutDashboard },
+  /* Aponta para `/painel`, não para a raiz: com a flag `HUB_ECOSSISTEMA`
+   * ligada a raiz vira o hub, e um item chamado "Painel" levando ao hub
+   * mentiria. Com a flag desligada os dois endereços renderizam o mesmo
+   * painel, então a troca não muda nada hoje. */
+  { name: "Painel", href: "/painel", icon: LayoutDashboard },
   { name: "Calendário", href: "/calendario", icon: CalendarDays },
   { name: "Roteiros", href: "/roteiros", icon: FileText },
   { name: "Planejamento", href: "/planejamento", icon: Wand2 },
@@ -126,6 +131,7 @@ const sharedNavigation = [
   { name: "Glossário", href: "/glossario", icon: BookMarked },
   { name: "Integrações", href: "/integracoes", icon: Plug },
   { name: "Implementações", href: "/configuracoes/implementacoes", icon: Lightbulb },
+  { name: "Flags", href: "/configuracoes/flags", icon: ToggleLeft },
 ];
 
 /* ── Definição dos módulos / empresas ───────────────── */
@@ -203,6 +209,7 @@ const operacoesItemsV2 = [
   { name: "Glossário", href: "/glossario", icon: BookMarked },
   { name: "Implementações", href: "/configuracoes/implementacoes", icon: Lightbulb },
   { name: "Permissões", href: "/configuracoes/permissoes", icon: Shield },
+  { name: "Flags", href: "/configuracoes/flags", icon: ToggleLeft },
 ];
 
 // F4 — shells das demais empresas: um item "Painel" por empresa; as demais
@@ -258,7 +265,7 @@ const configItemV2 = { name: "Configurações", href: "/configuracoes", icon: Se
 // Hrefs visíveis só pra admin (gate COSMÉTICO do nav — a segurança real é o
 // redirect na própria página, ex.: /configuracoes/implementacoes). O isAdmin
 // COMPLETO (role OU teamRole) vem de /api/auth/is-admin.
-const ADMIN_ONLY_HREFS = ["/configuracoes/implementacoes", "/configuracoes/permissoes"];
+const ADMIN_ONLY_HREFS = ["/configuracoes/implementacoes", "/configuracoes/permissoes", "/configuracoes/flags"];
 
 function getActiveModuleIdV2(pathname: string): string {
   if (pathname.startsWith("/onix-corretora")) return "onix-corretora";
@@ -276,7 +283,7 @@ function getActiveModuleIdV2(pathname: string): string {
   )
     return "juridico";
   if (
-    ["/admin/backups", "/integracoes", "/metodo", "/glossario", "/configuracoes/implementacoes", "/configuracoes/permissoes"].some((p) =>
+    ["/admin/backups", "/integracoes", "/metodo", "/glossario", "/configuracoes/implementacoes", "/configuracoes/permissoes", "/configuracoes/flags"].some((p) =>
       pathname.startsWith(p),
     )
   )
@@ -285,11 +292,118 @@ function getActiveModuleIdV2(pathname: string): string {
   return "marketing";
 }
 
+/* ── Recolhimento automático em tela estreita ────────
+ *
+ * A sidebar tinha largura FIXA de 256px em qualquer viewport, e só recolhia no
+ * clique. Num celular de 420px isso deixava 144px de área útil para a página —
+ * medido, e vale para o app inteiro (o Painel de Comando a 420px também fica
+ * com 164px). O hub é a primeira tela, então é onde mais aparece.
+ *
+ * O corte é `lg` (1024px), o mesmo do Tailwind, e não um número inventado.
+ * Abaixo dele a sidebar nasce recolhida (64px); o botão de recolher continua
+ * mandando quando o usuário o usa.
+ *
+ * `useSyncExternalStore` e NÃO `useEffect` + `setState`: o repo já pagou por um
+ * `setState` dentro de efeito aqui (cascata de render + `react-hooks/
+ * set-state-in-effect` travando o CI — ver a nota em `moduloAnterior` abaixo).
+ * Esta é a API própria do React para ler valor externo do browser: o servidor
+ * responde `false` (idêntico ao comportamento de hoje) e o React corrige na
+ * hidratação, sem efeito e sem render em cascata.
+ */
+const CONSULTA_TELA_ESTREITA = "(max-width: 1023px)";
+
+function assinarLarguraDaTela(aoMudar: () => void): () => void {
+  const mql = window.matchMedia(CONSULTA_TELA_ESTREITA);
+  mql.addEventListener("change", aoMudar);
+  return () => mql.removeEventListener("change", aoMudar);
+}
+
+function lerTelaEstreita(): boolean {
+  return window.matchMedia(CONSULTA_TELA_ESTREITA).matches;
+}
+
+/* No servidor não existe viewport. `false` mantém o HTML inicial igual ao de
+ * antes desta mudança — quem estiver no celular vê a sidebar recolher logo
+ * após a hidratação, o que é preferível a renderizar recolhido no desktop. */
+function lerTelaEstreitaNoServidor(): boolean {
+  return false;
+}
+
+/* ── Preferência MANUAL, persistida ──────────────────
+ *
+ * Sem isto, a escolha do usuário morria a cada recarga. Antes do recolhimento
+ * automático ninguém sentia — o padrão era sempre expandido, então "voltou ao
+ * padrão" e "esqueceu minha escolha" eram indistinguíveis. Com o padrão agora
+ * dependendo da TELA, a escolha manual virou decisão de verdade: quem recolhe
+ * de propósito num monitor largo via a barra reabrir sozinha, e isso lê como
+ * defeito, não como design.
+ *
+ * `localStorage`, a mesma casa de `onix-theme`. Ausente = segue a tela.
+ *
+ * NÃO há script inline anti-flash aqui, ao contrário do tema: a largura vem de
+ * classe Tailwind no `<aside>`, não de classe no `<html>`, então pré-aplicar
+ * exigiria mover a largura para CSS de raiz. A correção acontece em um frame e
+ * o `<aside>` já tem `transition-all`, então ela sai animada em vez de piscar.
+ */
+const CHAVE_SIDEBAR = "onix-sidebar";
+
+const ouvintesSidebar = new Set<() => void>();
+
+function assinarPreferenciaSidebar(aoMudar: () => void): () => void {
+  ouvintesSidebar.add(aoMudar);
+  const aoStorage = (e: StorageEvent) => {
+    if (e.key === CHAVE_SIDEBAR) aoMudar();
+  };
+  window.addEventListener("storage", aoStorage);
+  return () => {
+    ouvintesSidebar.delete(aoMudar);
+    window.removeEventListener("storage", aoStorage);
+  };
+}
+
+/** `null` = sem preferência salva, segue a largura da tela. */
+function lerPreferenciaSidebar(): boolean | null {
+  try {
+    const salvo = localStorage.getItem(CHAVE_SIDEBAR);
+    if (salvo === "recolhida") return true;
+    if (salvo === "expandida") return false;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function lerPreferenciaSidebarNoServidor(): boolean | null {
+  return null;
+}
+
+function gravarPreferenciaSidebar(recolhida: boolean) {
+  try {
+    localStorage.setItem(CHAVE_SIDEBAR, recolhida ? "recolhida" : "expandida");
+  } catch {
+    // Sem persistência a escolha ainda vale nesta sessão.
+  }
+  for (const ouvinte of ouvintesSidebar) ouvinte();
+}
+
 /* ── Componente Sidebar ─────────────────────────────── */
 
 export function Sidebar() {
   const pathname = usePathname();
-  const [collapsed, setCollapsed] = useState(false);
+  /* `null` = segue a largura da tela; booleano = o usuário decidiu na mão e a
+   * escolha dele passa a valer em qualquer largura, inclusive depois de
+   * recarregar (mora no localStorage). */
+  const preferenciaManual = useSyncExternalStore(
+    assinarPreferenciaSidebar,
+    lerPreferenciaSidebar,
+    lerPreferenciaSidebarNoServidor,
+  );
+  const telaEstreita = useSyncExternalStore(
+    assinarLarguraDaTela,
+    lerTelaEstreita,
+    lerTelaEstreitaNoServidor,
+  );
+  const collapsed = preferenciaManual ?? telaEstreita;
   const [isPending, startTransition] = useTransition();
   const { theme, toggleTheme } = useTheme();
 
@@ -607,8 +721,14 @@ export function Sidebar() {
               {theme === "dark" ? "Tema claro" : "Tema escuro"}
             </TooltipContent>
           </Tooltip>
+          {/* O botão só tinha um ícone: para leitor de tela era "botão", sem
+            * nome. Agora que ele guarda uma PREFERÊNCIA (e não só um estado da
+            * sessão), vale ainda mais dizer o que ele faz. */}
           <button
-            onClick={() => setCollapsed(!collapsed)}
+            type="button"
+            onClick={() => gravarPreferenciaSidebar(!collapsed)}
+            aria-label={collapsed ? "Expandir o menu lateral" : "Recolher o menu lateral"}
+            title={collapsed ? "Expandir o menu lateral" : "Recolher o menu lateral"}
             className="flex items-center justify-center py-2 px-2 rounded-lg text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
           >
             {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}

@@ -1,4 +1,5 @@
 import { getConfig } from "@/lib/config-db";
+import { flagLigada } from "@/lib/flags/registro";
 
 /**
  * Gate (Config DB) da nova tela "Cockpit de Reunião" — aba read-only que roda em
@@ -17,12 +18,7 @@ import { getConfig } from "@/lib/config-db";
  */
 export const COCKPIT_REUNIAO_FLAG = "COCKPIT_REUNIAO";
 
-function parseBoolFlag(v: string | undefined): boolean {
-  if (!v) return false;
-  return ["1", "true", "on", "yes", "sim"].includes(v.trim().toLowerCase());
-}
-
 /** Tela "Cockpit de Reunião" habilitada? Lê a flag do Config DB a cada chamada. Default OFF. */
 export async function cockpitReuniaoHabilitado(): Promise<boolean> {
-  return parseBoolFlag(await getConfig(COCKPIT_REUNIAO_FLAG));
+  return flagLigada(await getConfig(COCKPIT_REUNIAO_FLAG));
 }

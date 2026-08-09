@@ -1,4 +1,5 @@
 import { getConfig } from "@/lib/config-db";
+import { flagLigada } from "@/lib/flags/registro";
 import { prisma } from "@/lib/prisma";
 import type { AuthContext } from "@/lib/auth-helpers";
 
@@ -27,14 +28,9 @@ import type { AuthContext } from "@/lib/auth-helpers";
  */
 export const RBAC_ENFORCEMENT_FLAG = "RBAC_ENFORCEMENT";
 
-function parseBoolFlag(v: string | undefined): boolean {
-  if (!v) return false;
-  return ["1", "true", "on", "yes", "sim"].includes(v.trim().toLowerCase());
-}
-
 /** Enforcement de escopo RBAC ligado? Lê a flag do Config DB a cada chamada. Default OFF. */
 export async function rbacEnforcementHabilitado(): Promise<boolean> {
-  return parseBoolFlag(await getConfig(RBAC_ENFORCEMENT_FLAG));
+  return flagLigada(await getConfig(RBAC_ENFORCEMENT_FLAG));
 }
 
 /**

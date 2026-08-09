@@ -13,6 +13,18 @@
 import { prisma } from "@/lib/prisma";
 
 /**
+ * O valor de env serve como fallback?
+ *
+ * Exportado porque quem INSPECIONA a config (src/lib/flags/estado.ts) precisa
+ * responder "de onde veio este valor" com a mesma régua que `getConfig` usa
+ * para escolher. Duplicar a condição faria o diagnóstico divergir do
+ * comportamento real — e divergir em silêncio.
+ */
+export function envUtilizavel(valor: string | undefined): valor is string {
+  return !!valor && !valor.startsWith("placeholder");
+}
+
+/**
  * Returns config value: DB first (if exists), then process.env fallback.
  * DB takes priority because Railway env vars can contain stale/placeholder values.
  */
@@ -27,7 +39,7 @@ export async function getConfig(key: string): Promise<string | undefined> {
 
   // Env fallback
   const envVal = process.env[key];
-  if (envVal && !envVal.startsWith("placeholder")) return envVal;
+  if (envUtilizavel(envVal)) return envVal;
 
   return undefined;
 }

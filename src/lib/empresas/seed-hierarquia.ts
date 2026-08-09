@@ -32,28 +32,64 @@ export type ClienteEmpresa = Pick<PrismaClient, "empresa">;
 
 export type EmpresaSemente = { id: string; nome: string };
 
+/* ── A LISTA VEM DO CATÁLOGO, NÃO DAQUI ──────────────────────────────────
+ *
+ * As três constantes abaixo eram literais neste arquivo. Passaram a derivar de
+ * `lib/empresas/catalogo.ts`, que é a declaração única de quem existe no grupo
+ * e de ONDE cada empresa aparece (`cadastrada` para o cadastro, `noHub` para a
+ * tela inicial).
+ *
+ * O motivo é o histórico do repositório, não preferência: a mesma lista já
+ * esteve escrita em três lugares que não se conheciam e os três divergiam —
+ * `agro` e `contabil` orbitavam o hub sem nunca terem sido semeadas,
+ * `planejamento` era semeada sem aparecer no hub. Este arquivo teria sido o
+ * quarto. Um literal só é fonte de verdade enquanto é o ÚNICO; a partir do
+ * segundo, é cópia.
+ *
+ * A API pública NÃO muda: os mesmos três símbolos, o mesmo formato
+ * `{id, nome}`, os mesmos consumidores (`scripts/seed-empresas.ts` e
+ * `POST /api/empresas/hierarquia`) sem uma linha alterada. `catalogo.test.ts`
+ * trava os ids contra o catálogo.
+ *
+ * Uma diferença observável, conferida e inócua: a ORDEM. O literal anterior
+ * trazia `planejamento` em 3º; a derivação o traz por último, porque a ordem
+ * do catálogo é outra. Ninguém depende disso — `createMany` é indiferente,
+ * `lerArvore` ordena no SQL, e o script imprime contagens, não a lista. O
+ * CONJUNTO é idêntico (as mesmas 8), e é isso que o teste trava.
+ *
+ * O import é seguro como estático: `catalogo.ts` é PURO (sem prisma, sem
+ * `server-only`), então ele não reintroduz o problema que o guard de
+ * DATABASE_URL do script existe para evitar. */
+import { CATALOGO_EMPRESAS, RAIZ_DO_GRUPO, empresasCadastradas } from "@/lib/empresas/catalogo";
+
+const doCatalogo = (id: string): EmpresaSemente => {
+  const e = CATALOGO_EMPRESAS.find((x) => x.id === id);
+  if (!e) throw new Error(`"${id}" não está em lib/empresas/catalogo.ts`);
+  return { id: e.id, nome: e.nome };
+};
+
 /**
  * A raiz do grupo. `onix-co` é o único id que NÃO vem de
  * `src/lib/empresas-config.ts`: a empresa-mãe não é aba de navegação, então
  * nunca precisou existir lá.
  */
-export const ONIX_CO: EmpresaSemente = { id: "onix-co", nome: "Onix Co" };
+export const ONIX_CO: EmpresaSemente = doCatalogo(RAIZ_DO_GRUPO);
 
 /**
- * As 7 empresas do grupo. Os ids são os slugs de `empresas-config.ts` — não
- * invente nomes novos aqui. Eles casam por VALOR com `Implementacao.empresaId`,
- * que já tem linhas gravadas em produção; divergir criaria empresa órfã no dia
- * em que a FK entrar.
+ * As 7 empresas do grupo — as `cadastrada: true` do catálogo menos a raiz.
+ *
+ * Os ids são os slugs de `empresas-config.ts` e casam por VALOR com
+ * `Implementacao.empresaId`, que já tem linhas gravadas em produção; divergir
+ * criaria empresa órfã no dia em que a FK entrar. É por isso que a lista é
+ * derivada e não redigitada.
+ *
+ * `agro` e `contabil` ficam de fora porque estão no catálogo como
+ * `cadastrada: false` — anunciadas no hub, sem existir como operação. Semeá-las
+ * criaria empresa que ninguém pode abrir.
  */
-export const EMPRESAS_DO_GRUPO: EmpresaSemente[] = [
-  { id: "investimentos", nome: "Onix Capital" },
-  { id: "corretora", nome: "Onix Corretora" },
-  { id: "planejamento", nome: "Planejamento Patrimonial" },
-  { id: "imobiliaria", nome: "Onix Imob" },
-  { id: "corporate", nome: "Onix Corporate" },
-  { id: "tech", nome: "Onix Tech" },
-  { id: "educacao", nome: "Onix Educação" },
-];
+export const EMPRESAS_DO_GRUPO: EmpresaSemente[] = empresasCadastradas()
+  .filter((e) => e.id !== RAIZ_DO_GRUPO)
+  .map((e) => ({ id: e.id, nome: e.nome }));
 
 /** Raiz + as 7 — o que o script de terminal semeia. */
 export const TODAS_AS_EMPRESAS: EmpresaSemente[] = [ONIX_CO, ...EMPRESAS_DO_GRUPO];
