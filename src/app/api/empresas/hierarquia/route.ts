@@ -50,11 +50,36 @@ export async function GET() {
   }
 
   try {
-    const [total, arvore] = await Promise.all([contarEmpresas(prisma), lerArvore(prisma)]);
+    const [total, arvore, ultimosBootstraps] = await Promise.all([
+      contarEmpresas(prisma),
+      lerArvore(prisma),
+      // Auditoria sem leitor só descobre que não funciona no dia em que alguém
+      // precisa dela — foi o que aconteceu com PapelPermissao, que tem UI de
+      // edição e nenhum consumidor. Expor aqui é o menor caminho para o log
+      // ter uso: mesma rota, mesmo gate, mesma tabela.
+      //
+      // `select` explícito e MÍNIMO: só quem, quando e o desfecho. ipAddress,
+      // userAgent e metadata NÃO saem — são dado de rastreamento, não fazem
+      // falta para responder "quem criou a raiz?", e uma resposta de API é
+      // colável em ticket, chat e print.
+      prisma.empresaBootstrapLog.findMany({
+        orderBy: { timestamp: "desc" },
+        take: 10,
+        select: {
+          id: true,
+          acao: true,
+          resultado: true,
+          empresaId: true,
+          timestamp: true,
+          usuario: { select: { id: true, name: true } },
+        },
+      }),
+    ]);
     return NextResponse.json({
       total,
       arvore,
       raiz: conferirRaiz(arvore),
+      ultimosBootstraps,
       // Esperado 0 até a PR de reparenting. Explicitado para quem lê a resposta
       // não confundir "hierarquia ainda plana" com "bootstrap incompleto".
       comPai: arvore.filter((e) => e.parentId !== null).length,
