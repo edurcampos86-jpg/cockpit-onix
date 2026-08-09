@@ -49,6 +49,9 @@ model User {
 
   // Auditoria — Sugestão RICE com IA (PR3)
   sugestoesRiceLog SugestaoRiceLog[]
+
+  // Auditoria — bootstrap da hierarquia de empresas (PR-B1)
+  bootstrapsEmpresa EmpresaBootstrapLog[]
 }
 
 // ============================================
@@ -822,6 +825,13 @@ model ClienteBackoffice {
   perfilAcesso          String?
   statusToken           String?
 
+  // === Pessoa-titular (PR-B1) ===
+  // Aponta para a identidade acima do cliente — a mesma pessoa vista pelas
+  // várias empresas do grupo. NULLABLE e SEM backfill nesta fase: toda linha
+  // nasce null e nada no app lê este campo ainda. O vínculo é PR própria.
+  pessoaGrupoId String?
+  pessoaGrupo   PessoaGrupo? @relation(fields: [pessoaGrupoId], references: [id])
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -848,6 +858,94 @@ model ClienteBackoffice {
   @@index([assessorCge])
   @@index([cpfCnpj])
   @@index([telefone])
+  @@index([pessoaGrupoId])
+}
+
+// ============================================
+// PESSOA-TITULAR DO GRUPO (PR-B1)
+// ============================================
+// A identidade que vive ACIMA do cliente. Um mesmo titular pode ter produtos
+// em várias empresas do grupo; `ClienteBackoffice` é o relacionamento de
+// Investimentos dessa pessoa (1 linha = 1 conta BTG), e as demais empresas
+// ganham tabelas irmãs penduradas aqui.
+//
+// Por que o fan-out mora AQUI e não dentro de ClienteBackoffice: pôr um
+// `empresaId` no cliente e duplicar a linha por empresa quebraria três coisas
+// — o import descarta linha sem `numeroConta`
+// (api/backoffice/clientes/route.ts), o RBAC torna invisível quem não tem
+// `assessorCge` (src/lib/rbac.ts:131), e os campos de relacionamento
+// (perfilEmocional, classificacao, ultimoContatoAt) passariam a existir em N
+// linhas sem regra de qual é a verdadeira.
+//
+// NESTA PR a tabela nasce VAZIA e nada a lê. Não há backfill: todo
+// `ClienteBackoffice.pessoaGrupoId` fica null. Popular e vincular é PR própria,
+// depois de medir a cobertura de `cpfCnpj` pelo recon
+// (api/backoffice/recon-identidade).
+model PessoaGrupo {
+  id String @id @default(cuid())
+
+  /// Documento CANÔNICO: só dígitos, sem máscara. 11 = CPF, 14 = CNPJ.
+  /// UNIQUE porque é a chave de identidade — dois titulares com o mesmo
+  /// documento são a mesma pessoa por definição. Normalizar na entrada é
+  /// obrigatório: ver `normalizarDocumento()` em src/lib/empresas/pessoa-grupo.ts.
+  /// Sem isso "097.146.005-10" e "09714600510" ocupariam duas linhas.
+  cpfCnpj String @unique
+
+  /// "CPF" | "CNPJ". Derivado do tamanho de `cpfCnpj`, mas materializado para
+  /// permitir filtro e agregação em SQL sem `length()` em toda query.
+  tipoDocumento String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  clientes ClienteBackoffice[]
+
+  @@index([tipoDocumento])
+}
+
+// Audit log do bootstrap da hierarquia de empresas. Imutável após criar —
+// mesmo contrato de ContratoAcessoLog: nada aqui é atualizado ou apagado.
+//
+// Existe porque `POST /api/empresas/hierarquia` escreve em PRODUÇÃO e o model
+// `Empresa` não tem campo de autoria. Até agora o rastro vivia só num
+// `console.log`, que rotaciona e não é consultável pela tela: depois de a raiz
+// existir, "quem criou e quando?" ficava sem resposta.
+//
+// `onDelete: Restrict` no usuário é deliberado, igual em ContratoAcessoLog:
+// apagar um User não pode apagar o registro de que ele agiu.
+//
+// Registra TODA chamada que passou pelo gate, inclusive a que não criou nada
+// (`resultado = "ja_existia"`). Log só do caso feliz responderia "quem criou"
+// mas nunca "quem tentou".
+model EmpresaBootstrapLog {
+  id String @id @default(cuid())
+
+  usuarioId String
+  usuario   User   @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
+
+  /// O que foi pedido. Hoje só "bootstrap_raiz"; string para o dia em que
+  /// houver reparenting, sem migration para acrescentar um valor.
+  acao String
+
+  /// "criado" | "ja_existia" — o desfecho real da chamada idempotente.
+  resultado String
+
+  /// Alvo da ação, ex.: "onix-co". Sem FK para `Empresa`: o log tem de
+  /// sobreviver ao alvo, e um DELETE na empresa não pode apagar o histórico.
+  empresaId String
+
+  ipAddress String?
+  userAgent String? @db.Text
+
+  /// Payload extra (contagens antes/depois, árvore resultante). Json para não
+  /// precisar de migration a cada campo novo de diagnóstico.
+  metadata Json?
+
+  timestamp DateTime @default(now())
+
+  @@index([usuarioId, timestamp(sort: Desc)])
+  @@index([acao, timestamp(sort: Desc)])
+  @@index([empresaId, timestamp(sort: Desc)])
 }
 
 // ============================================
