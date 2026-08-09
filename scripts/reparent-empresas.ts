@@ -22,9 +22,20 @@
  * Não cria empresa (isso é o seed), não renomeia, não apaga, e não toca em
  * `PessoaEmpresa`. Empresa que não existir no banco é reportada e ignorada.
  *
+ * ── RASTRO EM `EmpresaBootstrapLog` ──────────────────────────────────────
+ * Com `--aplicar`, cada movimento vira uma linha no mesmo log imutável que
+ * `POST /api/empresas/hierarquia` alimenta. Sem isso, o reparenting era a única
+ * escrita da série sem autoria: depois de aplicado, "quem pendurou as empresas
+ * e quando?" não teria resposta — `Empresa` não tem campo de autoria.
+ *
+ * Por isso `--aplicar` EXIGE `--como <email|userId>`. O log tem FK obrigatória
+ * para `User`, e um autor inventado (ou um "sistema" genérico) é pior que log
+ * nenhum: dá aparência de rastro sem responder a pergunta. Dry-run não escreve
+ * nada, então não exige.
+ *
  * Como rodar:
- *   npx tsx scripts/reparent-empresas.ts              # só mostra o plano
- *   npx tsx scripts/reparent-empresas.ts --aplicar    # executa
+ *   npx tsx scripts/reparent-empresas.ts                              # só mostra o plano
+ *   npx tsx scripts/reparent-empresas.ts --aplicar --como eduardo@... # executa
  */
 import "dotenv/config";
 import { RAIZ_DO_GRUPO, idsFilhasDaRaiz } from "../src/lib/empresas/catalogo";
@@ -77,6 +88,16 @@ function conferirContraCatalogo(): void {
   );
 }
 
+/** Lê `--flag valor` do argv. `undefined` se ausente ou sem valor. */
+function lerArgumento(flag: string): string | undefined {
+  const i = process.argv.indexOf(flag);
+  if (i === -1) return undefined;
+  const valor = process.argv[i + 1];
+  // Um `--como` seguido de outra flag é engano de digitação, não valor.
+  if (!valor || valor.startsWith("--")) return undefined;
+  return valor;
+}
+
 function descreverDestino(url: string): string {
   try {
     const u = new URL(url);
@@ -94,9 +115,22 @@ async function main(): Promise<void> {
     );
   }
   const aplicar = process.argv.includes("--aplicar");
+  const como = lerArgumento("--como");
 
   // Antes de abrir conexão: se a lista está errada, nem vale conectar.
   conferirContraCatalogo();
+
+  // Autor obrigatório para escrever — checado ANTES de conectar, junto das
+  // demais validações baratas, para o erro sair no primeiro segundo e não
+  // depois de já ter aberto conexão com produção.
+  if (aplicar && !como) {
+    throw new Error(
+      "--aplicar exige --como <email|userId>: cada movimento vira uma linha em\n" +
+        "  EmpresaBootstrapLog, que tem FK obrigatória para User. Sem autor real o\n" +
+        "  log não responde à pergunta que ele existe para responder.\n" +
+        "  Ex.: npx tsx scripts/reparent-empresas.ts --aplicar --como voce@onix...",
+    );
+  }
 
   console.log(`Destino: ${descreverDestino(url)}`);
   console.log(`Modo:    ${aplicar ? "APLICAR (escreve no banco)" : "dry-run (não escreve nada)"}\n`);
@@ -106,8 +140,39 @@ async function main(): Promise<void> {
 
   const { validarParent, validarArvore } = await import("../src/lib/empresas/hierarquia");
 
-  let empresas = await prisma.empresa.findMany({ select: { id: true, parentId: true } });
+  // Tabela ausente é a falha MAIS provável na primeira execução contra um banco
+  // novo — a migration sobe no start do Railway, e rodar isto antes do deploy é
+  // erro de ordem, não de dado. Sem este guard o Prisma estoura com
+  // `P2021 / relation "Empresa" does not exist` e um stack trace de driver, que
+  // não diz o que fazer. Aqui a mensagem diz.
+  let empresas: { id: string; parentId: string | null }[];
+  try {
+    empresas = await prisma.empresa.findMany({ select: { id: true, parentId: true } });
+  } catch (erro) {
+    const codigo = (erro as { code?: string })?.code;
+    if (codigo === "P2021") {
+      throw new Error(
+        'A tabela "Empresa" não existe neste banco.\n' +
+          "  A migration ainda não subiu. Em produção ela roda no start do Railway\n" +
+          "  (`prisma migrate deploy && next start`); local, rode:\n" +
+          "      npx prisma migrate deploy\n" +
+          "  Depois crie as linhas: npx tsx scripts/seed-empresas.ts",
+      );
+    }
+    throw erro;
+  }
+
   const porId = new Map(empresas.map((e) => [e.id, e]));
+
+  // Tabela existe mas está VAZIA: o deploy passou, o seed não. Distinguir os
+  // dois importa porque o conserto é outro — e a mensagem da raiz ausente
+  // (abaixo) já cobriria o caso, mas sem dizer que a tabela inteira está vazia.
+  if (empresas.length === 0) {
+    throw new Error(
+      'A tabela "Empresa" existe mas está VAZIA — nenhuma empresa foi semeada.\n' +
+        "  Rode antes: npx tsx scripts/seed-empresas.ts",
+    );
+  }
 
   if (!porId.has(RAIZ)) {
     throw new Error(
@@ -115,9 +180,58 @@ async function main(): Promise<void> {
     );
   }
 
+  // Resolve o autor ANTES do primeiro UPDATE. Se o identificador não casar
+  // ninguém, é melhor parar com o banco intacto do que mover 7 empresas e só
+  // então descobrir que o log não tem onde pendurar.
+  let autorId: string | null = null;
+  if (aplicar && como) {
+    const autor = await prisma.user.findFirst({
+      where: { OR: [{ id: como }, { email: como.toLowerCase() }] },
+      select: { id: true, name: true, email: true },
+    });
+    if (!autor) {
+      throw new Error(
+        `Nenhum User casa com "${como}" (nem por id, nem por email).\n` +
+          "  O log tem FK obrigatória para User — corrija o --como antes de aplicar.",
+      );
+    }
+    autorId = autor.id;
+    console.log(`Autor:   ${autor.name} <${autor.email}>\n`);
+  }
+
   let movidas = 0;
   let jaOk = 0;
   let puladas = 0;
+  let auditadas = 0;
+  let falhasDeLog = 0;
+
+  /**
+   * Grava uma linha no log imutável. DEFENSIVO: falha aqui NÃO derruba o
+   * reparenting — o UPDATE já aconteceu e é idempotente, então abortar faria o
+   * operador reexecutar uma operação que deu certo, sem recuperar o log
+   * perdido. As falhas são contadas e reportadas no fim.
+   */
+  async function registrar(empresaId: string, resultado: string, extra: object): Promise<void> {
+    if (!autorId) return;
+    try {
+      await prisma.empresaBootstrapLog.create({
+        data: {
+          usuarioId: autorId,
+          acao: "reparent",
+          resultado,
+          empresaId,
+          metadata: { origem: "scripts/reparent-empresas.ts", raiz: RAIZ, ...extra },
+        },
+      });
+      auditadas++;
+    } catch (erroLog) {
+      falhasDeLog++;
+      console.warn(
+        `  (log) falhou ao registrar "${empresaId}": ` +
+          `${erroLog instanceof Error ? erroLog.message : String(erroLog)}`,
+      );
+    }
+  }
 
   for (const id of FILHAS) {
     const atual = porId.get(id);
@@ -152,6 +266,7 @@ async function main(): Promise<void> {
       // o mundo já com esta aplicada.
       empresas = empresas.map((e) => (e.id === id ? { ...e, parentId: RAIZ } : e));
       console.log(`  MOVIDA   ${id.padEnd(16)} parentId=null → "${RAIZ}"`);
+      await registrar(id, "movida", { de: null, para: RAIZ });
     } else {
       empresas = empresas.map((e) => (e.id === id ? { ...e, parentId: RAIZ } : e));
       console.log(`  moveria  ${id.padEnd(16)} parentId=null → "${RAIZ}"`);
@@ -162,6 +277,26 @@ async function main(): Promise<void> {
   console.log(
     `\n${aplicar ? "Movidas" : "Moveria"}: ${movidas}   Já corretas: ${jaOk}   Puladas: ${puladas}`,
   );
+
+  // Execução que não moveu nada também deixa rastro. Mesma razão do log de
+  // bootstrap: registrar só o caso feliz responde "quem mudou" mas nunca
+  // "quem rodou". O alvo é a raiz, porque o run é sobre a árvore inteira.
+  if (aplicar && movidas === 0) {
+    await registrar(RAIZ, "nada_a_fazer", { jaCorretas: jaOk, puladas });
+  }
+
+  if (aplicar) {
+    console.log(
+      `Auditadas: ${auditadas} linha(s) em EmpresaBootstrapLog` +
+        (falhasDeLog > 0 ? `   FALHAS DE LOG: ${falhasDeLog}` : ""),
+    );
+    if (falhasDeLog > 0) {
+      console.log(
+        "  ATENÇÃO: o reparenting foi aplicado, mas parte do rastro não gravou.\n" +
+          "  O dado está correto; o histórico ficou incompleto.",
+      );
+    }
+  }
 
   // Auditoria do resultado (real, se aplicou; simulado, se dry-run).
   const problemas = validarArvore(empresas);
