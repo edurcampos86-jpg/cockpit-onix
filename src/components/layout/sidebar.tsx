@@ -605,22 +605,82 @@ export function Sidebar() {
         collapsed ? "w-16" : "w-64"
       )}
     >
-      {/* ── Header: Ecossistema Onix ── */}
-      <div className="flex items-center h-16 px-4 border-b border-sidebar-border">
+      {/* ── Header: Ecossistema Onix — volta para o hub ──────────────────
+        * `Link` de verdade, não `onClick` com `router.push`: é o que preserva
+        * clique do meio, abrir em nova aba, arrastar para a barra de favoritos
+        * e "copiar endereço do link". Um handler entregaria só o clique
+        * esquerdo e quebraria as outras quatro em silêncio.
+        *
+        * O padding saiu do container e foi para o `Link`: assim a área
+        * clicável é a faixa inteira de 64px de altura, não só o texto.
+        *
+        * SEM estado ativo, de propósito — e o motivo não é "já tem outro
+        * indicador". MEDIDO: o item "Início" (`inicioItemV2`) só existe com
+        * `NEXT_PUBLIC_NAV_V2=true`; com a flag desligada este logo é o ÚNICO
+        * link para `/` na sidebar inteira. O argumento é outro: logo de
+        * produto não é item de navegação. Ele é âncora de identidade, está
+        * fora da lista, e pintá-lo de "ativo" o transformaria num sétimo item
+        * de menu competindo com os de verdade. O link segue clicável em `/`,
+        * levando a lugar nenhum, que é o comportamento esperado de um logo em
+        * qualquer site.
+        *
+        * O rótulo diz "hub" porque `/` renderiza o hub com `HUB_ECOSSISTEMA`
+        * ON — o estado de produção hoje. Se a flag for desligada, `/` volta a
+        * ser o Painel de Comando (`src/app/page.tsx`) e ESTE TEXTO passa a
+        * mentir: é a única linha a revisitar num rollback da flag. */}
+      <div className="flex items-center h-16 border-b border-sidebar-border">
         {!collapsed ? (
-          <div className="flex items-center gap-2 w-full">
+          <Link
+            href="/"
+            aria-label="Voltar ao hub do Ecossistema Onix"
+            className="group flex items-center gap-2 w-full h-full px-4 outline-none transition-colors hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+          >
             <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center shrink-0">
               <span className="text-primary-foreground font-bold text-sm">O</span>
             </div>
             <div className="flex-1 min-w-0">
-              <h1 className="text-sm font-bold text-sidebar-foreground">Ecossistema Onix</h1>
+              {/* `group-hover` no texto além do fundo: o realce do fundo
+                * sozinho é sutil demais para dizer "isto é clicável" a quem
+                * nunca tentou. */}
+              <h1 className="text-sm font-bold text-sidebar-foreground transition-colors group-hover:text-primary">
+                Ecossistema Onix
+              </h1>
               <p className="text-[10px] text-muted-foreground truncate">Eduardo Campos</p>
             </div>
-          </div>
+          </Link>
         ) : (
-          <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center mx-auto">
-            <span className="text-primary-foreground font-bold text-sm">O</span>
-          </div>
+          /* Recolhida: só o quadrado do logo, e ele CONTINUA clicável — é a
+            * única saída para o hub nesse estado, porque os rótulos do nav
+            * somem. Tooltip como nos módulos recolhidos (`renderModule`), para
+            * quem não reconhece o "O" saber para onde vai. */
+          <Tooltip>
+            {/* `render`, não `asChild`: este Tooltip é Base UI, não Radix — o
+              * `asChild` do Radix seria IGNORADO aqui e o trigger renderiza
+              * `<button>` por padrão, envolvendo o `<a>`. Além de HTML
+              * inválido, botão em volta de link engole exatamente o clique do
+              * meio e o "abrir em nova aba" que esta mudança existe para
+              * preservar.
+              *
+              * Sem `nativeButton={false}`: esta versão do Base UI não expõe
+              * essa prop no Trigger do Tooltip (ela vive em `NativeButtonProps`,
+              * que `TooltipTriggerProps` não estende) — conferido no `.d.ts`,
+              * e o `tsc` recusa. O `<a>` continua correto: o `render` substitui
+              * o elemento, e a navegação por Enter é a nativa do link. */}
+            <TooltipTrigger
+              render={
+                <Link
+                  href="/"
+                  aria-label="Voltar ao hub do Ecossistema Onix"
+                  className="flex items-center justify-center w-full h-full outline-none transition-colors hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+                />
+              }
+            >
+              <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
+                <span className="text-primary-foreground font-bold text-sm">O</span>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="right">Ecossistema Onix — voltar ao hub</TooltipContent>
+          </Tooltip>
         )}
       </div>
 
