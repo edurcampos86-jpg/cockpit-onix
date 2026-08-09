@@ -3,8 +3,10 @@ import { test } from "node:test";
 import {
   CATALOGO_EMPRESAS,
   RAIZ_DO_GRUPO,
+  divergencias,
   empresaDoGrupo,
   idsCadastradas,
+  idsFilhasDaRaiz,
   idsNoHub,
 } from "./catalogo";
 import { NOS_ECOSSISTEMA } from "@/lib/hub-ecossistema/nos";
@@ -26,13 +28,9 @@ test("empresa fora do cadastro não pode ter rota — ela não existe no sistema
   // Implicação de mão única: `cadastrada: false` ⇒ `maturidade: "sem-rota"`.
   // O contrário é permitido (`educacao` está cadastrada e ainda não tem rota).
   //
-  // O que este teste protege HOJE: `maturidade` é o que decide se o nó promete
-  // um destino ao usuário. Prometer rota para uma empresa que não existe nem
-  // como cadastro é promessa que o 404 desmente no clique.
-  //
-  // O que ele protege DEPOIS: qualquer regra pendurada em `Empresa` — a começar
-  // pelo RBAC por empresa, em PR à parte — trata "não cadastrada" como ausência,
-  // não como negação. Rota que nasce sem cadastro nasce fora dessa régua.
+  // Não é estética: `podeVerEmpresa` libera empresa ausente de `Empresa` DE
+  // PROPÓSITO (`gate-pagina.ts`, ausência não é negação). Então rota nova sem
+  // cadastro é rota SEM RBAC — qualquer pessoa entra. Este teste é o alarme.
   for (const no of NOS_ECOSSISTEMA) {
     const cat = empresaDoGrupo(no.id);
     assert.ok(cat, `nó "${no.id}" não está no catálogo`);
@@ -40,8 +38,8 @@ test("empresa fora do cadastro não pode ter rota — ela não existe no sistema
       assert.equal(
         no.maturidade,
         "sem-rota",
-        `"${no.id}" promete rota (${no.maturidade}) mas não está cadastrada — ` +
-          "cadastre no catálogo e rode o seed antes de criar a página.",
+        `"${no.id}" tem rota (${no.maturidade}) mas não está cadastrada — ` +
+          "a página ficaria aberta a qualquer pessoa. Cadastre no catálogo e rode o seed.",
       );
     }
   }
@@ -73,6 +71,28 @@ test("nenhuma linha morta: empresa fora do hub E fora do cadastro não existe", 
   for (const e of CATALOGO_EMPRESAS) {
     assert.ok(e.cadastrada || e.noHub, `"${e.id}" não aparece em lugar nenhum — remova a linha`);
   }
+});
+
+/* ── Acrescentado pelo RBAC por empresa ─────────────────────────────────── */
+
+test("o reparenting nunca tenta pendurar a raiz nela mesma", () => {
+  assert.ok(!idsFilhasDaRaiz().includes(RAIZ_DO_GRUPO));
+  assert.equal(idsFilhasDaRaiz().length, idsCadastradas().length - 1);
+});
+
+test("as três caixas cobrem o catálogo inteiro e não se sobrepõem", () => {
+  const { nosDois, soNoHub, soNoCadastro } = divergencias();
+  const total = [...nosDois, ...soNoHub, ...soNoCadastro];
+  assert.equal(total.length, CATALOGO_EMPRESAS.length);
+  assert.equal(new Set(total).size, total.length);
+});
+
+test("as três caixas, escritas por extenso", () => {
+  assert.deepEqual(divergencias(), {
+    nosDois: ["investimentos", "corretora", "corporate", "imobiliaria", "tech", "educacao"],
+    soNoHub: ["agro", "contabil"],
+    soNoCadastro: ["onix-co", "planejamento"],
+  });
 });
 
 test("o estado de HOJE, escrito por extenso", () => {
