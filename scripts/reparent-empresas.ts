@@ -1,9 +1,12 @@
 /**
  * Reparenting da tabela `Empresa` — pendura as empresas do grupo na raiz.
  *
- * É a "PR seguinte" que `scripts/seed-empresas.ts` anuncia: o seed cria as 8
- * como raízes soltas de propósito e deixa o vínculo para cá, com conferência
- * antes do UPDATE.
+ * FERRAMENTA DE REPARO, não etapa do bootstrap. Desde a PR-B4 o seed já cria
+ * cada filha com `parentId = "onix-co"`, então num banco semeado do zero este
+ * script não tem o que mover — e é assim que se espera que ele rode: "Movidas:
+ * 0". Ele existe para o caso em que uma linha aparece com o pai errado (SQL
+ * manual, banco antigo semeado antes da B4, importação), e é o único caminho
+ * que corrige `parentId` de linha existente, sempre com conferência antes.
  *
  * ── ONDE MORA A LÓGICA ───────────────────────────────────────────────────
  * Não aqui. A régua, as guardas de pré-condição e a auditoria vivem em
@@ -55,11 +58,9 @@ const RAIZ = RAIZ_DO_GRUPO;
 const FILHAS = [
   "investimentos",
   "corretora",
-  "planejamento",
-  "imobiliaria",
   "corporate",
+  "imobiliaria",
   "tech",
-  "educacao",
 ] as const;
 
 /** Lê `--flag valor` do argv. `undefined` se ausente ou sem valor. */
@@ -115,7 +116,7 @@ async function main(): Promise<void> {
   const empresas = await carregarArvore(prisma);
 
   // Resolve o autor ANTES do primeiro UPDATE. Se o identificador não casar
-  // ninguém, é melhor parar com o banco intacto do que mover 7 empresas e só
+  // ninguém, é melhor parar com o banco intacto do que mover 5 empresas e só
   // então descobrir que o log não tem onde pendurar.
   let autorId: string | null = null;
   if (aplicar && como) {

@@ -3,17 +3,25 @@
  *
  * Roda contra um banco DESCARTÁVEL a mesma ordem que produção vai ver:
  *
- *     migrate deploy → seed → reparent (dry-run) → reparent --aplicar → reexecutar
+ *     migrate deploy → seed → seed-filhas (repetido) → avaria → reparent
  *
  * e falha se qualquer passo divergir do esperado.
  *
  * ── POR QUE EXISTE ───────────────────────────────────────────────────────
  * Essa sequência foi conferida À MÃO antes de cada execução em produção — e
  * conferência manual não sobrevive à próxima pessoa nem ao próximo mês. O que
- * ela verifica não é "o script roda", é o CONTRATO entre os três: que o seed
- * deixa 8 raízes soltas, que o dry-run não escreve, que o `--aplicar` move 7, e
- * que reexecutar não move nada. Qualquer um desses quebrando em silêncio só
- * apareceria em produção.
+ * ela verifica não é "o script roda", é o CONTRATO entre as partes: que o seed
+ * deixa 6 linhas com as 5 JÁ penduradas, que `seed-filhas` recria só o que
+ * falta, que ele NÃO conserta pai errado, e que o reparent conserta. Qualquer
+ * um desses quebrando em silêncio só apareceria em produção.
+ *
+ * ── O QUE MUDOU NA PR-B4 ─────────────────────────────────────────────────
+ * Antes, o seed criava tudo solto e o reparent era etapa OBRIGATÓRIA do
+ * bootstrap — o ensaio media "o reparent moveu 7?". Agora as filhas nascem
+ * penduradas, então num banco novo o reparent não tem o que mover. Para o
+ * ensaio continuar exercitando o caminho de reparo (que é o que ele passou a
+ * ser), o passo 6 AVARIA a árvore de propósito e só então chama o reparent.
+ * Sem essa avaria o ensaio verificaria um caminho que nunca roda.
  *
  * ── SEGURANÇA: NUNCA CONTRA UM BANCO QUE NÃO SEJA DESCARTÁVEL ────────────
  * Este script APAGA e recria o banco de destino. Por isso ele recusa qualquer
@@ -128,18 +136,34 @@ async function main(): Promise<void> {
   const depoisDoSeed = await prisma.empresa.findMany({ select: { id: true, parentId: true } });
   conferir(
     depoisDoSeed.length === ESPERADO_TOTAL,
-    `seed cria ${ESPERADO_TOTAL} empresas`,
+    `seed cria ${ESPERADO_TOTAL} empresas (raiz + ${ESPERADO_FILHAS})`,
     `veio ${depoisDoSeed.length}`,
-  );
-  conferir(
-    depoisDoSeed.every((e) => e.parentId === null),
-    "todas nascem como raízes soltas",
-    `${depoisDoSeed.filter((e) => e.parentId !== null).length} já tinham pai`,
   );
   conferir(
     depoisDoSeed.some((e) => e.id === RAIZ_DO_GRUPO),
     `a raiz "${RAIZ_DO_GRUPO}" existe`,
     "raiz ausente após o seed",
+  );
+  conferir(
+    depoisDoSeed.find((e) => e.id === RAIZ_DO_GRUPO)?.parentId === null,
+    "a raiz nasce sem pai",
+    "a raiz nasceu com pai",
+  );
+  // O contrato da PR-B4: as filhas JÁ nascem penduradas. Antes elas nasciam
+  // soltas e só o reparent as pendurava — se isso regredir, a árvore volta a
+  // ficar plana depois de um bootstrap limpo e ninguém percebe até olhar.
+  const penduradasNoSeed = depoisDoSeed.filter((e) => e.parentId === RAIZ_DO_GRUPO);
+  conferir(
+    penduradasNoSeed.length === ESPERADO_FILHAS,
+    `as ${ESPERADO_FILHAS} filhas nascem JÁ penduradas na raiz`,
+    `só ${penduradasNoSeed.length} vieram com parentId="${RAIZ_DO_GRUPO}"`,
+  );
+
+  const { validarArvore } = await import("../src/lib/empresas/hierarquia");
+  conferir(
+    validarArvore(depoisDoSeed).length === 0,
+    "a árvore recém-semeada já respeita a régua de 2 níveis",
+    validarArvore(depoisDoSeed).map((p) => `${p.id}: ${p.mensagem}`).join("; "),
   );
 
   // Idempotência do seed.
@@ -150,23 +174,120 @@ async function main(): Promise<void> {
     "a contagem mudou na segunda execução",
   );
 
-  // ── 3. Dry-run NÃO escreve ─────────────────────────────────────────────
-  console.log("\n3. reparent (dry-run)");
+  // ── 3. seed-filhas: cria só o que falta ────────────────────────────────
+  //
+  // É a lógica que `POST /api/empresas/hierarquia` com { "acao": "seed-filhas" }
+  // executa. O ensaio a chama pelo módulo, não pelo HTTP: o que se quer
+  // verificar é a ESCRITA contra Postgres de verdade (FK, skipDuplicates,
+  // parentId), e isso os testes unitários — que rodam sem banco — não alcançam.
+  console.log("\n3. seed-filhas (recria só o que falta)");
+  const { planejarSeedFilhas, semearFilhas } = await import(
+    "../src/lib/empresas/seed-hierarquia"
+  );
+
+  // Apaga duas filhas para simular o bootstrap parcial.
+  const apagadas = ["tech", "corporate"];
+  await prisma.empresa.deleteMany({ where: { id: { in: apagadas } } });
+  conferir(
+    (await prisma.empresa.count()) === ESPERADO_TOTAL - apagadas.length,
+    `${apagadas.length} filhas removidas para simular bootstrap parcial`,
+    "a remoção não surtiu efeito",
+  );
+
+  const planoParcial = planejarSeedFilhas(await prisma.empresa.findMany({
+    select: { id: true, nome: true, parentId: true },
+  }));
+  conferir(
+    [...planoParcial.criar.map((e) => e.id)].sort().join(",") === [...apagadas].sort().join(","),
+    "o plano propõe criar EXATAMENTE as que faltam",
+    `propôs: ${planoParcial.criar.map((e) => e.id).join(", ")}`,
+  );
+  conferir(
+    planoParcial.divergencias.length === 0,
+    "nenhuma divergência de pai no bootstrap parcial",
+    `veio ${planoParcial.divergencias.length}`,
+  );
+
+  const r1 = await semearFilhas(prisma, planoParcial);
+  conferir(
+    r1.inseridas === apagadas.length && r1.totalDepois === ESPERADO_TOTAL,
+    `seed-filhas recria as ${apagadas.length} ausentes e volta a ${ESPERADO_TOTAL}`,
+    `inseridas=${r1.inseridas}, total=${r1.totalDepois}`,
+  );
+  conferir(
+    r1.arvoreFinal
+      .filter((e) => apagadas.includes(e.id))
+      .every((e) => e.parentId === RAIZ_DO_GRUPO),
+    "as recriadas voltam JÁ penduradas na raiz",
+    "alguma recriada ficou solta",
+  );
+
+  // ── 4. seed-filhas é idempotente ───────────────────────────────────────
+  console.log("\n4. seed-filhas repetido (idempotência)");
+  for (let volta = 1; volta <= 10; volta++) {
+    const plano = planejarSeedFilhas(
+      await prisma.empresa.findMany({ select: { id: true, nome: true, parentId: true } }),
+    );
+    const r = await semearFilhas(prisma, plano);
+    if (r.inseridas !== 0 || r.totalDepois !== ESPERADO_TOTAL) {
+      throw new Error(
+        `FALHOU: seed-filhas não é idempotente\n  volta ${volta}: ` +
+          `inseridas=${r.inseridas}, total=${r.totalDepois}`,
+      );
+    }
+  }
+  conferir(
+    (await prisma.empresa.count()) === ESPERADO_TOTAL,
+    `10 execuções seguidas deixam as mesmas ${ESPERADO_TOTAL} linhas`,
+    "a contagem mudou ao repetir",
+  );
+
+  // ── 5. seed-filhas NÃO conserta pai errado ─────────────────────────────
+  //
+  // O caso que separa esta operação de um upsert: a filha existe com o pai
+  // errado. Consertar aqui seria um UPDATE silencioso em produção disfarçado
+  // de seed — o conserto é o verbo do reparent, no passo seguinte.
+  console.log("\n5. seed-filhas diante de pai divergente");
+  await prisma.empresa.update({ where: { id: "tech" }, data: { parentId: null } });
+
+  const planoDivergente = planejarSeedFilhas(
+    await prisma.empresa.findMany({ select: { id: true, nome: true, parentId: true } }),
+  );
+  conferir(
+    planoDivergente.divergencias.length === 1 && planoDivergente.divergencias[0].id === "tech",
+    "a filha solta é REPORTADA como divergência",
+    `veio ${JSON.stringify(planoDivergente.divergencias)}`,
+  );
+  conferir(
+    planoDivergente.criar.length === 0,
+    "a divergente não entra em criar (o INSERT cairia no skipDuplicates)",
+    `criar trouxe ${planoDivergente.criar.map((e) => e.id).join(", ")}`,
+  );
+
+  const r2 = await semearFilhas(prisma, planoDivergente);
+  conferir(
+    r2.inseridas === 0 &&
+      r2.arvoreFinal.find((e) => e.id === "tech")?.parentId === null,
+    "seed-filhas NÃO corrigiu o pai em silêncio",
+    "a empresa divergente foi alterada pelo seed",
+  );
+
+  // ── 6. Dry-run do reparent NÃO escreve ─────────────────────────────────
+  console.log("\n6. reparent (dry-run) sobre a árvore avariada");
   const saidaDry = rodar(["scripts/reparent-empresas.ts"]);
   conferir(
     saidaDry.includes("Nada foi escrito"),
     "dry-run anuncia que não escreveu",
     "a saída não trouxe a frase de dry-run",
   );
-  const comPaiAposDry = await prisma.empresa.count({ where: { parentId: { not: null } } });
   conferir(
-    comPaiAposDry === 0,
+    (await prisma.empresa.findUnique({ where: { id: "tech" } }))?.parentId === null,
     "dry-run realmente não escreveu",
-    `${comPaiAposDry} empresa(s) ganharam pai — o dry-run está escrevendo`,
+    "o dry-run consertou a empresa — ele está escrevendo",
   );
 
-  // ── 4. Aplicar exige autor ─────────────────────────────────────────────
-  console.log("\n4. --aplicar sem --como");
+  // ── 7. Aplicar exige autor ─────────────────────────────────────────────
+  console.log("\n7. --aplicar sem --como");
   let recusou = false;
   try {
     rodar(["scripts/reparent-empresas.ts", "--aplicar"]);
@@ -175,12 +296,12 @@ async function main(): Promise<void> {
   }
   conferir(recusou, "--aplicar sem --como é recusado", "o script aceitou aplicar sem autor");
   conferir(
-    (await prisma.empresa.count({ where: { parentId: { not: null } } })) === 0,
+    (await prisma.empresa.findUnique({ where: { id: "tech" } }))?.parentId === null,
     "a recusa não deixou escrita parcial",
-    "alguma empresa foi movida mesmo com a recusa",
+    "a empresa foi movida mesmo com a recusa",
   );
 
-  // ── 5. Aplicar de verdade ──────────────────────────────────────────────
+  // ── 8. Reparent conserta ───────────────────────────────────────────────
   // O log tem FK obrigatória para User: o ensaio cria um autor descartável.
   // É a ÚNICA linha que este script insere fora do que os scripts testados
   // criam, e ela existe porque sem autor não dá para exercitar o caminho de
@@ -195,8 +316,18 @@ async function main(): Promise<void> {
     select: { id: true, email: true },
   });
 
-  console.log("\n5. reparent --aplicar");
-  rodar(["scripts/reparent-empresas.ts", "--aplicar", "--como", autor.email]);
+  console.log("\n8. reparent --aplicar (a ferramenta de reparo)");
+  const saidaAplicar = rodar([
+    "scripts/reparent-empresas.ts",
+    "--aplicar",
+    "--como",
+    autor.email,
+  ]);
+  conferir(
+    saidaAplicar.includes("Movidas: 1"),
+    "o reparent move EXATAMENTE a empresa avariada",
+    "a contagem de movidas não foi 1",
+  );
 
   const depoisDoReparent = await prisma.empresa.findMany({ select: { id: true, parentId: true } });
   const filhas = depoisDoReparent.filter((e) => e.parentId === RAIZ_DO_GRUPO);
@@ -212,7 +343,6 @@ async function main(): Promise<void> {
   );
 
   // A régua de 2 níveis tem de valer no resultado real, não só na simulação.
-  const { validarArvore } = await import("../src/lib/empresas/hierarquia");
   const problemas = validarArvore(depoisDoReparent);
   conferir(
     problemas.length === 0,
@@ -220,24 +350,24 @@ async function main(): Promise<void> {
     problemas.map((p) => `${p.id}: ${p.mensagem}`).join("; "),
   );
 
-  // ── 6. Auditoria gravou ────────────────────────────────────────────────
+  // ── 9. Auditoria gravou ────────────────────────────────────────────────
   const logs = await prisma.empresaBootstrapLog.findMany({
-    where: { acao: "reparent" },
-    select: { empresaId: true, resultado: true, usuarioId: true },
+    where: { acao: "reparent", resultado: "movida" },
+    select: { empresaId: true, usuarioId: true },
   });
   conferir(
-    logs.length === ESPERADO_FILHAS,
-    `${ESPERADO_FILHAS} linha(s) de auditoria gravadas`,
-    `veio ${logs.length}`,
+    logs.length === 1 && logs[0].empresaId === "tech",
+    "o reparo deixou 1 linha de auditoria, da empresa certa",
+    `veio ${JSON.stringify(logs)}`,
   );
   conferir(
-    logs.every((l) => l.usuarioId === autor.id && l.resultado === "movida"),
-    "cada linha aponta para o autor informado",
-    "alguma linha veio com autor ou resultado inesperado",
+    logs.every((l) => l.usuarioId === autor.id),
+    "a linha aponta para o autor informado",
+    "a linha veio com autor inesperado",
   );
 
-  // ── 7. Reexecutar é inócuo ─────────────────────────────────────────────
-  console.log("\n6. reparent --aplicar de novo (idempotência)");
+  // ── 10. Reexecutar o reparent é inócuo ─────────────────────────────────
+  console.log("\n9. reparent --aplicar de novo (idempotência)");
   const saidaRepetida = rodar([
     "scripts/reparent-empresas.ts",
     "--aplicar",
@@ -246,14 +376,13 @@ async function main(): Promise<void> {
   ]);
   conferir(
     saidaRepetida.includes("Movidas: 0"),
-    "segunda execução não move nada",
+    "num banco são o reparent não tem o que mover",
     "a segunda execução moveu empresas",
   );
-  const logsDepois = await prisma.empresaBootstrapLog.count({ where: { acao: "reparent" } });
   conferir(
-    logsDepois === ESPERADO_FILHAS + 1,
-    "execução sem movimento também deixa rastro",
-    `esperava ${ESPERADO_FILHAS + 1} linha(s), veio ${logsDepois}`,
+    (await prisma.empresa.count()) === ESPERADO_TOTAL,
+    `o banco termina com as mesmas ${ESPERADO_TOTAL} linhas`,
+    "a contagem final divergiu",
   );
 
   console.log("\n═══ ENSAIO COMPLETO — todos os contratos verificados ═══");

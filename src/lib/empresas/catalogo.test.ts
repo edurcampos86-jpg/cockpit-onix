@@ -67,10 +67,16 @@ test("toda divergência declarada carrega o motivo por escrito", () => {
   }
 });
 
-test("nenhuma linha morta: empresa fora do hub E fora do cadastro não existe", () => {
-  for (const e of CATALOGO_EMPRESAS) {
-    assert.ok(e.cadastrada || e.noHub, `"${e.id}" não aparece em lugar nenhum — remova a linha`);
-  }
+test("fora dos DOIS eixos só quem foi excluído de propósito, e por escrito", () => {
+  // Este teste já foi "nenhuma linha morta: fora do hub E fora do cadastro não
+  // existe". A PR-B4 criou o primeiro caso legítimo: `planejamento` é
+  // departamento, então não é PJ (fora do cadastro) e não orbita (fora do
+  // hub) — mas tem rota e link de sidebar, então a linha NÃO é morta.
+  //
+  // A regra que substitui a antiga: estar fora dos dois é permitido, desde que
+  // apareça aqui por extenso. Uma linha que caia nesse estado por descuido
+  // falha o teste e obriga a decidir — que é o que a versão anterior fazia.
+  assert.deepEqual(divergencias().foraDosDois, ["planejamento"]);
 });
 
 /* ── Acrescentado pelo RBAC por empresa ─────────────────────────────────── */
@@ -80,18 +86,19 @@ test("o reparenting nunca tenta pendurar a raiz nela mesma", () => {
   assert.equal(idsFilhasDaRaiz().length, idsCadastradas().length - 1);
 });
 
-test("as três caixas cobrem o catálogo inteiro e não se sobrepõem", () => {
-  const { nosDois, soNoHub, soNoCadastro } = divergencias();
-  const total = [...nosDois, ...soNoHub, ...soNoCadastro];
+test("as quatro caixas cobrem o catálogo inteiro e não se sobrepõem", () => {
+  const { nosDois, soNoHub, soNoCadastro, foraDosDois } = divergencias();
+  const total = [...nosDois, ...soNoHub, ...soNoCadastro, ...foraDosDois];
   assert.equal(total.length, CATALOGO_EMPRESAS.length);
   assert.equal(new Set(total).size, total.length);
 });
 
-test("as três caixas, escritas por extenso", () => {
+test("as quatro caixas, escritas por extenso", () => {
   assert.deepEqual(divergencias(), {
-    nosDois: ["investimentos", "corretora", "corporate", "imobiliaria", "tech", "educacao"],
-    soNoHub: ["agro", "contabil"],
-    soNoCadastro: ["onix-co", "planejamento"],
+    nosDois: ["investimentos", "corretora", "corporate", "imobiliaria", "tech"],
+    soNoHub: ["educacao", "agro", "contabil"],
+    soNoCadastro: ["onix-co"],
+    foraDosDois: ["planejamento"],
   });
 });
 
@@ -99,6 +106,10 @@ test("o estado de HOJE, escrito por extenso", () => {
   // Fotografia proposital: quando alguém mudar uma presença no catálogo, este
   // teste falha e obriga a atualizar a foto — a mudança fica registrada no
   // diff em vez de passar despercebida.
+  // A lista canônica da PR-B4: a raiz + as 5 pessoas jurídicas do grupo.
+  // Agro, Planejamento, Contábil e Meu Sucesso Patrimonial (`educacao`) estão
+  // fora por decisão registrada no topo de `catalogo.ts`; Barreiras e Unaí são
+  // filiais e nunca tiveram id.
   assert.deepEqual(idsCadastradas(), [
     "onix-co",
     "investimentos",
@@ -106,8 +117,6 @@ test("o estado de HOJE, escrito por extenso", () => {
     "corporate",
     "imobiliaria",
     "tech",
-    "educacao",
-    "planejamento",
   ]);
   assert.deepEqual(idsNoHub(), [
     "investimentos",
