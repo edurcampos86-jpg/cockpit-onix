@@ -1,10 +1,15 @@
 import type { Agent } from "./types";
-import { cockpitAgent } from "./agents/cockpit";
 import { corretoraAgent } from "./agents/corretora";
 import { kpisAgent } from "./agents/kpis";
 
+/**
+ * Os agentes do runtime interno.
+ *
+ * O "Copiloto Onix" (`agents/cockpit.ts`) foi REMOVIDO — era o assistente de
+ * orientação geral que atendia toda rota sem agente próprio. Os dois que
+ * ficam são especialistas: cada um sabe de uma área e só é oferecido nela.
+ */
 const AGENTS: Record<string, Agent> = {
-  [cockpitAgent.id]: cockpitAgent,
   [corretoraAgent.id]: corretoraAgent,
   [kpisAgent.id]: kpisAgent,
 };
@@ -23,8 +28,12 @@ export function listAgentMetadata(): Array<Pick<Agent, "id" | "name" | "subtitle
   }));
 }
 
-export function pickAgentForPath(pathname: string): string {
-  if (pathname.startsWith("/onix-corretora")) return "corretora";
-  if (pathname.startsWith("/kpis") || pathname.startsWith("/analytics")) return "kpis";
-  return "cockpit";
-}
+/**
+ * Reexportado de `./rotas`, que é PURO e client-safe.
+ *
+ * A regra não mora aqui porque o botão flutuante (`'use client'`) precisa da
+ * mesma resposta e não pode importar este arquivo: a cadeia
+ * `agents/kpis.ts` → `snapshot.ts` abre com `server-only`. Manter a
+ * reexportação evita quebrar quem já importava daqui.
+ */
+export { agentePorRota } from "./rotas";

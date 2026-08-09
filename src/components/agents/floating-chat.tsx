@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { usePathname } from "next/navigation";
 import { Bot, X, Send } from "lucide-react";
+import { agentePorRota } from "@/lib/agents/rotas";
 
 interface Message {
   role: "user" | "assistant";
@@ -15,12 +16,6 @@ interface AgentMeta {
   subtitle: string;
   intro: string;
   suggestions: string[];
-}
-
-function pickAgentIdForPath(pathname: string): string {
-  if (pathname.startsWith("/onix-corretora")) return "corretora";
-  if (pathname.startsWith("/kpis") || pathname.startsWith("/analytics")) return "kpis";
-  return "cockpit";
 }
 
 function renderMessageContent(content: string): React.ReactNode {
@@ -84,10 +79,25 @@ function TypingIndicator() {
   );
 }
 
+/**
+ * Porteiro: decide se ESTA rota tem agente e, só então, monta o chat.
+ *
+ * A decisão fica FORA do componente que usa hooks de propósito. Antes, o chat
+ * montava em toda rota, disparava `fetch("/api/agents")` no mount e só depois
+ * desistia no `if (!agent) return null` lá embaixo — uma requisição por
+ * navegação em páginas que nunca teriam assistente. Com o Copiloto removido
+ * isso passou a ser a maioria das rotas, incluindo o hub em `/`.
+ *
+ * Hook não pode ser condicional; componente pode. Daí a divisão.
+ */
 export function FloatingChat() {
   const pathname = usePathname();
-  const agentId = pickAgentIdForPath(pathname);
+  const agentId = agentePorRota(pathname);
+  if (!agentId) return null;
+  return <ChatDoAgente agentId={agentId} pathname={pathname} />;
+}
 
+function ChatDoAgente({ agentId, pathname }: { agentId: string; pathname: string }) {
   const [agents, setAgents] = useState<Record<string, AgentMeta>>({});
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
