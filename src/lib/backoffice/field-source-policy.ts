@@ -33,6 +33,14 @@ export const FIELD_SOURCE_POLICY: Record<string, FonteImport[]> = {
   nomeCompleto: ["informacoes", "api"],
   // apelido é MANUAL — nenhuma import sobrescreve.
   apelido: ["manual"],
+  // origemIndicacao é MANUAL — nenhum dos 3 XLSX BTG tem a coluna, e nenhum
+  // pode passar a ter: é conhecimento do assessor, não dado do BTG. Declarado
+  // aqui (e não deixado fora da policy como `feeFixo`) para que
+  // upsertPorPolitica descarte explicitamente qualquer import que tente
+  // escrever, em vez de depender de o mapeamento nunca ganhar a chave.
+  // Guarda só origens que NÃO são indicação ("evento", "inbound"); indicação
+  // de verdade vive no elo Indicacao.clienteConvertidoId.
+  origemIndicacao: ["manual"],
 
   // ── Posição financeira (fonte: base_btg) ───────────────────────────────
   saldo: ["base_btg"], // PL Total

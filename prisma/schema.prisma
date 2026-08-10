@@ -774,6 +774,19 @@ model ClienteBackoffice {
   apelidoEditadoEm  DateTime?
   apelidoEditadoPor String? // userId de quem editou (sessao atual)
 
+  // === Origem do cliente (manual) ===
+  // FALLBACK TEXTO, e só para origens que NÃO são indicação: "evento",
+  // "inbound", "prospecção fria". Quando a origem É uma indicação, a verdade
+  // mora no elo `Indicacao.clienteConvertido` (relação IndicacaoConvertida) —
+  // que preserva QUEM indicou, um FK que texto livre não consegue representar.
+  // Gravar "indicação do Fulano" aqui duplicaria esse dado e divergiria dele.
+  //
+  // MANUAL na FIELD_SOURCE_POLICY (mesmo padrão de `apelido`): nenhum dos 3
+  // XLSX BTG pode escrever, e upsertPorPolitica descarta se tentarem.
+  origemIndicacao           String?
+  origemIndicacaoEditadoEm  DateTime?
+  origemIndicacaoEditadoPor String? // userId de quem editou (sessao atual)
+
   // === Multi-fonte BTG (auditoria de fonte por campo) ===
   // fonteUltimoUpdate registra qual fonte (base_btg/informacoes/saldo_em_cc/manual)
   // escreveu por ultimo cada campo. Ver lib/backoffice/field-source-policy.
@@ -839,6 +852,11 @@ model ClienteBackoffice {
   metas            MetaCliente[]
   eventosVida      EventoVida[]
   indicacoes       Indicacao[]           @relation("ClienteIndicador")
+  // Lado inverso de Indicacao.clienteConvertido — as indicações que ORIGINARAM
+  // este cliente. Lista (não `?`) de propósito: nada impede duas pessoas terem
+  // indicado o mesmo prospect, e um UNIQUE aqui transformaria esse caso real
+  // num erro de gravação na rota /converter.
+  origensIndicacao Indicacao[]           @relation("IndicacaoConvertida")
   perfilDescoberta PerfilDescoberta?
   planoUmaPagina   PlanoUmaPagina?
   checklist        ChecklistOrganizacao?
@@ -1266,10 +1284,28 @@ model Indicacao {
   agradecimentoEnviado Boolean @default(false)
   notas                String? @db.Text
 
+  // Cliente que este prospect virou. NULL enquanto não converteu — e o status
+  // "convertida" existia desde sempre SEM esse elo, então partindo de um
+  // ClienteBackoffice era impossível responder "quem indicou este cliente?".
+  // É esse buraco que o campo fecha.
+  //
+  // NULLABLE e SEM BACKFILL nesta PR: toda linha existente nasce null,
+  // inclusive as que já estão em status "convertida" (ligá-las é PR própria —
+  // `nomeIndicado` é texto livre e o casamento com o cliente precisa de
+  // revisão humana, não de heurística de nome).
+  //
+  // onDelete: SetNull — apagar um cliente não pode apagar o histórico de que
+  // alguém o indicou; a indicação sobrevive, só perde o ponteiro.
+  clienteConvertidoId String?
+  clienteConvertido   ClienteBackoffice? @relation("IndicacaoConvertida", fields: [clienteConvertidoId], references: [id], onDelete: SetNull)
+
   criadoEm     DateTime @default(now())
   atualizadoEm DateTime @updatedAt
 
   @@index([status])
+  // Suporta a pergunta que motivou a PR — "qual a origem DESTE cliente?" —
+  // percorrendo o elo no sentido cliente → indicação.
+  @@index([clienteConvertidoId])
 }
 
 // Questionário de descoberta profunda (Storyselling — hemisfério direito)
