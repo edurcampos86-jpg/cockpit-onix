@@ -119,21 +119,33 @@ function ChatDoAgente({ agentId, pathname }: { agentId: string; pathname: string
   const isInitialState =
     messages.length === 1 && messages[0].role === "assistant" && !!agent && messages[0].content === agent.intro;
 
+  /*
+   * Busca o metadado de UM agente: o desta rota.
+   *
+   * A rota `/api/agents` devolvia o catálogo e este efeito jogava fora tudo
+   * menos `agents[agentId]` — quem estava em "/kpis" baixava também o `intro`
+   * e as `suggestions` da Corretora para não usar nenhum dos dois.
+   *
+   * O `Record` continua sendo cache, não catálogo: navegar entre "/kpis" e
+   * "/onix-corretora" não desmonta este componente (o porteiro só troca a
+   * prop), então o que já veio uma vez não volta a ser pedido — daí o guard
+   * `if (agent) return`.
+   */
   useEffect(() => {
+    if (agent) return;
     let cancelled = false;
-    fetch("/api/agents")
+    fetch(`/api/agents?id=${encodeURIComponent(agentId)}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
-        if (cancelled || !data?.agents) return;
-        const map: Record<string, AgentMeta> = {};
-        for (const a of data.agents as AgentMeta[]) map[a.id] = a;
-        setAgents(map);
+        const recebido: AgentMeta | undefined = data?.agent;
+        if (cancelled || !recebido) return;
+        setAgents((prev) => ({ ...prev, [recebido.id]: recebido }));
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [agentId, agent]);
 
   useEffect(() => {
     if (messagesEndRef.current) {

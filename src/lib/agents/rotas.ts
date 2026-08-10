@@ -31,7 +31,25 @@
  * está respondendo errado é bem mais caro.
  */
 export function agentePorRota(pathname: string): string | null {
-  if (pathname.startsWith("/onix-corretora")) return "corretora";
-  if (pathname.startsWith("/kpis") || pathname.startsWith("/analytics")) return "kpis";
+  if (dentroDe(pathname, "/onix-corretora")) return "corretora";
+  if (dentroDe(pathname, "/kpis") || dentroDe(pathname, "/analytics")) return "kpis";
   return null;
+}
+
+/**
+ * A rota É a base, ou está DENTRO dela — comparação por segmento, não por
+ * prefixo cru.
+ *
+ * `pathname.startsWith("/kpis")` casava também com "/kpis-antigos": para o
+ * `startsWith` o hífen é só mais um caractere, e a rota vizinha herdava o
+ * agente sem ninguém ter decidido isso. Exigir o `/` depois da base separa os
+ * dois casos sem perder "/onix-corretora/alertas", que precisa do prefixo.
+ *
+ * O modo de falha que isso evita não é 404: é o contrário, um assistente que
+ * ABRE onde não deveria e responde com confiança sobre o assunto errado —
+ * "/kpis-antigos" ganharia o agente que carrega o snapshot semanal de
+ * indicadores do "/kpis" de verdade.
+ */
+function dentroDe(pathname: string, base: string): boolean {
+  return pathname === base || pathname.startsWith(`${base}/`);
 }
