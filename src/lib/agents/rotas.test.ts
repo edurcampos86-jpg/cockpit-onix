@@ -12,6 +12,7 @@ test("as rotas que TÊM agente", () => {
   assert.equal(agentePorRota("/onix-corretora/alertas"), "corretora");
   assert.equal(agentePorRota("/onix-corretora/painel-semanal"), "corretora");
   assert.equal(agentePorRota("/kpis"), "kpis");
+  assert.equal(agentePorRota("/kpis/semana"), "kpis");
   assert.equal(agentePorRota("/analytics"), "kpis");
 });
 
@@ -37,14 +38,15 @@ test("todo o resto NÃO tem agente — o botão não monta", () => {
 });
 
 test("prefixo não vaza para rota vizinha de nome parecido", () => {
-  // `startsWith` é generoso: sem esta conferência, uma rota futura chamada
-  // "/kpis-antigos" herdaria o agente de KPIs sem ninguém decidir isso.
-  assert.equal(agentePorRota("/kpis-antigos"), "kpis");
-  assert.equal(agentePorRota("/analytics-v2"), "kpis");
-  // Documentado, não corrigido: hoje não existe nenhuma dessas rotas
-  // (conferido em src/app/), e apertar para igualdade exata quebraria
-  // "/onix-corretora/alertas", que precisa do prefixo. Se uma rota assim
-  // nascer, este teste falha e obriga a decisão em vez de deixar herdar.
+  // Este teste já documentou o comportamento OPOSTO: com `startsWith` cru,
+  // "/kpis-antigos" recebia o agente de KPIs porque o hífen é só mais um
+  // caractere depois do prefixo. A comparação por segmento (`dentroDe` em
+  // `rotas.ts`) fechou isso sem perder "/onix-corretora/alertas".
+  assert.equal(agentePorRota("/kpis-antigos"), null);
+  assert.equal(agentePorRota("/analytics-v2"), null);
+  assert.equal(agentePorRota("/onix-corretora-antiga"), null);
+  // A base sozinha continua casando — a barra é exigida só DEPOIS dela.
+  assert.equal(agentePorRota("/kpis"), "kpis");
 });
 
 test("a raiz exata não casa com nada", () => {
