@@ -1,15 +1,17 @@
 /**
  * Seed da tabela `Empresa` — IDEMPOTENTE.
  *
- * Cria a raiz "Onix Co" e as 5 empresas jurídicas do grupo — estas já com
- * `parentId = "onix-co"`. Total: 6 linhas.
+ * Cria a holding "Onix Co" e os 19 nós abaixo dela — 6 empresas e 13
+ * departamentos, cada um já com o `parentId` que o catálogo declara.
+ * Total: 20 linhas.
  *
  * ── ONDE MORA A LÓGICA ───────────────────────────────────────────────────
  * Não aqui. A lista canônica e a mecânica de idempotência vivem em
  * `src/lib/empresas/seed-hierarquia.ts`, compartilhado com
  * `POST /api/empresas/hierarquia`. A diferença entre os dois consumidores é só
- * QUAIS empresas cada um passa: este script semeia as 6 de uma vez; o endpoint
- * separa em duas ações (a raiz por padrão, as filhas em `acao: "seed-filhas"`).
+ * QUAIS nós cada um passa: este script semeia os 20 de uma vez; o endpoint
+ * separa em duas ações (a holding por padrão, o resto em
+ * `acao: "seed-filhas"`).
  *
  * ── O QUE ESTE SEED NÃO FAZ ──────────────────────────────────────────────
  * NÃO faz reparenting. Ele decide o pai de linha que NASCE; o pai de linha que
@@ -101,7 +103,7 @@ async function main(): Promise<void> {
 
   console.log(
     `Empresas com pai:  ${r.comPai}   ` +
-      "(esperado 0 nesta fase — o reparenting é PR seguinte.)",
+      `(esperado ${TODAS_AS_EMPRESAS.length - 1} — só a holding fica sem pai.)`,
   );
 }
 

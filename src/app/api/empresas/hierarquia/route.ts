@@ -45,7 +45,7 @@ import { unstable_noStore as noStore } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getAuthContext, isAdmin } from "@/lib/auth-helpers";
 import {
-  EMPRESAS_DO_GRUPO,
+  NOS_ABAIXO_DA_HOLDING,
   ONIX_CO,
   conferirRaiz,
   contarEmpresas,
@@ -55,7 +55,7 @@ import {
   semearRaiz,
 } from "@/lib/empresas/seed-hierarquia";
 import { idsFilhasDaRaiz } from "@/lib/empresas/catalogo";
-import { validarArvore } from "@/lib/empresas/hierarquia";
+import { validarArvoreCompleta } from "@/lib/empresas/hierarquia";
 import {
   PreCondicaoReparent,
   aplicarPlano,
@@ -248,18 +248,18 @@ export async function POST(request: Request) {
 }
 
 /**
- * `acao: "seed-filhas"` — cria as 5 empresas jurídicas do grupo já penduradas
- * em `onix-co`.
+ * `acao: "seed-filhas"` — cria os 19 nós abaixo da holding, cada um já
+ * pendurado em quem o catálogo manda: as 6 empresas e os 2 departamentos da
+ * holding em `onix-co`, e os 11 departamentos restantes nas empresas deles.
  *
- * Quem são as 5, e por que Agro / Planejamento / Contábil / Meu Sucesso
- * Patrimonial / Barreiras / Unaí NÃO estão, está escrito por extenso no topo
- * de `src/lib/empresas/catalogo.ts`. Esta função não decide lista: ela recebe
- * `EMPRESAS_DO_GRUPO` pronta.
+ * Quem é quem, e por que cada nó tem o papel que tem, está escrito por extenso
+ * no topo de `src/lib/empresas/catalogo.ts`. Esta função não decide lista: ela
+ * recebe `NOS_ABAIXO_DA_HOLDING` pronta.
  *
  * ── IDEMPOTENTE, E DE UM JEITO ESPECÍFICO ────────────────────────────────
- * Cria SÓ o que falta. Linha existente não é tocada — nem o nome, nem o pai.
- * Rodar dez vezes deixa as mesmas 6 linhas (raiz + 5), e da segunda chamada em
- * diante nenhuma escrita em `Empresa` acontece.
+ * Cria SÓ o que falta. Linha existente não é tocada — nem o nome, nem o pai,
+ * nem o tipo. Rodar dez vezes deixa as mesmas 20 linhas (holding + 19), e da
+ * segunda chamada em diante nenhuma escrita em `Empresa` acontece.
  *
  * ── DIVERGÊNCIA DE PAI É REPORTADA, NÃO CORRIGIDA ────────────────────────
  * Filha que já existe apontando para outro pai (ou solta como raiz) sai na
@@ -270,9 +270,13 @@ export async function POST(request: Request) {
  * sem procurar.
  *
  * ── A RAIZ TEM DE EXISTIR ANTES ──────────────────────────────────────────
- * `Empresa.parentId` é FK: sem `onix-co` no banco, o INSERT das filhas falharia
- * com erro de driver. Em vez disso a pré-condição é conferida e responde 409
- * com a instrução — que é rodar a ação padrão (`{ confirmar: true }`) primeiro.
+ * `Empresa.parentId` é FK: sem `onix-co` no banco, o INSERT falharia com erro
+ * de driver. Em vez disso a pré-condição é conferida e responde 409 com a
+ * instrução — que é rodar a ação padrão (`{ confirmar: true }`) primeiro.
+ *
+ * Dentro da chamada a ordem se resolve sozinha: `semearEmpresas` insere um
+ * nível por vez (`lotesPorProfundidade`), então um departamento nunca entra
+ * antes da empresa dele.
  */
 async function seedFilhas(
   request: Request,
@@ -280,7 +284,7 @@ async function seedFilhas(
 ): Promise<Response> {
   try {
     const arvore = await lerArvore(prisma);
-    const plano = planejarSeedFilhas(arvore, EMPRESAS_DO_GRUPO);
+    const plano = planejarSeedFilhas(arvore, NOS_ABAIXO_DA_HOLDING);
 
     if (!plano.raizPresente) {
       return NextResponse.json(
@@ -295,20 +299,25 @@ async function seedFilhas(
       );
     }
 
-    // A régua de 2 níveis é a MESMA de `hierarquia.ts`, a que
-    // `hierarquia.test.ts` trava — não uma cópia. Roda sobre a árvore
-    // SIMULADA, então um plano que produziria nível 3 é recusado antes de
-    // qualquer INSERT. Hoje ela não tem como reprovar (as 5 penduram numa raiz
-    // e nenhuma tem filhos); é guarda para o dia em que a lista canônica
-    // crescer e alguém pendurar empresa em empresa sem perceber.
-    const problemas = validarArvore(plano.arvoreSimulada);
-    if (problemas.length > 0) {
+    // A régua é a MESMA de `hierarquia.ts`, a que `hierarquia.test.ts` trava —
+    // não uma cópia. Roda sobre a árvore SIMULADA, então um plano fora da régua
+    // é recusado antes de qualquer INSERT.
+    //
+    // As DUAS metades, desde que a estrutura tem 3 níveis: `estrutura` pega
+    // profundidade, ciclo e pai órfão; `tipos` pega o que a profundidade não vê
+    // — empresa pendurada fora da holding, departamento dentro de departamento,
+    // departamento com filho. Sem a segunda, um departamento promovido a pai
+    // passaria por "nível 3 é permitido agora" sem ninguém notar.
+    const { estrutura, tipos, ok } = validarArvoreCompleta(plano.arvoreSimulada);
+    if (!ok) {
       return NextResponse.json(
         {
           error: "arvore_fora_da_regua",
-          mensagem: "Semear estas filhas produziria uma árvore fora da régua de 2 níveis. " +
-            "Nada foi escrito.",
-          problemas,
+          mensagem:
+            "Semear estes nós produziria uma árvore fora da régua (holding → empresa → " +
+            "departamento). Nada foi escrito.",
+          problemas: estrutura,
+          problemasDeTipo: tipos,
           plano: plano.criar,
         },
         { status: 409 },
