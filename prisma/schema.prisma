@@ -857,6 +857,10 @@ model ClienteBackoffice {
   // indicado o mesmo prospect, e um UNIQUE aqui transformaria esse caso real
   // num erro de gravação na rota /converter.
   origensIndicacao Indicacao[]           @relation("IndicacaoConvertida")
+  // Lado inverso de Parceiro.clienteBackoffice — o registro de parceiro DESTE
+  // cliente, quando ele também é parceiro. `?` (não lista) porque o lado dono
+  // é @unique: uma conta BTG representa no máximo um parceiro.
+  parceiro         Parceiro?             @relation("ParceiroIdentidadeCliente")
   perfilDescoberta PerfilDescoberta?
   planoUmaPagina   PlanoUmaPagina?
   checklist        ChecklistOrganizacao?
@@ -1299,6 +1303,23 @@ model Indicacao {
   clienteConvertidoId String?
   clienteConvertido   ClienteBackoffice? @relation("IndicacaoConvertida", fields: [clienteConvertidoId], references: [id], onDelete: SetNull)
 
+  // Parceiro que fez esta indicação. ANDA AO LADO de `indicadorId`, que NÃO é
+  // tocado: aquele elo está em produção desde a #302 e segue sendo a verdade
+  // para indicador que é cliente.
+  //
+  // Os dois existem porque respondem coisas diferentes. `indicadorId` aponta
+  // para um ClienteBackoffice — só serve para quem tem conta no BTG.
+  // `parceiroId` aponta para a entidade Parceiro, que existe sem conta
+  // nenhuma. Contador que indica três clientes e nunca investiu conosco cabe
+  // aqui e não cabe lá.
+  //
+  // Quando o parceiro TAMBÉM é cliente, os dois campos podem apontar para a
+  // mesma pessoa por caminhos distintos (Parceiro.clienteBackofficeId liga as
+  // pontas). Reconciliar isso é decisão de leitura, e nada lê ainda —
+  // deliberadamente fora desta PR.
+  parceiroId String?
+  parceiro   Parceiro? @relation("IndicacaoParceiro", fields: [parceiroId], references: [id], onDelete: SetNull)
+
   criadoEm     DateTime @default(now())
   atualizadoEm DateTime @updatedAt
 
@@ -1306,6 +1327,76 @@ model Indicacao {
   // Suporta a pergunta que motivou a PR — "qual a origem DESTE cliente?" —
   // percorrendo o elo no sentido cliente → indicação.
   @@index([clienteConvertidoId])
+  @@index([parceiroId])
+}
+
+// ============================================
+// PARCEIROS — Fase 1
+// ============================================
+// Quem indica clientes para a Onix SEM precisar ser cliente.
+//
+// POR QUE A ENTIDADE EXISTE: até aqui, "indicador" só existia como
+// `Indicacao.indicadorId`, que é FK para ClienteBackoffice. Ou seja: quem
+// indicava PRECISAVA ter conta no BTG. Sócio, contador e parceiro comercial
+// que trazem cliente e nunca investiram não tinham onde morar — viravam texto
+// livre em `Indicacao.nomeIndicado` ou simplesmente sumiam do registro.
+//
+// NESTA PR a tabela nasce VAZIA e NADA a lê. Sem backfill, sem UI, sem rota.
+// Popular, vincular clientes (ParceiroCliente) e montar a árvore
+// (indicadoPorParceiroId) são PRs próprias.
+model Parceiro {
+  id String @id @default(cuid())
+
+  nome String
+
+  /// "socio" | "contabil" | "outro". TEXTO LIVRE por ora, de propósito: a
+  /// taxonomia de parceiro ainda não assentou, e um enum aqui obrigaria
+  /// migration a cada categoria nova descoberta em campo. Vira enum quando a
+  /// lista parar de mudar — não antes.
+  tipo String
+
+  /// O cliente que ESTE parceiro é, quando ele também é cliente.
+  ///
+  /// É O CAMPO CENTRAL DA PR, e é opcional de propósito. Parceiro PODE ser
+  /// cliente, mas não precisa ser — a alternativa (exigir conta BTG) é
+  /// exatamente a limitação que motivou a entidade.
+  ///
+  /// @unique: uma conta BTG representa no máximo um parceiro. Sem isso, dois
+  /// registros de parceiro poderiam reivindicar o mesmo cliente e nenhuma
+  /// leitura futura saberia qual vale.
+  ///
+  /// onDelete: SetNull — apagar o cliente não pode apagar o parceiro. Ele
+  /// segue existindo como quem indica; só perde a identidade de cliente.
+  clienteBackofficeId String?            @unique
+  clienteBackoffice   ClienteBackoffice? @relation("ParceiroIdentidadeCliente", fields: [clienteBackofficeId], references: [id], onDelete: SetNull)
+
+  /// NULL = sem contrato assinado. Será PRÉ-REQUISITO de ativação de acesso na
+  /// Fase 3 — o parceiro só ganha login depois que isto tem data. Guardado
+  /// como data (e não boolean) porque "desde quando" é a pergunta que aparece
+  /// em auditoria; um boolean perderia isso.
+  contratoAssinadoEm DateTime?
+
+  /// Desligamento LÓGICO. `false` não apaga histórico: as indicações que ele
+  /// já fez continuam apontando para cá. DELETE de parceiro nunca deve ser o
+  /// caminho normal justamente por isso.
+  ativo Boolean @default(true)
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  /// Rastro de autoria — mesmo padrão de apelidoEditadoPor/feeFixoEditadoPor:
+  /// userId cru, sem relation. Parceiro é entidade que decide para quem vai
+  /// comissão; "quem cadastrou esse parceiro?" precisa ter resposta antes de
+  /// alguém precisar dela.
+  criadoPor     String?
+  atualizadoPor String?
+
+  /// Indicações feitas por este parceiro (lado inverso de Indicacao.parceiro).
+  indicacoes Indicacao[] @relation("IndicacaoParceiro")
+
+  @@index([ativo])
+  @@index([tipo])
+  @@index([nome])
 }
 
 // Questionário de descoberta profunda (Storyselling — hemisfério direito)
