@@ -1395,6 +1395,40 @@ model Parceiro {
   criadoPor     String?
   atualizadoPor String?
 
+  // ── Árvore de parceiros (self-relation, espelha Empresa.parentId) ──
+  //
+  // Quem trouxe ESTE parceiro para a rede. NULL = raiz (entrou direto).
+  //
+  // A profundidade é ILIMITADA por decisão de negócio — ao contrário de
+  // Empresa, que tem PROFUNDIDADE_MAXIMA = 2 em src/lib/empresas/hierarquia.ts.
+  // Isso muda o desenho: em Empresa a travessia mora em TypeScript puro
+  // (descendentesDe() em acesso-core.ts, BFS com Set de vistos) porque a árvore
+  // é minúscula e o teto é decretado. Aqui a árvore cresce com o negócio, e a
+  // proteção contra ciclo NÃO pode viver só no TS — qualquer INSERT por SQL
+  // manual, import ou script passaria por fora dela.
+  //
+  // Por isso a guarda é um TRIGGER no banco (parceiro_sem_ciclo), criado na
+  // migration desta PR. Ele rejeita A→A, A→B→A e cadeias mais longas.
+  //
+  // onDelete: SetNull — apagar o parceiro-pai não pode apagar os filhos. A
+  // subárvore vira raiz órfã, o que é recuperável; um Cascade apagaria a rede
+  // inteira abaixo de quem saiu.
+  indicadoPorParceiroId String?
+  indicadoPor           Parceiro?  @relation("ParceiroArvore", fields: [indicadoPorParceiroId], references: [id], onDelete: SetNull)
+  indicados             Parceiro[] @relation("ParceiroArvore")
+
+  /// Vigência do vínculo de árvore, mesmo padrão datado de AcordoComercial e
+  /// ParceiroCliente: `indicadoPorAte` NULL = vínculo vigente.
+  ///
+  /// Mora em COLUNAS (e não em tabela de histórico) porque cada parceiro tem no
+  /// máximo um pai por vez — a cardinalidade é 1, ao contrário de
+  /// ParceiroCliente, onde um parceiro tem N clientes. O custo assumido: trocar
+  /// o pai SOBRESCREVE o vínculo anterior em vez de arquivá-lo. Se o histórico
+  /// de reparenting virar requisito, isto vira tabela própria — e é PR de
+  /// migração, não de campo novo.
+  indicadoPorDesde DateTime?
+  indicadoPorAte   DateTime?
+
   /// Indicações feitas por este parceiro (lado inverso de Indicacao.parceiro).
   indicacoes Indicacao[] @relation("IndicacaoParceiro")
 
@@ -1405,6 +1439,9 @@ model Parceiro {
   @@index([ativo])
   @@index([tipo])
   @@index([nome])
+  /// Serve a travessia para baixo ("quem este parceiro trouxe?"), que é o
+  /// sentido que a árvore percorre para somar AUM de subárvore.
+  @@index([indicadoPorParceiroId])
 }
 
 // Vínculo DATADO entre parceiro e cliente.
