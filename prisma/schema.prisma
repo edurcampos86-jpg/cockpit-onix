@@ -861,6 +861,10 @@ model ClienteBackoffice {
   // cliente, quando ele também é parceiro. `?` (não lista) porque o lado dono
   // é @unique: uma conta BTG representa no máximo um parceiro.
   parceiro         Parceiro?             @relation("ParceiroIdentidadeCliente")
+  // Histórico de vínculos com parceiros (lado inverso de ParceiroCliente).
+  // Lista porque o cliente pode ter passado por vários parceiros ao longo do
+  // tempo — o vigente é o de `dataFim` null.
+  parceirosVinculo ParceiroCliente[]
   perfilDescoberta PerfilDescoberta?
   planoUmaPagina   PlanoUmaPagina?
   checklist        ChecklistOrganizacao?
@@ -1394,9 +1398,61 @@ model Parceiro {
   /// Indicações feitas por este parceiro (lado inverso de Indicacao.parceiro).
   indicacoes Indicacao[] @relation("IndicacaoParceiro")
 
+  /// Clientes vinculados a este parceiro ao longo do tempo (histórico, não só
+  /// os vigentes). Ver ParceiroCliente.
+  clientes ParceiroCliente[]
+
   @@index([ativo])
   @@index([tipo])
   @@index([nome])
+}
+
+// Vínculo DATADO entre parceiro e cliente.
+//
+// POR QUE UMA TABELA, e não um `parceiroId` em ClienteBackoffice: o vínculo
+// tem começo e fim. Um campo no cliente responderia "de quem é hoje" e perderia
+// "de quem era quando a receita entrou" — que é a pergunta que decide comissão.
+// Cliente que troca de parceiro em março não pode apagar o que o parceiro
+// anterior construiu até fevereiro.
+//
+// PADRÃO DE VIGÊNCIA copiado de AcordoComercial (mesma seção, `dataInicio` +
+// `dataFim` com `null = vigente`, índices em ambos): é literalmente o mesmo
+// problema — contrato comercial com prazo — e ter dois dialetos de vigência no
+// mesmo schema é como ter dois formatos de data.
+//
+// NESTA PR a tabela nasce VAZIA e NADA a lê. Sem backfill, sem UI, sem rota.
+model ParceiroCliente {
+  id String @id @default(cuid())
+
+  parceiroId String
+  parceiro   Parceiro @relation(fields: [parceiroId], references: [id], onDelete: Cascade)
+
+  clienteId String
+  cliente   ClienteBackoffice @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  /// Vigência. `dataFim` NULL = vínculo vigente — mesma convenção de
+  /// AcordoComercial.dataFim, inclusive o comentário.
+  dataInicio DateTime  @default(now())
+  dataFim    DateTime? // null = vigente
+
+  /// Quem criou o vínculo (userId cru, padrão apelidoEditadoPor) e quem o
+  /// encerrou. São dois campos porque vincular e desvincular são decisões
+  /// distintas, frequentemente de pessoas distintas, e "quem tirou esse
+  /// cliente do parceiro?" é a pergunta cara das duas.
+  vinculadoPor   String?
+  desvinculadoPor String?
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  /// Índices espelhando AcordoComercial (`[pessoaId, dataInicio]` e
+  /// `[pessoaId, dataFim]`): o primeiro serve o histórico ordenado de um
+  /// parceiro, o segundo serve "quais estão vigentes".
+  @@index([parceiroId, dataInicio])
+  @@index([parceiroId, dataFim])
+  /// Sentido inverso: "quem é o parceiro DESTE cliente?" — a leitura que a
+  /// ficha do cliente vai fazer.
+  @@index([clienteId, dataFim])
 }
 
 // Questionário de descoberta profunda (Storyselling — hemisfério direito)
