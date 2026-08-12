@@ -45,10 +45,23 @@ UPDATE "Empresa" SET "tipo" = 'holding'  WHERE "id" = 'onix-co';
 
 -- As 4 pessoas jurídicas que já existem no banco. Todas seguem penduradas
 -- direto na holding — nenhuma muda de pai.
+-- `investimentos` é EMPRESA, e não departamento: a linha se chama "Onix
+-- Capital" e o id é legado (`IDS_LEGADOS`). O departamento "Onix
+-- Investimentos" é nó NOVO, id `investimentos-investimentos`, criado pelo
+-- seed. Confirmado com o Eduardo antes de escrever este UPDATE.
 UPDATE "Empresa" SET "tipo" = 'empresa'  WHERE "id" = 'investimentos';  -- Onix Capital
 UPDATE "Empresa" SET "tipo" = 'empresa'  WHERE "id" = 'corretora';      -- Onix Corretora
-UPDATE "Empresa" SET "tipo" = 'empresa'  WHERE "id" = 'imobiliaria';    -- Onix Imob
 UPDATE "Empresa" SET "tipo" = 'empresa'  WHERE "id" = 'tech';           -- Onix Tech
+
+-- A ÚNICA linha que muda de NOME. O banco tem "Onix Imobiliária" e o catálogo
+-- diz "Onix Imob" — a última divergência de nome entre os dois lados. O seed
+-- não conserta isso de propósito (`skipDuplicates` preserva rename manual),
+-- então ou entra aqui ou fica divergente para sempre. Decisão do Eduardo:
+-- padronizar pelo catálogo.
+UPDATE "Empresa"
+   SET "tipo" = 'empresa',
+       "nome" = 'Onix Imob'
+ WHERE "id" = 'imobiliaria';
 
 -- A ÚNICA linha que muda de lugar: "Onix Corporate" deixa de ser pessoa
 -- jurídica pendurada na holding e passa a ser departamento DENTRO da
