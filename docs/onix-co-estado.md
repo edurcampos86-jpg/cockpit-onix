@@ -3,7 +3,7 @@
 Memória compartilhada entre sessões. Quem chega novo lê **este arquivo** e sabe
 o estado real sem auditar o repositório do zero.
 
-> **Última atualização:** 2026-08-10, contra `main` em `8da0b4c`.
+> **Última atualização:** 2026-08-11, contra `main` em `7091ef8`.
 
 ## Como ler este arquivo
 
@@ -73,7 +73,8 @@ Auditoria imutável. `usuarioId` (FK obrigatória para `User`) · `acao` · `res
 
 ## Árvore em produção (hoje)
 
-📋 Estado informado pelo Eduardo — não verificável de uma sessão.
+📋 Estado informado pelo Eduardo — não verificável de uma sessão. A **contagem**
+foi medida por query: `SELECT count(*) FROM "Empresa";` → **6**.
 
 ```
 onix-co  (raiz, "Onix Co")
@@ -136,9 +137,21 @@ Ela propõe:
 > tiver qualquer linha**. A própria PR declara que não conseguiu confirmar se
 > `Empresa` está vazia em produção.
 >
-> Se a árvore acima de fato existe em produção (6 linhas), **a #301 não aplica
-> como está**. Confirmar `SELECT count(*) FROM "Empresa";` antes de qualquer
-> decisão sobre ela.
+> 📋 **MEDIDO: `Empresa` tem 6 linhas em produção** (query rodada pelo Eduardo).
+> Isso deixa de ser hipótese: **a #301 não aplica como está**.
+>
+> A cadeia completa, porque o efeito é maior que "a migration falha":
+>
+> 1. `tipo` entra `NOT NULL` sem `DEFAULT` → Postgres recusa com **`23502`**
+>    (`column "tipo" ... contains null values`) nas 6 linhas existentes
+> 2. o start do serviço é `prisma migrate deploy && next start`
+> 3. o `&&` faz o `next start` **não rodar** quando a migration falha
+> 4. resultado: **app em loop de restart**, não "migration pendente"
+>
+> A guarda foi bem pensada para impedir rotulagem por chute — mas, com esse
+> start command, ela para o SERVIÇO, não a migration. Saídas possíveis:
+> `DEFAULT` na coluna, ou backfill em dois passos (nullable → popular →
+> `SET NOT NULL`). Registrado como comentário na própria #301.
 
 Enquanto a #301 não for resolvida — aplicada ou fechada — **esta seção e a #301
 descrevem grupos diferentes**. Não tratar nenhuma das duas como verdade única.
@@ -270,9 +283,25 @@ declarada.
 
 ### Bloqueantes
 
-- **Backup nunca restaurado/verificado.** Pré-requisito da faixa verde — backup
-  não testado é backup que não existe. Ver `docs/DISASTER_RECOVERY.md` e
-  `.github/workflows/restore-drill.yml`.
+- ✅ **Backup: VERIFICADO.** 🔎 `restore-drill.yml` está **verde há 10 semanas
+  seguidas** (última em **10/08/2026**, 17 runs no total, 4 falhas todas em
+  mai–jun/2026 durante a construção do workflow). `db-backup.yml` roda diário
+  às 06:00 UTC e **não falhou nenhuma vez em 30 dias** (90 runs no total).
+  O drill de 10/08 restaurou em 4s e validou 87 tabelas e 4 usuários.
+
+  > **Esta linha já disse o contrário.** Ela nasceu afirmando "backup nunca
+  > restaurado/verificado" — errado, e por um motivo que vale registrar: a
+  > pendência foi herdada de conversa, não conferida contra o histórico de
+  > Actions. É o mesmo defeito que o "lote verde de 12+ PRs" (abaixo).
+
+  **A pendência real é outra: o RTO nunca foi medido.** O drill prova que o
+  dump é bom — restaura, o schema está lá, há usuários, há registro dos
+  últimos 7 dias. Não prova que dá para **voltar a operar**: recriar projeto,
+  restaurar, apontar `DATABASE_URL`, subir app. `DISASTER_RECOVERY.md:37`
+  registra ~45 min como **estimativa**, e assim segue.
+
+  **PITR desligado ⇒ são 2 cópias ativas, não 3.** `BACKUP_ARCHITECTURE.md:58`
+  conta o PITR do Railway na regra 3-2-1-1-0, e ele não está ligado.
 - **`cockpit-onix-staging`: "1/2 service crashed"**, auditoria não concluída.
 - **PR #301 aberta com 3 níveis** — ver o conflito registrado acima. É a pendência
   de maior impacto: ela redefine a árvore inteira.
