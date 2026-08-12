@@ -1,35 +1,94 @@
--- NOTA (entrega segura): removidas 2 linhas de DRIFT do FTS de PainelEmailAI que
--- o Prisma re-emite em TODA migration, porque a coluna "tsv" é
--- Unsupported("tsvector") e o índice GIN "PainelEmailAI_tsv_idx" não é
--- representável no schema.prisma:
---   DROP INDEX "PainelEmailAI_tsv_idx";
---   ALTER TABLE "PainelEmailAI" ALTER COLUMN "tsv" DROP DEFAULT;
--- Mantê-las derrubaria o índice de busca e o DEFAULT/GENERATED da coluna em
--- produção. Ver 20260613120000_painel_email_fts_index_recreate.
-
--- ATENÇÃO — ESTA MIGRATION FALHA DE PROPÓSITO SE "Empresa" TIVER LINHAS.
+-- Empresa.tipo e Empresa.transversal — em TRÊS FASES, porque a tabela TEM DADO.
 --
--- `ADD COLUMN "tipo" NOT NULL` sem DEFAULT é rejeitado pelo Postgres em tabela
--- não-vazia. Isso é o GUARD, não um descuido: o papel de cada nó (holding,
--- empresa, departamento) é decisão, e um DEFAULT faria toda linha preexistente
--- nascer com um papel que ninguém escolheu — provavelmente o errado, já que a
--- estrutura mudou de 2 para 3 níveis nesta PR.
+-- ── POR QUE NÃO É `ADD COLUMN NOT NULL` DIRETO ───────────────────────────
+-- A versão anterior desta migration adicionava `tipo` como NOT NULL sem
+-- DEFAULT, de propósito: sem linhas, funciona; com linhas, o Postgres recusa
+-- (23502) e ninguém rotula nada por chute.
 --
--- A premissa é que `Empresa` está VAZIA em produção (RBAC inerte: a auditoria
--- em /api/configuracoes/permissoes/auditoria reporta `rbacInerte: true` quando
--- a contagem é 0). Se a premissa não valer, o deploy para aqui em vez de
--- rotular 6 linhas por chute — e o conserto é decidir o `tipo` de cada linha
--- existente ANTES, num UPDATE conferido à mão.
+-- A medição em produção (2026-08-12, GitHub Actions read-only) mostrou que a
+-- premissa estava ERRADA — `Empresa` tem 6 linhas:
 --
--- Conferência antes de aplicar:
---   SELECT count(*) FROM "Empresa";   -- esperado: 0
+--     onix-co        (raiz)        Onix Co
+--     corporate      pai=onix-co   Onix Corporate
+--     corretora      pai=onix-co   Onix Corretora
+--     imobiliaria    pai=onix-co   Onix Imobiliária
+--     investimentos  pai=onix-co   Onix Capital
+--     tech           pai=onix-co   Onix Tech
+--
+-- E o custo da recusa não é "a migration para": `package.json` roda
+-- `prisma migrate deploy && next start`, e o `&&` faz o `next start` não
+-- acontecer. A migration falhando derruba o SERVIÇO, em loop de restart, até
+-- alguém corrigir. O guard estava certo na intenção e caro demais na prática.
+--
+-- Daí as três fases: coluna nullable → backfill explícito → SET NOT NULL. O
+-- papel de cada linha continua sendo DECISÃO ESCRITA, não DEFAULT nem dedução
+-- por profundidade; o que muda é que a decisão está aqui, legível, em vez de
+-- ser cobrada do Postgres no meio do deploy.
 
 -- CreateEnum
 CREATE TYPE "TipoNo" AS ENUM ('holding', 'empresa', 'departamento');
 
--- AlterTable
-ALTER TABLE "Empresa" ADD COLUMN     "tipo" "TipoNo" NOT NULL,
+-- ── FASE 1 · colunas ─────────────────────────────────────────────────────
+-- `tipo` entra NULLABLE. `transversal` já entra NOT NULL porque tem DEFAULT:
+-- nenhuma das 6 linhas é "Qualidade e Pós-venda", então `false` é o valor
+-- correto para todas, e não é chute.
+ALTER TABLE "Empresa" ADD COLUMN     "tipo" "TipoNo",
 ADD COLUMN     "transversal" BOOLEAN NOT NULL DEFAULT false;
+
+-- ── FASE 2 · backfill, uma linha por vez ─────────────────────────────────
+-- Um UPDATE por id, e não um CASE, para que o diff mostre cada decisão
+-- separada e para que remover uma decisão errada seja apagar uma linha.
+-- Conforme `src/lib/empresas/catalogo.ts`.
+
+-- A holding do grupo. Única linha sem pai.
+UPDATE "Empresa" SET "tipo" = 'holding'  WHERE "id" = 'onix-co';
+
+-- As 4 pessoas jurídicas que já existem no banco. Todas seguem penduradas
+-- direto na holding — nenhuma muda de pai.
+UPDATE "Empresa" SET "tipo" = 'empresa'  WHERE "id" = 'investimentos';  -- Onix Capital
+UPDATE "Empresa" SET "tipo" = 'empresa'  WHERE "id" = 'corretora';      -- Onix Corretora
+UPDATE "Empresa" SET "tipo" = 'empresa'  WHERE "id" = 'imobiliaria';    -- Onix Imob
+UPDATE "Empresa" SET "tipo" = 'empresa'  WHERE "id" = 'tech';           -- Onix Tech
+
+-- A ÚNICA linha que muda de lugar: "Onix Corporate" deixa de ser pessoa
+-- jurídica pendurada na holding e passa a ser departamento DENTRO da
+-- Corretora. O id não muda — `Implementacao.empresaId` tem linhas em produção
+-- apontando para 'corporate', e `NOS_ECOSSISTEMA` casa por valor.
+UPDATE "Empresa"
+   SET "tipo" = 'departamento',
+       "parentId" = 'corretora'
+ WHERE "id" = 'corporate';
+
+-- ── Guard · nenhuma linha pode sobrar sem papel ──────────────────────────
+-- Se produção tiver ganhado uma 7ª linha entre a conferência e o deploy, o
+-- `SET NOT NULL` abaixo falharia com 23502 — mensagem que não diz QUEM. Este
+-- bloco falha antes e nomeia os ids, para o conserto ser um UPDATE óbvio em
+-- vez de uma investigação com o app fora do ar.
+--
+-- Continua sendo uma parada dura, e é para ser: rotular por chute uma linha
+-- que ninguém declarou é pior que o deploy parar. A conferência que evita
+-- isso é `scripts/verificar-empresa-vazia.ts`, rodado imediatamente antes.
+DO $$
+DECLARE
+  orfas text;
+BEGIN
+  SELECT string_agg(quote_literal("id"), ', ' ORDER BY "id")
+    INTO orfas
+    FROM "Empresa"
+   WHERE "tipo" IS NULL;
+
+  IF orfas IS NOT NULL THEN
+    RAISE EXCEPTION
+      'Backfill incompleto: linha(s) em "Empresa" sem tipo -> %. Decida holding/empresa/departamento para cada uma, acrescente o UPDATE nesta migration e rode de novo.',
+      orfas;
+  END IF;
+END $$;
+
+-- ── FASE 3 · a coluna vira obrigatória ───────────────────────────────────
+-- A partir daqui, toda linha nova precisa declarar o papel. É a mesma
+-- garantia da versão anterior, cobrada depois do dado existente estar
+-- resolvido em vez de antes.
+ALTER TABLE "Empresa" ALTER COLUMN "tipo" SET NOT NULL;
 
 -- CreateIndex
 CREATE INDEX "Empresa_transversal_idx" ON "Empresa"("transversal");
