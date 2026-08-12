@@ -13,6 +13,32 @@ builder = "DOCKERFILE"
 
 [deploy]
 startCommand = "npm run start"
+# Migrations rodam AQUI, não dentro do `start`.
+#
+# Antes: `start = "prisma migrate deploy && next start"`. O `&&` amarrava as
+# duas coisas ao mesmo destino — uma migration que falhasse não parava a
+# migration, parava o `next start`, e o serviço entrava em loop de restart até
+# alguém corrigir. O container reinicia, a migration falha de novo, e o app
+# nunca sobe. Falha de dado virava indisponibilidade.
+#
+# Agora são etapas separadas, e a diferença é o que acontece no erro:
+#
+#   preDeployCommand falha  → o deploy NÃO é promovido; a versão anterior
+#                             segue no ar, servindo tráfego, com o banco
+#                             intacto. O erro aparece nos logs do deploy.
+#   startCommand falha      → aí sim é problema do app, e é o que restart
+#                             policy existe para tratar.
+#
+# O pré-deploy roda no container da imagem NOVA, depois do build e antes de
+# qualquer tráfego, com as mesmas variáveis do serviço (então `DATABASE_URL`
+# está lá). Roda uma vez por deploy, não por réplica.
+#
+# O script se chama `db:migrate`, e não `predeploy`, por causa de uma pegadinha
+# do npm: um script chamado `predeploy` é interpretado como hook automático de
+# um script `deploy`. Não existe `deploy` hoje, então funcionaria — e passaria
+# a se comportar diferente no dia em que alguém criasse um. `db:migrate` segue
+# a convenção que o arquivo já usa (`db:push`, `db:seed`).
+preDeployCommand = "npm run db:migrate"
 # Fixado em 1 réplica: o scheduler in-process do poll DataCrazy
 # (src/instrumentation.ts) assume 1 instância. Com >1 réplica cada uma
 # registraria o cron → polls concorrentes (inócuo no dado por idempotência,
