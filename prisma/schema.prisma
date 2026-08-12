@@ -1436,6 +1436,10 @@ model Parceiro {
   /// os vigentes). Ver ParceiroCliente.
   clientes ParceiroCliente[]
 
+  /// Acordos de comissão deste parceiro, um por tipo de produto e por
+  /// vigência. Ver AcordoComercialParceiro.
+  acordos AcordoComercialParceiro[]
+
   @@index([ativo])
   @@index([tipo])
   @@index([nome])
@@ -1490,6 +1494,111 @@ model ParceiroCliente {
   /// Sentido inverso: "quem é o parceiro DESTE cliente?" — a leitura que a
   /// ficha do cliente vai fazer.
   @@index([clienteId, dataFim])
+}
+
+// Acordo de comissão do PARCEIRO — datado, por tipo de produto.
+//
+// ── Por que tabela IRMÃ de AcordoComercial, e não extensão dela ──────────
+// `AcordoComercial` (seção TIME) é o acordo da PESSOA do time. Não foi
+// estendido para aceitar parceiro por cinco razões, todas verificadas:
+//
+//   1. `AcordoComercial.pessoaId` é NOT NULL com onDelete: Cascade, e seis
+//      call sites em src/app/actions/acordo-comercial.ts assumem que existe.
+//      Torná-lo nullable criaria um XOR polimórfico (padrão Pat) e
+//      ambiguizaria toda query atual.
+//   2. `AcordoComercial` NÃO TEM campo de percentual — é `tipo` +
+//      `regrasEspeciais` em texto livre. O acordo de parceiro precisa de
+//      número por produto: forma diferente, não coluna nullable a mais.
+//   3. A cardinalidade diverge. Pessoa tem UM acordo vigente; parceiro tem um
+//      vigente POR tipoProduto, vários ao mesmo tempo. Compartilhar a tabela
+//      mudaria o sentido do invariante existente.
+//   4. `atualizarAcordo` (acordo-comercial.ts:147) faz UPDATE no lugar — o que
+//      viola frontalmente a regra abaixo de que alterar percentual FECHA e
+//      ABRE. Reusar o model herdaria esse caminho de escrita.
+//   5. `AcordoComercial` tem relação 1:1 com `ContratoArquivo` do jurídico;
+//      compartilhar entrelaçaria comissão de parceiro com o fluxo de contratos.
+//
+// ── As três regras de negócio que o desenho precisa sustentar ────────────
+//
+// (a) ACORDOS INDEPENDENTES. A Onix paga assessor e parceiro separadamente
+//     sobre a mesma comissão líquida, e o acordo de um não altera o do outro
+//     (Eduardo 40% e Michel 20% do mesmo negócio convivem). Tabelas separadas
+//     tornam isso ESTRUTURAL: não há campo compartilhado que um lado possa
+//     mexer e afetar o outro.
+//
+// (b) VALE O PERCENTUAL DA DATA DO FATO GERADOR, nunca o do fechamento. Por
+//     isso a linha é datada e nunca sofre UPDATE de percentual: alterar FECHA
+//     a vigente (`dataFim`) e ABRE outra. Um UPDATE no lugar reescreveria o
+//     passado — o fechamento de março passaria a usar o percentual de junho,
+//     e nada no banco registraria que mudou.
+//
+//     ⚠️ ARMADILHA NA LEITURA, já medida em 20260811092122: a query
+//     `dataInicio <= now()` erra para linha recém-criada, porque TIMESTAMP(3)
+//     arredonda CURRENT_TIMESTAMP e em 75,8% dos casos o valor gravado cai no
+//     futuro. Aqui isso importa MENOS no caminho normal (a leitura é sempre
+//     por data do fato, que é passada) e MUITO num "qual o percentual agora":
+//       - vigente AGORA      -> WHERE "dataFim" IS NULL
+//       - vigente na DATA $X -> "dataInicio" <= $X AND ("dataFim" IS NULL OR "dataFim" > $X)
+//
+// (c) PERCENTUAL VARIA POR TIPO DE PRODUTO (seguro resgatável ≠ assessoria).
+//     Por isso a unicidade do vigente é por (parceiroId, tipoProduto) e não
+//     por parceiro — um parceiro tem vários acordos abertos ao mesmo tempo.
+//
+// NESTA PR a tabela nasce VAZIA e NADA a lê. Sem backfill, sem UI, sem rota.
+model AcordoComercialParceiro {
+  id String @id @default(cuid())
+
+  parceiroId String
+  parceiro   Parceiro @relation(fields: [parceiroId], references: [id], onDelete: Cascade)
+
+  /// "seguro_resgatavel" | "assessoria" | … TEXTO LIVRE por ora, mesmo
+  /// critério de `Parceiro.tipo`: a lista de produtos ainda muda, e um enum
+  /// obrigaria migration a cada produto novo. Vira enum quando parar de mudar.
+  tipoProduto String
+
+  /// Percentual da comissão líquida que vai para o parceiro. Guardado como
+  /// 0–100 (40.0000 = 40%), não como fração.
+  ///
+  /// DECIMAL, não Float — e este é o PRIMEIRO Decimal do schema, de propósito.
+  ///
+  /// O problema do Float aqui NÃO é a leitura, é a ARITMÉTICA — e vale ser
+  /// preciso, porque a intuição erra: o Postgres imprime float8 pela
+  /// representação mais curta que faz round-trip, então 40.15 volta como
+  /// "40.15" e uma inspeção casual não acusa nada. Medido em shadow-DB:
+  /// `0.1 + 0.2 = 0.3` é FALSE em float8 e TRUE em numeric; e
+  /// `20.1 + 20.1 + 20.1` dá 60.300000000000004 em float8, 60.3 em numeric.
+  ///
+  /// São as duas operações que um acordo de comissão faz: COMPARAR taxas (é a
+  /// mesma do acordo anterior?) e SOMAR taxas (assessor + parceiros fecham
+  /// 100%?). Com Float, uma validação de soma == 100 reprova um rateio correto
+  /// e mostra "100" na mensagem de erro.
+  ///
+  /// O momento de introduzir o tipo é agora: a tabela nasce vazia e sem
+  /// leitores, então não há consumidor para quebrar. Quem for ler depois
+  /// recebe um objeto Decimal do Prisma (decimal.js), não um number — o resto
+  /// do schema usa Float para dinheiro e essa diferença é intencional.
+  percentual Decimal @db.Decimal(7, 4)
+
+  /// Vigência, mesmo dialeto de AcordoComercial e ParceiroCliente.
+  dataInicio DateTime  @default(now())
+  dataFim    DateTime? // null = vigente
+
+  /// Rastro: quem abriu o acordo e quem o encerrou. Dois campos porque são
+  /// decisões distintas — e num acordo de comissão, "quem mudou o percentual
+  /// e quando" é a primeira pergunta de qualquer contestação de fechamento.
+  criadoPor    String?
+  encerradoPor String?
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  /// Histórico ordenado de um parceiro, e "quais estão vigentes" — espelha
+  /// AcordoComercial([pessoaId, dataInicio] / [pessoaId, dataFim]).
+  @@index([parceiroId, dataInicio])
+  @@index([parceiroId, dataFim])
+  /// "Quem tem acordo neste produto?" — a leitura que a régua de comissão faz
+  /// ao fechar um tipo de produto inteiro.
+  @@index([tipoProduto])
 }
 
 // Questionário de descoberta profunda (Storyselling — hemisfério direito)
