@@ -134,7 +134,10 @@ export async function GET() {
     // resposta do POST. Quem abrisse o GET para conferir a árvore não via que
     // uma filha estava com o pai errado — precisava disparar uma ESCRITA para
     // descobrir um problema de LEITURA. Sendo a função pura, não havia motivo.
-    const plano = planejarSeedFilhas(arvore, EMPRESAS_DO_GRUPO);
+    // `NOS_ABAIXO_DA_HOLDING` era `EMPRESAS_DO_GRUPO` até esta PR. O rename não
+    // é cosmético: com 3 níveis a lista deixou de ser "as empresas do grupo" e
+    // passou a ser "tudo que pende da holding", incluindo departamento.
+    const plano = planejarSeedFilhas(arvore, NOS_ABAIXO_DA_HOLDING);
 
     return NextResponse.json({
       total,
