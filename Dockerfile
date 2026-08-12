@@ -10,8 +10,10 @@
 # Postgres do Railway, pra `pg_dump` não falhar por "server version mismatch").
 #
 # Mantém o mesmo fluxo do Railpack: npm ci → prisma generate → next build →
-# (no runtime) prisma migrate deploy && next start. Sem `output: standalone`,
-# então a imagem carrega node_modules + .next completos.
+# (no runtime) next start. As migrations NÃO rodam no start: são o
+# `preDeployCommand` do railway.toml, para uma migration que falhe não levar o
+# serviço junto. Sem `output: standalone`, então a imagem carrega node_modules
+# + .next completos.
 
 FROM node:22-bookworm-slim
 
@@ -43,6 +45,8 @@ RUN NODE_OPTIONS=--max-old-space-size=8192 npm run build
 ENV NODE_ENV=production
 EXPOSE 3000
 
-# Default; no Railway o startCommand do railway.toml sobrepõe
-# (prisma migrate deploy && next start).
+# Default; no Railway o startCommand do railway.toml sobrepõe (`npm run start`
+# = `next start`). As migrations são etapa separada — ver preDeployCommand em
+# railway.toml. Rodar a imagem à mão sobe o app SEM migrar; para migrar,
+# `npm run db:migrate`.
 CMD ["npm", "run", "start"]
