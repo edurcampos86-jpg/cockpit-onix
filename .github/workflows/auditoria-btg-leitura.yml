@@ -1,0 +1,137 @@
+name: auditoria-btg-leitura
+
+# Leitura READ-ONLY do banco de produção para responder duas perguntas que não
+# se respondem de dentro de uma sessão (a rede do container não alcança
+# produção):
+#
+#   1. O webhook do BTG (`/api/webhooks/btg`) já recebeu tráfego real?
+#      `BtgSyncLog` grava uma linha `tipo='webhook'` ANTES de interpretar o
+#      payload (src/app/api/webhooks/btg/route.ts:48), então zero linha = zero
+#      chamada. É prova, não indício.
+#   2. A tabela `Empresa` está vazia? É a pré-condição da migration de tier
+#      vermelho da PR #301, que adiciona `tipo NOT NULL` sem DEFAULT.
+#
+# SOMENTE `SELECT`. Nenhum INSERT/UPDATE/DELETE/DDL. O `secrets.DATABASE_URL` é
+# o mesmo que `db-backup.yml:57` já usa para dar pg_dump em produção — este
+# workflow não pede acesso novo, só usa o que já existe.
+#
+# SEM DADO DE CLIENTE: as consultas são agregadas (count/min/max). Nenhuma
+# devolve linha de `ClienteBackoffice`, e `BtgSyncLog.erros` é contado, nunca
+# impresso — o payload de erro pode conter número de conta.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - claude/auditoria-btg-leitura
+
+permissions:
+  contents: read
+
+concurrency:
+  group: auditoria-btg-leitura
+  cancel-in-progress: false
+
+jobs:
+  ler:
+    name: Leitura read-only de produção
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Conferir que o secret existe
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "::error::secrets.DATABASE_URL não está configurado neste repositório."
+            exit 1
+          fi
+          echo "secrets.DATABASE_URL presente."
+
+      - name: BtgSyncLog — o webhook já recebeu alguma coisa?
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          # Só SELECT agregado. Roda no postgres:16-alpine pelo mesmo motivo do
+          # db-backup.yml: casar a versão de cliente com o Postgres 16 do Railway.
+          cat > "${RUNNER_TEMP}/auditoria.sql" <<'SQL'
+          SELECT '=== 1. BtgSyncLog tipo=webhook ===' AS secao;
+          SELECT
+            count(*)                                        AS total,
+            min(iniciado)                                   AS primeiro,
+            max(iniciado)                                   AS ultimo,
+            count(*) FILTER (WHERE erros IS NOT NULL)       AS com_erros,
+            count(*) FILTER (WHERE sucesso)                 AS com_sucesso
+          FROM "BtgSyncLog"
+          WHERE tipo = 'webhook';
+
+          SELECT '=== 2. BtgSyncLog: todos os tipos, para contraste ===' AS secao;
+          SELECT
+            tipo,
+            count(*)   AS linhas,
+            min(iniciado) AS primeiro,
+            max(iniciado) AS ultimo
+          FROM "BtgSyncLog"
+          GROUP BY tipo
+          ORDER BY count(*) DESC;
+
+          -- "trigger" precisa de aspas: é palavra reservada no Postgres.
+          SELECT '=== 3. Origem das linhas (coluna trigger) ===' AS secao;
+          SELECT
+            coalesce("trigger", '(null)') AS disparo,
+            count(*) AS linhas
+          FROM "BtgSyncLog"
+          GROUP BY 1
+          ORDER BY 2 DESC;
+
+          SELECT '=== 4. Volume do backoffice, para dimensionar um sync por API ===' AS secao;
+          SELECT
+            (SELECT count(*) FROM "ClienteBackoffice")                          AS clientes,
+            (SELECT count(*) FROM "ClienteBackoffice" WHERE "saldoConta" <> 0)  AS com_saldo_cc,
+            (SELECT count(*) FROM "MovimentacaoBtg")                            AS movimentacoes;
+
+          SELECT '=== 5. Rastro de fonte por cliente (fonteUltimoUpdate é jsonb) ===' AS secao;
+          SELECT
+            count(*)                                                     AS clientes,
+            count(*) FILTER (WHERE "fonteUltimoUpdate" IS NOT NULL)      AS com_rastro_de_fonte
+          FROM "ClienteBackoffice";
+          SQL
+
+          docker run --rm \
+            -v "${RUNNER_TEMP}/auditoria.sql:/q.sql:ro" \
+            -e "PGURL=${DATABASE_URL}" \
+            postgres:16-alpine \
+            sh -c 'psql "$PGURL" -v ON_ERROR_STOP=1 --no-psqlrc -f /q.sql'
+
+      - name: Node + dependências
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: npm ci
+        run: npm ci
+
+      - name: Empresa está vazia? (scripts/verificar-empresa-vazia.ts)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          # O script sai 0 (vazia), 1 (tem linhas) ou 2 (não sei dizer). Os três
+          # são resultado, não falha do workflow — por isso o `|| true` com o
+          # código capturado e impresso.
+          set +e
+          npx tsx scripts/verificar-empresa-vazia.ts
+          CODIGO=$?
+          set -e
+          echo "---"
+          case "$CODIGO" in
+            0) echo "Código 0 — Empresa VAZIA." ;;
+            1) echo "Código 1 — Empresa TEM LINHAS." ;;
+            *) echo "Código $CODIGO — indeterminado." ;;
+          esac
