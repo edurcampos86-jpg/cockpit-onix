@@ -60,6 +60,23 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
           AGE_PUBLIC_KEY: ${{ secrets.AGE_PUBLIC_KEY }}
+          # SLACK_WEBHOOK_URL é OBRIGATÓRIO aqui, e não opcional como no step
+          # de notificação. O motivo é assimetria de consequência entre os dois
+          # workflows de backup:
+          #
+          #   restore-drill.yml  falha → Slack E issue com label backup-broken
+          #   db-backup.yml      falha → SÓ Slack
+          #
+          # Ou seja: sem webhook, o drill ainda deixa rastro visível; este aqui
+          # não deixa NENHUM. Um backup diário quebrado passaria despercebido
+          # até o dia em que alguém precisasse restaurar — que é exatamente o
+          # dia em que não dá para descobrir.
+          #
+          # Exigir na validação, e não só no step de notificação, é o que
+          # transforma "webhook sumiu" em falha barulhenta no primeiro dia, em
+          # vez de silêncio indefinido. O step de notificação MANTÉM o guard
+          # `-z` por outra razão — ver o comentário lá embaixo.
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
           MISSING=""
           [ -z "$DATABASE_URL" ]        && MISSING="$MISSING DATABASE_URL"
@@ -68,10 +85,13 @@ jobs:
           [ -z "$R2_SECRET_ACCESS_KEY" ] && MISSING="$MISSING R2_SECRET_ACCESS_KEY"
           [ -z "$R2_BUCKET" ]           && MISSING="$MISSING R2_BUCKET"
           [ -z "$AGE_PUBLIC_KEY" ]      && MISSING="$MISSING AGE_PUBLIC_KEY"
+          [ -z "$SLACK_WEBHOOK_URL" ]   && MISSING="$MISSING SLACK_WEBHOOK_URL"
           if [ -n "$MISSING" ]; then
             echo "::error::Secrets ausentes:$MISSING"
             echo "::error::Configure em Settings → Secrets and variables → Actions"
             echo "::error::Detalhes em docs/SECRETS.md"
+            echo "::error::SLACK_WEBHOOK_URL é obrigatório: sem ele este workflow"
+            echo "::error::  falharia em SILÊNCIO (ele não cria issue, só avisa no Slack)."
             exit 1
           fi
 
@@ -214,8 +234,14 @@ jobs:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           FILE: ${{ steps.meta.outputs.filename }}
         run: |
+          # O guard fica, mesmo com o secret agora obrigatório na validação.
+          # Não é redundância: se o step de validação for quem falhar (por
+          # QUALQUER secret ausente), este step roda no `if: failure()` e
+          # tentaria postar com a variável vazia — `curl -fsS` contra URL vazia
+          # sai com erro e mascararia a mensagem instrutiva que a validação já
+          # imprimiu. Aqui o silêncio é o comportamento certo; lá, não era.
           if [ -z "$SLACK_WEBHOOK_URL" ]; then
-            echo "SLACK_WEBHOOK_URL não configurado — pulando notificação."
+            echo "SLACK_WEBHOOK_URL ausente — a validação de secrets já reportou o motivo."
             exit 0
           fi
           RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
