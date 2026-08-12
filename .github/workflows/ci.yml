@@ -96,3 +96,12 @@ jobs:
       - name: Guarda do índice FTS (PainelEmailAI)
         if: always()
         run: ./scripts/guarda-drift-fts.sh prisma/migrations
+
+      # Migration que acrescenta coluna obrigatória a tabela COM LINHAS é
+      # recusada com 23502 — e, como o start é `migrate deploy && next start`,
+      # o `&&` impede o `next start` e o app entra em loop de restart. A guarda
+      # (com teste em src/lib/guarda-not-null-sem-default.test.ts) pega isso
+      # antes do deploy. Ver o cabeçalho do script para a cadeia completa.
+      - name: Guarda de NOT NULL sem DEFAULT
+        if: always()
+        run: ./scripts/guarda-not-null-sem-default.sh prisma/migrations
