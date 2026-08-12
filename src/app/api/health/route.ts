@@ -4,6 +4,7 @@ import { cronAutorizado } from "@/lib/painel-do-dia/cron-guard";
 import { resolverEstadoDasFlags } from "@/lib/flags/estado";
 import { chavesLigadasDe, chavesNaoReconhecidasDe } from "@/lib/flags/ligadas";
 import { versaoDeploy } from "@/lib/versao-deploy";
+import { lerEstadoMigrations, type EstadoMigrations } from "@/lib/migrations-aplicadas";
 
 // Health check público. Usado por:
 //   - .github/workflows/post-deploy-smoke.yml (após deploy + cron 15min)
@@ -56,6 +57,16 @@ export async function GET(request: Request) {
      * resposta na issue de incidente. "2 flags com valor inválido" manda
      * alguém procurar; os nomes mandam alguém consertar. */
     let flagsValorInvalido: string[] | undefined;
+    /* QUAL SCHEMA está no ar, ao lado de qual CÓDIGO está no ar (`versao`).
+     *
+     * Passou a fazer falta quando `prisma migrate deploy` saiu do `startCommand`
+     * e virou `preDeployCommand` (#317). Antes, app respondendo implicava schema
+     * aplicado — migrar e subir eram o mesmo comando. Agora não são, e existe um
+     * estado novo: app no ar com schema velho, que o `SELECT 1` acima não vê.
+     *
+     * `migrations.pendentes` é o campo que importa: > 0 significa que o código
+     * servindo requisições espera colunas que o banco não tem. */
+    let migrations: EstadoMigrations | undefined;
     if (autorizado) {
       try {
         const estado = await resolverEstadoDasFlags();
@@ -64,6 +75,17 @@ export async function GET(request: Request) {
       } catch (error) {
         console.warn(
           `[health] falha ao ler flags: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+
+      // try/catch próprio, e não o mesmo das flags: ler `_prisma_migrations` e
+      // ler `Config` falham por motivos diferentes, e uma falha não deve apagar
+      // o diagnóstico da outra.
+      try {
+        migrations = await lerEstadoMigrations(prisma);
+      } catch (error) {
+        console.warn(
+          `[health] falha ao ler migrations: ${error instanceof Error ? error.message : String(error)}`,
         );
       }
     }
@@ -81,6 +103,7 @@ export async function GET(request: Request) {
         // antiga no ar".
         ...(flags ? { flags } : {}),
         ...(flagsValorInvalido ? { flagsValorInvalido } : {}),
+        ...(migrations ? { migrations } : {}),
         // `versao` não depende do banco (só de env), então sai mesmo que a
         // leitura das flags tenha falhado — é justamente nesse cenário que
         // saber qual commit está no ar mais ajuda.
