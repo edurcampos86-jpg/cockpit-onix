@@ -774,6 +774,19 @@ model ClienteBackoffice {
   apelidoEditadoEm  DateTime?
   apelidoEditadoPor String? // userId de quem editou (sessao atual)
 
+  // === Origem do cliente (manual) ===
+  // FALLBACK TEXTO, e só para origens que NÃO são indicação: "evento",
+  // "inbound", "prospecção fria". Quando a origem É uma indicação, a verdade
+  // mora no elo `Indicacao.clienteConvertido` (relação IndicacaoConvertida) —
+  // que preserva QUEM indicou, um FK que texto livre não consegue representar.
+  // Gravar "indicação do Fulano" aqui duplicaria esse dado e divergiria dele.
+  //
+  // MANUAL na FIELD_SOURCE_POLICY (mesmo padrão de `apelido`): nenhum dos 3
+  // XLSX BTG pode escrever, e upsertPorPolitica descarta se tentarem.
+  origemIndicacao           String?
+  origemIndicacaoEditadoEm  DateTime?
+  origemIndicacaoEditadoPor String? // userId de quem editou (sessao atual)
+
   // === Multi-fonte BTG (auditoria de fonte por campo) ===
   // fonteUltimoUpdate registra qual fonte (base_btg/informacoes/saldo_em_cc/manual)
   // escreveu por ultimo cada campo. Ver lib/backoffice/field-source-policy.
@@ -839,6 +852,19 @@ model ClienteBackoffice {
   metas            MetaCliente[]
   eventosVida      EventoVida[]
   indicacoes       Indicacao[]           @relation("ClienteIndicador")
+  // Lado inverso de Indicacao.clienteConvertido — as indicações que ORIGINARAM
+  // este cliente. Lista (não `?`) de propósito: nada impede duas pessoas terem
+  // indicado o mesmo prospect, e um UNIQUE aqui transformaria esse caso real
+  // num erro de gravação na rota /converter.
+  origensIndicacao Indicacao[]           @relation("IndicacaoConvertida")
+  // Lado inverso de Parceiro.clienteBackoffice — o registro de parceiro DESTE
+  // cliente, quando ele também é parceiro. `?` (não lista) porque o lado dono
+  // é @unique: uma conta BTG representa no máximo um parceiro.
+  parceiro         Parceiro?             @relation("ParceiroIdentidadeCliente")
+  // Histórico de vínculos com parceiros (lado inverso de ParceiroCliente).
+  // Lista porque o cliente pode ter passado por vários parceiros ao longo do
+  // tempo — o vigente é o de `dataFim` null.
+  parceirosVinculo ParceiroCliente[]
   perfilDescoberta PerfilDescoberta?
   planoUmaPagina   PlanoUmaPagina?
   checklist        ChecklistOrganizacao?
@@ -1266,10 +1292,204 @@ model Indicacao {
   agradecimentoEnviado Boolean @default(false)
   notas                String? @db.Text
 
+  // Cliente que este prospect virou. NULL enquanto não converteu — e o status
+  // "convertida" existia desde sempre SEM esse elo, então partindo de um
+  // ClienteBackoffice era impossível responder "quem indicou este cliente?".
+  // É esse buraco que o campo fecha.
+  //
+  // NULLABLE e SEM BACKFILL nesta PR: toda linha existente nasce null,
+  // inclusive as que já estão em status "convertida" (ligá-las é PR própria —
+  // `nomeIndicado` é texto livre e o casamento com o cliente precisa de
+  // revisão humana, não de heurística de nome).
+  //
+  // onDelete: SetNull — apagar um cliente não pode apagar o histórico de que
+  // alguém o indicou; a indicação sobrevive, só perde o ponteiro.
+  clienteConvertidoId String?
+  clienteConvertido   ClienteBackoffice? @relation("IndicacaoConvertida", fields: [clienteConvertidoId], references: [id], onDelete: SetNull)
+
+  // Parceiro que fez esta indicação. ANDA AO LADO de `indicadorId`, que NÃO é
+  // tocado: aquele elo está em produção desde a #302 e segue sendo a verdade
+  // para indicador que é cliente.
+  //
+  // Os dois existem porque respondem coisas diferentes. `indicadorId` aponta
+  // para um ClienteBackoffice — só serve para quem tem conta no BTG.
+  // `parceiroId` aponta para a entidade Parceiro, que existe sem conta
+  // nenhuma. Contador que indica três clientes e nunca investiu conosco cabe
+  // aqui e não cabe lá.
+  //
+  // Quando o parceiro TAMBÉM é cliente, os dois campos podem apontar para a
+  // mesma pessoa por caminhos distintos (Parceiro.clienteBackofficeId liga as
+  // pontas). Reconciliar isso é decisão de leitura, e nada lê ainda —
+  // deliberadamente fora desta PR.
+  parceiroId String?
+  parceiro   Parceiro? @relation("IndicacaoParceiro", fields: [parceiroId], references: [id], onDelete: SetNull)
+
   criadoEm     DateTime @default(now())
   atualizadoEm DateTime @updatedAt
 
   @@index([status])
+  // Suporta a pergunta que motivou a PR — "qual a origem DESTE cliente?" —
+  // percorrendo o elo no sentido cliente → indicação.
+  @@index([clienteConvertidoId])
+  @@index([parceiroId])
+}
+
+// ============================================
+// PARCEIROS — Fase 1
+// ============================================
+// Quem indica clientes para a Onix SEM precisar ser cliente.
+//
+// POR QUE A ENTIDADE EXISTE: até aqui, "indicador" só existia como
+// `Indicacao.indicadorId`, que é FK para ClienteBackoffice. Ou seja: quem
+// indicava PRECISAVA ter conta no BTG. Sócio, contador e parceiro comercial
+// que trazem cliente e nunca investiram não tinham onde morar — viravam texto
+// livre em `Indicacao.nomeIndicado` ou simplesmente sumiam do registro.
+//
+// NESTA PR a tabela nasce VAZIA e NADA a lê. Sem backfill, sem UI, sem rota.
+// Popular, vincular clientes (ParceiroCliente) e montar a árvore
+// (indicadoPorParceiroId) são PRs próprias.
+model Parceiro {
+  id String @id @default(cuid())
+
+  nome String
+
+  /// "socio" | "contabil" | "outro". TEXTO LIVRE por ora, de propósito: a
+  /// taxonomia de parceiro ainda não assentou, e um enum aqui obrigaria
+  /// migration a cada categoria nova descoberta em campo. Vira enum quando a
+  /// lista parar de mudar — não antes.
+  tipo String
+
+  /// O cliente que ESTE parceiro é, quando ele também é cliente.
+  ///
+  /// É O CAMPO CENTRAL DA PR, e é opcional de propósito. Parceiro PODE ser
+  /// cliente, mas não precisa ser — a alternativa (exigir conta BTG) é
+  /// exatamente a limitação que motivou a entidade.
+  ///
+  /// @unique: uma conta BTG representa no máximo um parceiro. Sem isso, dois
+  /// registros de parceiro poderiam reivindicar o mesmo cliente e nenhuma
+  /// leitura futura saberia qual vale.
+  ///
+  /// onDelete: SetNull — apagar o cliente não pode apagar o parceiro. Ele
+  /// segue existindo como quem indica; só perde a identidade de cliente.
+  clienteBackofficeId String?            @unique
+  clienteBackoffice   ClienteBackoffice? @relation("ParceiroIdentidadeCliente", fields: [clienteBackofficeId], references: [id], onDelete: SetNull)
+
+  /// NULL = sem contrato assinado. Será PRÉ-REQUISITO de ativação de acesso na
+  /// Fase 3 — o parceiro só ganha login depois que isto tem data. Guardado
+  /// como data (e não boolean) porque "desde quando" é a pergunta que aparece
+  /// em auditoria; um boolean perderia isso.
+  contratoAssinadoEm DateTime?
+
+  /// Desligamento LÓGICO. `false` não apaga histórico: as indicações que ele
+  /// já fez continuam apontando para cá. DELETE de parceiro nunca deve ser o
+  /// caminho normal justamente por isso.
+  ativo Boolean @default(true)
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  /// Rastro de autoria — mesmo padrão de apelidoEditadoPor/feeFixoEditadoPor:
+  /// userId cru, sem relation. Parceiro é entidade que decide para quem vai
+  /// comissão; "quem cadastrou esse parceiro?" precisa ter resposta antes de
+  /// alguém precisar dela.
+  criadoPor     String?
+  atualizadoPor String?
+
+  // ── Árvore de parceiros (self-relation, espelha Empresa.parentId) ──
+  //
+  // Quem trouxe ESTE parceiro para a rede. NULL = raiz (entrou direto).
+  //
+  // A profundidade é ILIMITADA por decisão de negócio — ao contrário de
+  // Empresa, que tem PROFUNDIDADE_MAXIMA = 2 em src/lib/empresas/hierarquia.ts.
+  // Isso muda o desenho: em Empresa a travessia mora em TypeScript puro
+  // (descendentesDe() em acesso-core.ts, BFS com Set de vistos) porque a árvore
+  // é minúscula e o teto é decretado. Aqui a árvore cresce com o negócio, e a
+  // proteção contra ciclo NÃO pode viver só no TS — qualquer INSERT por SQL
+  // manual, import ou script passaria por fora dela.
+  //
+  // Por isso a guarda é um TRIGGER no banco (parceiro_sem_ciclo), criado na
+  // migration desta PR. Ele rejeita A→A, A→B→A e cadeias mais longas.
+  //
+  // onDelete: SetNull — apagar o parceiro-pai não pode apagar os filhos. A
+  // subárvore vira raiz órfã, o que é recuperável; um Cascade apagaria a rede
+  // inteira abaixo de quem saiu.
+  indicadoPorParceiroId String?
+  indicadoPor           Parceiro?  @relation("ParceiroArvore", fields: [indicadoPorParceiroId], references: [id], onDelete: SetNull)
+  indicados             Parceiro[] @relation("ParceiroArvore")
+
+  /// Vigência do vínculo de árvore, mesmo padrão datado de AcordoComercial e
+  /// ParceiroCliente: `indicadoPorAte` NULL = vínculo vigente.
+  ///
+  /// Mora em COLUNAS (e não em tabela de histórico) porque cada parceiro tem no
+  /// máximo um pai por vez — a cardinalidade é 1, ao contrário de
+  /// ParceiroCliente, onde um parceiro tem N clientes. O custo assumido: trocar
+  /// o pai SOBRESCREVE o vínculo anterior em vez de arquivá-lo. Se o histórico
+  /// de reparenting virar requisito, isto vira tabela própria — e é PR de
+  /// migração, não de campo novo.
+  indicadoPorDesde DateTime?
+  indicadoPorAte   DateTime?
+
+  /// Indicações feitas por este parceiro (lado inverso de Indicacao.parceiro).
+  indicacoes Indicacao[] @relation("IndicacaoParceiro")
+
+  /// Clientes vinculados a este parceiro ao longo do tempo (histórico, não só
+  /// os vigentes). Ver ParceiroCliente.
+  clientes ParceiroCliente[]
+
+  @@index([ativo])
+  @@index([tipo])
+  @@index([nome])
+  /// Serve a travessia para baixo ("quem este parceiro trouxe?"), que é o
+  /// sentido que a árvore percorre para somar AUM de subárvore.
+  @@index([indicadoPorParceiroId])
+}
+
+// Vínculo DATADO entre parceiro e cliente.
+//
+// POR QUE UMA TABELA, e não um `parceiroId` em ClienteBackoffice: o vínculo
+// tem começo e fim. Um campo no cliente responderia "de quem é hoje" e perderia
+// "de quem era quando a receita entrou" — que é a pergunta que decide comissão.
+// Cliente que troca de parceiro em março não pode apagar o que o parceiro
+// anterior construiu até fevereiro.
+//
+// PADRÃO DE VIGÊNCIA copiado de AcordoComercial (mesma seção, `dataInicio` +
+// `dataFim` com `null = vigente`, índices em ambos): é literalmente o mesmo
+// problema — contrato comercial com prazo — e ter dois dialetos de vigência no
+// mesmo schema é como ter dois formatos de data.
+//
+// NESTA PR a tabela nasce VAZIA e NADA a lê. Sem backfill, sem UI, sem rota.
+model ParceiroCliente {
+  id String @id @default(cuid())
+
+  parceiroId String
+  parceiro   Parceiro @relation(fields: [parceiroId], references: [id], onDelete: Cascade)
+
+  clienteId String
+  cliente   ClienteBackoffice @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  /// Vigência. `dataFim` NULL = vínculo vigente — mesma convenção de
+  /// AcordoComercial.dataFim, inclusive o comentário.
+  dataInicio DateTime  @default(now())
+  dataFim    DateTime? // null = vigente
+
+  /// Quem criou o vínculo (userId cru, padrão apelidoEditadoPor) e quem o
+  /// encerrou. São dois campos porque vincular e desvincular são decisões
+  /// distintas, frequentemente de pessoas distintas, e "quem tirou esse
+  /// cliente do parceiro?" é a pergunta cara das duas.
+  vinculadoPor   String?
+  desvinculadoPor String?
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  /// Índices espelhando AcordoComercial (`[pessoaId, dataInicio]` e
+  /// `[pessoaId, dataFim]`): o primeiro serve o histórico ordenado de um
+  /// parceiro, o segundo serve "quais estão vigentes".
+  @@index([parceiroId, dataInicio])
+  @@index([parceiroId, dataFim])
+  /// Sentido inverso: "quem é o parceiro DESTE cliente?" — a leitura que a
+  /// ficha do cliente vai fazer.
+  @@index([clienteId, dataFim])
 }
 
 // Questionário de descoberta profunda (Storyselling — hemisfério direito)

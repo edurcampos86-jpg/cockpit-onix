@@ -55,11 +55,11 @@ A regra do Veeam, adaptada para o nosso contexto:
 
 | Item | Significado | Como o Cockpit Onix atende |
 |------|-------------|----------------------------|
-| **3 cópias** | Original + 2 backups | (1) Postgres primary no Railway + (2) Snapshot diário no R2 + (3) PITR do Railway (manual) |
+| **3 cópias** | Original + 2 backups | ⚠️ **HOJE SÃO 2:** (1) Postgres primary no Railway + (2) snapshot diário no R2. A 3ª seria o PITR do Railway, que **NÃO ESTÁ ATIVO** — ver "Onde estamos curtos" |
 | **2 mídias** | Não pôr tudo no mesmo tipo de storage | Block storage (Railway volume) + Object storage (Cloudflare R2) |
 | **1 offsite** | Pelo menos 1 cópia fora do site primário | R2 está em outro provedor (Cloudflare ≠ Railway), em outra região |
 | **1 imutável** | Pelo menos 1 cópia que não pode ser sobrescrita | Lifecycle rules do R2 com `Object Lock` opcional (configurar manual) + objetos versionados (write-once) |
-| **0 erros** | Validar restore | `restore-drill.yml` faz `pg_restore` real toda segunda + valida com SQL |
+| **0 erros** | Validar restore | ✅ `restore-drill.yml` faz `pg_restore` real toda segunda + valida com SQL. **Verde nas últimas 10 semanas** (última 10/08/2026): restaurou em 4s, 87 tabelas, 4 usuários |
 
 ### Onde estamos curtos hoje
 
@@ -67,13 +67,32 @@ A regra do Veeam, adaptada para o nosso contexto:
   teoria poderia sobrescrever. Para chegar em "imutável de verdade",
   habilitar Object Lock no bucket R2 ([docs Cloudflare](https://developers.cloudflare.com/r2/buckets/object-lock/)).
 - **PITR do Railway não está ligado:** custa ~US$ 5/mês, vale a pena para
-  reduzir RPO de 24h pra ~5min.
+  reduzir RPO de 24h pra ~5min. **É por isso que a linha "3 cópias" acima
+  está marcada como 2** — a tabela contava o PITR como se estivesse ativo, e
+  quem lê a regra 3-2-1-1-0 no meio de um incidente contaria uma cópia que
+  não existe.
+
+- **RTO nunca foi medido.** O drill semanal prova que o *dump* é bom; não
+  prova que dá para voltar a operar. Ver a tabela de RTO/RPO em
+  `DISASTER_RECOVERY.md`.
 
 ## Custos estimados mensais
 
-Premissas: dump bruto do Postgres ≈ 200 MB hoje, crescendo ~50% ao ano.
-Comprimido (gzip -9) ≈ 50 MB. Cenário pra 12 meses pra frente: ~100 MB
-por dump.
+Premissas **medidas** (não estimadas) no backup de 11/08/2026,
+`cockpit-onix-20260811-064146.dump.gz.age`:
+
+| | |
+|---|---|
+| dump cifrado + comprimido, real | **~15,5 MB** (16.207.546 bytes) |
+| estimativa anterior deste documento | ~50 MB |
+
+O número real é **~3× menor** que a premissa original — os custos abaixo
+foram calculados sobre 100 MB/dump e portanto seguem **conservadores**, o
+que é o lado seguro de errar. Mantidos como estão de propósito: recalcular
+para 15,5 MB só encolheria uma conta que já dá "praticamente zero", e a
+folga cobre o crescimento de ~50%/ano.
+
+Cenário mantido para 12 meses à frente: ~100 MB por dump.
 
 ### Cloudflare R2
 

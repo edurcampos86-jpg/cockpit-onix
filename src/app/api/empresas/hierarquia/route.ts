@@ -1,7 +1,9 @@
 /**
  * /api/empresas/hierarquia
  *
- *   GET  → contagem e árvore de `Empresa`. Read-only.
+ *   GET  → contagem, árvore de `Empresa`, `acoesDisponiveis` (marcador de
+ *          versão da rota), e o diagnóstico de `faltando` / `divergencias`.
+ *          ESTRITAMENTE read-only: só `findMany`/`count` mais uma função PURA.
  *   POST → três ações, escolhidas por `acao` no corpo:
  *            (padrão)      cria a raiz "Onix Co" se ainda não existir. Idempotente.
  *            "seed-filhas" cria as 5 empresas jurídicas do grupo JÁ penduradas
@@ -68,6 +70,25 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const runtime = "nodejs";
 
+/**
+ * As ações que o POST aceita, na ordem em que ele as trata.
+ *
+ * Existe para o GET poder anunciá-las (`acoesDisponiveis`) e servir de
+ * marcador de versão da rota — sem isso, "o deploy subiu?" só se responde
+ * provocando um 400, o que exige POST numa rota de escrita.
+ *
+ * `padrao` não é literalmente um valor de `acao`: é a AUSÊNCIA do campo, que
+ * cria a raiz. Aparece na lista porque quem lê a resposta quer saber o que a
+ * rota faz, não qual string digitar — e o nome está explicado na `observacao`.
+ *
+ * ── MANTER JUNTO DO SWITCH ───────────────────────────────────────────────
+ * Esta constante e o `if (acao !== ...)` do POST são a mesma decisão escrita
+ * duas vezes. Não dá para derivar uma da outra sem tornar o POST reflexivo,
+ * então ficam VIZINHAS no arquivo: acrescentar ação sem acrescentar aqui
+ * deixa o marcador de versão mentindo, e o diff mostra as duas lado a lado.
+ */
+const ACOES_DO_POST = ["padrao", "seed-filhas", "reparent"] as const;
+
 export async function GET() {
   // A árvore só serve se refletir o banco AGORA: o ponto do endpoint é
   // confirmar que a raiz entrou. Uma resposta de cache responderia a pergunta
@@ -105,10 +126,32 @@ export async function GET() {
         },
       }),
     ]);
+    // PURO — `planejarSeedFilhas` não toca em banco (recebe a árvore já lida)
+    // e não escreve nada. É a MESMA função que a ação `seed-filhas` usa para
+    // decidir o que criar; aqui só o diagnóstico dela é aproveitado.
+    //
+    // Por que isso vive no GET: até esta PR, `divergencias` só existia na
+    // resposta do POST. Quem abrisse o GET para conferir a árvore não via que
+    // uma filha estava com o pai errado — precisava disparar uma ESCRITA para
+    // descobrir um problema de LEITURA. Sendo a função pura, não havia motivo.
+    const plano = planejarSeedFilhas(arvore, EMPRESAS_DO_GRUPO);
+
     return NextResponse.json({
       total,
       arvore,
       raiz: conferirRaiz(arvore),
+      // Marcador de versão da rota. Antes não havia NENHUM: depois de um
+      // deploy, "a versão nova subiu?" só se respondia provocando um 400 com
+      // uma ação inexistente no POST — ou seja, era preciso escrever para
+      // descobrir o que se pode escrever. A lista é derivada das ações que o
+      // POST de fato aceita; acrescentar ação sem acrescentar aqui deixa o
+      // marcador mentindo, então as duas ficam vizinhas no arquivo.
+      acoesDisponiveis: ACOES_DO_POST,
+      // Filhas canônicas que ainda não existem no banco.
+      faltando: plano.criar.map((e) => e.id),
+      // Filhas que existem apontando para outro pai (ou soltas como raiz).
+      // Reportadas, nunca corrigidas — o conserto é `acao: "reparent"`.
+      divergencias: plano.divergencias,
       ultimosBootstraps,
       // Esperado 0 até a PR de reparenting. Explicitado para quem lê a resposta
       // não confundir "hierarquia ainda plana" com "bootstrap incompleto".
@@ -162,6 +205,10 @@ export async function POST(request: Request) {
 
   // Ação desconhecida é erro do chamador, não "faz o padrão". Cair no default
   // silenciosamente faria um `acao: "reparente"` (typo) criar a raiz sem avisar.
+  //
+  // AO ACRESCENTAR UMA AÇÃO AQUI, acrescente também em `ACOES_DO_POST` (topo
+  // do arquivo) — é ela que o GET publica como marcador de versão, e uma lista
+  // desatualizada faz o marcador mentir sobre o que a rota aceita.
   if (acao !== undefined && acao !== "reparent" && acao !== "seed-filhas") {
     return NextResponse.json(
       {
