@@ -222,6 +222,139 @@ jobs:
           echo "Configuração confere com EXPECTED_FLAGS_ON."
           echo "status=ok" >> "$GITHUB_OUTPUT"
 
+      # ── MIGRATIONS PENDENTES — FALHA ───────────────────────────────────
+      #
+      # O estado que a separação entre `migrate deploy` e `next start` (#317)
+      # criou: app no ar com schema velho. O probe de `/api/health` acima passa
+      # verde nele — `SELECT 1` responde —, e o erro só aparece depois, como
+      # coluna inexistente no meio de uma requisição de usuário.
+      #
+      # FALHA, e não avisa: a lição da #301 é que informação sem gate depende de
+      # alguém ler. Aqui não há ambiguidade a preservar — `pendentes` não vazio
+      # significa que o código servindo tráfego espera colunas que o banco não
+      # tem, e isso é errado em qualquer janela, inclusive durante um deploy.
+      - name: Probe migrations aplicadas
+        id: migrations
+        if: always()
+        run: |
+          set -euo pipefail
+
+          # Ausente quando CRON_SECRET não está configurado: o step anterior sai
+          # cedo sem escrever o arquivo. Nada a conferir, e não é falha deste.
+          if [ ! -s /tmp/health-auth.json ]; then
+            echo "Sem resposta autenticada — nada a conferir."
+            exit 0
+          fi
+
+          # Campo ausente = versão anterior à que passou a publicá-lo. Avisa e
+          # segue, mesmo critério de `flags` e `flagsValorInvalido`.
+          if ! jq -e 'has("migrations")' /tmp/health-auth.json > /dev/null; then
+            echo "::warning::/api/health não trouxe 'migrations' — versão antiga no ar."
+            exit 0
+          fi
+
+          ULTIMA=$(jq -r '.migrations.ultima // "(nenhuma)"' /tmp/health-auth.json)
+          APLICADAS=$(jq -r '.migrations.aplicadas' /tmp/health-auth.json)
+          PENDENTES=$(jq -r '.migrations.pendentes | join(", ")' /tmp/health-auth.json)
+          FALHAS=$(jq -r '.migrations.falhas | join(", ")' /tmp/health-auth.json)
+
+          echo "Migrations aplicadas: $APLICADAS · última: $ULTIMA"
+          {
+            echo "| Migrations aplicadas | \`$APLICADAS\` |"
+            echo "| Última migration | \`$ULTIMA\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # Separado de `pendentes` porque o conserto é outro: linha começada e
+          # não terminada precisa de `migrate resolve` antes de qualquer nova
+          # tentativa (ver Cenário 2 do DISASTER_RECOVERY).
+          if [ -n "$FALHAS" ]; then
+            echo "| Migrations com falha | \`$FALHAS\` |" >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Migration começada e não concluída, ou revertida: $FALHAS. Rode 'prisma migrate resolve' antes de tentar de novo — ver Cenário 2 do docs/DISASTER_RECOVERY.md."
+            exit 1
+          fi
+
+          if [ -n "$PENDENTES" ]; then
+            echo "| Migrations PENDENTES | \`$PENDENTES\` |" >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::App no ar com schema velho. O código servindo tráfego espera migrations que o banco não tem: $PENDENTES. Conserto: redeploy (o Pre-deploy aplica) ou 'npm run db:migrate' com a DATABASE_URL de produção."
+            exit 1
+          fi
+
+          echo "Schema em dia — nenhuma migration pendente."
+
+      # ── DIVERGÊNCIA DE SHA — reporta uma vez, falha na segunda ─────────
+      #
+      # Divergir é NORMAL durante a janela de build: o commit entrou na main e o
+      # Railway ainda está construindo a imagem. Foi por isso que a checagem
+      # nasceu como aviso, e essa decisão continua valendo para UM ciclo.
+      #
+      # O que ela não pegava: a divergência que não passa. Um deploy que não foi
+      # promovido deixa a versão anterior servindo indefinidamente, e o aviso
+      # repetido de hora em hora tem exatamente a mesma cara do aviso normal de
+      # build. Dois ciclos consecutivos com o MESMO par (esperado, no ar) não é
+      # mais build: é deploy que não entrou.
+      #
+      # O estado entre execuções vive no cache do Actions. Chave por `run_id`
+      # porque chave de cache é imutável; `restore-keys` traz a mais recente.
+      - name: Restaurar divergência do ciclo anterior
+        if: always()
+        uses: actions/cache/restore@v4
+        with:
+          path: /tmp/smoke-divergencia
+          key: smoke-divergencia-${{ github.run_id }}
+          restore-keys: smoke-divergencia-
+
+      - name: Divergência de sha persistente
+        id: divergencia
+        if: always()
+        run: |
+          set -euo pipefail
+          ANTERIOR=""
+          [ -f /tmp/smoke-divergencia ] && ANTERIOR=$(cat /tmp/smoke-divergencia)
+
+          if [ ! -s /tmp/health-auth.json ] || ! jq -e '.versao.shaCurto' /tmp/health-auth.json > /dev/null 2>&1; then
+            echo "Sem sha no ar para comparar."
+            # Grava vazio para o save não falhar por caminho inexistente, e para
+            # um ciclo cego não contar como "segunda divergência" do próximo.
+            : > /tmp/smoke-divergencia
+            exit 0
+          fi
+
+          NO_AR=$(jq -r '.versao.shaCurto' /tmp/health-auth.json)
+          ESPERADO="${GITHUB_SHA:0:7}"
+          ATUAL="$ESPERADO $NO_AR"
+
+          if [ "$NO_AR" = "$ESPERADO" ]; then
+            echo "Convergiu: $NO_AR está no ar."
+            : > /tmp/smoke-divergencia
+            exit 0
+          fi
+
+          # Grava ANTES de decidir: se este ciclo falhar, o próximo tem de
+          # continuar vendo a divergência, não recomeçar a contagem.
+          echo "$ATUAL" > /tmp/smoke-divergencia
+
+          if [ "$ANTERIOR" = "$ATUAL" ]; then
+            {
+              echo ""
+              echo "### 🛑 Deploy não entrou"
+              echo ""
+              echo "Duas execuções seguidas com \`$NO_AR\` no ar e \`$ESPERADO\` esperado."
+              echo "Não é janela de build — é deploy que não foi promovido."
+              echo "Railway → Deployments: procure o passo **Pre-deploy** vermelho."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Commit no ar ($NO_AR) difere do esperado ($ESPERADO) em DOIS ciclos consecutivos do smoke. Um ciclo é build; dois é deploy que não entrou."
+            exit 1
+          fi
+
+          echo "::warning::Commit no ar ($NO_AR) difere do esperado ($ESPERADO). Primeiro ciclo — provavelmente build em andamento. O próximo smoke decide."
+
+      - name: Guardar divergência para o próximo ciclo
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: /tmp/smoke-divergencia
+          key: smoke-divergencia-${{ github.run_id }}
+
       - name: Probe GET /login
         id: login
         env:
