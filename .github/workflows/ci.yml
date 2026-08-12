@@ -97,6 +97,23 @@ jobs:
         if: always()
         run: ./scripts/guarda-drift-fts.sh prisma/migrations
 
+      # Guarda contra `ADD COLUMN ... NOT NULL` sem `DEFAULT`.
+      #
+      # A regra vive em scripts/guarda-not-null-sem-default.sh, que documenta o
+      # porquê e tem teste próprio (src/lib/guarda-not-null-sem-default.test.ts)
+      # — mesma convenção da guarda acima, pela mesma razão: shell inline aqui
+      # não é exercitado por nada e pode parar de casar sem ninguém notar.
+      #
+      # O que ela pega: coluna obrigatória acrescentada a tabela que já tem
+      # linhas. O Postgres recusa com 23502, o start é
+      # `prisma migrate deploy && next start`, e o `&&` transforma isso em app
+      # em loop de restart — não em "migration pendente".
+      #
+      # Também sem depender do install: find + awk.
+      - name: Guarda de NOT NULL sem DEFAULT em coluna nova
+        if: always()
+        run: ./scripts/guarda-not-null-sem-default.sh prisma/migrations
+
       # AVISO, não gate — e a diferença é decisão, não descuido.
       #
       # Confere se os modelos que docs/onix-co-estado.md cita ainda existem em
