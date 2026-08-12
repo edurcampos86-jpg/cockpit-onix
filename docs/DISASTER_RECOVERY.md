@@ -113,7 +113,7 @@ git push origin main
 
 - Rode `prisma migrate diff --from-url $PROD_DATABASE_URL --to-schema-datamodel prisma/schema.prisma --script` **antes** de commitar e revise
 - Para colunas NOT NULL novas, adicione com default → backfill → remova default num segundo deploy
-- Considere mudar o startCommand pra `prisma migrate deploy` (precisa de migrations versionadas — ainda não temos)
+- ~~Considere mudar o startCommand pra `prisma migrate deploy`~~ — **feito, e melhor que isso.** As migrations versionadas existem (`prisma/migrations/`), e `prisma migrate deploy` roda como `preDeployCommand` no `railway.toml`, **fora** do `startCommand`. A diferença importa neste documento: migration que falha faz o deploy não promover, e a versão anterior **continua no ar**. Dentro do `start`, o mesmo erro derrubaria o serviço em loop de restart — indisponibilidade a partir de um problema de dado.
 
 ---
 

@@ -306,6 +306,33 @@ declarada.
 - **PR #301 aberta com 3 níveis** — ver o conflito registrado acima. É a pendência
   de maior impacto: ela redefine a árvore inteira.
 
+### Sem garantia no banco
+
+- 📋 **`AcordoComercial` (Pessoa) não tem índice parcial único.** A regra "um
+  acordo vigente por pessoa" existe **apenas em código**:
+  `src/app/actions/acordo-comercial.ts:70-78` faz `updateMany` fechando o
+  vigente e `create` do novo, dentro de uma transação. O banco não impede dois
+  acordos com `dataFim` null para a mesma pessoa.
+
+  Dois caminhos furam a regra sem passar por ali: `atualizarAcordo`
+  (`:147`) faz `update` direto, e `encerrarAcordo` (`:168`) mexe em `dataFim`
+  de uma linha só. Qualquer script, import ou rota futura também passa por fora.
+
+  É a **mesma classe** do problema fechado pela #310 do lado do parceiro, onde
+  a garantia virou índice parcial único no banco. O padrão a copiar existe e
+  está testado:
+
+  ```sql
+  CREATE UNIQUE INDEX "AcordoComercial_pessoa_vigente_key"
+    ON "AcordoComercial" ("pessoaId")
+    WHERE "dataFim" IS NULL;
+  ```
+
+  ⚠️ **Diferente da #310, aqui a tabela TEM dados.** O `CREATE` aborta se já
+  existirem duas linhas abertas para a mesma pessoa, então a PR precisa
+  começar por um `SELECT` de diagnóstico e decidir o que fazer com as
+  duplicatas — decisão de negócio, não de código. PR própria, tier 🔴 RED.
+
 ### Conferências humanas pendentes
 
 - 📋 ~331 pares CPF↔CNPJ por sinal fraco — fila de revisão, sem união automática.
