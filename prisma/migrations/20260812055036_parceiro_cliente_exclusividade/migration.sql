@@ -1,0 +1,68 @@
+-- Exclusividade de cliente por parceiro — troca do índice parcial único.
+--
+-- DECISÃO DE NEGÓCIO: um cliente tem NO MÁXIMO UM parceiro vigente.
+--
+-- POR QUÊ: a comissão do parceiro é um PERCENTUAL RETIRADO da comissão do
+-- assessor. Dois parceiros vigentes no mesmo cliente retirariam da mesma base
+-- duas vezes — não é uma divisão, é uma dupla cobrança sobre um valor que
+-- existe uma vez só. O erro não apareceria na tela: apareceria no fechamento,
+-- como comissão de assessor menor do que a régua manda, sem nada apontando a
+-- causa.
+--
+-- 20260811092122 criou o índice restringindo o PAR (parceiro, cliente), o que
+-- permitia dois parceiros distintos vigentes no mesmo cliente. Aquilo foi
+-- deliberado e está registrado na PR #307 como pergunta aberta; esta migration
+-- é a resposta.
+--
+-- ─────────────────────────────────────────────────────────────────────────
+-- POR QUE ISTO É SEGURO AGORA, e não seria em duas semanas
+-- ─────────────────────────────────────────────────────────────────────────
+-- "ParceiroCliente" está VAZIA em produção — nasceu vazia em 20260811092122,
+-- não houve backfill e nenhuma rota escreve nela. Um índice único mais
+-- ESTRITO sobre tabela vazia não pode falhar por dado pré-existente.
+--
+-- Com dado dentro, esta mesma troca poderia abortar no meio: o CREATE UNIQUE
+-- INDEX falha se JÁ existirem dois vínculos vigentes no mesmo cliente, e a
+-- correção exigiria decidir à mão qual dos dois parceiros perde o cliente —
+-- decisão de negócio, com dinheiro em jogo, tomada sob pressão de deploy.
+-- É exatamente essa janela que esta migration aproveita.
+--
+-- Se, contra o esperado, houver linhas quando isto rodar, o CREATE falha, a
+-- migration aborta e o deploy inteiro para ANTES de o app subir — o que é o
+-- desfecho correto: nada fica meio aplicado.
+--
+-- ─────────────────────────────────────────────────────────────────────────
+-- NOME NOVO, de propósito
+-- ─────────────────────────────────────────────────────────────────────────
+-- "ParceiroCliente_vigente_key" -> "ParceiroCliente_cliente_vigente_key".
+-- O índice passou a significar OUTRA regra; manter o nome antigo faria o
+-- catálogo do banco mentir sobre qual invariante está em vigor. O nome novo
+-- diz por qual coluna a unicidade vale.
+--
+-- O par (parceiro, cliente) SEGUE podendo repetir no histórico — vincular,
+-- desvincular e revincular continua legítimo. O predicado
+-- WHERE "dataFim" IS NULL restringe apenas as linhas ABERTAS, exatamente como
+-- antes; o que mudou foi a coluna sob unicidade.
+--
+-- Continua invisível ao Prisma (índice parcial não é representável no
+-- schema.prisma), então esta migration é SQL puro e o schema.prisma NÃO muda —
+-- mesmo formato de 20260613120000_painel_email_fts_index_recreate. Verificado
+-- em shadow-DB que isso não gera drift: o `migrate diff` não re-emite índice
+-- parcial.
+--
+-- Rollback = DROP INDEX "ParceiroCliente_cliente_vigente_key";
+--            CREATE UNIQUE INDEX "ParceiroCliente_vigente_key"
+--              ON "ParceiroCliente" ("parceiroId", "clienteId")
+--              WHERE "dataFim" IS NULL;
+--
+-- (Nenhum statement de drift do PainelEmailAI.tsv apareceu aqui: esta
+-- migration foi escrita à mão, sem passar pelo `prisma migrate dev`, porque o
+-- schema.prisma não muda. A guarda em .github/workflows/ci.yml cobre o caso.)
+
+-- Fora do índice antigo, que restringia o PAR.
+DROP INDEX "ParceiroCliente_vigente_key";
+
+-- No máximo UM vínculo vigente por CLIENTE, qualquer que seja o parceiro.
+CREATE UNIQUE INDEX "ParceiroCliente_cliente_vigente_key"
+  ON "ParceiroCliente" ("clienteId")
+  WHERE "dataFim" IS NULL;

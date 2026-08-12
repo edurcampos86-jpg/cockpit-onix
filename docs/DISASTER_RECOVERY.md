@@ -22,7 +22,7 @@
 | Componente | Onde mora | Como acessar | Backup |
 |------------|-----------|--------------|--------|
 | App Next.js | Railway (projeto `cockpit-onix`) | <https://cockpit-onix-app-production.up.railway.app> | Git (GitHub `main`) + Railway redeploy |
-| Postgres | Railway (mesmo projeto) | Internal: `DATABASE_URL` env var | **R2 diário** + Railway PITR (clicar no painel) |
+| Postgres | Railway (mesmo projeto) | Internal: `DATABASE_URL` env var | **R2 diário** (verificado por drill semanal). Railway PITR: ⚠️ **NÃO ATIVO** — é opção, não cópia existente |
 | Storage de PDFs | Backblaze B2 | `B2_BUCKET` env | Replicação B2 (configurar manualmente) |
 | OAuth tokens (Google/MS) | Postgres (`UserGoogleAuth`, `UserMicrosoftAuth`) cifrados | `CRYPTO_KEY` env decifra | Junto com o dump Postgres |
 | Cron schedules | GitHub Actions (`.github/workflows/cron.yml`) | Repo Settings → Actions | Versionado em Git |
@@ -34,7 +34,7 @@
 
 | Métrica | Objetivo | Estado atual | Caminho pra melhorar |
 |---------|----------|--------------|----------------------|
-| **RTO (Recovery Time Objective)** | ≤ 30 min para subir app + DB num novo Railway / outro provedor | ~45 min (sem ensaio real ainda — meta após drill #1) | Drill mensal de "criar projeto novo" |
+| **RTO (Recovery Time Objective)** | ≤ 30 min para subir app + DB num novo Railway / outro provedor | **~45 min — ESTIMADO, nunca medido.** Já houve **17 drills** de restore (10 últimos verdes, o mais recente em 10/08/2026), mas eles validam o *dump*, não a volta ao ar: recriar projeto, apontar `DATABASE_URL` e subir app nunca foi cronometrado | Drill mensal de "criar projeto novo" — é o único que converte esta estimativa em número |
 | **RPO (Recovery Point Objective)** | ≤ 24 h de perda de dados (backup diário 06:00 UTC) | 24h | Habilitar Railway PITR (clique no painel) → cai pra ~5min |
 
 > **PITR do Railway:** ativar no painel do projeto → Database → Backups →
