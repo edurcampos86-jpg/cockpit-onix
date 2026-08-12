@@ -110,6 +110,9 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
+          # shellcheck disable=SC2016
+          # As crases nas mensagens abaixo são markdown do resumo do job, não
+          # command substitution — aspas simples é exatamente o que se quer.
           set -euo pipefail
           set +e
           npx tsx scripts/verificar-empresa-vazia.ts > "${RUNNER_TEMP}/empresa.txt" 2>&1
