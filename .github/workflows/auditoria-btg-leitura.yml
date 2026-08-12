@@ -100,6 +100,22 @@ jobs:
             count(*)                                                     AS clientes,
             count(*) FILTER (WHERE "fonteUltimoUpdate" IS NOT NULL)      AS com_rastro_de_fonte
           FROM "ClienteBackoffice";
+
+          -- upsert-cliente.ts:95 grava `{campo: "fonte:timestamp"}`. Desmontar
+          -- isso responde a pergunta da auditoria: QUEM escreveu por último —
+          -- a planilha ou a Partner API. Nenhum valor de campo é lido, só a
+          -- etiqueta de origem.
+          SELECT '=== 6. Qual fonte escreveu, e quando pela última vez ===' AS secao;
+          SELECT
+            split_part(e.value, ':', 1)                             AS fonte,
+            count(*)                                                AS campos_gravados,
+            count(DISTINCT c.id)                                    AS clientes,
+            max(substring(e.value from position(':' in e.value) + 1)) AS mais_recente
+          FROM "ClienteBackoffice" c,
+               LATERAL jsonb_each_text(c."fonteUltimoUpdate") AS e(key, value)
+          WHERE c."fonteUltimoUpdate" IS NOT NULL
+          GROUP BY 1
+          ORDER BY 2 DESC;
           SQL
 
           docker run --rm \
