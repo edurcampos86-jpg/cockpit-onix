@@ -28,7 +28,13 @@
 #   5. arquivo terminando em quebra de linha
 #      — a última linha sem `\n` some de `wc -l` e de vários parsers, o que
 #        faz a própria conferência de tamanho mentir
+#   6. sha256 batendo com `.claude/skills/MANIFESTO.md`
+#      — as cinco regras acima provam que o arquivo é BEM-FORMADO; nenhuma
+#        prova que ele é o arquivo CERTO. `version: 2.2` com o conteúdo da
+#        2.0 passa em todas elas. O hash é o que fecha esse buraco, e é a
+#        regra que teria pego a #327 no primeiro CI em vez de 25 h depois
 #
+
 # ── Por que isto é script, e não shell inline no ci.yml ───────────────────
 # Mesma razão de `guarda-drift-fts.sh` e `guarda-not-null-sem-default.sh`, e a
 # #311 já pagou esse preço uma vez: regra embutida no workflow é regra que
@@ -54,7 +60,28 @@ if [ ! -d "$RAIZ" ]; then
   exit 0
 fi
 
+MANIFESTO="$RAIZ/MANIFESTO.md"
+
 falhas=0
+
+# sha256sum no Linux (e no runner), shasum -a 256 no macOS.
+hash_de() {
+  if command -v sha256sum > /dev/null 2>&1; then
+    sha256sum "$1" | awk '{ print $1 }'
+  else
+    shasum -a 256 "$1" | awk '{ print $1 }'
+  fi
+}
+
+# Lê o hash declarado para uma skill no manifesto. Vazio = não declarada.
+hash_no_manifesto() {
+  [ -f "$MANIFESTO" ] || return 0
+  awk -F'|' -v alvo="$1" '
+    /^\| *`/ {
+      gsub(/[` ]/, "", $2)
+      if ($2 == alvo) { gsub(/[` ]/, "", $5); print $5; exit }
+    }' "$MANIFESTO"
+}
 
 # Acumula TODAS as violações antes de sair. Reprovar na primeira esconderia as
 # outras, e quem estivesse subindo um lote de skills consertaria uma por
@@ -119,7 +146,35 @@ for dir in "$RAIZ"/*/; do
   if [ -n "$(tail -c 1 "$arquivo")" ]; then
     reprovar "$skill" "não termina em quebra de linha"
   fi
+
+  # ── regra 6 · sha256 bate com o manifesto ───────────────────────────────
+  # Só cobra quando o manifesto existe: repositório sem MANIFESTO.md continua
+  # passando pelas cinco regras anteriores, mesma razão da ausência do
+  # diretório sair 0.
+  if [ -f "$MANIFESTO" ]; then
+    esperado=$(hash_no_manifesto "$skill")
+    encontrado=$(hash_de "$arquivo")
+    if [ -z "$esperado" ]; then
+      reprovar "$skill" "não está declarada em $MANIFESTO — rode ./scripts/atualiza-manifesto.sh"
+    elif [ "$esperado" != "$encontrado" ]; then
+      reprovar "$skill" "sha256 diverge do manifesto — o arquivo NÃO é o que o manifesto nomeia"
+      echo "      esperado:   $esperado"
+      echo "      encontrado: $encontrado"
+      echo "      se a mudança é intencional: ./scripts/atualiza-manifesto.sh"
+    fi
+  fi
 done
+
+# Skill declarada no manifesto mas ausente do disco é o outro lado do mesmo
+# erro: alguém apagou a pasta e o manifesto seguiu prometendo que ela existe.
+if [ -f "$MANIFESTO" ]; then
+  while read -r declarada; do
+    [ -n "$declarada" ] || continue
+    if [ ! -d "$RAIZ/$declarada" ]; then
+      reprovar "$declarada" "declarada em $MANIFESTO mas não existe em $RAIZ"
+    fi
+  done <<< "$(awk -F'|' '/^\| *`/ { gsub(/[` ]/, "", $2); print $2 }' "$MANIFESTO")"
+fi
 
 if [ "$encontradas" -eq 0 ]; then
   echo "guarda-skills: nenhuma skill em '$RAIZ' — nada a validar."

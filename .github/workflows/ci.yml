@@ -132,6 +132,11 @@ jobs:
       # branch em que ela própria entra.
       #
       # Também sem depender do install: bash + awk + iconv + tr.
+      # Desde a #331 a guarda também confere o sha256 de cada SKILL.md contra
+      # .claude/skills/MANIFESTO.md. As outras cinco regras provam que o
+      # arquivo é BEM-FORMADO; nenhuma prova que é o arquivo CERTO — um
+      # `version: 2.2` com o conteúdo da 2.0 passa em todas elas. Mudou uma
+      # skill de propósito? `./scripts/atualiza-manifesto.sh` e commite junto.
       - name: Guarda de integridade das skills (.claude/skills)
         if: always()
         run: ./scripts/guarda-skills.sh .claude/skills
@@ -155,3 +160,29 @@ jobs:
       - name: Aviso — doc de estado × schema (não bloqueia)
         if: always()
         run: ./scripts/aviso-doc-modelos.sh docs/onix-co-estado.md prisma/schema.prisma
+
+      # AVISO, não gate — mesma decisão do passo acima, por razão própria:
+      # "está na hora de revisar o método" não pode reprovar a PR de outra
+      # pessoa, que não tem nada a ver com isso. Gate aqui empurraria quem
+      # está no meio de outra tarefa a fazer a revisão às pressas, que é o
+      # defeito exato que a revisão por calendário existe para evitar.
+      #
+      # A seção 10 da onix-entrega-segura manda revisá-la a cada 10 PRs
+      # fechadas. A regra estava em prosa e o contador era linha à mão em
+      # docs/onix-co-estado.md — o mesmo arquivo que listava como pendentes
+      # três itens já entregues pelas #316, #322 e #324. Contador que depende
+      # de alguém lembrar de contar não é calendário, é intenção.
+      #
+      # MARCO ZERO: a609d09 = merge da #327, que trouxe a v2.2. A contagem
+      # NÃO é retroativa, e o sha está aqui e em docs/onix-co-estado.md para
+      # que continue não sendo. Ao revisar a skill, este sha muda junto.
+      #
+      # Conta commits da main desde o marco (squash + main linear ⇒ 1 commit
+      # ≈ 1 PR). Precisa do histórico, que o fetch-depth: 0 lá em cima traz.
+      # Tem teste próprio (src/lib/aviso-revisao-skill.test.ts), que cobre o
+      # "sai 0 sempre" junto com a detecção.
+      - name: Aviso — revisão da skill a cada 10 PRs (não bloqueia)
+        if: always()
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: ./scripts/aviso-revisao-skill.sh a609d09b3c23c4e513f28ef03feb13d1cab26d51 "$BASE_SHA" 10
