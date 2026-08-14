@@ -25,6 +25,7 @@ import {
   NOS_ABAIXO_DA_HOLDING,
   ONIX_CO,
   TODAS_AS_EMPRESAS,
+  conferirRaiz,
   lotesPorProfundidade,
   planejarSeedFilhas,
   type EmpresaSemente,
@@ -315,4 +316,78 @@ test("lista que produziria bisneto é barrada pela régua sobre a simulada", () 
     tipos.map((t) => t.motivo).sort(),
     ["departamento_com_filho", "pai_departamento"],
   );
+});
+
+// ── conferirRaiz ───────────────────────────────────────────────────────────
+//
+// É o campo `raiz` que GET e POST devolvem, e a única resposta que o endpoint
+// dá para "a raiz entrou?". Os três campos existem porque as três perguntas
+// são distintas — e ela NÃO corrige nada: `parentId` não-nulo na raiz é estado
+// que nenhum código deste módulo produz (só chegaria por SQL manual), então é
+// reportado. Consertar em silêncio esconderia como aconteceu.
+
+test("raiz ausente: existe=false, e ehRaiz não vira true por descuido", () => {
+  // O caso do banco vazio, e o mais importante de não confundir: `ehRaiz`
+  // false aqui significa "não há raiz", não "há uma raiz malformada".
+  const r = conferirRaiz([]);
+  assert.deepEqual(r, { existe: false, ehRaiz: false, parentIdInesperado: null });
+});
+
+test("raiz ausente mesmo com outras empresas na tabela", () => {
+  // Estado real de um banco em que alguém semeou as filhas antes da raiz.
+  const r = conferirRaiz([{ id: "tech", nome: "Onix Tech", parentId: null }]);
+  assert.equal(r.existe, false);
+  assert.equal(r.parentIdInesperado, null);
+});
+
+test("raiz correta: existe, é raiz, e nada inesperado a reportar", () => {
+  const r = conferirRaiz(SO_A_RAIZ);
+  assert.deepEqual(r, { existe: true, ehRaiz: true, parentIdInesperado: null });
+});
+
+test("raiz correta continua correta na árvore completa", () => {
+  // A presença das 5 filhas não muda a resposta sobre a raiz.
+  assert.deepEqual(conferirRaiz(COMPLETA), {
+    existe: true,
+    ehRaiz: true,
+    parentIdInesperado: null,
+  });
+});
+
+test("raiz COM PAI é reportada, não corrigida", () => {
+  // O estado ruim que só chega por SQL manual. `existe` segue true — ela está
+  // lá —, mas `ehRaiz` é false e o pai indevido sai NOMEADO: sem isso, quem lê
+  // a resposta sabe que algo está errado e não sabe o quê.
+  const r = conferirRaiz([
+    { id: "onix-co", nome: "Onix Co", parentId: "investimentos" },
+    { id: "investimentos", nome: "Onix Capital", parentId: null },
+  ]);
+  assert.equal(r.existe, true);
+  assert.equal(r.ehRaiz, false);
+  assert.equal(r.parentIdInesperado, "investimentos");
+});
+
+test("raiz apontando para si mesma também cai em ehRaiz=false", () => {
+  // Auto-referência é a forma mais fácil de o estado ruim entrar à mão, e a
+  // que um `parentId !== null` genérico poderia deixar passar se alguém
+  // trocasse a checagem por "tem pai diferente de si".
+  const r = conferirRaiz([{ id: "onix-co", nome: "Onix Co", parentId: "onix-co" }]);
+  assert.equal(r.ehRaiz, false);
+  assert.equal(r.parentIdInesperado, "onix-co");
+});
+
+test("conferirRaiz não altera a árvore recebida", () => {
+  // Ela é lida em resposta de rota; um efeito colateral aqui contaminaria o
+  // que o chamador serializa em seguida.
+  const entrada: NoArvore[] = [{ id: "onix-co", nome: "Onix Co", parentId: null }];
+  const copia = structuredClone(entrada);
+  conferirRaiz(entrada);
+  assert.deepEqual(entrada, copia);
+});
+
+test("a raiz conferida é a do catálogo, não um literal deste teste", () => {
+  // Se RAIZ_DO_GRUPO mudar, este teste tem de acompanhar sozinho — senão a
+  // suíte continuaria verde afirmando algo sobre um id que não existe mais.
+  const r = conferirRaiz([{ id: RAIZ_DO_GRUPO, nome: "qualquer", parentId: null }]);
+  assert.equal(r.existe, true);
 });

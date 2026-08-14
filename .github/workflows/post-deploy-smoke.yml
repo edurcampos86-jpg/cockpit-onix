@@ -5,10 +5,11 @@ name: Post-deploy smoke tests
 #   2. Cron a cada 15 min como fallback (mesmo sem deploy, monitora uptime)
 #   3. Manualmente via workflow_dispatch (debug)
 #
-# Cada execução testa 3 endpoints da produção:
-#   - GET /login              → 200 (sentinela do proxy/middleware)
-#   - GET /api/health         → 200 + db:'up' (Postgres responde)
-#   - GET /login              → 200 + contém "Acesse sua conta" (render OK)
+# Cada execução testa 4 endpoints da produção:
+#   - GET /login                      → 200 (sentinela do proxy/middleware)
+#   - GET /api/health                 → 200 + db:'up' (Postgres responde)
+#   - GET /api/empresas/hierarquia    → 401/403 (gate fechado p/ anônimo) + controle
+#   - GET /login                      → 200 + contém "Acesse sua conta" (render OK)
 #
 # Em caso de falha:
 #   - Posta no Slack (se SLACK_WEBHOOK_URL configurado)
@@ -222,6 +223,74 @@ jobs:
           echo "Configuração confere com EXPECTED_FLAGS_ON."
           echo "status=ok" >> "$GITHUB_OUTPUT"
 
+      # ─────────────────────────────────────────────────────────────────
+      # `/api/empresas/hierarquia` está gateada?
+      #
+      # POR QUE SEM SESSÃO: a rota é admin-only (`isAdmin(ctx)` → 403). Um
+      # probe autenticado exigiria guardar credencial de admin em secret e
+      # renová-la quando expirasse — custo alto e um segredo a mais para
+      # vazar, por uma pergunta que não precisa dele.
+      #
+      # ── O QUE ESTE PROBE PROVA, E O QUE NÃO PROVA ──────────────────────
+      # Sem sessão a requisição NÃO chega ao handler: `src/proxy.ts` responde
+      # 401 antes, porque o path não está em `ehRotaPublica()`. Ou seja, o 401
+      # vem da camada de autenticação, não da rota — e um caminho inexistente
+      # sob /api/ devolve exatamente o mesmo 401.
+      #
+      # Então este probe NÃO prova que a rota subiu no build. Quem responde
+      # isso é o `versao.shaCurto` do /api/health autenticado, logo acima.
+      #
+      # O que ele prova, e hoje ninguém prova:
+      #   - o gate está FECHADO para anônimo (200 seria incidente de acesso)
+      #   - o proxy segue interceptando /api/* (o controle abaixo)
+      #   - a app responde nesse path em vez de 5xx
+      #
+      # ── O CONTROLE ────────────────────────────────────────────────────
+      # Um caminho irmão que garantidamente não existe tem de devolver o MESMO
+      # código. Divergência é sinal:
+      #   ambos 404  → o proxy parou de interceptar /api/*: TODA rota de API
+      #                está sem o gate de sessão. É o pior desfecho possível,
+      #                e nenhum probe atual o detectaria.
+      #   real 200   → gate de admin aberto para anônimo.
+      - name: Probe GET /api/empresas/hierarquia (admin-only, sem sessão)
+        id: hierarquia
+        env:
+          BASE: ${{ steps.base.outputs.url }}
+        run: |
+          CODE=$(curl -sS -o /tmp/hierarquia.json -w "%{http_code}" --max-time 30 \
+            "$BASE/api/empresas/hierarquia")
+          CONTROLE=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 30 \
+            "$BASE/api/empresas/__probe-inexistente__")
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "controle=$CONTROLE" >> "$GITHUB_OUTPUT"
+          echo "GET /api/empresas/hierarquia (anônimo) → HTTP $CODE"
+          echo "GET /api/empresas/__probe-inexistente__ (controle) → HTTP $CONTROLE"
+
+          case "$CODE" in
+            401|403)
+              echo "Gate fechado para anônimo — é o esperado."
+              ;;
+            200)
+              echo "::error::/api/empresas/hierarquia respondeu 200 SEM SESSÃO. Rota admin-only respondendo a anônimo é INCIDENTE DE ACESSO, não de disponibilidade. Confira src/proxy.ts e isAdmin() em src/app/api/empresas/hierarquia/route.ts."
+              head -c 500 /tmp/hierarquia.json
+              exit 1
+              ;;
+            *)
+              echo "::error::/api/empresas/hierarquia retornou HTTP $CODE (esperado 401 ou 403). Body abaixo."
+              head -c 500 /tmp/hierarquia.json
+              exit 1
+              ;;
+          esac
+
+          # O controle é o que dá sentido ao 401 acima. Se um caminho
+          # inexistente responde 404 enquanto o real responde 401, o proxy
+          # deixou de interceptar /api/* — e nesse caso o 401 do real veio de
+          # outro lugar, ou vai sumir no próximo deploy.
+          if [ "$CONTROLE" != "$CODE" ]; then
+            echo "::error::Controle divergiu: /api/empresas/hierarquia → $CODE, caminho inexistente → $CONTROLE. Sem sessão os dois têm de responder igual (o proxy gateia ANTES de rotear). Divergência significa que src/proxy.ts parou de cobrir /api/* — todas as rotas de API ficam sem gate de sessão."
+            exit 1
+          fi
+
       - name: Probe GET /login
         id: login
         env:
@@ -252,6 +321,7 @@ jobs:
             echo "- \`GET /api/health\` ✅ (DB up)"
             echo "- no ar: \`${{ steps.flags.outputs.versao }}\` em \`${{ steps.flags.outputs.ambiente }}\`"
             echo "- flags do ambiente: ${{ steps.flags.outputs.status }}"
+            echo "- \`GET /api/empresas/hierarquia\` ✅ (HTTP ${{ steps.hierarquia.outputs.code }}, controle ${{ steps.hierarquia.outputs.controle }} — gate de sessão cobrindo /api/*)"
             echo "- \`GET /login\` ✅ (render OK)"
             echo ""
             echo "Base: $BASE"
@@ -304,6 +374,8 @@ jobs:
           ROOT_CODE: ${{ steps.root.outputs.code }}
           HEALTH_CODE: ${{ steps.health.outputs.code }}
           HEALTH_BODY: ${{ steps.health.outputs.body }}
+          HIERARQUIA_CODE: ${{ steps.hierarquia.outputs.code }}
+          HIERARQUIA_CONTROLE: ${{ steps.hierarquia.outputs.controle }}
           LOGIN_CODE: ${{ steps.login.outputs.code }}
           FLAGS_STATUS: ${{ steps.flags.outputs.status }}
           VERSAO: ${{ steps.flags.outputs.versao }}
@@ -331,6 +403,8 @@ jobs:
           |----------|------|----------|
           | \`GET /login\` (root proxy) | $ROOT_CODE | 200 |
           | \`GET /api/health\` | $HEALTH_CODE | 200 + db:up |
+          | \`GET /api/empresas/hierarquia\` | $HIERARQUIA_CODE | 401 ou 403 (gate p/ anônimo) |
+          | controle (caminho inexistente) | $HIERARQUIA_CONTROLE | igual ao de cima |
           | \`GET /login\` (render) | $LOGIN_CODE | 200 + "Acesse sua conta" |
           | Flags do ambiente | $FLAGS_STATUS | ok / registrado / pulado |
           | Valores de flag | ver step | nenhum \`valor-invalido\` |
@@ -356,7 +430,13 @@ jobs:
              \`/configuracoes/flags\` (a tela grava \`1\`/\`0\`, aceitos pelos
              dois dialetos) ou no Railway, se a origem for env. Isto reprova
              SEMPRE — não depende de \`EXPECTED_FLAGS_ON\`.
-          6. Para rollback, ver \`docs/DISASTER_RECOVERY.md\` cenário 1.
+          6. Se \`/api/empresas/hierarquia\` = **200** sem sessão → gate aberto
+             para anônimo. É incidente de ACESSO, não de disponibilidade:
+             trate primeiro, antes de qualquer rollback.
+          7. Se o **controle divergiu** do real → \`src/proxy.ts\` deixou de
+             interceptar \`/api/*\`, e nesse caso TODA rota de API está sem
+             gate de sessão. Mesma prioridade do item 6.
+          8. Para rollback, ver \`docs/DISASTER_RECOVERY.md\` cenário 1.
           EOF
           )
           # Cria issue via API (gh CLI não está disponível no runner remoto)

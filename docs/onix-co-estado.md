@@ -3,7 +3,7 @@
 Memória compartilhada entre sessões. Quem chega novo lê **este arquivo** e sabe
 o estado real sem auditar o repositório do zero.
 
-> **Última atualização:** 2026-08-11, contra `main` em `7091ef8`.
+> **Última atualização:** 2026-08-14, contra `main` em `ea60148`.
 
 ## Como ler este arquivo
 
@@ -279,6 +279,63 @@ declarada.
 
 ---
 
+## Método de trabalho — skills e teto de WIP
+
+### As skills do método vivem no repositório
+
+🔎 **As 8 skills do método Onix são carregadas de `.claude/skills/` por
+qualquer sessão do Claude Code que abra este repo** — não do canal
+sincronizado da conta. Entraram na **#327**.
+
+| pasta em `.claude/skills/` | versão |
+|---|---|
+| `onix-entrega-segura` | **2.2** |
+| `backoffice-btg-onix` · `create-prompt-onix` · `instagram-carousel-onix` · `onix-atendimento-analise` · `onix-briefing-reuniao` · `orquestra-multiagente` · `story-fitness-onix` | 1.0 |
+
+**O repositório é a fonte canônica.** Editar aqui e subir para a conta
+(Customize > Skills), nunca o inverso — está declarado no topo do próprio
+`SKILL.md` da `onix-entrega-segura`.
+
+> ⚠️ **A razão é medida, não teórica: a #327 ficou 25,1 h aberta versionando a
+> versão ERRADA da skill** — a v2 (129 linhas) no lugar da v2.2 (155 linhas) —
+> entre a abertura (2026-08-13 10:59 UTC) e o force-push (2026-08-14 12:03
+> UTC). Duas versões diferentes chegaram a rodar na mesma sessão sem que nada
+> acusasse a troca. Enquanto a origem for o canal sincronizado, **nenhuma
+> sessão sabe qual versão leu**.
+
+🔎 `scripts/guarda-skills.sh` roda em toda PR (`ci.yml`) e reprova pasta ≠
+`name`, frontmatter malformado, `name`/`description`/`version`/`updated`
+ausentes, UTF-8 inválido ou arquivo sem quebra de linha final. Existe porque
+skill quebrada **não** derruba build, teste nem lint: ela só deixa de
+carregar, em silêncio.
+
+### Contador de revisão da skill
+
+A `onix-entrega-segura` é revisada **a cada 10 PRs fechadas**, por calendário
+e não por acúmulo de dor (seção 10 da própria skill).
+
+> **Última revisão da skill: PR #327** (v2.2).
+> Próxima ao fechar a **10ª PR** contada a partir dela.
+
+Ao revisar, responder as três perguntas fixas da seção 10 e — só se houver o
+que mudar — subir `version` e `updated` no frontmatter.
+
+### Teto de WIP = 3 frentes
+
+**Proibido abrir a quarta antes de fechar uma.** O inventário completo, com o
+critério e o que está congelado ou arquivado, está em
+`docs/onix-wip-inventario.md` (entrou na #326).
+
+As **3 frentes abertas hoje** — pilha empilhada conta como uma:
+
+| # | frente | estado |
+|---|---|---|
+| 1 | **#309 → #323** — estado do banco no CI + guardas de deploy | prontas; a #309 só está `behind` |
+| 2 | **#305** — pré-checagem read-only de "Empresa vazia" | pronta; `behind` |
+| 3 | **#301 → #304** — hierarquia de 3 níveis | bloqueada: conflito de merge + parada de tier 🔴 |
+
+---
+
 ## Pendências conhecidas
 
 ### Bloqueantes
@@ -305,6 +362,33 @@ declarada.
 - **`cockpit-onix-staging`: "1/2 service crashed"**, auditoria não concluída.
 - **PR #301 aberta com 3 níveis** — ver o conflito registrado acima. É a pendência
   de maior impacto: ela redefine a árvore inteira.
+
+### Sem garantia no banco
+
+- 📋 **`AcordoComercial` (Pessoa) não tem índice parcial único.** A regra "um
+  acordo vigente por pessoa" existe **apenas em código**:
+  `src/app/actions/acordo-comercial.ts:70-78` faz `updateMany` fechando o
+  vigente e `create` do novo, dentro de uma transação. O banco não impede dois
+  acordos com `dataFim` null para a mesma pessoa.
+
+  Dois caminhos furam a regra sem passar por ali: `atualizarAcordo`
+  (`:147`) faz `update` direto, e `encerrarAcordo` (`:168`) mexe em `dataFim`
+  de uma linha só. Qualquer script, import ou rota futura também passa por fora.
+
+  É a **mesma classe** do problema fechado pela #310 do lado do parceiro, onde
+  a garantia virou índice parcial único no banco. O padrão a copiar existe e
+  está testado:
+
+  ```sql
+  CREATE UNIQUE INDEX "AcordoComercial_pessoa_vigente_key"
+    ON "AcordoComercial" ("pessoaId")
+    WHERE "dataFim" IS NULL;
+  ```
+
+  ⚠️ **Diferente da #310, aqui a tabela TEM dados.** O `CREATE` aborta se já
+  existirem duas linhas abertas para a mesma pessoa, então a PR precisa
+  começar por um `SELECT` de diagnóstico e decidir o que fazer com as
+  duplicatas — decisão de negócio, não de código. PR própria, tier 🔴 RED.
 
 ### Conferências humanas pendentes
 
