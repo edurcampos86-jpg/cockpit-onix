@@ -96,3 +96,62 @@ jobs:
       - name: Guarda do índice FTS (PainelEmailAI)
         if: always()
         run: ./scripts/guarda-drift-fts.sh prisma/migrations
+
+      # Guarda contra `ADD COLUMN ... NOT NULL` sem `DEFAULT`.
+      #
+      # A regra vive em scripts/guarda-not-null-sem-default.sh, que documenta o
+      # porquê e tem teste próprio (src/lib/guarda-not-null-sem-default.test.ts)
+      # — mesma convenção da guarda acima, pela mesma razão: shell inline aqui
+      # não é exercitado por nada e pode parar de casar sem ninguém notar.
+      #
+      # O que ela pega: coluna obrigatória acrescentada a tabela que já tem
+      # linhas. O Postgres recusa com 23502, o start é
+      # `prisma migrate deploy && next start`, e o `&&` transforma isso em app
+      # em loop de restart — não em "migration pendente".
+      #
+      # Também sem depender do install: find + awk.
+      - name: Guarda de NOT NULL sem DEFAULT em coluna nova
+        if: always()
+        run: ./scripts/guarda-not-null-sem-default.sh prisma/migrations
+
+      # GATE, e não aviso — ao contrário do passo seguinte, e por um motivo
+      # estreito: skill quebrada falha SILENCIOSAMENTE. Não derruba build, não
+      # reprova teste, não aparece em lint. Ela simplesmente não carrega na
+      # próxima sessão do Claude Code, e quem depende do método continua
+      # achando que o está seguindo.
+      #
+      # A #327 ficou 25,1 h versionando a versão errada da onix-entrega-segura
+      # sem que nada acusasse — é esse buraco que este passo fecha.
+      #
+      # Regras em scripts/guarda-skills.sh, com teste próprio
+      # (src/lib/guarda-skills.test.ts): pasta == `name`, frontmatter abrindo
+      # na linha 1 e fechando, `name`/`description`/`version`/`updated`
+      # presentes, UTF-8 sem caractere de controle, e quebra de linha final.
+      #
+      # Sai 0 quando .claude/skills/ não existe — a guarda não pode reprovar a
+      # branch em que ela própria entra.
+      #
+      # Também sem depender do install: bash + awk + iconv + tr.
+      - name: Guarda de integridade das skills (.claude/skills)
+        if: always()
+        run: ./scripts/guarda-skills.sh .claude/skills
+
+      # AVISO, não gate — e a diferença é decisão, não descuido.
+      #
+      # Confere se os modelos que docs/onix-co-estado.md cita ainda existem em
+      # prisma/schema.prisma. Documentação desatualizada NÃO pode bloquear PR
+      # de código: a PR que renomeia um modelo está certa, a doc é que ficou
+      # para trás, e reprovar por isso empurra quem está no meio de outra
+      # tarefa a "consertar" a doc às pressas — que é como documentação vira
+      # ficção com aparência de revisada.
+      #
+      # Por isso o script SEMPRE sai 0 e o sinal é `::warning::`, que aparece
+      # na PR e no summary sem reprovar nada. Se um dia isto virar gate, que
+      # seja decisão explícita — não efeito colateral de mexer aqui.
+      #
+      # Tem teste próprio (src/lib/aviso-doc-modelos.test.ts), e o teste
+      # cobre o "sai 0 mesmo com divergência" junto com a detecção: num aviso
+      # que nunca fica vermelho, deixar de detectar é invisível.
+      - name: Aviso — doc de estado × schema (não bloqueia)
+        if: always()
+        run: ./scripts/aviso-doc-modelos.sh docs/onix-co-estado.md prisma/schema.prisma
