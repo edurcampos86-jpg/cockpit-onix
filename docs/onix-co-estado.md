@@ -309,16 +309,53 @@ ausentes, UTF-8 inválido ou arquivo sem quebra de linha final. Existe porque
 skill quebrada **não** derruba build, teste nem lint: ela só deixa de
 carregar, em silêncio.
 
+🔎 **Desde a #329 há também `.claude/skills/MANIFESTO.md`**, com `sha256` de
+cada `SKILL.md`, conferido pela mesma guarda. As cinco regras acima provam que
+o arquivo é **bem-formado**; nenhuma prova que é o arquivo **certo** — um
+`version: 2.2` com o conteúdo da 2.0 passaria em todas. Com o manifesto, a v2
+publicada por engano na #327 teria reprovado no primeiro CI, e não 25 h depois.
+
+> **O manifesto é gerado, nunca editado à mão.** Mudou uma skill? Rode
+> `./scripts/atualiza-manifesto.sh` e commite o resultado junto. Manifesto que
+> se atualiza à mão apodrece — é literalmente o que aconteceu com este arquivo
+> aqui, que listava como pendentes três itens já entregues pelas #316, #322 e
+> #324.
+
 ### Contador de revisão da skill
 
 A `onix-entrega-segura` é revisada **a cada 10 PRs fechadas**, por calendário
 e não por acúmulo de dor (seção 10 da própria skill).
 
-> **Última revisão da skill: PR #327** (v2.2).
-> Próxima ao fechar a **10ª PR** contada a partir dela.
+### 🚩 MARCO ZERO — a contagem NÃO é retroativa
+
+| | |
+|---|---|
+| **última revisão da skill** | **PR #327** (v2.2) |
+| **commit do marco zero** | **`a609d09`** (merge da #327 na `main`) |
+| **data** | **2026-08-14**, 12:19 UTC |
+| limite | **10** PRs fechadas |
+| próxima revisão | ao fechar a 10ª PR **a partir de `a609d09`** |
+
+> **Nada antes de `a609d09` conta.** As 327 PRs anteriores foram fechadas sob
+> a v1 e a v2 da skill, sem esta regra existir — contá-las tornaria a revisão
+> imediatamente vencida no dia em que a regra nasceu, e uma revisão que já
+> nasce atrasada é a mesma "revisão por acúmulo de dor" que a seção 10 recusa.
+>
+> Este parágrafo existe para que ninguém proponha contagem retroativa mais
+> adiante. Se a regra mudar, muda por decisão declarada — não por releitura.
+
+🔎 O contador é automático desde a **#329**: `scripts/aviso-revisao-skill.sh`
+roda em toda PR (`ci.yml`) e emite `::warning::` ao atingir 10, com as três
+perguntas fixas no corpo do aviso. **É aviso, não gate** — "está na hora de
+revisar o método" não reprova a PR de outra pessoa.
+
+O sha do marco zero vive em **dois lugares**, e os dois mudam juntos ao
+revisar a skill: esta tabela e o step do `ci.yml`.
 
 Ao revisar, responder as três perguntas fixas da seção 10 e — só se houver o
-que mudar — subir `version` e `updated` no frontmatter.
+que mudar — subir `version` e `updated` no frontmatter **e rodar
+`./scripts/atualiza-manifesto.sh`**, senão a guarda de sha256 reprova a
+própria PR de revisão.
 
 ### Teto de WIP = 3 frentes
 
@@ -326,13 +363,29 @@ que mudar — subir `version` e `updated` no frontmatter.
 critério e o que está congelado ou arquivado, está em
 `docs/onix-wip-inventario.md` (entrou na #326).
 
-As **3 frentes abertas hoje** — pilha empilhada conta como uma:
+As frentes abertas hoje — pilha empilhada conta como uma:
 
 | # | frente | estado |
 |---|---|---|
 | 1 | **#309 → #323** — estado do banco no CI + guardas de deploy | prontas; a #309 só está `behind` |
-| 2 | **#305** — pré-checagem read-only de "Empresa vazia" | pronta; `behind` |
-| 3 | **#301 → #304** — hierarquia de 3 níveis | bloqueada: conflito de merge + parada de tier 🔴 |
+| 2 | **#301 → #304** — hierarquia de 3 níveis | bloqueada: conflito de merge + parada de tier 🔴 |
+| 3 | — | **vaga livre** |
+
+🔎 A **#305** (pré-checagem read-only de "Empresa vazia") ocupava a vaga 2 e
+**mergeou em 2026-08-14**. Era o passo 1 da ordem de aplicação da #301, que
+agora não depende mais de PR nenhuma para ser conferida:
+`npx tsx scripts/verificar-empresa-vazia.ts`.
+
+### Branches remotas — 114 de resíduo, 20 a preservar
+
+🔎 `docs/onix-branches-residuo.md` (#329) separa as **134** branches remotas em
+**114 já mergeadas** (resíduo seguro) e **20 não mergeadas** — 11 delas head de
+PR aberta. **Nada foi apagado**, e a segunda lista não se toca sem decisão do
+Eduardo.
+
+> Corrige o que a #326 afirmou: das 8 branches órfãs, **4** têm o trabalho na
+> `main` (as três `juridico-fase-*` e `recover-team-data`), não as 8. As outras
+> 4 foram para a lista que não se toca.
 
 ---
 

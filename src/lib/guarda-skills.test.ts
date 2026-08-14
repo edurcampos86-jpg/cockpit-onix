@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
 
 /**
  * Teste da guarda de skills — scripts/guarda-skills.sh.
@@ -153,6 +154,75 @@ test("diretório inexistente sai 0 — a guarda não reprova a si mesma", () => 
     encoding: "utf8",
   });
   assert.match(saida, /não existe/);
+});
+
+// ── Regra 6 · sha256 contra o MANIFESTO.md ───────────────────────────────
+
+/** Monta o manifesto no formato que `atualiza-manifesto.sh` gera. */
+function manifesto(linhas: Array<[string, string]>): string {
+  return [
+    "# Manifesto",
+    "",
+    "| skill | version | updated | sha256 do SKILL.md |",
+    "|---|---|---|---|",
+    ...linhas.map(([skill, hash]) => `| \`${skill}\` | 1.0 | 2026-08-13 | \`${hash}\` |`),
+    "",
+  ].join("\n");
+}
+
+const HASH_OK = createHash("sha256").update(FRONTMATTER_OK).digest("hex");
+const HASH_FALSO = "0".repeat(64);
+
+test("aprova quando o sha256 bate com o manifesto", () => {
+  const { code } = rodarGuarda({
+    "minha-skill/SKILL.md": FRONTMATTER_OK,
+    "MANIFESTO.md": manifesto([["minha-skill", HASH_OK]]),
+  });
+  assert.equal(code, 0);
+});
+
+test("reprova sha256 divergente, mostrando esperado e encontrado", () => {
+  // O buraco que só o hash fecha: o arquivo é bem-formado e o `version` está
+  // lá — só que nomeia outro conteúdo. É o caso literal da #327.
+  const { code, saida } = rodarGuarda({
+    "minha-skill/SKILL.md": FRONTMATTER_OK,
+    "MANIFESTO.md": manifesto([["minha-skill", HASH_FALSO]]),
+  });
+  assert.equal(code, 1);
+  assert.match(saida, /sha256 diverge do manifesto/);
+  assert.match(saida, new RegExp(`esperado: *${HASH_FALSO}`));
+  assert.match(saida, new RegExp(`encontrado: *${HASH_OK}`));
+});
+
+test("reprova skill em disco que o manifesto não declara", () => {
+  const { code, saida } = rodarGuarda({
+    "minha-skill/SKILL.md": FRONTMATTER_OK,
+    "outra/SKILL.md": FRONTMATTER_OK.replace("name: minha-skill", "name: outra"),
+    "MANIFESTO.md": manifesto([["minha-skill", HASH_OK]]),
+  });
+  assert.equal(code, 1);
+  assert.match(saida, /não está declarada/);
+});
+
+test("reprova skill declarada no manifesto e ausente do disco", () => {
+  // O outro lado do mesmo erro: alguém apaga a pasta e o manifesto segue
+  // prometendo que ela existe.
+  const { code, saida } = rodarGuarda({
+    "minha-skill/SKILL.md": FRONTMATTER_OK,
+    "MANIFESTO.md": manifesto([
+      ["minha-skill", HASH_OK],
+      ["sumiu", HASH_FALSO],
+    ]),
+  });
+  assert.equal(code, 1);
+  assert.match(saida, /\[sumiu\].*não existe/);
+});
+
+test("sem MANIFESTO.md, as cinco regras anteriores seguem valendo", () => {
+  // Repositório sem manifesto não é reprovado por isso — mesma razão de a
+  // ausência do diretório sair 0.
+  const { code } = rodarGuarda({ "minha-skill/SKILL.md": FRONTMATTER_OK });
+  assert.equal(code, 0);
 });
 
 // ── Acumula, não para na primeira ────────────────────────────────────────
