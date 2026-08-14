@@ -29,7 +29,7 @@ Configurar em **Settings → Secrets and variables → Actions → New repositor
 | `R2_ACCESS_KEY_ID` | `db-backup.yml`, `restore-drill.yml` | Cloudflare R2 → Manage R2 API Tokens → Create API token | Token com permissão **Read & Write** no bucket de backup. |
 | `R2_SECRET_ACCESS_KEY` | `db-backup.yml`, `restore-drill.yml` | Mostrado uma única vez ao criar o token acima | Se perder, gerar token novo. |
 | `R2_BUCKET` | `db-backup.yml`, `restore-drill.yml` | Nome do bucket criado no R2 (ex.: `cockpit-onix-backups`) | Bucket precisa existir antes do primeiro run. |
-| `SLACK_WEBHOOK_URL` | `db-backup.yml`, `post-deploy-smoke.yml`, `restore-drill.yml` | Slack App → Incoming Webhooks → Add New Webhook to Workspace | **Opcional.** Sem ele, workflows só logam falhas. |
+| `SLACK_WEBHOOK_URL` | `db-backup.yml`, `post-deploy-smoke.yml`, `restore-drill.yml` | Slack App → Incoming Webhooks → Add New Webhook to Workspace | **OBRIGATÓRIO para `db-backup.yml`** — ele é o único que, ao falhar, não cria issue nem abre alerta em lugar nenhum: sem webhook, backup quebrado passa despercebido. Opcional nos outros dois (o drill cria issue `backup-broken`; o smoke também). |
 | `CRON_SECRET` | `cron.yml` (já existente) | Definido por você; mesmo valor entra na env `CRON_SECRET` no Railway | Bearer usado pra autenticar cron→app. |
 
 > `GITHUB_TOKEN` é **automático** — o `post-deploy-smoke.yml` usa

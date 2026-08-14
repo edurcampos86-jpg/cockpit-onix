@@ -272,6 +272,10 @@ npm run dev -- --port 3333
 # Build de produção
 npm run build
 npm start
+
+# Aplicar migrations pendentes (etapa separada do start desde que virou
+# preDeployCommand no Railway — `npm start` NÃO migra mais)
+npm run db:migrate
 ```
 
 ---
