@@ -114,6 +114,28 @@ jobs:
         if: always()
         run: ./scripts/guarda-not-null-sem-default.sh prisma/migrations
 
+      # GATE, e não aviso — ao contrário do passo seguinte, e por um motivo
+      # estreito: skill quebrada falha SILENCIOSAMENTE. Não derruba build, não
+      # reprova teste, não aparece em lint. Ela simplesmente não carrega na
+      # próxima sessão do Claude Code, e quem depende do método continua
+      # achando que o está seguindo.
+      #
+      # A #327 ficou 25,1 h versionando a versão errada da onix-entrega-segura
+      # sem que nada acusasse — é esse buraco que este passo fecha.
+      #
+      # Regras em scripts/guarda-skills.sh, com teste próprio
+      # (src/lib/guarda-skills.test.ts): pasta == `name`, frontmatter abrindo
+      # na linha 1 e fechando, `name`/`description`/`version`/`updated`
+      # presentes, UTF-8 sem caractere de controle, e quebra de linha final.
+      #
+      # Sai 0 quando .claude/skills/ não existe — a guarda não pode reprovar a
+      # branch em que ela própria entra.
+      #
+      # Também sem depender do install: bash + awk + iconv + tr.
+      - name: Guarda de integridade das skills (.claude/skills)
+        if: always()
+        run: ./scripts/guarda-skills.sh .claude/skills
+
       # AVISO, não gate — e a diferença é decisão, não descuido.
       #
       # Confere se os modelos que docs/onix-co-estado.md cita ainda existem em
