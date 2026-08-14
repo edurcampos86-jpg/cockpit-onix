@@ -3,7 +3,7 @@
 Memória compartilhada entre sessões. Quem chega novo lê **este arquivo** e sabe
 o estado real sem auditar o repositório do zero.
 
-> **Última atualização:** 2026-08-14, contra `main` em `ea60148`.
+> **Última atualização:** 2026-08-14, contra `main` em `aa78914`.
 
 ## Como ler este arquivo
 
