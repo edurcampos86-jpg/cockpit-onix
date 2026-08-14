@@ -1,9 +1,15 @@
 ---
 name: onix-entrega-segura
 description: Metodologia de entrega para o Ecossistema Onix (repo cockpit-onix — Next.js 16 / React 19 / Prisma 7 / PostgreSQL no Railway). Use SEMPRE que o pedido envolver construir, corrigir, refatorar, deployar, migrar, configurar ou mudar QUALQUER coisa no Ecossistema Onix — mesmo mudanças pequenas e mesmo que não se diga "com segurança". Use também quando a conversa tocar em Railway, builder (Railpack/Nixpacks/Dockerfile), pg_dump/backup, variáveis de ambiente ou segredos, migrations Prisma, ou deploy de produção. A skill impõe classificação por faixa de risco, gates de lint/build, validação shadow-DB antes de migrations, teste local antes de mudança de build, parada obrigatória antes de merge em faixa vermelha e plano de rollback — e, em contrapartida, EXIGE entrega consolidada e sem cerimônia nas faixas verde e amarela.
+version: 2.2
+updated: 2026-08-13
 ---
 
-# Onix — Entrega Segura (v2, calibrada ago/2026)
+# Onix — Entrega Segura (v2.2, calibrada ago/2026)
+
+> **Fonte canônica: este arquivo, em `.claude/skills/onix-entrega-segura/SKILL.md` no repo `cockpit-onix`.**
+> Editar aqui e sincronizar repo → conta (upload do ZIP em Customize > Skills), nunca o inverso.
+> Motivo: em 13/08/2026 duas versões diferentes desta skill rodaram na mesma sessão sem que nada acusasse a troca. Enquanto a origem for o canal sincronizado, nenhuma sessão sabe qual versão leu.
 
 Princípio mestre: **rigor proporcional ao risco**.
 
@@ -49,7 +55,7 @@ Fora dessa lista, vale o inverso: **velocidade acima de cerimônia**. Aplicar ga
 
 **Máximo de 3 frentes abertas simultâneas no Ecossistema Onix.** Proibido abrir a quarta antes de fechar uma.
 
-É a alavanca de maior efeito contra o acúmulo e a menos intuitiva. Antes de aceitar uma frente nova, conferir o inventário em `docs/onix-wip-inventario.md`. Se já houver 3, a resposta correta é propor qual fechar ou congelar, não abrir a quarta.
+É a alavanca de maior efeito contra o acúmulo e a menos intuitiva. Antes de aceitar uma frente nova, conferir o inventário em `docs/onix-wip-inventario.md` (disponível a partir da PR #326). Se já houver 3, a resposta correta é propor qual fechar ou congelar, não abrir a quarta.
 
 Paralelismo é **entre sessões e ferramentas** (ex.: dois recons simultâneos em sessões diferentes do Claude Code), nunca vários blocos de prompt na mesma mensagem.
 
@@ -61,7 +67,7 @@ Paralelismo é **entre sessões e ferramentas** (ex.: dois recons simultâneos e
 - Todo build precisa de `NODE_OPTIONS=--max-old-space-size=8192`.
 - Merges: **squash** (mantém a `main` linear).
 - **Railway builder = Railpack. NUNCA forçar Nixpacks.** `nixPkgs` SOBRESCREVE (não soma) os pacotes do builder e apaga o node → `npm: command not found`. Binário de sistema no runtime (ex.: `pg_dump`) resolve-se via **Dockerfile** a partir da base estável.
-- `prisma migrate deploy` roda em **todo deploy** (startCommand). Migration nova aplica em produção no instante do merge na `main`.
+- `prisma migrate deploy` roda via **`preDeployCommand`** (mudado na PR #317; antes era `startCommand`). Migration nova aplica em produção no deploy que segue o merge na `main` — e, falhando, barra o deploy antes de ele subir.
 - Toda migration nova derruba espuriamente o índice `PainelEmailAI_tsv_idx` — **remover manualmente** antes de aplicar (drift conhecido em 7+ migrations).
 - `NEXT_PUBLIC_*` são inlined no build — mudar exige rebuild, não restart.
 - Recomendado antes de qualquer PR com migration: `healthcheckPath = "/api/health"` no `railway.toml`.
@@ -127,3 +133,23 @@ Usar com parcimônia, para fundamentar trade-offs:
 - Build local antes do deploy = due diligence antes do aporte.
 - Gate genérico em mudança reversível = exigir ata de comitê para rebalancear renda fixa dentro da política.
 - Excesso de frentes abertas = carteira com 40 posições e 2 horas semanais de acompanhamento. O problema não é a velocidade da análise.
+
+---
+
+## 10. Manutenção desta skill
+
+Esta skill é revisada **a cada 10 PRs fechadas**, não por acúmulo de dor.
+
+A v2 nasceu porque a fricção somou por meses até virar reclamação. Revisão por gatilho de dor sempre chega tarde e sempre corrige demais de uma vez.
+
+**Como funciona:** no relatório de lote, ao completar cada bloco de 10 PRs fechadas, incluir um item fixo respondendo três perguntas:
+
+1. Alguma regra desta skill atrasou uma entrega sem ter evitado risco real?
+2. Algum incidente aconteceu por uma regra que **não** existe aqui?
+3. A faixa declarada bateu com a faixa real em todas as 10? (se não, quantas escalaram)
+
+Se as três respostas forem "nada a mudar", não alterar o arquivo. Skill que muda toda semana não é processo, é ruído.
+
+Ao alterar: subir o campo `version` no frontmatter e atualizar `updated`. Mudança de regra de faixa ou de alçada sobe versão maior (2.x → 3.0); ajuste de redação ou fato de ambiente sobe menor.
+
+É o mesmo racional do drill semanal de restore do backup: a verificação vale porque é calendarizada, não porque alguém lembrou dela.
