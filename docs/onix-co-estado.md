@@ -309,7 +309,7 @@ ausentes, UTF-8 inválido ou arquivo sem quebra de linha final. Existe porque
 skill quebrada **não** derruba build, teste nem lint: ela só deixa de
 carregar, em silêncio.
 
-🔎 **Desde a #329 há também `.claude/skills/MANIFESTO.md`**, com `sha256` de
+🔎 **Desde a #331 há também `.claude/skills/MANIFESTO.md`**, com `sha256` de
 cada `SKILL.md`, conferido pela mesma guarda. As cinco regras acima provam que
 o arquivo é **bem-formado**; nenhuma prova que é o arquivo **certo** — um
 `version: 2.2` com o conteúdo da 2.0 passaria em todas. Com o manifesto, a v2
@@ -344,7 +344,7 @@ e não por acúmulo de dor (seção 10 da própria skill).
 > Este parágrafo existe para que ninguém proponha contagem retroativa mais
 > adiante. Se a regra mudar, muda por decisão declarada — não por releitura.
 
-🔎 O contador é automático desde a **#329**: `scripts/aviso-revisao-skill.sh`
+🔎 O contador é automático desde a **#331**: `scripts/aviso-revisao-skill.sh`
 roda em toda PR (`ci.yml`) e emite `::warning::` ao atingir 10, com as três
 perguntas fixas no corpo do aviso. **É aviso, não gate** — "está na hora de
 revisar o método" não reprova a PR de outra pessoa.
@@ -378,7 +378,7 @@ agora não depende mais de PR nenhuma para ser conferida:
 
 ### Branches remotas — 114 de resíduo, 20 a preservar
 
-🔎 `docs/onix-branches-residuo.md` (#329) separa as **134** branches remotas em
+🔎 `docs/onix-branches-residuo.md` (#331) separa as **134** branches remotas em
 **114 já mergeadas** (resíduo seguro) e **20 não mergeadas** — 11 delas head de
 PR aberta. **Nada foi apagado**, e a segunda lista não se toca sem decisão do
 Eduardo.

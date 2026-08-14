@@ -132,7 +132,7 @@ jobs:
       # branch em que ela própria entra.
       #
       # Também sem depender do install: bash + awk + iconv + tr.
-      # Desde a #329 a guarda também confere o sha256 de cada SKILL.md contra
+      # Desde a #331 a guarda também confere o sha256 de cada SKILL.md contra
       # .claude/skills/MANIFESTO.md. As outras cinco regras provam que o
       # arquivo é BEM-FORMADO; nenhuma prova que é o arquivo CERTO — um
       # `version: 2.2` com o conteúdo da 2.0 passa em todas elas. Mudou uma
