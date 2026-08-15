@@ -91,3 +91,54 @@ solução. O raciocínio longo, se existir, vai para o PR.
 
 Isso é entrega de informação, não pedido de autorização: apresentar as três e
 seguir. Só virar trabalho se o Eduardo pedir.
+
+### Como o Eduardo lê — o perfil PAT, e o que ele exige do formato
+
+O PAT dele (01/07/2025, "76 — Promocional de Ação Livre") não é curiosidade
+de RH: ele diz por que uma sugestão bem escrita em texto denso não é lida.
+
+| traço no PAT | consequência para a sugestão |
+|---|---|
+| **Análise e Aprendizagem: Sensorial** | ele aprende pelo que **vê**, não pelo abstrato. Parágrafo é o formato errado; imagem é o certo |
+| **Ponderação: Emoção (Extremo)** | a decisão passa pelo impacto sentido, não pela tabela. O "por quê" precisa doer ou empolgar, não só ser correto |
+| **Estratégia de Tempo: Hoje Melhor** | "busca ação e resultados imediatos". Ganho daqui a três sprints não compra decisão |
+| **Fonte Motivadora: Expressão Verbal · Orientação Social** | ele decide conversando. A sugestão tem de ser fácil de repetir para outra pessoa |
+| **Ambiente: livre de burocracia** | texto longo É burocracia. Cada linha a mais reduz a chance de ser lido |
+
+Daí as quatro exigências de formato, todas obrigatórias:
+
+**1. Cada sugestão tem NOME.** Curto, concreto, memorável — o nome é o que ele
+repete numa conversa. `Semáforo do schema`, não "melhoria no health check".
+
+**2. Linguagem que ele entende, não a do código.** O `arquivo:linha` fica,
+porque é o endereço; mas o "por quê" se explica pelo que acontece na tela ou
+com o cliente, não pelo mecanismo interno.
+
+**3. Analogia com investimentos, sempre.** É o repertório onde ele pensa
+rápido, e o teste de que a explicação está clara: se a analogia não fecha, a
+sugestão ainda está confusa. Alguns pares que funcionam:
+
+| no sistema | no mundo dele |
+|---|---|
+| migration que roda sem conferir o banco | ordem enviada sem olhar a posição |
+| gate de CI | *stop loss* — não é desconfiança, é limite escrito antes |
+| índice, cache, probe | custódia e conciliação: ninguém vê até faltar |
+| dado sem dono declarado | ativo sem titular no CGE |
+| código no ar com schema velho | extrato de ontem numa mesa que já operou hoje |
+
+**4. VISUAL, não lista.** As três sugestões são entregues como **imagem** —
+artifact HTML publicado, ou arquivo enviado. Três cartões lado a lado: nome,
+o "por quê" em uma frase de impacto, a analogia, e o endereço. O texto no chat
+vira só a chamada e o link.
+
+**Exemplo do formato certo, em uma sugestão:**
+
+> ### 🚦 Semáforo do schema
+> **Por quê** — hoje o app pode estar no ar servindo tela com o banco de
+> ontem, e ninguém percebe até um cliente ver erro. *É o extrato de ontem numa
+> mesa que já operou hoje.*
+> **Como** — o health passa a dizer quantas migrations faltam.
+> **Onde** — `/api/health`, campo `migrations.pendentes`.
+
+O que NÃO muda: continuam sendo três, continuam nascendo do que foi visto
+naquela tarefa, e continuam cabendo em três linhas cada.
