@@ -248,6 +248,16 @@ jobs:
         run: |
           set -euo pipefail
           cat > "${RUNNER_TEMP}/incidente.sql" <<'SQL'
+          -- 0. Tipos de job vistos desde 25/07, AGREGADO (a versão por dia
+          --    tinha 170 linhas e afogava as consultas seguintes no log).
+          --    Se o import manual gravasse log, apareceria aqui. Não grava —
+          --    e é essa ausência que obriga a deduzir por carimbo.
+          SELECT '=== BtgSyncLog desde 25/07, por tipo ===' AS secao;
+          SELECT tipo, count(*) AS execucoes, count(DISTINCT date_trunc('day', iniciado)) AS dias,
+                 count(*) FILTER (WHERE NOT sucesso) AS com_falha, max(iniciado) AS ultimo
+          FROM "BtgSyncLog" WHERE iniciado >= date '2026-07-25'
+          GROUP BY 1 ORDER BY 2 DESC;
+
           -- 1. Histograma do carimbo saldo_em_cc por dia. Em (A) o último dia
           --    com carimbo é a data em que o import parou. Em (B) sobram só os
           --    clientes que a Partner API não devolve.
@@ -281,14 +291,6 @@ jobs:
             WHERE "fonteUltimoUpdate" ? 'saldoConta'
           ) AS t;
 
-          -- 4. Todo tipo de job por dia desde 25/07. Se o import manual
-          --    gravasse log, apareceria aqui. Não grava — e a ausência é
-          --    justamente o que impede responder isto sem consulta.
-          SELECT '=== BtgSyncLog desde 25/07, por tipo e dia ===' AS secao;
-          SELECT tipo, date_trunc('day', iniciado)::date AS dia, count(*) AS execucoes,
-                 count(*) FILTER (WHERE NOT sucesso) AS com_falha
-          FROM "BtgSyncLog" WHERE iniciado >= date '2026-07-25'
-          GROUP BY 1, 2 ORDER BY 2 DESC, 1;
           SQL
 
           docker run --rm \
