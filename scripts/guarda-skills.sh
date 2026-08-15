@@ -28,11 +28,17 @@
 #   5. arquivo terminando em quebra de linha
 #      — a última linha sem `\n` some de `wc -l` e de vários parsers, o que
 #        faz a própria conferência de tamanho mentir
-#   6. sha256 batendo com `.claude/skills/MANIFESTO.md`
+#   6. sha256 de TODO arquivo da pasta batendo com
+#      `.claude/skills/MANIFESTO.md`
 #      — as cinco regras acima provam que o arquivo é BEM-FORMADO; nenhuma
 #        prova que ele é o arquivo CERTO. `version: 2.2` com o conteúdo da
 #        2.0 passa em todas elas. O hash é o que fecha esse buraco, e é a
 #        regra que teria pego a #327 no primeiro CI em vez de 25 h depois
+#      — a pasta INTEIRA, não só o SKILL.md: `story-fitness-onix` traz
+#        `scripts/retoque_story.py`, e um script de 115 linhas de OpenCV é
+#        exatamente o arquivo cuja troca ninguém percebe numa revisão de PR
+#      — vale nos dois sentidos: arquivo no disco que o manifesto não declara,
+#        e arquivo declarado que sumiu do disco
 #
 
 # ── Por que isto é script, e não shell inline no ci.yml ───────────────────
@@ -73,14 +79,30 @@ hash_de() {
   fi
 }
 
-# Lê o hash declarado para uma skill no manifesto. Vazio = não declarada.
+# A tabela "Arquivos" do manifesto tem 3 colunas (skill, arquivo, sha256); a
+# tabela "Skills" tem 3 também (skill, version, updated), e as duas casariam
+# no mesmo padrão de linha. O que separa uma da outra é o sha256: 64 hexa na
+# terceira coluna. Distinguir por posição no arquivo seria frágil a qualquer
+# reordenação do cabeçalho.
+LINHA_DE_ARQUIVO='
+  /^\| *`/ {
+    skill = $2; rel = $3; sha = $4
+    gsub(/[` ]/, "", skill); gsub(/`/, "", rel); gsub(/^ +| +$/, "", rel)
+    gsub(/[` ]/, "", sha)
+    if (sha ~ /^[0-9a-f]{64}$/) { print skill "|" rel "|" sha }
+  }'
+
+# Lê o hash declarado para um arquivo. Vazio = não declarado.
 hash_no_manifesto() {
   [ -f "$MANIFESTO" ] || return 0
-  awk -F'|' -v alvo="$1" '
-    /^\| *`/ {
-      gsub(/[` ]/, "", $2)
-      if ($2 == alvo) { gsub(/[` ]/, "", $5); print $5; exit }
-    }' "$MANIFESTO"
+  awk -F'|' -v alvo_skill="$1" -v alvo_rel="$2" "$LINHA_DE_ARQUIVO" "$MANIFESTO" \
+    | awk -F'|' -v s="$1" -v r="$2" '$1 == s && $2 == r { print $3; exit }'
+}
+
+# Lista "skill|arquivo" de tudo que o manifesto declara.
+arquivos_no_manifesto() {
+  [ -f "$MANIFESTO" ] || return 0
+  awk -F'|' "$LINHA_DE_ARQUIVO" "$MANIFESTO" | awk -F'|' '{ print $1 "|" $2 }'
 }
 
 # Acumula TODAS as violações antes de sair. Reprovar na primeira esconderia as
@@ -147,33 +169,36 @@ for dir in "$RAIZ"/*/; do
     reprovar "$skill" "não termina em quebra de linha"
   fi
 
-  # ── regra 6 · sha256 bate com o manifesto ───────────────────────────────
+  # ── regra 6 · sha256 de TODO arquivo da pasta bate com o manifesto ──────
   # Só cobra quando o manifesto existe: repositório sem MANIFESTO.md continua
   # passando pelas cinco regras anteriores, mesma razão da ausência do
   # diretório sair 0.
   if [ -f "$MANIFESTO" ]; then
-    esperado=$(hash_no_manifesto "$skill")
-    encontrado=$(hash_de "$arquivo")
-    if [ -z "$esperado" ]; then
-      reprovar "$skill" "não está declarada em $MANIFESTO — rode ./scripts/atualiza-manifesto.sh"
-    elif [ "$esperado" != "$encontrado" ]; then
-      reprovar "$skill" "sha256 diverge do manifesto — o arquivo NÃO é o que o manifesto nomeia"
-      echo "      esperado:   $esperado"
-      echo "      encontrado: $encontrado"
-      echo "      se a mudança é intencional: ./scripts/atualiza-manifesto.sh"
-    fi
+    while IFS= read -r caminho; do
+      rel="${caminho#"$dir"}"
+      esperado=$(hash_no_manifesto "$skill" "$rel")
+      encontrado=$(hash_de "$caminho")
+      if [ -z "$esperado" ]; then
+        reprovar "$skill" "'$rel' não está declarado em $MANIFESTO — rode ./scripts/atualiza-manifesto.sh"
+      elif [ "$esperado" != "$encontrado" ]; then
+        reprovar "$skill" "sha256 de '$rel' diverge do manifesto — o arquivo NÃO é o que o manifesto nomeia"
+        echo "      esperado:   $esperado"
+        echo "      encontrado: $encontrado"
+        echo "      se a mudança é intencional: ./scripts/atualiza-manifesto.sh"
+      fi
+    done <<< "$(find "$dir" -type f | LC_ALL=C sort)"
   fi
 done
 
-# Skill declarada no manifesto mas ausente do disco é o outro lado do mesmo
-# erro: alguém apagou a pasta e o manifesto seguiu prometendo que ela existe.
+# Arquivo declarado no manifesto mas ausente do disco é o outro lado do mesmo
+# erro: alguém apagou o arquivo e o manifesto seguiu prometendo que ele existe.
 if [ -f "$MANIFESTO" ]; then
-  while read -r declarada; do
+  while IFS='|' read -r declarada rel; do
     [ -n "$declarada" ] || continue
-    if [ ! -d "$RAIZ/$declarada" ]; then
-      reprovar "$declarada" "declarada em $MANIFESTO mas não existe em $RAIZ"
+    if [ ! -f "$RAIZ/$declarada/$rel" ]; then
+      reprovar "$declarada" "'$rel' declarado em $MANIFESTO mas não existe em $RAIZ/$declarada"
     fi
-  done <<< "$(awk -F'|' '/^\| *`/ { gsub(/[` ]/, "", $2); print $2 }' "$MANIFESTO")"
+  done <<< "$(arquivos_no_manifesto)"
 fi
 
 if [ "$encontradas" -eq 0 ]; then

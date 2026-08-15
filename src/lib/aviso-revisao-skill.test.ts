@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -39,7 +39,7 @@ function rodar(
 ): { code: number; saida: string } {
   const { raiz, marco } = repoCom(commitsDepoisDoMarco);
   try {
-    const args = [marco, "HEAD", ...(limite ? [limite] : [])];
+    const args = ["--marco", marco, "HEAD", ...(limite ? [limite] : [])];
     const saida = execFileSync(SCRIPT, args, { encoding: "utf8", cwd: raiz });
     return { code: 0, saida };
   } catch (e) {
@@ -86,7 +86,7 @@ test("nunca reprova — é aviso, não gate", () => {
 test("marco zero inexistente avisa em vez de estourar", () => {
   const { raiz } = repoCom(1);
   try {
-    const saida = execFileSync(SCRIPT, ["0".repeat(40), "HEAD"], {
+    const saida = execFileSync(SCRIPT, ["--marco", "0".repeat(40), "HEAD"], {
       encoding: "utf8",
       cwd: raiz,
     });
@@ -96,14 +96,14 @@ test("marco zero inexistente avisa em vez de estourar", () => {
   }
 });
 
-test("sem marco zero, sai 2 e explica o uso", () => {
+test("--marco sem sha sai 2 e explica o uso", () => {
   // Erro de invocação é diferente de "nada a avisar": sair 0 aqui esconderia
   // um step de CI mal configurado.
   const { raiz } = repoCom(1);
   try {
     let code = 0;
     try {
-      execFileSync(SCRIPT, [], { encoding: "utf8", cwd: raiz });
+      execFileSync(SCRIPT, ["--marco"], { encoding: "utf8", cwd: raiz });
     } catch (e) {
       code = (e as { status?: number }).status ?? -1;
     }
@@ -111,4 +111,46 @@ test("sem marco zero, sai 2 e explica o uso", () => {
   } finally {
     rmSync(raiz, { recursive: true, force: true });
   }
+});
+
+// ── Fonte única: .claude/skills/MARCO-ZERO ───────────────────────────────
+
+/** Roda a guarda lendo o marco de um arquivo, como o ci.yml faz. */
+function rodarComArquivo(conteudo: string | null): { code: number; saida: string } {
+  const { raiz, marco } = repoCom(3);
+  const arquivo = join(raiz, "MARCO-ZERO");
+  if (conteudo !== null) {
+    writeFileSync(arquivo, conteudo.replace("<SHA>", marco));
+  }
+  try {
+    const saida = execFileSync(SCRIPT, ["HEAD", "10"], {
+      encoding: "utf8",
+      cwd: raiz,
+      env: { ...process.env, ARQUIVO_MARCO: arquivo },
+    });
+    return { code: 0, saida };
+  } catch (e) {
+    const err = e as { status?: number; stdout?: string; stderr?: string };
+    return { code: err.status ?? -1, saida: (err.stdout ?? "") + (err.stderr ?? "") };
+  } finally {
+    rmSync(raiz, { recursive: true, force: true });
+  }
+}
+
+test("lê o marco zero do arquivo, ignorando comentários e linhas vazias", () => {
+  const { code, saida } = rodarComArquivo("# comentário\n\n<SHA>\n");
+  assert.equal(code, 0);
+  assert.match(saida, /3\/10 PRs/);
+});
+
+test("arquivo de marco ausente sai 2 — contador que parou de contar não é silêncio", () => {
+  const { code, saida } = rodarComArquivo(null);
+  assert.equal(code, 2);
+  assert.match(saida, /sem fonte para o marco zero/);
+});
+
+test("arquivo de marco só com comentário sai 2", () => {
+  const { code, saida } = rodarComArquivo("# só comentário\n\n");
+  assert.equal(code, 2);
+  assert.match(saida, /nenhuma linha de sha/);
 });
