@@ -229,14 +229,58 @@ jobs:
         run: |
           set -euo pipefail
           cat > "${RUNNER_TEMP}/auditoria.sql" <<'SQL'
+          -- ⚠️ ARMADILHA, JÁ PISADA UMA VEZ: para tipo='webhook', a coluna
+          -- `erros` NÃO guarda erro. Guarda o payload recebido, em toda
+          -- chamada — `src/app/api/webhooks/btg/route.ts:53` grava
+          -- `erros: { payload: body }`. É empréstimo de campo, do mesmo tipo
+          -- que `EmpresaBootstrapLog.empresaId`.
+          --
+          -- A versão de 12/08 desta consulta tinha
+          --     count(*) FILTER (WHERE erros IS NOT NULL) AS com_erros
+          -- e devolveu `com_erros = 15` sobre 15 linhas, ao lado de
+          -- `com_sucesso = 15`. Os dois 15 não se contradiziam: um contava
+          -- "tem payload guardado" (todas), o outro "deu certo" (todas). Mas
+          -- o RÓTULO dizia erro, e o número virou premissa de que o webhook
+          -- estava falhando.
+          --
+          -- O sinal real de erro nesta tabela é `sucesso = false` e
+          -- `contasComErro > 0`. NÃO reintroduzir `erros IS NOT NULL`.
           SELECT '=== BtgSyncLog: webhook ===' AS secao;
           SELECT
-            count(*)                                  AS total,
-            min(iniciado)                             AS primeiro,
-            max(iniciado)                             AS ultimo,
-            count(*) FILTER (WHERE sucesso)           AS com_sucesso
+            count(*)                                     AS total,
+            min(iniciado)                                AS primeiro,
+            max(iniciado)                                AS ultimo,
+            count(*) FILTER (WHERE sucesso)              AS com_sucesso,
+            count(*) FILTER (WHERE NOT sucesso)          AS com_falha,
+            count(*) FILTER (WHERE "contasComErro" > 0)  AS com_conta_em_erro
           FROM "BtgSyncLog"
           WHERE tipo = 'webhook';
+
+          -- Os timestamps INDIVIDUAIS, não só min/max/count.
+          --
+          -- Sem eles, mediana, p90 e maior intervalo entre chamadas são
+          -- incalculáveis — e foi exatamente onde a análise de 15/08 parou:
+          -- com 15 chamadas em 101 dias dava para dizer "média 7,2 dias" e
+          -- nada mais. Média não descreve distribuição irregular, e é
+          -- distribuição que decide se 4 dias de silêncio são normais.
+          --
+          -- `lag()` já entrega o intervalo pronto, em horas, para quem lê o
+          -- summary não precisar subtrair timestamps à mão.
+          SELECT '=== BtgSyncLog: webhook, últimas 30 chamadas ===' AS secao;
+          SELECT
+            iniciado,
+            sucesso,
+            round(
+              EXTRACT(EPOCH FROM (iniciado - lag(iniciado) OVER (ORDER BY iniciado))) / 3600
+            )::int AS horas_desde_a_anterior
+          FROM (
+            SELECT iniciado, sucesso
+            FROM "BtgSyncLog"
+            WHERE tipo = 'webhook'
+            ORDER BY iniciado DESC
+            LIMIT 30
+          ) AS ultimas
+          ORDER BY iniciado DESC;
 
           SELECT '=== BtgSyncLog: todos os tipos ===' AS secao;
           SELECT tipo, count(*) AS linhas, max(iniciado) AS ultimo
