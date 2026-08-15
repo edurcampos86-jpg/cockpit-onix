@@ -220,6 +220,80 @@ jobs:
           cat "${RUNNER_TEMP}/empresa.txt"
           echo "código: $CODIGO"
 
+      # ── Saldo em CC (D0): roda TAMBÉM em PR, de propósito ──────────────
+      #
+      # As consultas de auditoria abaixo só rodam em `workflow_dispatch`. Só
+      # que `workflow_dispatch` exige um humano clicando: o token de sessão de
+      # agente leva 403 (`Resource not accessible by integration`) ao tentar
+      # disparar. Pergunta que só o dispatch responde é pergunta que só é
+      # respondida quando o Eduardo lembra de clicar — a mesma armadilha que
+      # este workflow nasceu para eliminar.
+      #
+      # Esta é curta (4 linhas de saída) e responde a pergunta que reaparece
+      # em toda PR de backoffice: `saldoConta` ainda é escrito pela planilha
+      # manual (`saldo_em_cc`), ou hoje só o cron da Partner API (`api`)
+      # escreve? Lê SÓ a etiqueta de origem — nunca o valor do saldo, nunca
+      # linha de cliente.
+      - name: Saldo em CC — quem escreve hoje
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          cat > "${RUNNER_TEMP}/saldo.sql" <<'SQL'
+          -- `upsert-cliente.ts:92-97` grava {campo: "fonte:ISO8601"}. Para
+          -- saldoConta a policy admite duas fontes: "saldo_em_cc" (planilha
+          -- D0, subida à mão) e "api" (cron diário 09:00 UTC).
+          --
+          -- Se "saldo_em_cc" some do quadro e "api" continua, o import manual
+          -- parou. O que ESTA consulta NÃO distingue: parou porque ninguém
+          -- sobe mais planilha, ou porque toda subida está sendo rejeitada em
+          -- silêncio. O import manual não escreve linha de log nenhuma
+          -- (`src/app/api/backoffice/clientes/route.ts` não toca BtgSyncLog),
+          -- então tentativa fracassada e ausência de tentativa deixam
+          -- exatamente o mesmo rastro: nenhum.
+          SELECT '=== saldoConta: qual fonte escreveu, e quando ===' AS secao;
+          SELECT
+            split_part(c."fonteUltimoUpdate"->>'saldoConta', ':', 1) AS fonte,
+            count(*)                                                 AS clientes,
+            min(substring(c."fonteUltimoUpdate"->>'saldoConta'
+                          from position(':' in c."fonteUltimoUpdate"->>'saldoConta') + 1)) AS mais_antigo,
+            max(substring(c."fonteUltimoUpdate"->>'saldoConta'
+                          from position(':' in c."fonteUltimoUpdate"->>'saldoConta') + 1)) AS mais_recente
+          FROM "ClienteBackoffice" c
+          WHERE c."fonteUltimoUpdate" ? 'saldoConta'
+          GROUP BY 1
+          ORDER BY 2 DESC;
+
+          -- Cobertura: quantos clientes têm carimbo de origem em saldoConta.
+          -- Sem carimbo + saldo != 0 = valor escrito por caminho que não passa
+          -- pela policy (é o caso de /api/backoffice/btg-import, que grava
+          -- saldoConta cru em `btg-import/route.ts:146`).
+          SELECT '=== saldoConta: cobertura do carimbo ===' AS secao;
+          SELECT
+            count(*)                                                            AS clientes,
+            count(*) FILTER (WHERE "fonteUltimoUpdate" ? 'saldoConta')          AS com_carimbo,
+            count(*) FILTER (WHERE "saldoConta" <> 0)                           AS com_saldo,
+            count(*) FILTER (WHERE "saldoConta" <> 0
+                             AND NOT ("fonteUltimoUpdate" ? 'saldoConta'))      AS com_saldo_sem_carimbo
+          FROM "ClienteBackoffice";
+          SQL
+
+          docker run --rm \
+            -v "${RUNNER_TEMP}/saldo.sql:/q.sql:ro" \
+            -e "PGURL=${DATABASE_URL}" \
+            postgres:16-alpine \
+            sh -c 'psql "$PGURL" -v ON_ERROR_STOP=1 --no-psqlrc -f /q.sql' \
+            | tee "${RUNNER_TEMP}/saldo.txt"
+
+          {
+            echo
+            echo '## Saldo em CC — quem escreve hoje'
+            echo
+            echo '```'
+            cat "${RUNNER_TEMP}/saldo.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       # Só no disparo manual com `completo`. São as consultas da auditoria BTG:
       # úteis de vez em quando, ruído em toda PR de migration.
       - name: Consultas de auditoria (BtgSyncLog e fontes)

@@ -1193,7 +1193,20 @@ model BtgSyncLog {
   contasProcessadas Int       @default(0)
   contasComErro     Int       @default(0)
   resumo            String?   @db.Text
-  erros             Json? // lista de erros { conta, motivo }
+  // ⚠️ O NOME MENTE PARA tipo='webhook'. Este comentário dizia apenas "lista de
+  // erros { conta, motivo }" e isso é verdade para 'import'/'enrich'/'balances'
+  // — MAS `src/app/api/webhooks/btg/route.ts:53` grava aqui o PAYLOAD RECEBIDO
+  // (`erros: { payload: body } as never`) em toda chamada, dê certo ou não.
+  //
+  // Custo já pago: uma consulta com `count(*) FILTER (WHERE erros IS NOT NULL)`
+  // devolveu "15 com erro" sobre 15 chamadas que tinham TODAS dado certo, e o
+  // número virou premissa de webhook quebrado. O rótulo errado custou uma
+  // investigação inteira.
+  //
+  // Sinal real de erro nesta tabela: `sucesso = false` / `contasComErro > 0`.
+  // A saída definitiva é uma coluna `payload Json?` própria — plano escrito em
+  // `docs/onix-plano-payload-webhook.md` (🔴, não executado).
+  erros             Json? // ver aviso acima: para 'webhook' guarda o payload
   trigger           String? // "manual" | "cron" | "webhook"
   userId            String? // quem disparou se foi manual
 
