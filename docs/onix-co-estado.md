@@ -524,6 +524,50 @@ registrados como backlog, não como trabalho pendente de revisão:
 - guard de `DATABASE_URL`
 - SHA do build no `/api/health`
 
+### Saldo em CC (D0) — medido, e o que a medida NÃO diz
+
+🔎 Medido em produção em 2026-08-15 (`estado-do-banco.yml`, run 31892744072).
+
+Quem escreveu por último cada `saldoConta`:
+
+| fonte | clientes | mais antigo | mais recente |
+|---|---|---|---|
+| `api` (cron 09:00 UTC) | **2.677** | 2026-06-03 | **2026-08-15 09:29** |
+| `base_btg` | 3 | 2026-05-30 | 2026-05-30 |
+| `saldo_em_cc` (planilha manual) | **1** | 2026-07-30 13:11 | 2026-07-30 13:11 |
+
+Cobertura: 2.696 clientes, 2.681 com carimbo, 1.202 com saldo, **1 com saldo e
+sem carimbo** (escrita fora da policy — `btg-import/route.ts:146`).
+
+**⚠️ A leitura óbvia desses números está errada, e vale registrar por quê.**
+"1 cliente carimbado por `saldo_em_cc`" parece dizer que a planilha morreu. Não
+diz. O carimbo guarda só o **último** escritor, e o cron da Partner API reescreve
+`saldoConta` de 2.677 clientes toda manhã — apagando o carimbo `saldo_em_cc` de
+todo cliente que tocar. Com esse cron ligado, `saldo_em_cc` sumir do quadro é o
+resultado **esperado**, suba a planilha ou não. O 1 que sobrou é só o cliente que
+o cron ainda não tocou.
+
+*É medir o giro de uma carteira pela última corretora que executou: quem opera
+todo dia aparece em tudo, e quem aportou uma vez no mês some do extrato sem ter
+saído.*
+
+**O que a medida prova:** em **2026-07-30 13:11** uma subida manual funcionou —
+gravou de fato. É piso, não teto.
+**O que ela não prova, em nenhuma direção:** se o import continua sendo usado, e
+se alguma tentativa está sendo rejeitada em silêncio.
+
+**Não há caminho retrospectivo para essa pergunta.** O import manual
+(`src/app/api/backoffice/clientes/route.ts`) **não escreve linha de log nenhuma**
+— não toca `BtgSyncLog`, diferente de todos os outros 18 tipos de job do sistema.
+Tentativa fracassada e ausência de tentativa deixam exatamente o mesmo rastro:
+nenhum. E o `gateSanidadeSaldoCc` (`import-sanity.ts:32`) rejeita a planilha
+INTEIRA quando menos de 90% das linhas são válidas — uma rejeição dessas é
+invisível a partir do banco.
+
+Conclusão registrada: **hipótese (a) "abandonado" e hipótese (b) "quebrado em
+silêncio" seguem as duas em aberto**, e nenhuma consulta a resolve. A saída é
+prospectiva: o import passar a gravar `BtgSyncLog` como todo o resto.
+
 ### ⚠️ Correção de registro — a premissa da #309 nunca foi estabelecida
 
 🔎 Conferido em 2026-08-15.

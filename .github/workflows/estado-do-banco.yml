@@ -244,13 +244,29 @@ jobs:
           -- saldoConta a policy admite duas fontes: "saldo_em_cc" (planilha
           -- D0, subida à mão) e "api" (cron diário 09:00 UTC).
           --
-          -- Se "saldo_em_cc" some do quadro e "api" continua, o import manual
-          -- parou. O que ESTA consulta NÃO distingue: parou porque ninguém
-          -- sobe mais planilha, ou porque toda subida está sendo rejeitada em
-          -- silêncio. O import manual não escreve linha de log nenhuma
-          -- (`src/app/api/backoffice/clientes/route.ts` não toca BtgSyncLog),
-          -- então tentativa fracassada e ausência de tentativa deixam
-          -- exatamente o mesmo rastro: nenhum.
+          -- ⚠️ LIMITE DESTA CONSULTA, DESCOBERTO RODANDO ELA (15/08/2026).
+          --
+          -- O carimbo guarda só o ÚLTIMO escritor de cada campo. O cron da
+          -- Partner API roda todo dia às 09:00 UTC e reescreve saldoConta de
+          -- ~2.677 clientes — apagando, a cada manhã, o carimbo `saldo_em_cc`
+          -- de todo cliente que ele tocar.
+          --
+          -- Ou seja: `saldo_em_cc` sumir do quadro NÃO prova que a planilha
+          -- parou. É o resultado esperado mesmo que ela suba todo dia. O que
+          -- sobra de `saldo_em_cc` é só o cliente que o cron ainda não tocou.
+          --
+          -- Esta consulta responde uma pergunta ÚTIL — "quem escreveu por
+          -- último, e quando" — que NÃO é a pergunta "o import manual ainda
+          -- roda?". Ler uma como a outra é o mesmo erro do `com_erros`.
+          --
+          -- O que ela prova de verdade: a data mais recente de `saldo_em_cc` é
+          -- a última vez que uma subida manual FUNCIONOU. É piso, não teto.
+          --
+          -- Para responder "ainda roda?" não há caminho retrospectivo: o
+          -- import manual (`src/app/api/backoffice/clientes/route.ts`) não
+          -- escreve linha de log nenhuma — não toca BtgSyncLog. Tentativa
+          -- fracassada e ausência de tentativa deixam o mesmo rastro: nenhum.
+          -- A saída é o import passar a gravar `BtgSyncLog` como todo o resto.
           SELECT '=== saldoConta: qual fonte escreveu, e quando ===' AS secao;
           SELECT
             split_part(c."fonteUltimoUpdate"->>'saldoConta', ':', 1) AS fonte,
