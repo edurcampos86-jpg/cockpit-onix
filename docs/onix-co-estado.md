@@ -524,6 +524,89 @@ registrados como backlog, não como trabalho pendente de revisão:
 - guard de `DATABASE_URL`
 - SHA do build no `/api/health`
 
+### Deploy — migrations rodam no `startCommand`
+
+**Estado atual:** `package.json` → `"start": "prisma migrate deploy && next start"`,
+e `railway.toml` **não tem** `preDeployCommand`.
+
+🔎 **A #317 tentou tirar as migrations do start** e pô-las como
+`preDeployCommand`, por um motivo correto: dentro do `start`, o `&&` amarra
+migrar e subir ao mesmo destino, e migration que falha derruba o serviço em
+loop de restart — falha de DADO vira INDISPONIBILIDADE.
+
+**O Railway nunca leu a chave.** Conferido no painel: o deploy mostrava
+Initialization / Build / Deploy / Post-deploy, **sem estágio Pre-deploy**. A
+causa é de tipo — a chave espera **array** (`preDeployCommand = ["npm run
+db:migrate"]`) e a #317 escreveu string.
+
+O efeito era **pior** que o problema original: com o `start` reduzido a `next
+start`, migration pendente **não aplicava**, o app subia saudável, healthcheck
+e smoke passavam, e o schema ficava atrás do código em silêncio. Divergência
+silenciosa não avisa; indisponibilidade avisa.
+
+**Revertido pela #335.** Nenhuma migration entrou entre a #317 e o revert, então
+o estrago ficou em zero — por sorte de calendário, não por desenho.
+
+⚠️ **O caminho revertido ainda NÃO foi exercitado.** A última migration
+(`20260812205040`) já estava aplicada antes do revert, e nenhuma nova entrou
+desde. O smoke prova que **não há divergência**, não que o mecanismo funciona.
+A primeira PR que carregar migration é a prova — trate-a como tal.
+
+**Para retomar o `preDeployCommand`** (não fazer sem isto):
+1. Sintaxe em **array**, confirmada em documentação.
+2. ⚠️ **O builder é `DOCKERFILE`** (`railway.toml`, `builder = "DOCKERFILE"`,
+   com `Dockerfile` no repo — o comentário lá diz "NÃO usar Nixpacks"). Sob
+   Dockerfile o pré-deploy pode precisar de shell explícito
+   (`["/bin/sh", "-c", "..."]`), porque `&&` é sintaxe de shell. Quem assumir
+   Railpack vai depurar o sintoma errado.
+3. Provar com migration real e inofensiva, conferindo **os dois** sinais: o
+   estágio Pre-deploy no painel **e** o nome da migration no `/api/health`.
+
+### Detecção de schema pendente — entregue pela #323
+
+`/api/health` (bloco autenticado) expõe `migrations`, com `pendentes`, ao lado
+de `versao` e `flags`. O `post-deploy-smoke.yml` **reprova em vermelho** quando
+há pendente, e também quando há migration **começada e não concluída** — que é
+um modo de falha distinto, com conserto distinto (`prisma migrate resolve`).
+
+É a rede que faltava no episódio acima: a partir dela, schema atrás do código
+para de ser silencioso. Lógica pura em `src/lib/migrations-aplicadas.ts`, com
+teste sem banco.
+
+> ⚠️ O gate de divergência do mesmo workflow chegou a **reprovar o caminho
+> feliz** (`escrever_estado` terminava em `[ -n "$x" ] && echo`, que sob
+> `set -e` devolve 1 quando o teste é falso — e é chamada com argumentos
+> vazios justamente quando o deploy CONVERGE). Corrigido pela #350. Enquanto
+> durou, abriu issue de incidente a cada ciclo com produção sadia.
+
+### Parceiros — Fase 1 completa em produção
+
+Cinco tabelas no ar, **todas vazias**, e nada as lê ainda:
+
+| tabela / campo | PR | o que garante |
+|---|---|---|
+| `Parceiro` | #306 | entidade própria; `clienteBackofficeId` é FK **opcional** — parceiro PODE ser cliente, não precisa ser |
+| `Indicacao.parceiroId` | #306 | anda ao lado de `indicadorId` (#302), que não foi tocado |
+| `ParceiroCliente` | #307 | vínculo **datado** (`dataFim` null = vigente) |
+| índice `..._cliente_vigente_key` | #310 | **um cliente tem no máximo UM parceiro vigente** — a comissão do parceiro sai da do assessor, e dois retirariam da mesma base duas vezes |
+| `Parceiro.indicadoPorParceiroId` + trigger | #308 | árvore com guarda anti-ciclo **no banco**, não no TS |
+| `AcordoComercialParceiro` | #318 | comissão datada por `tipoProduto`; `DECIMAL(7,4)`, 2 CHECKs, um vigente por (parceiro, produto) |
+
+Apoio sem banco: `src/lib/parceiros/parceiro-core.ts` (#312, travessia da
+árvore, teto próprio de 64 níveis) e `vocabulario.ts` (#329, normalização —
+sem ela `"assessoria"` e `"Assessoria"` passam os dois pelo índice parcial e
+criam **dois acordos vigentes no mesmo produto** sem violar constraint).
+
+**`AcordoComercialParceiro` é tabela IRMÃ de `AcordoComercial`, não extensão.**
+Aquele é da `Pessoa` do time, tem `pessoaId` NOT NULL, **não tem campo de
+percentual**, e `atualizarAcordo` faz `UPDATE` no lugar — o que violaria a regra
+de que alterar percentual FECHA e ABRE.
+
+**Piloto: `scripts/seed-parceiro-piloto.ts` (#330).** Dry-run por padrão;
+escreve só com `--aplicar`. Existe para provar que a modelagem serve ao caso
+real antes de haver UI. **Não contém migration** — merge dele não aplica nada;
+a escrita é ato manual separado.
+
 ### Infra de CI observada
 
 🔎 Durante a #299 o job `ci` travou no passo Build por ~30 min **sem honrar o
