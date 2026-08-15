@@ -21,7 +21,7 @@
 
 | Componente | Onde mora | Como acessar | Backup |
 |------------|-----------|--------------|--------|
-| App Next.js | Railway (projeto `cockpit-onix`) | <https://cockpit-onix-app-production.up.railway.app> | Git (GitHub `main`) + Railway redeploy |
+| App Next.js | Railway (projeto `cockpit-onix`) | <https://cockpit-onix-production.up.railway.app> | Git (GitHub `main`) + Railway redeploy |
 | Postgres | Railway (mesmo projeto) | Internal: `DATABASE_URL` env var | **R2 diário** (verificado por drill semanal). Railway PITR: ⚠️ **NÃO ATIVO** — é opção, não cópia existente |
 | Storage de PDFs | Backblaze B2 | `B2_BUCKET` env | Replicação B2 (configurar manualmente) |
 | OAuth tokens (Google/MS) | Postgres (`UserGoogleAuth`, `UserMicrosoftAuth`) cifrados | `CRYPTO_KEY` env decifra | Junto com o dump Postgres |
@@ -64,7 +64,7 @@ git log --oneline -3 origin/main
 # 3. Aguardar healthcheck do Railway ficar verde (~2min)
 
 # 4. Confirmar volta:
-curl -fsS https://cockpit-onix-app-production.up.railway.app/api/health | jq .
+curl -fsS https://cockpit-onix-production.up.railway.app/api/health | jq .
 #    → { "status": "ok", "db": "up", ... }
 
 # 5. Disparar smoke manualmente para fechar o ciclo
@@ -81,39 +81,110 @@ gh workflow run post-deploy-smoke.yml   # ou via UI
 
 ## Cenário 2 — Migration Prisma com falha
 
-**Sintoma:** deploy passou mas `prisma db push` no startCommand quebrou
-(coluna não pode ser dropada, NOT NULL sem default em tabela com dados,
-etc.). App fica em loop de restart.
+**Sintoma:** o app entra em **loop de restart** depois de um deploy. O erro do
+Postgres (`23502` NOT NULL em tabela com dados, `42703` coluna inexistente,
+conflito de constraint…) aparece nos Deploy Logs, e o serviço não sobe.
 
-> **Atenção:** o `startCommand` é
-> `prisma db push --accept-data-loss && next start`. `--accept-data-loss`
-> é perigoso — drops colunas sem perguntar. Em migrations destrutivas,
-> sempre fazer staging do schema antes do push.
+> ## 🔴 Isto É indisponibilidade. Trate como incidente.
+>
+> A migration roda **dentro do start**, amarrada ao `next start` por `&&`: a
+> migration falha, o app não sobe, o container reinicia, a migration falha de
+> novo. Falha de **dado** vira **indisponibilidade**.
+>
+> Consequência prática: **você NÃO tem tempo.** O caminho mais curto para o ar
+> costuma ser o Cenário 1 (redeploy do commit anterior verde), e só depois
+> consertar a migration com calma.
+>
+> **Não procure um estágio "Pre-deploy" no painel** — ele não aparece neste
+> projeto. Os estágios são Initialization / Build / Deploy / Post-deploy, e o
+> erro da migration sai nos **Deploy Logs**.
+>
+> Por que é assim, o que já foi tentado e o que falta para mudar: tudo no
+> bloco `[deploy]` do **`railway.toml`**, que é o único lugar que descreve o
+> mecanismo. Este documento não repete — se divergir, o `railway.toml` vence.
 
-### Procedimento (alvo: ≤ 15 min)
+### Antes de qualquer coisa: volte ao ar
 
 ```bash
-# 1. Voltar o schema.prisma para o estado anterior
-git log --oneline -- prisma/schema.prisma | head -5
-git checkout <sha_antes_do_break> -- prisma/schema.prisma
-
-# 2. (CRÍTICO) Se a migration anterior DROPPOU uma coluna que tinha
-#    dados, esses dados se foram. Restaurar do R2:
-#    (ver Cenário 3, parte "Restore parcial via export/import")
-
-# 3. Commit do rollback do schema
-git add prisma/schema.prisma
-git commit -m "fix(schema): revert breaking change xyz"
-git push origin main
-
-# 4. Aguardar Railway redeployar e healthcheck ficar verde
+# Railway → Deployments → último deploy VERDE → "Redeploy".
+# Isso põe o código anterior no ar com o schema que ele espera.
+# Só depois disso siga o procedimento abaixo.
 ```
+
+> **`db push --accept-data-loss` não é mais usado em lugar nenhum.** O projeto
+> tem migrations versionadas em `prisma/migrations/` desde 2026-05. Se algum
+> procedimento ainda mandar rodar `db push` contra produção, é texto velho —
+> corrija o texto.
+
+### Procedimento — depois de voltar ao ar (alvo: ≤ 15 min)
+
+```bash
+# 1. Confirmar o diagnóstico: qual código está no ar e o que falta migrar.
+#    O /api/health autenticado responde as duas coisas de uma vez.
+curl -fsS -H "Authorization: Bearer $CRON_SECRET" \
+  https://cockpit-onix-production.up.railway.app/api/health | jq '.versao, .migrations'
+#    → versao.shaCurto  = o commit que está NO AR (o anterior, se você redeployou)
+#    → migrations.pendentes = as que o banco não tem
+#    → migrations.falhas    = a que quebrou no meio, se quebrou
+
+# 2. Ler o erro: Railway → Deployments → o deploy vermelho → aba "Deploy
+#    Logs". A migration roda dentro do start, então o erro do Postgres sai
+#    ali mesmo, por extenso e com o código, antes do log do Next.
+
+# 3. Se ficou linha meia-aplicada (migrations.falhas não vazio), resolver ANTES
+#    de tentar de novo — `migrate deploy` não passa por cima de falha:
+DATABASE_URL="<prod>" npx prisma migrate resolve --rolled-back <nome_da_migration>
+#    (`--rolled-back` marca como revertida, para a próxima tentativa reaplicar.
+#     Use `--applied` só se você conferiu à mão que o efeito JÁ está no banco.)
+
+# 4. Corrigir a migration no código, em PR, com o padrão de três fases quando
+#    a coluna for NOT NULL em tabela com dados:
+#      ADD COLUMN nullable → UPDATE explícito → ALTER COLUMN SET NOT NULL
+#    (exemplo real: 20260810181603_empresa_tipo_e_transversal)
+
+# 5. Merge → Railway redeploya → o start roda a migration de novo.
+#    Confirmar que subiu E migrou:
+curl -fsS -H "Authorization: Bearer $CRON_SECRET" \
+  https://cockpit-onix-production.up.railway.app/api/health | jq '.versao.shaCurto, .migrations.pendentes'
+#    → sha do commit novo, e pendentes: []
+```
+
+### O outro sintoma, silencioso: app no ar com schema velho
+
+Com a migration dentro do `start`, este estado é RARO — mas não é impossível,
+e já aconteceu por três dias em agosto/2026 (o histórico está no `[deploy]` do
+`railway.toml`). Também aparece quando alguém sobe a imagem à mão (o `CMD` do
+Dockerfile roda `npm run start`, que migra — mas `docker run` com outro
+comando, não) ou num rollback de container sem rollback de banco.
+
+É o modo de falha mais perigoso dos dois, e por isso continua monitorado:
+indisponibilidade avisa; divergência silenciosa de schema só aparece quando
+uma query quebra — ou, pior, quando não quebra e devolve dado errado.
+
+`SELECT 1` responde, o health fica verde, e o erro só aparece depois — como
+coluna inexistente no meio de uma requisição de usuário. Por isso
+`/api/health` (autenticado) publica `migrations`:
+
+```json
+{ "ultima": "20260812...", "aplicadas": 46, "pendentes": [], "falhas": [] }
+```
+
+**`pendentes` não vazio é este cenário.** O conserto é rodar o passo que não
+rodou — `npm run db:migrate` com a `DATABASE_URL` de produção, ou um redeploy
+(o start migra; ver `railway.toml`).
+
+> O `post-deploy-smoke` já falha sozinho quando `pendentes` não é vazio
+> (`Probe migrations aplicadas`). Se este cenário acontecer de novo, você fica
+> sabendo pelo smoke — não por uma query quebrando na tela de alguém. E o
+> resumo do run diz **há quantos minutos** o schema está atrás, para o
+> post-mortem não depender de comparar timestamps de runs à mão.
 
 ### Prevenção (faça no próximo deploy de schema)
 
 - Rode `prisma migrate diff --from-url $PROD_DATABASE_URL --to-schema-datamodel prisma/schema.prisma --script` **antes** de commitar e revise
 - Para colunas NOT NULL novas, adicione com default → backfill → remova default num segundo deploy
-- ~~Considere mudar o startCommand pra `prisma migrate deploy`~~ — **feito, e melhor que isso.** As migrations versionadas existem (`prisma/migrations/`), e `prisma migrate deploy` roda como `preDeployCommand` no `railway.toml`, **fora** do `startCommand`. A diferença importa neste documento: migration que falha faz o deploy não promover, e a versão anterior **continua no ar**. Dentro do `start`, o mesmo erro derrubaria o serviço em loop de restart — indisponibilidade a partir de um problema de dado.
+- **Migration que falha derruba o serviço** (roda dentro do start). É custo conhecido e aceito por ora: falha ruidosa é preferível a divergência silenciosa. O porquê, a alternativa já tentada e o que falta para mudar estão no `[deploy]` do `railway.toml` — não replicados aqui
+- **`DROP COLUMN` / `DROP TABLE` numa PR exigem a label `migration-destrutiva`** — o check `estado-do-banco` falha sem ela. Não é proibição; é assinatura
 
 ---
 
@@ -155,7 +226,7 @@ pg_restore --no-owner --no-acl --verbose --exit-on-error \
 #    Railway redeploya automaticamente.
 
 # 8. Validar com health + smoke:
-curl -fsS https://cockpit-onix-app-production.up.railway.app/api/health | jq .
+curl -fsS https://cockpit-onix-production.up.railway.app/api/health | jq .
 
 # 9. Re-habilitar webhooks (revertendo passo 1).
 

@@ -1,5 +1,15 @@
 # Railway cron schedules para o Painel do Dia
 #
+# ── ESTE ARQUIVO É A FONTE ÚNICA DE "COMO O DEPLOY RODA" ────────────────
+# Junto com o `start` do package.json, que ele referencia. Nenhum outro
+# arquivo descreve o mecanismo: o DISASTER_RECOVERY, a skill de entrega e os
+# workflows CITAM este bloco em vez de repeti-lo.
+#
+# A regra existe porque a #335 reverteu a #317 corrigindo 4 arquivos e
+# deixando 3 descrevendo o mundo revertido — inclusive o documento de
+# emergência e a skill que orienta a próxima entrega. Descrição duplicada
+# envelhece em silêncio; endereço citado, não.
+#
 # Todos horários em UTC (Bahia = UTC-3, sem horário de verão).
 #
 # Crons disparam HTTP GET contra as rotas /api/cron/* com o header
@@ -12,33 +22,85 @@
 builder = "DOCKERFILE"
 
 [deploy]
+# Migrations rodam DENTRO do start, de novo. Este bloco existe porque a
+# alternativa já foi tentada e falhou em silêncio — e a próxima pessoa que
+# quiser tentar de novo precisa saber o que deu errado.
+#
+# ── O QUE ACONTECEU ─────────────────────────────────────────────────────
+# A #317 tirou `prisma migrate deploy` do `start` e o pôs aqui como
+# `preDeployCommand`, com um motivo correto: dentro do `start`, o `&&` amarra
+# migrar e subir ao mesmo destino, e uma migration que falha derruba o serviço
+# em loop de restart — falha de DADO vira INDISPONIBILIDADE.
+#
+# Só que o Railway NUNCA LEU a chave. Conferido no painel: o deploy ativo,
+# posterior à #317, mostra os estágios Initialization / Build / Deploy /
+# Post-deploy. Não existe estágio "Pre-deploy".
+#
+# ── POR QUE ISSO ERA PIOR QUE O PROBLEMA ORIGINAL ───────────────────────
+# Com a chave ignorada e o `start` reduzido a `next start`, uma migration
+# pendente simplesmente NÃO APLICAVA. O app subia saudável, o healthcheck
+# passava, o smoke passava — e o schema ficava atrás do código, em silêncio.
+# Divergência silenciosa de schema é pior que indisponibilidade ruidosa: a
+# segunda avisa, a primeira só aparece quando alguma query quebra ou, pior,
+# quando não quebra e devolve dado errado.
+#
+# Nenhuma migration entrou entre a #317 e esta reversão, então o estrago
+# ficou em zero — por sorte de calendário, não por desenho.
+#
+# ── POR QUE REVERTER, E NÃO SÓ CORRIGIR A SINTAXE ───────────────────────
+# À época da reversão a hipótese de TIPO (array, não string) era só hipótese:
+# docs.railway.com, railway.com e station.railway.com estão bloqueados pelo
+# proxy de egresso — a MESMA limitação que produziu o bug original.
+#
+# Corrigir sintaxe com base em crença repetiria o erro, e o modo de falha
+# seria de novo SILENCIOSO. O `start` é mecanismo PROVADO neste repositório:
+# aplicou as migrations das PRs #302, #306, #307, #308, #310 e #318 em
+# produção. Volta-se ao verde conhecido primeiro; melhorar depois, com prova.
+#
+# ── A SINTAXE, AGORA CONFERIDA NA FONTE ─────────────────────────────────
+# A documentação do Railway é open source. O proxy bloqueia o site, mas não o
+# repositório: github.com/railwayapp/docs, commit 48db870 (2026-08-14).
+#
+#   content/docs/config-as-code.md:27-28  (exemplo TOML, o formato daqui)
+#     [deploy]
+#     preDeployCommand = ["npm run db:migrate"]
+#
+#   content/docs/config-as-code/reference.md:144-157
+#     ### Pre-deploy command
+#     The command to run before starting the container.
+#     "preDeployCommand": ["npm run db:migrate"]
+#     This field can be omitted.
+#
+# CONFIRMADO: a referência escreve ARRAY nos dois formatos. A #317 escreveu
+# string. (O guia de Rails — content/guides/rails.md:303 — usa string; a
+# própria doc é inconsistente, o que explica de onde veio o erro. A
+# referência é que manda.)
+#
+# Três fatos do mesmo commit que mudam o desenho, e não estavam na #317
+# (content/docs/deployments/pre-deploy-command.md:6-25):
+#   - "execute in a separate container from your application" — CONTÊINER
+#     SEPARADO. Só serve porque `prisma migrate deploy` não escreve em disco.
+#   - "It has the dependencies it needs to run installed in the application
+#     image" — o Prisma CLI e prisma/migrations precisam estar na imagem de
+#     RUNTIME, não só na de build. Conferir no Dockerfile antes de ligar.
+#   - "If your command fails, it will not be retried and the deployment will
+#     not proceed" — é exatamente a garantia que a #317 queria.
+#
+# ── PARA REATIVAR O PRÉ-DEPLOY (com prova, não com crença) ──────────────
+#   1. [FEITO] Confirmar a sintaxe na documentação — ver bloco acima. É array.
+#   2. [FEITO] Fazer o schema aplicado ser OBSERVÁVEL: `/api/health` publica
+#      `migrations` (src/lib/migrations-aplicadas.ts) e o post-deploy-smoke
+#      FALHA com `pendentes` não vazio. Sem isso não havia como distinguir
+#      "aplicou" de "não aplicou" sem abrir o psql — que é o que deixou a
+#      #317 passar três dias sem ninguém perceber.
+#   3. [FALTA] Mover a migration para cá com a sintaxe de array, e provar com
+#      uma migration real e inofensiva: o painel tem de mostrar o estágio
+#      Pre-deploy E o /api/health tem de trazer o nome dela em
+#      `migrations.ultima`. Enquanto o passo 3 não acontecer, a chave fica
+#      comentada — ter a sintaxe certa não é ter a prova.
+#
+# preDeployCommand = ["npm run db:migrate"]   # só descomentar junto do passo 3
 startCommand = "npm run start"
-# Migrations rodam AQUI, não dentro do `start`.
-#
-# Antes: `start = "prisma migrate deploy && next start"`. O `&&` amarrava as
-# duas coisas ao mesmo destino — uma migration que falhasse não parava a
-# migration, parava o `next start`, e o serviço entrava em loop de restart até
-# alguém corrigir. O container reinicia, a migration falha de novo, e o app
-# nunca sobe. Falha de dado virava indisponibilidade.
-#
-# Agora são etapas separadas, e a diferença é o que acontece no erro:
-#
-#   preDeployCommand falha  → o deploy NÃO é promovido; a versão anterior
-#                             segue no ar, servindo tráfego, com o banco
-#                             intacto. O erro aparece nos logs do deploy.
-#   startCommand falha      → aí sim é problema do app, e é o que restart
-#                             policy existe para tratar.
-#
-# O pré-deploy roda no container da imagem NOVA, depois do build e antes de
-# qualquer tráfego, com as mesmas variáveis do serviço (então `DATABASE_URL`
-# está lá). Roda uma vez por deploy, não por réplica.
-#
-# O script se chama `db:migrate`, e não `predeploy`, por causa de uma pegadinha
-# do npm: um script chamado `predeploy` é interpretado como hook automático de
-# um script `deploy`. Não existe `deploy` hoje, então funcionaria — e passaria
-# a se comportar diferente no dia em que alguém criasse um. `db:migrate` segue
-# a convenção que o arquivo já usa (`db:push`, `db:seed`).
-preDeployCommand = "npm run db:migrate"
 # Fixado em 1 réplica: o scheduler in-process do poll DataCrazy
 # (src/instrumentation.ts) assume 1 instância. Com >1 réplica cada uma
 # registraria o cron → polls concorrentes (inócuo no dado por idempotência,

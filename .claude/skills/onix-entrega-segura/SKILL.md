@@ -1,11 +1,11 @@
 ---
 name: onix-entrega-segura
 description: Metodologia de entrega para o Ecossistema Onix (repo cockpit-onix — Next.js 16 / React 19 / Prisma 7 / PostgreSQL no Railway). Use SEMPRE que o pedido envolver construir, corrigir, refatorar, deployar, migrar, configurar ou mudar QUALQUER coisa no Ecossistema Onix — mesmo mudanças pequenas e mesmo que não se diga "com segurança". Use também quando a conversa tocar em Railway, builder (Railpack/Nixpacks/Dockerfile), pg_dump/backup, variáveis de ambiente ou segredos, migrations Prisma, ou deploy de produção. A skill impõe classificação por faixa de risco, gates de lint/build, validação shadow-DB antes de migrations, teste local antes de mudança de build, parada obrigatória antes de merge em faixa vermelha e plano de rollback — e, em contrapartida, EXIGE entrega consolidada e sem cerimônia nas faixas verde e amarela.
-version: 2.2
-updated: 2026-08-13
+version: 2.3
+updated: 2026-08-14
 ---
 
-# Onix — Entrega Segura (v2.2, calibrada ago/2026)
+# Onix — Entrega Segura (v2.3, calibrada ago/2026)
 
 > **Fonte canônica: este arquivo, em `.claude/skills/onix-entrega-segura/SKILL.md` no repo `cockpit-onix`.**
 > Editar aqui e sincronizar repo → conta (upload do ZIP em Customize > Skills), nunca o inverso.
@@ -59,6 +59,52 @@ Fora dessa lista, vale o inverso: **velocidade acima de cerimônia**. Aplicar ga
 
 Paralelismo é **entre sessões e ferramentas** (ex.: dois recons simultâneos em sessões diferentes do Claude Code), nunca vários blocos de prompt na mesma mensagem.
 
+### O que conta como FRENTE (calibrado na v2.3)
+
+**Só conta como frente o que atravessa sessão OU exige mais de uma PR.**
+**PR verde única não ocupa vaga.**
+
+A v2.2 contava toda PR aberta como frente, e isso estava calibrado errado — não por descuido, mas porque **não havia medição**. A #326 mediu, e os números desmontam a regra antiga:
+
+| | mediana |
+|---|---|
+| 🟢 verde | **1,0 h** |
+| 🟡 amarela | **1,0 h** |
+| 🔴 vermelha | **2,8 h** |
+| geral (40 PRs) | **1,2 h** |
+
+Com verde fechando em **uma hora**, contar PR única como frente faz uma tarefa de 60 minutos disputar vaga em pé de igualdade com a **#301**, travada há semanas esperando decisão. O teto passa a proteger o que está parado em vez do que está andando — o oposto do que ele existe para fazer.
+
+A Lei de Little continua valendo (tempo de ciclo = WIP ÷ throughput); o que muda é **o que se conta como WIP**. Trabalho que nasce e morre na mesma sessão nunca esteve na fila.
+
+**Na prática:**
+
+| situação | ocupa vaga? |
+|---|---|
+| PR 🟢 aberta e mergeada na mesma sessão | **não** |
+| PR 🟡 única, fechada na mesma sessão | **não** |
+| pilha de PRs empilhadas (#309 → #323) | **sim, uma vaga para a pilha** |
+| PR que ficou aberta ao fim da sessão | **sim, a partir daí** |
+| PR 🔴 esperando decisão | **sim, sempre** |
+
+> **O que NÃO muda:** o teto de 3 e a proibição de abrir a quarta. Frente é frente.
+
+### Alarme de envelhecimento
+
+Como PR única deixou de ocupar vaga, some o efeito colateral que segurava a fila curta. O que substitui é medir a **cauda longa**, que era o gargalo real o tempo todo:
+
+| faixa | limiar de aviso | ≈ múltiplo da mediana |
+|---|---|---|
+| 🟢 verde | **8 h** | 8× |
+| 🟡 amarela | **12 h** | 12× |
+| 🔴 vermelha | **48 h** | 17×, e o aviso pede o **bloqueio nomeado** |
+
+`scripts/aviso-pr-envelhecendo.sh` roda em toda PR (`ci.yml`). **Aviso, nunca gate:** PR demorada não é PR errada, e uma 🔴 esperando decisão DEVE esperar — o que não pode é ninguém saber que ela espera.
+
+O aviso reporta o **múltiplo da mediana**, não só as horas: "12 h" não diz nada sozinho; "12× o tempo típico desta faixa" diz que algo travou.
+
+> A #327 ficou **25,1 h** publicando a versão errada desta skill — 21× a mediana — com **CI verde o tempo todo**. Na lista de PRs, "aberta" e "esquecida" têm exatamente a mesma cara.
+
 ---
 
 ## 4. Ambiente (fatos que evitam retrabalho)
@@ -67,7 +113,7 @@ Paralelismo é **entre sessões e ferramentas** (ex.: dois recons simultâneos e
 - Todo build precisa de `NODE_OPTIONS=--max-old-space-size=8192`.
 - Merges: **squash** (mantém a `main` linear).
 - **Railway builder = Railpack. NUNCA forçar Nixpacks.** `nixPkgs` SOBRESCREVE (não soma) os pacotes do builder e apaga o node → `npm: command not found`. Binário de sistema no runtime (ex.: `pg_dump`) resolve-se via **Dockerfile** a partir da base estável.
-- `prisma migrate deploy` roda via **`preDeployCommand`** (mudado na PR #317; antes era `startCommand`). Migration nova aplica em produção no deploy que segue o merge na `main` — e, falhando, barra o deploy antes de ele subir.
+- `prisma migrate deploy` roda **dentro do `startCommand`** (`npm run start` = `prisma migrate deploy && next start`). Migration nova aplica em produção no deploy que segue o merge na `main` — e, **falhando, derruba o serviço** em loop de restart: falha de dado vira indisponibilidade. A tentativa de mover para `preDeployCommand` (#317) foi revertida pela #335. **Único lugar que descreve o mecanismo: o bloco `[deploy]` do `railway.toml`** — conferir lá antes de afirmar qualquer coisa sobre deploy.
 - Toda migration nova derruba espuriamente o índice `PainelEmailAI_tsv_idx` — **remover manualmente** antes de aplicar (drift conhecido em 7+ migrations).
 - `NEXT_PUBLIC_*` são inlined no build — mudar exige rebuild, não restart.
 - Recomendado antes de qualquer PR com migration: `healthcheckPath = "/api/health"` no `railway.toml`.
@@ -139,6 +185,10 @@ Usar com parcimônia, para fundamentar trade-offs:
 ## 10. Manutenção desta skill
 
 Esta skill é revisada **a cada 10 PRs fechadas**, não por acúmulo de dor.
+
+> 🚩 **MARCO ZERO: a PR #327**, mergeada em **2026-08-14, 12:19 UTC** (commit `a609d09`). A contagem **não é retroativa** — as 327 PRs anteriores fecharam sem esta regra existir, e contá-las faria a revisão nascer vencida, que é a própria "revisão por acúmulo de dor" recusada aqui.
+>
+> O sha vive em **`.claude/skills/MARCO-ZERO`**, fonte única, lida pelo `ci.yml`. `scripts/aviso-revisao-skill.sh` conta e avisa sozinho ao chegar a 10.
 
 A v2 nasceu porque a fricção somou por meses até virar reclamação. Revisão por gatilho de dor sempre chega tarde e sempre corrige demais de uma vez.
 

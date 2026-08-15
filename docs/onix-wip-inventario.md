@@ -121,7 +121,7 @@ O que mudou desde o registro em `onix-co-estado.md`:
 | | estado registrado na doc | estado real hoje |
 |---|---|---|
 | migration | `tipo NOT NULL` **sem DEFAULT** ⇒ `23502` nas 6 linhas | reescrita em **três fases**: coluna nullable → 5 `UPDATE` por id → `SET NOT NULL`, com guard `RAISE EXCEPTION` para linha sem papel |
-| efeito da falha | `migrate deploy && next start` ⇒ **serviço em loop de restart** | a **#317 já mergeou e já está em produção**: migration virou `preDeployCommand`, fora do `start`. Falha agora para o **deploy**, não o serviço |
+| efeito da falha | `migrate deploy && next start` ⇒ **serviço em loop de restart** | **igual ao registrado.** A #317 tirou a migration do `start`, mas o Railway ignorou a chave e a #335 reverteu — falha de migration derruba o serviço de novo. Ver `[deploy]` do `railway.toml` |
 | premissa "`Empresa` está vazia" | não verificável de uma sessão | **falsa e medida** — 6 linhas, lidas pelo workflow da #309 |
 
 **O que ainda trava, em ordem:**
