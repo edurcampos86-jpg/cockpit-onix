@@ -53,3 +53,48 @@ export async function sendWhatsappMessage(
     return false;
   }
 }
+
+/**
+ * Probe da instância Z-API — `GET /status`, que devolve se o WhatsApp está
+ * conectado.
+ *
+ * NÃO usa `/send-text`: probe que envia mensagem cobra o preço de uma
+ * mensagem real (e chega no celular de alguém) a cada 30 minutos. O canal de
+ * alerta é justamente por onde o alarme sai; testá-lo mandando alarme falso
+ * é o caminho mais rápido pra ninguém mais olhar o alarme.
+ *
+ * Retorna `null` quando não configurado — "não configurado" não é "caído".
+ */
+export async function testZapiConnection(): Promise<
+  { success: boolean; message: string } | null
+> {
+  const [token, instance, clientToken] = await Promise.all([
+    getConfig("DATACRAZY_INSTANCE_TOKEN"),
+    getConfig("DATACRAZY_ALERTS_INSTANCE"),
+    getConfig("DATACRAZY_CLIENT_TOKEN"),
+  ]);
+  if (!token || !instance) return null;
+
+  const headers: Record<string, string> = {};
+  if (clientToken) headers["Client-Token"] = clientToken;
+
+  try {
+    const r = await fetch(
+      `https://api.z-api.io/instances/${instance}/token/${token}/status`,
+      { headers },
+    );
+    if (!r.ok) {
+      return { success: false, message: `Z-API respondeu HTTP ${r.status} em /status` };
+    }
+    const corpo = (await r.json()) as { connected?: boolean; error?: string };
+    if (corpo?.connected === false) {
+      return {
+        success: false,
+        message: `Instância Z-API desconectada${corpo.error ? `: ${corpo.error}` : ""}`,
+      };
+    }
+    return { success: true, message: "Instância Z-API conectada" };
+  } catch (e) {
+    return { success: false, message: e instanceof Error ? e.message : "Erro desconhecido" };
+  }
+}

@@ -524,6 +524,100 @@ registrados como backlog, não como trabalho pendente de revisão:
 - guard de `DATABASE_URL`
 - SHA do build no `/api/health`
 
+### Saldo em CC (D0) — medido, e o que a medida NÃO diz
+
+🔎 Medido em produção em 2026-08-15 (`estado-do-banco.yml`, run 31892744072).
+
+Quem escreveu por último cada `saldoConta`:
+
+| fonte | clientes | mais antigo | mais recente |
+|---|---|---|---|
+| `api` (cron 09:00 UTC) | **2.677** | 2026-06-03 | **2026-08-15 09:29** |
+| `base_btg` | 3 | 2026-05-30 | 2026-05-30 |
+| `saldo_em_cc` (planilha manual) | **1** | 2026-07-30 13:11 | 2026-07-30 13:11 |
+
+Cobertura: 2.696 clientes, 2.681 com carimbo, 1.202 com saldo, **1 com saldo e
+sem carimbo** (escrita fora da policy — `btg-import/route.ts:146`).
+
+**⚠️ A leitura óbvia desses números está errada, e vale registrar por quê.**
+"1 cliente carimbado por `saldo_em_cc`" parece dizer que a planilha morreu. Não
+diz. O carimbo guarda só o **último** escritor, e o cron da Partner API reescreve
+`saldoConta` de 2.677 clientes toda manhã — apagando o carimbo `saldo_em_cc` de
+todo cliente que tocar. Com esse cron ligado, `saldo_em_cc` sumir do quadro é o
+resultado **esperado**, suba a planilha ou não. O 1 que sobrou é só o cliente que
+o cron ainda não tocou.
+
+*É medir o giro de uma carteira pela última corretora que executou: quem opera
+todo dia aparece em tudo, e quem aportou uma vez no mês some do extrato sem ter
+saído.*
+
+**O que a medida prova:** em **2026-07-30 13:11** uma subida manual funcionou —
+gravou de fato. É piso, não teto.
+**O que ela não prova, em nenhuma direção:** se o import continua sendo usado, e
+se alguma tentativa está sendo rejeitada em silêncio.
+
+**Não há caminho retrospectivo para essa pergunta.** O import manual
+(`src/app/api/backoffice/clientes/route.ts`) **não escreve linha de log nenhuma**
+— não toca `BtgSyncLog`, diferente de todos os outros 18 tipos de job do sistema.
+Tentativa fracassada e ausência de tentativa deixam exatamente o mesmo rastro:
+nenhum. E o `gateSanidadeSaldoCc` (`import-sanity.ts:32`) rejeita a planilha
+INTEIRA quando menos de 90% das linhas são válidas — uma rejeição dessas é
+invisível a partir do banco.
+
+Conclusão registrada: **hipótese (a) "abandonado" e hipótese (b) "quebrado em
+silêncio" seguem as duas em aberto**, e nenhuma consulta a resolve. A saída é
+prospectiva: o import passar a gravar `BtgSyncLog` como todo o resto.
+
+### ⚠️ Correção de registro — a premissa da #309 nunca foi estabelecida
+
+🔎 Conferido em 2026-08-15.
+
+A #309 (`ae9b803`) nasceu para tirar a conferência do banco do "alguém lembra". A
+mensagem de commit dela afirma, sobre a própria entrega: **"Gates: 614/614 testes,
+build 0, guarda-skills 0, actionlint 0."** Os quatro números estão certos e todos
+os quatro passaram. O problema não é o que foi conferido — é o que foi **afirmado
+sem conferência** na análise que a #309 produziu.
+
+A consulta de auditoria que entrou com a #309 continha:
+
+```sql
+count(*) FILTER (WHERE erros IS NOT NULL) AS com_erros
+```
+
+e devolveu, para `tipo='webhook'`, `com_erros = 15` ao lado de `com_sucesso = 15`
+— sobre 15 linhas. **Ninguém conferiu se os dois 15 podiam coexistir.** Podiam:
+`erros` guarda o payload recebido em toda chamada do webhook
+(`src/app/api/webhooks/btg/route.ts:53`), então "tem `erros` preenchido" e "deu
+certo" descrevem as mesmas 15 linhas, sem contradição.
+
+**O que se passou a acreditar:** que o webhook do BTG estava falhando em 100% das
+chamadas.
+**O que era verdade:** 15 chamadas, 15 sucessos, 0 falhas, 0 contas em erro.
+
+Em 15/08 a conclusão foi refeita com a query corrigida e o número certo apareceu:
+**15 sucessos**. Vale registrar como o número certo chegou — **por acidente, não
+por verificação**. Ele apareceu porque a query foi reescrita por outro motivo (o
+rótulo `com_erros` estava errado), não porque alguém tenha ido conferir a
+afirmação "todas deram certo". Se o rótulo estivesse certo desde o começo e o
+número fosse outro, o mesmo processo teria passado batido do mesmo jeito.
+
+Duas coisas ficam do episódio:
+
+1. **A premissa "todas as chamadas do webhook deram certo" nunca foi estabelecida
+   na #309** — foi inferida de um número com rótulo errado, e por sorte a
+   inferência bateu com a realidade.
+2. **A #309 falhou no próprio propósito, para si mesma.** Ela existe porque a #301
+   foi escrita inteira sobre a premissa "a tabela `Empresa` está vazia" — e a
+   tabela tinha 6 linhas. A #309 então rodou uma consulta sobre produção e leu o
+   resultado dela pelo nome da coluna, que era exatamente o tipo de conferência
+   que ela nasceu para substituir.
+
+Correções já aplicadas: query reescrita (#349), comentário do schema corrigido e
+plano da coluna `payload` escrito (#353, `docs/onix-plano-payload-webhook.md`).
+O que **não** está resolvido: nada impede a próxima consulta de auditoria de ser
+lida pelo rótulo. O único antídoto registrado até aqui é o comentário-armadilha
+dentro do `estado-do-banco.yml`, que é memória escrita — não é gate.
+
 ### Deploy — migrations rodam no `startCommand`
 
 **Estado atual:** `package.json` → `"start": "prisma migrate deploy && next start"`,

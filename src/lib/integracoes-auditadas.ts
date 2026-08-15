@@ -99,6 +99,80 @@ export function resumirAuditoria(
   };
 }
 
+/* ── A quebra por integração ──────────────────────────────────────────────
+ *
+ * `resumirAuditoria` responde "a última rodada do auditor foi bem?" — uma
+ * idade só, a da rodada. Isso bastava com 2 integrações e deixa de bastar com
+ * 6: uma rodada verde de 10 minutos atrás não diz que a linha do Datacrazy
+ * está verde, e é o Datacrazy que mantém `ultimoContatoAt` vivo.
+ *
+ * A quebra vem de `IntegracaoAuditoria` (uma linha por chave, atualizada a
+ * cada rodada), agregada POR INTEGRAÇÃO — nunca por chave. A chave é
+ * `google:<userId>`: publicá-la exporia identificador de usuário no health,
+ * que é colado dentro de issue de incidente. Aqui sai só o nome da
+ * integração, quantas contas, quantas ok, o pior status e a MAIOR idade.
+ *
+ * Pior status, não o mais comum: com 3 contas Google, 2 ok e 1 precisando de
+ * reconsentimento, o número que importa é o 1.
+ */
+
+/** Linha de `IntegracaoAuditoria` que interessa. Sem `chave`, sem `userId`. */
+export type LinhaIntegracao = {
+  integracao: string;
+  status: string;
+  updatedAt: Date;
+};
+
+export type EstadoDeUmaIntegracao = {
+  integracao: string;
+  contas: number;
+  ok: number;
+  /** O PIOR status entre as contas dessa integração. */
+  status: string;
+  /** Da conta auditada há mais tempo — a que denuncia probe parado. */
+  idadeMinutos: number;
+};
+
+/** Da melhor pra pior. Índice maior ganha na hora de escolher o pior. */
+const GRAVIDADE = ["ok", "refresh_recuperado", "transitorio", "precisa_reconectar"];
+
+function pior(a: string, b: string): string {
+  return GRAVIDADE.indexOf(b) > GRAVIDADE.indexOf(a) ? b : a;
+}
+
+export function resumirPorIntegracao(
+  linhas: LinhaIntegracao[],
+  agora: Date,
+): EstadoDeUmaIntegracao[] {
+  const porNome = new Map<string, EstadoDeUmaIntegracao>();
+
+  for (const l of linhas) {
+    const idade = Math.max(
+      0,
+      Math.round((agora.getTime() - l.updatedAt.getTime()) / 60_000),
+    );
+    const atual = porNome.get(l.integracao);
+    if (!atual) {
+      porNome.set(l.integracao, {
+        integracao: l.integracao,
+        contas: 1,
+        ok: l.status === "ok" ? 1 : 0,
+        status: l.status,
+        idadeMinutos: idade,
+      });
+      continue;
+    }
+    atual.contas++;
+    if (l.status === "ok") atual.ok++;
+    atual.status = pior(atual.status, l.status);
+    atual.idadeMinutos = Math.max(atual.idadeMinutos, idade);
+  }
+
+  // Ordem estável por nome: o health é comparado entre dois momentos com
+  // diff de texto, e ordem que muda sozinha vira ruído no diff.
+  return [...porNome.values()].sort((a, b) => a.integracao.localeCompare(b.integracao));
+}
+
 /* Por que este módulo NÃO recebe o cliente Prisma:
  *
  * A primeira versão recebia, com uma interface estrutural mínima, e não

@@ -1,5 +1,5 @@
 import "server-only";
-import { S3Client } from "@aws-sdk/client-s3";
+import { HeadBucketCommand, S3Client } from "@aws-sdk/client-s3";
 
 /**
  * Clientes Backblaze B2 via API S3-compatible — UM por bucket.
@@ -113,4 +113,29 @@ export function b2BackupsConfigurado(): boolean {
 /** Compatibilidade — usado pela UI do módulo de contratos como gate. */
 export function b2Configurado(): boolean {
   return b2ContratosConfigurado();
+}
+
+/**
+ * Probe do bucket de backups — `HeadBucket`, a operação mais barata que prova
+ * as três coisas de uma vez: endpoint alcançável, Application Key válida e
+ * bucket ainda existindo com o nome esperado.
+ *
+ * É read-only: não lista, não escreve, não apaga. Backup é o ativo que
+ * ninguém confere até precisar; um HeadBucket a cada 30 minutos é o extrato
+ * mensal da custódia — barato de ler, caro de não ter lido.
+ *
+ * Retorna `null` quando não configurado — "não configurado" não é "caído".
+ */
+export async function testB2BackupsConnection(): Promise<
+  { success: boolean; message: string } | null
+> {
+  if (!b2BackupsConfigurado()) return null;
+
+  const bucket = bucketBackups();
+  try {
+    await getB2ClientBackups().send(new HeadBucketCommand({ Bucket: bucket }));
+    return { success: true, message: `Bucket ${bucket} acessível` };
+  } catch (e) {
+    return { success: false, message: e instanceof Error ? e.message : "Erro desconhecido" };
+  }
 }

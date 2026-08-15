@@ -25,6 +25,9 @@ const NOME_INTEGRACAO: Record<ResultadoAuditoria["integracao"], string> = {
   google: "Google (Calendar/Gmail)",
   microsoft: "Microsoft (Graph)",
   btg: "BTG Pactual",
+  datacrazy: "Datacrazy (WhatsApp — polling)",
+  zapi: "Z-API (envio de WhatsApp)",
+  b2: "Backblaze B2 (backups)",
 };
 
 function baseUrl(): string {

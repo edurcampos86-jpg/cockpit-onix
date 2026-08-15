@@ -8,6 +8,10 @@ import {
   recordMicrosoftAuthError,
 } from "@/lib/integrations/microsoft-user-oauth";
 import { testConnection as testBtgConnection } from "@/lib/integrations/btg";
+import { VENDEDORES_CONFIG } from "@/lib/datacrazy";
+import { testDatacrazyConnection } from "@/lib/integrations/datacrazy-probe";
+import { testZapiConnection } from "@/lib/integrations/datacrazy-send";
+import { testB2BackupsConnection } from "@/lib/b2/client";
 import {
   avaliarProbe,
   type ProbeResultado,
@@ -26,9 +30,9 @@ import {
  */
 
 export type ResultadoAuditoria = {
-  integracao: "google" | "microsoft" | "btg";
+  integracao: "google" | "microsoft" | "btg" | "datacrazy" | "zapi" | "b2";
   userId: string | null;
-  chave: string; // "google:<userId>" | "microsoft:<userId>" | "btg"
+  chave: string; // "google:<userId>" | "microsoft:<userId>" | "btg" | "datacrazy" | "zapi" | "b2"
   email: string | null;
   status: StatusIntegracao;
   mensagem: string | null; // motivo do erro, quando houver
@@ -175,6 +179,91 @@ export async function auditarBtg(): Promise<ResultadoAuditoria | null> {
   };
 }
 
+/**
+ * Datacrazy — a mais crítica das três novas.
+ *
+ * É ela que mantém `ultimoContatoAt` vivo (o poll roda de 30 em 30 min e já
+ * acumulou milhares de execuções). Quando a Datacrazy cai, nada fica vermelho:
+ * a ficha do cliente simplesmente para de envelhecer, e "sem contato novo"
+ * parece silêncio do cliente quando é silêncio do cano.
+ *
+ * Probe roda contra a primeira instância configurada em `VENDEDORES_CONFIG` —
+ * o token é o mesmo para todas, então uma instância basta pra separar
+ * "credencial morreu / API fora" de "não teve conversa".
+ */
+export async function auditarDatacrazy(): Promise<ResultadoAuditoria | null> {
+  const token = await getConfig("DATACRAZY_TOKEN");
+  if (!token) return null;
+
+  const instanceId = Object.values(VENDEDORES_CONFIG).flatMap((v) => v.instanceIds)[0];
+  if (!instanceId) return null;
+
+  const r = await testDatacrazyConnection(token, instanceId);
+  const status = avaliarProbe(
+    r.success ? { tipo: "ok" } : { tipo: "erro", mensagem: r.message },
+  );
+
+  return {
+    integracao: "datacrazy",
+    userId: null,
+    chave: "datacrazy",
+    email: null,
+    status,
+    mensagem: r.success ? null : r.message,
+  };
+}
+
+/**
+ * Z-API — o canal por onde o alerta de WhatsApp sai.
+ *
+ * Auditar o próprio canal de alarme não é redundância: se a instância
+ * desconecta, o alerta some justamente quando ele mais faria falta. O aviso
+ * dessa integração sai pelo Slack, que é o outro canal — de propósito.
+ */
+export async function auditarZapi(): Promise<ResultadoAuditoria | null> {
+  const r = await testZapiConnection();
+  if (!r) return null; // não configurada ≠ caída
+
+  const status = avaliarProbe(
+    r.success ? { tipo: "ok" } : { tipo: "erro", mensagem: r.message },
+  );
+
+  return {
+    integracao: "zapi",
+    userId: null,
+    chave: "zapi",
+    email: null,
+    status,
+    mensagem: r.success ? null : r.message,
+  };
+}
+
+/**
+ * Backblaze B2 (bucket de backups).
+ *
+ * Credencial de backup expira em silêncio absoluto: o backup para de subir e
+ * o sistema segue perfeitamente normal — até o dia em que se vai restaurar.
+ * Só o bucket de backups entra aqui; o de contratos tem key própria e outro
+ * ciclo de rotação, e vira uma linha separada quando fizer falta.
+ */
+export async function auditarB2(): Promise<ResultadoAuditoria | null> {
+  const r = await testB2BackupsConnection();
+  if (!r) return null; // não configurada ≠ caída
+
+  const status = avaliarProbe(
+    r.success ? { tipo: "ok" } : { tipo: "erro", mensagem: r.message },
+  );
+
+  return {
+    integracao: "b2",
+    userId: null,
+    chave: "b2",
+    email: null,
+    status,
+    mensagem: r.success ? null : r.message,
+  };
+}
+
 /** Roda a auditoria de TODAS as integrações conectadas. */
 export async function auditarTodas(): Promise<ResultadoAuditoria[]> {
   const [googles, microsofts] = await Promise.all([
@@ -182,19 +271,50 @@ export async function auditarTodas(): Promise<ResultadoAuditoria[]> {
     prisma.userMicrosoftAuth.findMany({ select: { userId: true } }),
   ]);
 
-  const tarefas: Array<Promise<ResultadoAuditoria | null>> = [
-    ...googles.map((g) => auditarGoogle(g.userId)),
-    ...microsofts.map((m) => auditarMicrosoft(m.userId)),
-    auditarBtg(),
+  /*
+   * Cada tarefa carrega a própria identidade porque o `catch` precisa dela:
+   * a versão anterior rotulava QUALQUER probe que estourasse como
+   * `integracao: "google"`, chave "erro". Com três integrações isso passava
+   * quase despercebido; com seis, um erro no probe do B2 apareceria como
+   * "Google quebrado" no /api/health — alarme apontando pro lugar errado é
+   * pior que alarme nenhum, porque manda consertar o que está são.
+   */
+  const tarefas: Array<{
+    integracao: ResultadoAuditoria["integracao"];
+    chave: string;
+    userId: string | null;
+    executar: () => Promise<ResultadoAuditoria | null>;
+  }> = [
+    ...googles.map((g) => ({
+      integracao: "google" as const,
+      chave: `google:${g.userId}`,
+      userId: g.userId,
+      executar: () => auditarGoogle(g.userId),
+    })),
+    ...microsofts.map((m) => ({
+      integracao: "microsoft" as const,
+      chave: `microsoft:${m.userId}`,
+      userId: m.userId,
+      executar: () => auditarMicrosoft(m.userId),
+    })),
+    { integracao: "btg" as const, chave: "btg", userId: null, executar: auditarBtg },
+    {
+      integracao: "datacrazy" as const,
+      chave: "datacrazy",
+      userId: null,
+      executar: auditarDatacrazy,
+    },
+    { integracao: "zapi" as const, chave: "zapi", userId: null, executar: auditarZapi },
+    { integracao: "b2" as const, chave: "b2", userId: null, executar: auditarB2 },
   ];
 
   const resultados = await Promise.all(
-    tarefas.map((p) =>
-      p.catch(
+    tarefas.map((t) =>
+      t.executar().catch(
         (e): ResultadoAuditoria => ({
-          integracao: "google",
-          userId: null,
-          chave: "erro",
+          integracao: t.integracao,
+          userId: t.userId,
+          chave: t.chave,
           email: null,
           status: "transitorio",
           mensagem: e instanceof Error ? e.message : String(e),
