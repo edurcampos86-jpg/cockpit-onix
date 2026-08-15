@@ -45,7 +45,27 @@ Configurar em **Settings → Secrets and variables → Actions → Variables →
 
 | Nome | Usado por | Valor | Observação |
 |------|-----------|-------|------------|
-| `APP_BASE_URL` | `cron.yml`, `post-deploy-smoke.yml` | `https://cockpit-onix-app-production.up.railway.app` | URL pública da app. Mude se trocar de domínio. |
+| `APP_BASE_URL` | `cron.yml`, `post-deploy-smoke.yml` | `https://cockpit-onix-production.up.railway.app` | URL pública da app. Mude se trocar de domínio. |
+
+> ### ⚠️ Existem DOIS hosts parecidos. Um está morto.
+>
+> | host | estado |
+> |---|---|
+> | `cockpit-onix-production.up.railway.app` | ✅ **VIVO** — é este |
+> | `cockpit-onix-**app**-production.up.railway.app` | ❌ **502**, não use |
+>
+> A diferença é a palavra `app` no meio, e ela já custou caro: até 15/08 havia
+> **10 ocorrências** do host morto espalhadas por README, docs, comentários de
+> rota, `cron.yml` e um agente — todas corrigidas de uma vez, porque corrigir
+> uma por vez é como o errado sobrevive: alguém copia da que ficou.
+>
+> 🔎 O host vivo é o que o `post-deploy-smoke.yml` usa de hora em hora
+> (`BASE: https://cockpit-onix-production.up.railway.app`, verde no run de
+> 2026-08-15 07:59 UTC) e o que o `cron.yml` usa a cada 5 minutos.
+>
+> **`www.ecossistemaonix.com.br` é o domínio de usuário**; o `*.up.railway.app`
+> é o host de plataforma que a automação chama. Os dois apontam para o mesmo
+> serviço — o apex sem `www` NÃO resolve.
 
 ## Railway — Environment Variables
 
@@ -150,7 +170,17 @@ re-emissão. Após receber:
 
 ### Webhook (caminho assíncrono)
 
-URL pública: `https://cockpit-onix-app-production.up.railway.app/api/webhooks/btg`
+URL pública: `https://cockpit-onix-production.up.railway.app/api/webhooks/btg`
+
+> ⚠️ **Esta linha diz o que DEVE estar cadastrado, não o que ESTÁ.** O endereço
+> que o BTG realmente chama vive no portal deles, e não é verificável do nosso
+> lado — nem por uma sessão de agente (a rede é bloqueada para produção), nem
+> por CI. A única evidência que temos é indireta: chamada que chega vira linha
+> em `BtgSyncLog` com `tipo = 'webhook'`.
+>
+> Consequência prática: **silêncio do webhook não distingue** "o BTG não teve
+> evento para mandar" de "o BTG está mandando para o host morto". Conferir no
+> portal é ato manual, e é a única forma.
 
 Cadastrar no portal BTG **com** o `BTG_WEBHOOK_SECRET` (header pode ser
 qualquer um de: `Authorization: Bearer …`, `x-api-key`, `apikey`,
