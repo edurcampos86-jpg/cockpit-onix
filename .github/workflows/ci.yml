@@ -132,6 +132,11 @@ jobs:
       # branch em que ela própria entra.
       #
       # Também sem depender do install: bash + awk + iconv + tr.
+      # Desde a #331 a guarda também confere o sha256 de cada SKILL.md contra
+      # .claude/skills/MANIFESTO.md. As outras cinco regras provam que o
+      # arquivo é BEM-FORMADO; nenhuma prova que é o arquivo CERTO — um
+      # `version: 2.2` com o conteúdo da 2.0 passa em todas elas. Mudou uma
+      # skill de propósito? `./scripts/atualiza-manifesto.sh` e commite junto.
       - name: Guarda de integridade das skills (.claude/skills)
         if: always()
         run: ./scripts/guarda-skills.sh .claude/skills
@@ -155,3 +160,57 @@ jobs:
       - name: Aviso — doc de estado × schema (não bloqueia)
         if: always()
         run: ./scripts/aviso-doc-modelos.sh docs/onix-co-estado.md prisma/schema.prisma
+
+      # AVISO, não gate — mesma decisão do passo acima, por razão própria:
+      # "está na hora de revisar o método" não pode reprovar a PR de outra
+      # pessoa, que não tem nada a ver com isso. Gate aqui empurraria quem
+      # está no meio de outra tarefa a fazer a revisão às pressas, que é o
+      # defeito exato que a revisão por calendário existe para evitar.
+      #
+      # A seção 10 da onix-entrega-segura manda revisá-la a cada 10 PRs
+      # fechadas. A regra estava em prosa e o contador era linha à mão em
+      # docs/onix-co-estado.md — o mesmo arquivo que listava como pendentes
+      # três itens já entregues pelas #316, #322 e #324. Contador que depende
+      # de alguém lembrar de contar não é calendário, é intenção.
+      #
+      # MARCO ZERO: vem de .claude/skills/MARCO-ZERO, FONTE ÚNICA — não está
+      # escrito aqui de propósito. Antes ele vivia neste step E na doc, e nada
+      # amarrava os dois; um sha desatualizado não seria relido por ninguém e o
+      # contador passaria a contar do ponto errado, em silêncio. A contagem
+      # NÃO é retroativa; a justificativa está em docs/onix-co-estado.md.
+      #
+      # Conta commits da main desde o marco (squash + main linear ⇒ 1 commit
+      # ≈ 1 PR). Precisa do histórico, que o fetch-depth: 0 lá em cima traz.
+      # Tem teste próprio (src/lib/aviso-revisao-skill.test.ts), que cobre o
+      # "sai 0 sempre" junto com a detecção.
+      - name: Aviso — revisão da skill a cada 10 PRs (não bloqueia)
+        if: always()
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: ./scripts/aviso-revisao-skill.sh "$BASE_SHA" 10
+
+      # AVISO, não gate — e aqui a distinção é mais forte que nos outros dois:
+      # PR demorada não é PR errada. Uma 🔴 esperando decisão do Eduardo DEVE
+      # esperar; travá-la seria punir o processo funcionando. O alarme torna a
+      # espera VISÍVEL, não a encurta à força.
+      #
+      # A #326 mediu: mediana 🟢 1,0 h · 🟡 1,0 h · 🔴 2,8 h · geral 1,2 h. O
+      # gargalo não é velocidade, é a CAUDA LONGA — e ela é invisível: a #327
+      # ficou 25,1 h publicando a skill errada, 21× a mediana, com CI verde o
+      # tempo todo. "Aberta" e "esquecida" têm a mesma cara na lista de PRs.
+      #
+      # Limiares calibrados nesses números, com folga sobre o p90 de cada
+      # faixa (avisar cedo demais ensina a ignorar o aviso):
+      #   🟢 8 h · 🟡 12 h · 🔴 48 h, esta última pedindo o bloqueio NOMEADO.
+      #
+      # O aviso reporta o MÚLTIPLO da mediana, não só as horas: "12 h" não diz
+      # nada sozinho; "12× o tempo típico desta faixa" diz que algo travou.
+      #
+      # Tem teste próprio (src/lib/aviso-pr-envelhecendo.test.ts).
+      - name: Aviso — PR envelhecendo além da mediana da faixa (não bloqueia)
+        if: always()
+        env:
+          CRIADA_EM: ${{ github.event.pull_request.created_at }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: ./scripts/aviso-pr-envelhecendo.sh "$CRIADA_EM" "$BASE_SHA" "$HEAD_SHA"
