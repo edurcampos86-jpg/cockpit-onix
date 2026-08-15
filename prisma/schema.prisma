@@ -1601,6 +1601,38 @@ model AcordoComercialParceiro {
   @@index([tipoProduto])
 }
 
+// ============================================
+// DEPLOY PROBE — infraestrutura, não domínio
+// ============================================
+// Existe por UM motivo: exercitar o `startCommand` com uma migration REAL.
+//
+// A #317 tirou as migrations do start e as pôs em `preDeployCommand`; o Railway
+// nunca leu a chave, e migration pendente deixou de aplicar EM SILÊNCIO — o app
+// subia saudável com o schema atrás do código. A #335 reverteu para o start.
+//
+// O problema é que o caminho revertido NUNCA FOI EXERCITADO: a última migration
+// já estava aplicada antes do revert, e nenhuma nova entrou desde. O smoke
+// verde prova AUSÊNCIA DE DIVERGÊNCIA, não que o mecanismo funciona. São coisas
+// diferentes, e a confusão entre as duas é o que deixou o bug anterior passar.
+//
+// Esta tabela é a diferença: uma migration que o banco precisa de fato aplicar.
+// A prova é dupla e observável sem abrir o psql:
+//   - `_prisma_migrations` passa a ter 20260815152424_deploy_probe
+//   - `/api/health` (bloco autenticado) passa a reportar esse nome em
+//     `migrations.ultima`, e `migrations.pendentes` continua vazio
+//
+// NENHUMA LINHA é inserida. A existência da tabela é a prova; dado dentro dela
+// não acrescentaria nada e viraria lixo a limpar.
+//
+// COMO REMOVER, depois de provado: apagar este model e rodar
+// `prisma migrate dev --name remove_deploy_probe`. O Prisma gera o
+// `DROP TABLE "DeployProbe"` sozinho. É PR própria, tier 🔴 por conter
+// migration, e some sem deixar rastro no domínio — nada referencia esta tabela.
+model DeployProbe {
+  /// Única coluna. Não guarda nada; existe porque toda tabela precisa de chave.
+  id String @id @default(cuid())
+}
+
 // Questionário de descoberta profunda (Storyselling — hemisfério direito)
 model PerfilDescoberta {
   id        String            @id @default(cuid())
