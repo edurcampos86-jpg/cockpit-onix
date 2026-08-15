@@ -60,3 +60,6 @@ dev.db-journal
 # Migration backups (ad-hoc dumps locais, fora do controle de versao)
 .migration-backups/
 scripts/_btg-discovery-output.json
+
+# ZIPs gerados por scripts/exporta-skills.sh — artefato de upload, não fonte.
+dist/

@@ -1,0 +1,17 @@
+# Marco zero do contador de revisão da onix-entrega-segura.
+#
+# FONTE ÚNICA. Lido por:
+#   - .github/workflows/ci.yml (step "Aviso — revisão da skill a cada 10 PRs")
+#   - docs/onix-co-estado.md, que aponta para cá em vez de repetir o valor
+#
+# Antes deste arquivo o sha vivia em dois lugares e nada os amarrava. O risco
+# não é teórico: nesta mesma série, quatro referências a "#329" nasceram
+# erradas porque o número real da PR era outro, e só foram corrigidas porque
+# alguém releu. Um sha desatualizado aqui não seria relido — o contador
+# simplesmente contaria a partir do ponto errado, em silêncio.
+#
+# Ao revisar a skill: troque o sha por aquele do merge da PR de revisão, e
+# atualize a data e o número na tabela de docs/onix-co-estado.md.
+#
+# Formato: primeira linha não vazia e não comentada = o sha completo.
+a609d09b3c23c4e513f28ef03feb13d1cab26d51
