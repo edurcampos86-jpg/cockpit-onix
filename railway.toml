@@ -1,5 +1,15 @@
 # Railway cron schedules para o Painel do Dia
 #
+# ── ESTE ARQUIVO É A FONTE ÚNICA DE "COMO O DEPLOY RODA" ────────────────
+# Junto com o `start` do package.json, que ele referencia. Nenhum outro
+# arquivo descreve o mecanismo: o DISASTER_RECOVERY, a skill de entrega e os
+# workflows CITAM este bloco em vez de repeti-lo.
+#
+# A regra existe porque a #335 reverteu a #317 corrigindo 4 arquivos e
+# deixando 3 descrevendo o mundo revertido — inclusive o documento de
+# emergência e a skill que orienta a próxima entrega. Descrição duplicada
+# envelhece em silêncio; endereço citado, não.
+#
 # Todos horários em UTC (Bahia = UTC-3, sem horário de verão).
 #
 # Crons disparam HTTP GET contra as rotas /api/cron/* com o header
@@ -38,29 +48,58 @@ builder = "DOCKERFILE"
 # ficou em zero — por sorte de calendário, não por desenho.
 #
 # ── POR QUE REVERTER, E NÃO SÓ CORRIGIR A SINTAXE ───────────────────────
-# A hipótese mais provável é de TIPO: a chave parece esperar um ARRAY
-# (`preDeployCommand = ["npm run db:migrate"]`), e a #317 escreveu uma string.
-# Mas isso NÃO foi confirmado contra a fonte: docs.railway.com, railway.com e
-# station.railway.com estão todos bloqueados pelo proxy de egresso desta
-# sessão — a MESMA limitação que produziu o bug original, que a #317 registra
-# em seu próprio corpo.
+# À época da reversão a hipótese de TIPO (array, não string) era só hipótese:
+# docs.railway.com, railway.com e station.railway.com estão bloqueados pelo
+# proxy de egresso — a MESMA limitação que produziu o bug original.
 #
-# Corrigir a sintaxe com base numa crença não verificada repetiria o erro, e o
-# modo de falha seria de novo SILENCIOSO. O `start` é mecanismo PROVADO neste
-# repositório: aplicou as migrations das PRs #302, #306, #307, #308, #310 e
-# #318 em produção. Volta-se ao verde conhecido primeiro; melhorar depois, com
-# prova.
+# Corrigir sintaxe com base em crença repetiria o erro, e o modo de falha
+# seria de novo SILENCIOSO. O `start` é mecanismo PROVADO neste repositório:
+# aplicou as migrations das PRs #302, #306, #307, #308, #310 e #318 em
+# produção. Volta-se ao verde conhecido primeiro; melhorar depois, com prova.
+#
+# ── A SINTAXE, AGORA CONFERIDA NA FONTE ─────────────────────────────────
+# A documentação do Railway é open source. O proxy bloqueia o site, mas não o
+# repositório: github.com/railwayapp/docs, commit 48db870 (2026-08-14).
+#
+#   content/docs/config-as-code.md:27-28  (exemplo TOML, o formato daqui)
+#     [deploy]
+#     preDeployCommand = ["npm run db:migrate"]
+#
+#   content/docs/config-as-code/reference.md:144-157
+#     ### Pre-deploy command
+#     The command to run before starting the container.
+#     "preDeployCommand": ["npm run db:migrate"]
+#     This field can be omitted.
+#
+# CONFIRMADO: a referência escreve ARRAY nos dois formatos. A #317 escreveu
+# string. (O guia de Rails — content/guides/rails.md:303 — usa string; a
+# própria doc é inconsistente, o que explica de onde veio o erro. A
+# referência é que manda.)
+#
+# Três fatos do mesmo commit que mudam o desenho, e não estavam na #317
+# (content/docs/deployments/pre-deploy-command.md:6-25):
+#   - "execute in a separate container from your application" — CONTÊINER
+#     SEPARADO. Só serve porque `prisma migrate deploy` não escreve em disco.
+#   - "It has the dependencies it needs to run installed in the application
+#     image" — o Prisma CLI e prisma/migrations precisam estar na imagem de
+#     RUNTIME, não só na de build. Conferir no Dockerfile antes de ligar.
+#   - "If your command fails, it will not be retried and the deployment will
+#     not proceed" — é exatamente a garantia que a #317 queria.
 #
 # ── PARA REATIVAR O PRÉ-DEPLOY (com prova, não com crença) ──────────────
-#   1. Confirmar a sintaxe na documentação do Railway, de um ambiente que
-#      alcance docs.railway.com.
-#   2. Fazer o schema aplicado ser OBSERVÁVEL: expor a última migration de
-#      `_prisma_migrations` no `/api/health` e comparar no post-deploy-smoke
-#      contra a última pasta de `prisma/migrations` do commit no ar. Sem isso,
-#      não há como distinguir "aplicou" de "não aplicou" sem abrir o psql.
-#   3. Só então mover a migration para cá, e provar com uma migration real e
-#      inofensiva — conferindo o estágio "Pre-deploy" no painel E o nome da
-#      migration no /api/health.
+#   1. [FEITO] Confirmar a sintaxe na documentação — ver bloco acima. É array.
+#   2. [FEITO] Fazer o schema aplicado ser OBSERVÁVEL: `/api/health` publica
+#      `migrations` (src/lib/migrations-aplicadas.ts) e o post-deploy-smoke
+#      FALHA com `pendentes` não vazio. Sem isso não havia como distinguir
+#      "aplicou" de "não aplicou" sem abrir o psql — que é o que deixou a
+#      #317 passar três dias sem ninguém perceber.
+#   3. [FALTA] Mover a migration para cá com a sintaxe de array, e provar com
+#      uma migration real e inofensiva: o painel tem de mostrar o estágio
+#      Pre-deploy E o /api/health tem de trazer o nome dela em
+#      `migrations.ultima`. Enquanto o passo 3 não acontecer, a chave fica
+#      comentada — ter a sintaxe certa não é ter a prova.
+#
+# preDeployCommand = ["npm run db:migrate"]   # só descomentar junto do passo 3
 startCommand = "npm run start"
 # Fixado em 1 réplica: o scheduler in-process do poll DataCrazy
 # (src/instrumentation.ts) assume 1 instância. Com >1 réplica cada uma

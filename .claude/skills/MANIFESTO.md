@@ -41,7 +41,7 @@ Caminho relativo à pasta da skill.
 | `instagram-carousel-onix` | `SKILL.md` | `73edc4513c6c5d5c3fbef279d9869c70597735bafe398b93302b5d5fb0ae5f52` |
 | `onix-atendimento-analise` | `SKILL.md` | `8a232f0273724e7976983cd9b917a52a37b6157531dc197fd73b68903efc2397` |
 | `onix-briefing-reuniao` | `SKILL.md` | `5b66d7f84b746d7e43a6b5c302f4fb7e779b8854e735167164675d41cf1dd3db` |
-| `onix-entrega-segura` | `SKILL.md` | `048c617f7a26197397118028d6d9f5c3fe521eeb74614090766e45ee66228502` |
+| `onix-entrega-segura` | `SKILL.md` | `ac0aac97c061c21eb08afa1337244ab0498b118802516bca68afb24dcc4f1b1d` |
 | `orquestra-multiagente` | `SKILL.md` | `117021854ab38e1dd059991f81614f753edfffca8e3b0c5af9dd229b5e3e430c` |
 | `story-fitness-onix` | `SKILL.md` | `97024fcec727017c443ed092f52aa73559ab4a556e2a8a3c776558554b68f83a` |
 | `story-fitness-onix` | `scripts/retoque_story.py` | `4c1306c35ca799ddc9865f433c26efab56d00e2a1ba16c8468dbc6cb924b9d6e` |
