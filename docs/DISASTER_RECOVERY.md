@@ -158,7 +158,7 @@ que execute o Pre-deploy.
 
 - Rode `prisma migrate diff --from-url $PROD_DATABASE_URL --to-schema-datamodel prisma/schema.prisma --script` **antes** de commitar e revise
 - Para colunas NOT NULL novas, adicione com default → backfill → remova default num segundo deploy
-- ~~Considere mudar o startCommand pra `prisma migrate deploy`~~ — **feito (#317).** Roda como `preDeployCommand` no `railway.toml`, **fora** do `startCommand`
+- ~~Considere mudar o startCommand pra `prisma migrate deploy`~~ — **feito.** `prisma migrate deploy` roda no `startCommand`. Isso significa que **migration que falha derruba o serviço** em loop de restart: falha de dado vira indisponibilidade. É custo conhecido e aceito por ora — a alternativa (`preDeployCommand`, #317) foi tentada e o Railway **não leu a chave** (era string; a documentação pede array). O efeito era pior: migration pendente **não aplicava** e o app subia saudável com o schema atrás do código, em silêncio. Enquanto o pré-deploy não for PROVADO funcionando, falha ruidosa é preferível a divergência silenciosa.
 - **`DROP COLUMN` / `DROP TABLE` numa PR exigem a label `migration-destrutiva`** — o check `estado-do-banco` falha sem ela. Não é proibição; é assinatura
 
 ---
