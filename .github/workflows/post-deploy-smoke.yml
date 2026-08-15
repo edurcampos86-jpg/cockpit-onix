@@ -282,79 +282,132 @@ jobs:
 
           echo "Schema em dia — nenhuma migration pendente."
 
-      # ── DIVERGÊNCIA DE SHA — reporta uma vez, falha na segunda ─────────
+      # ── DIVERGÊNCIA DE SHA — reporta, e falha depois de 30 MINUTOS ────
       #
       # Divergir é NORMAL durante a janela de build: o commit entrou na main e o
-      # Railway ainda está construindo a imagem. Foi por isso que a checagem
-      # nasceu como aviso, e essa decisão continua valendo para UM ciclo.
+      # Railway ainda está construindo a imagem. O que não é normal é a
+      # divergência que NÃO PASSA — deploy não promovido deixa a versão anterior
+      # servindo indefinidamente, e o aviso repetido tem a mesma cara do aviso
+      # de build.
       #
-      # O que ela não pegava: a divergência que não passa. Um deploy que não foi
-      # promovido deixa a versão anterior servindo indefinidamente, e o aviso
-      # repetido de hora em hora tem exatamente a mesma cara do aviso normal de
-      # build. Dois ciclos consecutivos com o MESMO par (esperado, no ar) não é
-      # mais build: é deploy que não entrou.
+      # O limiar é em MINUTOS, e não em número de ciclos, porque a cadência do
+      # `schedule` do GitHub não é a que o cron pede: o arquivo diz `*/15`, e a
+      # entrega medida em 14 execuções seguidas ficou entre 46 e 94 minutos.
+      # Contar ciclos faria o gate disparar entre 1,5 h e 3 h conforme a sorte
+      # da fila. Contar tempo dá a mesma resposta em qualquer cadência.
+      #
+      # 30 minutos: com a cadência real, equivale a "falha na próxima
+      # verificação se ainda estiver divergente", e é folgado para um build de
+      # imagem Docker completo.
       #
       # O estado entre execuções vive no cache do Actions. Chave por `run_id`
       # porque chave de cache é imutável; `restore-keys` traz a mais recente.
-      - name: Restaurar divergência do ciclo anterior
+      - name: Restaurar estado do ciclo anterior
         if: always()
         uses: actions/cache/restore@v4
         with:
-          path: /tmp/smoke-divergencia
-          key: smoke-divergencia-${{ github.run_id }}
-          restore-keys: smoke-divergencia-
+          path: /tmp/smoke-estado
+          key: smoke-estado-${{ github.run_id }}
+          restore-keys: smoke-estado-
 
-      - name: Divergência de sha persistente
+      - name: Divergência de sha e intervalo entre ciclos
         id: divergencia
         if: always()
+        env:
+          LIMIAR_MIN: '30'
         run: |
           set -euo pipefail
-          ANTERIOR=""
-          [ -f /tmp/smoke-divergencia ] && ANTERIOR=$(cat /tmp/smoke-divergencia)
 
+          # Lido com grep/cut, não com `source`: o arquivo vem do cache, e
+          # executá-lo seria dar poder de execução a um artefato de estado.
+          ler() {
+            [ -f /tmp/smoke-estado ] || return 0
+            grep -m1 "^$1=" /tmp/smoke-estado 2>/dev/null | cut -d= -f2- || true
+          }
+          ANT_SMOKE=$(ler ULTIMO_SMOKE)
+          ANT_ESPERADO=$(ler DIV_ESPERADO)
+          ANT_NO_AR=$(ler DIV_NO_AR)
+          ANT_DESDE=$(ler DIV_DESDE)
+
+          AGORA=$(date +%s)
+
+          # ── Intervalo desde o smoke anterior ─────────────────────────────
+          # A lentidão do agendamento é invisível sem isto: só aparece
+          # comparando timestamps de runs à mão. E ela muda o significado do
+          # próprio gate abaixo, então pertence ao mesmo resumo.
+          if [ -n "$ANT_SMOKE" ]; then
+            INTERVALO=$(( (AGORA - ANT_SMOKE) / 60 ))
+            echo "Intervalo desde o smoke anterior: ${INTERVALO} min"
+            echo "| Intervalo desde o smoke anterior | \`${INTERVALO} min\` |" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Primeiro ciclo com estado — sem intervalo para comparar."
+          fi
+
+          escrever_estado() {
+            {
+              echo "ULTIMO_SMOKE=$AGORA"
+              [ -n "${1:-}" ] && echo "DIV_ESPERADO=$1"
+              [ -n "${2:-}" ] && echo "DIV_NO_AR=$2"
+              [ -n "${3:-}" ] && echo "DIV_DESDE=$3"
+            } > /tmp/smoke-estado
+          }
+
+          # Ciclo cego (sem CRON_SECRET, ou resposta sem `versao`): NÃO é
+          # evidência de convergência. A janela de divergência é preservada —
+          # só o relógio do intervalo avança.
           if [ ! -s /tmp/health-auth.json ] || ! jq -e '.versao.shaCurto' /tmp/health-auth.json > /dev/null 2>&1; then
-            echo "Sem sha no ar para comparar."
-            # Grava vazio para o save não falhar por caminho inexistente, e para
-            # um ciclo cego não contar como "segunda divergência" do próximo.
-            : > /tmp/smoke-divergencia
+            echo "Sem sha no ar para comparar — janela preservada."
+            escrever_estado "$ANT_ESPERADO" "$ANT_NO_AR" "$ANT_DESDE"
             exit 0
           fi
 
           NO_AR=$(jq -r '.versao.shaCurto' /tmp/health-auth.json)
           ESPERADO="${GITHUB_SHA:0:7}"
-          ATUAL="$ESPERADO $NO_AR"
 
           if [ "$NO_AR" = "$ESPERADO" ]; then
             echo "Convergiu: $NO_AR está no ar."
-            : > /tmp/smoke-divergencia
+            escrever_estado "" "" ""
             exit 0
           fi
 
-          # Grava ANTES de decidir: se este ciclo falhar, o próximo tem de
-          # continuar vendo a divergência, não recomeçar a contagem.
-          echo "$ATUAL" > /tmp/smoke-divergencia
+          # Par diferente do anterior = deploy NOVO em voo. A janela recomeça:
+          # herdar o relógio de uma divergência antiga faria o build seguinte
+          # nascer já vencido.
+          if [ "$ANT_ESPERADO" = "$ESPERADO" ] && [ "$ANT_NO_AR" = "$NO_AR" ] && [ -n "$ANT_DESDE" ]; then
+            DESDE="$ANT_DESDE"
+          else
+            DESDE="$AGORA"
+          fi
 
-          if [ "$ANTERIOR" = "$ATUAL" ]; then
+          # Grava ANTES de decidir: se este ciclo falhar, o próximo tem de
+          # continuar vendo a mesma janela, não recomeçar a contagem.
+          escrever_estado "$ESPERADO" "$NO_AR" "$DESDE"
+
+          MIN=$(( (AGORA - DESDE) / 60 ))
+          echo "Divergente há ${MIN} min (limiar: ${LIMIAR_MIN} min)."
+
+          if [ "$MIN" -ge "$LIMIAR_MIN" ]; then
             {
               echo ""
               echo "### 🛑 Deploy não entrou"
               echo ""
-              echo "Duas execuções seguidas com \`$NO_AR\` no ar e \`$ESPERADO\` esperado."
-              echo "Não é janela de build — é deploy que não foi promovido."
+              echo "No ar: \`$NO_AR\` · esperado: \`$ESPERADO\` · divergente há **${MIN} min**."
+              echo ""
+              echo "Passou de ${LIMIAR_MIN} min, então não é janela de build."
               echo "Railway → Deployments: procure o passo **Pre-deploy** vermelho."
             } >> "$GITHUB_STEP_SUMMARY"
-            echo "::error::Commit no ar ($NO_AR) difere do esperado ($ESPERADO) em DOIS ciclos consecutivos do smoke. Um ciclo é build; dois é deploy que não entrou."
+            echo "::error::Commit no ar ($NO_AR) difere do esperado ($ESPERADO) há ${MIN} min, acima do limiar de ${LIMIAR_MIN} min. Não é build — é deploy que não foi promovido."
             exit 1
           fi
 
-          echo "::warning::Commit no ar ($NO_AR) difere do esperado ($ESPERADO). Primeiro ciclo — provavelmente build em andamento. O próximo smoke decide."
+          echo "::warning::Commit no ar ($NO_AR) difere do esperado ($ESPERADO) há ${MIN} min. Dentro do limiar de ${LIMIAR_MIN} min — provavelmente build em andamento."
 
-      - name: Guardar divergência para o próximo ciclo
+      - name: Guardar estado para o próximo ciclo
         if: always()
         uses: actions/cache/save@v4
         with:
-          path: /tmp/smoke-divergencia
-          key: smoke-divergencia-${{ github.run_id }}
+          path: /tmp/smoke-estado
+          key: smoke-estado-${{ github.run_id }}
 
       # ─────────────────────────────────────────────────────────────────
       # `/api/empresas/hierarquia` está gateada?
