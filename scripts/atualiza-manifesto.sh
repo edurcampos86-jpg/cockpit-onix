@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Regenera `.claude/skills/MANIFESTO.md` a partir dos SKILL.md em disco.
+# Regenera `.claude/skills/MANIFESTO.md` a partir dos arquivos em disco.
 #
 # ── Por que existe ────────────────────────────────────────────────────────
 # O manifesto é a única coisa que impede subir um `version: 2.2` com o
@@ -15,6 +15,13 @@
 #
 #   ./scripts/atualiza-manifesto.sh
 #   git add .claude/skills/MANIFESTO.md
+#
+# ── Por que TODO arquivo da pasta, e não só o SKILL.md ────────────────────
+# A `story-fitness-onix` traz `scripts/retoque_story.py`. Enquanto o manifesto
+# cobria só o `SKILL.md`, trocar aquele arquivo passava liso pela guarda que
+# existe justamente para impedir troca silenciosa — e um script de retoque é
+# onde uma troca silenciosa é mais fácil de não notar, porque ninguém relê
+# 115 linhas de OpenCV numa PR de outra coisa.
 #
 # ── O que ele NÃO faz, de propósito ───────────────────────────────────────
 # Não sobe `version` nem mexe em `updated`. Esses dois são DECISÃO — a seção
@@ -53,19 +60,32 @@ campo() {
     'NR > 1 && NR < fim && $0 ~ campo { sub(campo, ""); print; exit }' "$arquivo"
 }
 
-linhas=""
-total=0
+linhas_skills=""
+linhas_arquivos=""
+total_skills=0
+total_arquivos=0
+
 for dir in "$RAIZ"/*/; do
   [ -d "$dir" ] || continue
   skill=$(basename "$dir")
   arquivo="$dir/SKILL.md"
   [ -f "$arquivo" ] || { echo "atualiza-manifesto: $skill sem SKILL.md" >&2; exit 1; }
-  linhas="${linhas}| \`$skill\` | $(campo "$arquivo" version) | $(campo "$arquivo" updated) | \`$(hash_de "$arquivo")\` |
+
+  linhas_skills="${linhas_skills}| \`$skill\` | $(campo "$arquivo" version) | $(campo "$arquivo" updated) |
 "
-  total=$((total + 1))
+  total_skills=$((total_skills + 1))
+
+  # `sort` sem locale para a ordem não depender da máquina de quem roda:
+  # manifesto reordenado vira diff falso e ensina a ignorar o arquivo.
+  while IFS= read -r caminho; do
+    rel="${caminho#"$dir"}"
+    linhas_arquivos="${linhas_arquivos}| \`$skill\` | \`$rel\` | \`$(hash_de "$caminho")\` |
+"
+    total_arquivos=$((total_arquivos + 1))
+  done <<< "$(find "$dir" -type f | LC_ALL=C sort)"
 done
 
-if [ "$total" -eq 0 ]; then
+if [ "$total_skills" -eq 0 ]; then
   echo "atualiza-manifesto: nenhuma skill em '$RAIZ'." >&2
   exit 1
 fi
@@ -74,21 +94,40 @@ cat > "$DESTINO" <<CABECALHO
 # Manifesto das skills do método Onix
 
 > **Arquivo GERADO. Não editar à mão.**
-> Mudou uma skill? Rode \`./scripts/atualiza-manifesto.sh\` e commite o
-> resultado junto com ela.
+> Mudou qualquer arquivo de uma skill? Rode \`./scripts/atualiza-manifesto.sh\`
+> e commite o resultado junto.
 
-O \`sha256\` de cada \`SKILL.md\` é conferido em toda PR por
-\`scripts/guarda-skills.sh\` (step no \`ci.yml\`). Divergência reprova.
+O \`sha256\` de **todo arquivo** de cada pasta de skill é conferido em toda PR
+por \`scripts/guarda-skills.sh\` (step no \`ci.yml\`). Divergência reprova, e a
+mensagem nomeia o arquivo.
 
 **Por que o hash, e não só o \`version\`:** o campo \`version\` prova que
 alguém escreveu um número; o hash prova QUAL conteúdo esse número nomeia. A
 #327 ficou 25,1 h publicando a v2 no lugar da v2.2 — com o manifesto, aquele
 arquivo teria reprovado no primeiro CI, e não 25 horas depois.
 
-| skill | version | updated | sha256 do SKILL.md |
-|---|---|---|---|
+**Por que a pasta inteira, e não só o \`SKILL.md\`:** \`story-fitness-onix\`
+traz \`scripts/retoque_story.py\`. Cobrir só o \`SKILL.md\` deixaria de fora
+exatamente o tipo de arquivo cuja troca ninguém percebe numa revisão.
+
+## Skills
+
+| skill | version | updated |
+|---|---|---|
 CABECALHO
 
-printf '%s' "$linhas" >> "$DESTINO"
+printf '%s' "$linhas_skills" >> "$DESTINO"
 
-echo "atualiza-manifesto: $total skill(s) gravadas em $DESTINO"
+cat >> "$DESTINO" <<MEIO
+
+## Arquivos
+
+Caminho relativo à pasta da skill.
+
+| skill | arquivo | sha256 |
+|---|---|---|
+MEIO
+
+printf '%s' "$linhas_arquivos" >> "$DESTINO"
+
+echo "atualiza-manifesto: $total_skills skill(s), $total_arquivos arquivo(s), em $DESTINO"

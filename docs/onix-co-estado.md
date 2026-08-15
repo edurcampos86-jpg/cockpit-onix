@@ -3,7 +3,7 @@
 Memória compartilhada entre sessões. Quem chega novo lê **este arquivo** e sabe
 o estado real sem auditar o repositório do zero.
 
-> **Última atualização:** 2026-08-14, contra `main` em `aa78914`.
+> **Última atualização:** 2026-08-15, contra `main` em `f5d6646`.
 
 ## Como ler este arquivo
 
@@ -289,7 +289,7 @@ sincronizado da conta. Entraram na **#327**.
 
 | pasta em `.claude/skills/` | versão |
 |---|---|
-| `onix-entrega-segura` | **2.2** |
+| `onix-entrega-segura` | **2.3** |
 | `backoffice-btg-onix` · `create-prompt-onix` · `instagram-carousel-onix` · `onix-atendimento-analise` · `onix-briefing-reuniao` · `orquestra-multiagente` · `story-fitness-onix` | 1.0 |
 
 **O repositório é a fonte canônica.** Editar aqui e subir para a conta
@@ -321,6 +321,18 @@ publicada por engano na #327 teria reprovado no primeiro CI, e não 25 h depois.
 > aqui, que listava como pendentes três itens já entregues pelas #316, #322 e
 > #324.
 
+🔎 **Desde a #333 o hash cobre a PASTA inteira, não só o `SKILL.md`.** A
+`story-fitness-onix` traz `scripts/retoque_story.py`, e um script de 115 linhas
+de OpenCV é exatamente o arquivo cuja troca ninguém percebe numa revisão. Vale
+nos dois sentidos: arquivo em disco que o manifesto não declara, e arquivo
+declarado que sumiu do disco.
+
+🔎 **`scripts/exporta-skills.sh` (#333) leva o repo para a conta** — um ZIP por
+skill, com a pasta dentro (não o conteúdo solto, que é o erro que faz a skill
+subir sem erro e não carregar), mais o manifesto junto. Roda a guarda antes de
+empacotar. A ordem é: editar → `atualiza-manifesto.sh` → `guarda-skills.sh` →
+`exporta-skills.sh` → subir em Customize > Skills.
+
 ### Contador de revisão da skill
 
 A `onix-entrega-segura` é revisada **a cada 10 PRs fechadas**, por calendário
@@ -331,7 +343,7 @@ e não por acúmulo de dor (seção 10 da própria skill).
 | | |
 |---|---|
 | **última revisão da skill** | **PR #327** (v2.2) |
-| **commit do marco zero** | **`a609d09`** (merge da #327 na `main`) |
+| **commit do marco zero** | **`a609d09`** (merge da #327 na `main`) — fonte única em **`.claude/skills/MARCO-ZERO`** |
 | **data** | **2026-08-14**, 12:19 UTC |
 | limite | **10** PRs fechadas |
 | próxima revisão | ao fechar a 10ª PR **a partir de `a609d09`** |
@@ -349,19 +361,47 @@ roda em toda PR (`ci.yml`) e emite `::warning::` ao atingir 10, com as três
 perguntas fixas no corpo do aviso. **É aviso, não gate** — "está na hora de
 revisar o método" não reprova a PR de outra pessoa.
 
-O sha do marco zero vive em **dois lugares**, e os dois mudam juntos ao
-revisar a skill: esta tabela e o step do `ci.yml`.
+🔎 **O sha tem UMA fonte: `.claude/skills/MARCO-ZERO`.** O `ci.yml` lê o
+arquivo; esta tabela repete o valor só para leitura humana. Antes ele vivia em
+dois lugares e nada os amarrava — e sha desatualizado não é relido por
+ninguém: o contador passaria a contar do ponto errado, em silêncio. Ao revisar
+a skill, troque o sha **no arquivo** e atualize a data aqui.
 
 Ao revisar, responder as três perguntas fixas da seção 10 e — só se houver o
 que mudar — subir `version` e `updated` no frontmatter **e rodar
 `./scripts/atualiza-manifesto.sh`**, senão a guarda de sha256 reprova a
 própria PR de revisão.
 
-### Teto de WIP = 3 frentes
+### Teto de WIP = 3 frentes — critério recalibrado na v2.3
 
 **Proibido abrir a quarta antes de fechar uma.** O inventário completo, com o
 critério e o que está congelado ou arquivado, está em
 `docs/onix-wip-inventario.md` (entrou na #326).
+
+🔎 **O que conta como frente mudou na skill v2.3:** só conta o que
+**atravessa sessão OU exige mais de uma PR**. **PR verde única não ocupa
+vaga.**
+
+> A v2.2 contava toda PR aberta, e isso estava calibrado errado porque não
+> havia medição. A #326 mediu: mediana 🟢 **1,0 h**, 🟡 **1,0 h**,
+> 🔴 **2,8 h**. Com verde fechando em uma hora, contar PR única como frente
+> fazia uma tarefa de 60 minutos disputar vaga com a **#301**, travada há
+> semanas — o teto passava a proteger o que está parado em vez do que está
+> andando.
+
+🔎 **Alarme de envelhecimento** (`scripts/aviso-pr-envelhecendo.sh`, no
+`ci.yml` desde a #333) substitui o efeito colateral que segurava a fila curta,
+medindo a cauda longa que era o gargalo real:
+
+| faixa | limiar | ≈ múltiplo da mediana |
+|---|---|---|
+| 🟢 verde | 8 h | 8× |
+| 🟡 amarela | 12 h | 12× |
+| 🔴 vermelha | 48 h | 17×, com o **bloqueio nomeado** |
+
+**Aviso, nunca gate.** PR 🔴 esperando decisão deve esperar; o que não pode é
+ninguém saber que ela espera. A #327 ficou 25,1 h errada — 21× a mediana — com
+CI verde o tempo todo.
 
 As frentes abertas hoje — pilha empilhada conta como uma:
 

@@ -27,17 +27,46 @@
 # declarada: um commit empurrado direto para a `main` contaria como PR, e
 # está tudo bem — o número é gatilho de revisão, não métrica.
 #
+# ── FONTE ÚNICA DO MARCO ZERO ─────────────────────────────────────────────
+# O sha vem de `.claude/skills/MARCO-ZERO`, não de argumento nem de constante
+# no ci.yml. Antes ele vivia em dois lugares (o step e a doc) e nada os
+# amarrava — e um sha desatualizado não seria relido por ninguém: o contador
+# passaria a contar do ponto errado, em silêncio. Passar o sha por argumento
+# continua possível, para teste.
+#
 # Uso:
-#   ./scripts/aviso-revisao-skill.sh <sha-marco-zero> <ref-atual> [limite]
+#   ./scripts/aviso-revisao-skill.sh [ref-atual] [limite]
+#   ./scripts/aviso-revisao-skill.sh --marco <sha> <ref-atual> [limite]
 set -euo pipefail
 
-MARCO="${1:-}"
-REF="${2:-HEAD}"
-LIMITE="${3:-10}"
+ARQUIVO_MARCO="${ARQUIVO_MARCO:-.claude/skills/MARCO-ZERO}"
 
-if [ -z "$MARCO" ]; then
-  echo "uso: $0 <sha-marco-zero> <ref-atual> [limite]" >&2
-  exit 2
+if [ "${1:-}" = "--marco" ]; then
+  MARCO="${2:-}"
+  REF="${3:-HEAD}"
+  LIMITE="${4:-10}"
+  if [ -z "$MARCO" ]; then
+    echo "uso: $0 --marco <sha> <ref-atual> [limite]" >&2
+    exit 2
+  fi
+else
+  REF="${1:-HEAD}"
+  LIMITE="${2:-10}"
+  if [ ! -f "$ARQUIVO_MARCO" ]; then
+    # Erro de configuração, não "nada a avisar": sair 0 aqui esconderia um
+    # contador que parou de contar.
+    echo "$ARQUIVO_MARCO não existe — sem fonte para o marco zero." >&2
+    exit 2
+  fi
+  # Primeira linha não vazia e não comentada.
+  # `|| true` porque grep sem casamento sai 1, e com `set -e` isso mataria o
+  # script antes da mensagem — arquivo só com comentário tem de virar erro
+  # explicado, não fim silencioso.
+  MARCO=$(grep -v '^[[:space:]]*#' "$ARQUIVO_MARCO" 2> /dev/null | grep -v '^[[:space:]]*$' | head -n 1 | tr -d '[:space:]' || true)
+  if [ -z "$MARCO" ]; then
+    echo "$ARQUIVO_MARCO não tem nenhuma linha de sha." >&2
+    exit 2
+  fi
 fi
 
 if ! git cat-file -e "$MARCO^{commit}" 2> /dev/null; then

@@ -173,9 +173,11 @@ jobs:
       # três itens já entregues pelas #316, #322 e #324. Contador que depende
       # de alguém lembrar de contar não é calendário, é intenção.
       #
-      # MARCO ZERO: a609d09 = merge da #327, que trouxe a v2.2. A contagem
-      # NÃO é retroativa, e o sha está aqui e em docs/onix-co-estado.md para
-      # que continue não sendo. Ao revisar a skill, este sha muda junto.
+      # MARCO ZERO: vem de .claude/skills/MARCO-ZERO, FONTE ÚNICA — não está
+      # escrito aqui de propósito. Antes ele vivia neste step E na doc, e nada
+      # amarrava os dois; um sha desatualizado não seria relido por ninguém e o
+      # contador passaria a contar do ponto errado, em silêncio. A contagem
+      # NÃO é retroativa; a justificativa está em docs/onix-co-estado.md.
       #
       # Conta commits da main desde o marco (squash + main linear ⇒ 1 commit
       # ≈ 1 PR). Precisa do histórico, que o fetch-depth: 0 lá em cima traz.
@@ -185,4 +187,30 @@ jobs:
         if: always()
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: ./scripts/aviso-revisao-skill.sh a609d09b3c23c4e513f28ef03feb13d1cab26d51 "$BASE_SHA" 10
+        run: ./scripts/aviso-revisao-skill.sh "$BASE_SHA" 10
+
+      # AVISO, não gate — e aqui a distinção é mais forte que nos outros dois:
+      # PR demorada não é PR errada. Uma 🔴 esperando decisão do Eduardo DEVE
+      # esperar; travá-la seria punir o processo funcionando. O alarme torna a
+      # espera VISÍVEL, não a encurta à força.
+      #
+      # A #326 mediu: mediana 🟢 1,0 h · 🟡 1,0 h · 🔴 2,8 h · geral 1,2 h. O
+      # gargalo não é velocidade, é a CAUDA LONGA — e ela é invisível: a #327
+      # ficou 25,1 h publicando a skill errada, 21× a mediana, com CI verde o
+      # tempo todo. "Aberta" e "esquecida" têm a mesma cara na lista de PRs.
+      #
+      # Limiares calibrados nesses números, com folga sobre o p90 de cada
+      # faixa (avisar cedo demais ensina a ignorar o aviso):
+      #   🟢 8 h · 🟡 12 h · 🔴 48 h, esta última pedindo o bloqueio NOMEADO.
+      #
+      # O aviso reporta o MÚLTIPLO da mediana, não só as horas: "12 h" não diz
+      # nada sozinho; "12× o tempo típico desta faixa" diz que algo travou.
+      #
+      # Tem teste próprio (src/lib/aviso-pr-envelhecendo.test.ts).
+      - name: Aviso — PR envelhecendo além da mediana da faixa (não bloqueia)
+        if: always()
+        env:
+          CRIADA_EM: ${{ github.event.pull_request.created_at }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: ./scripts/aviso-pr-envelhecendo.sh "$CRIADA_EM" "$BASE_SHA" "$HEAD_SHA"
