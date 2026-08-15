@@ -113,7 +113,7 @@ O aviso reporta o **múltiplo da mediana**, não só as horas: "12 h" não diz n
 - Todo build precisa de `NODE_OPTIONS=--max-old-space-size=8192`.
 - Merges: **squash** (mantém a `main` linear).
 - **Railway builder = Railpack. NUNCA forçar Nixpacks.** `nixPkgs` SOBRESCREVE (não soma) os pacotes do builder e apaga o node → `npm: command not found`. Binário de sistema no runtime (ex.: `pg_dump`) resolve-se via **Dockerfile** a partir da base estável.
-- `prisma migrate deploy` roda via **`preDeployCommand`** (mudado na PR #317; antes era `startCommand`). Migration nova aplica em produção no deploy que segue o merge na `main` — e, falhando, barra o deploy antes de ele subir.
+- `prisma migrate deploy` roda **dentro do `startCommand`** (`npm run start` = `prisma migrate deploy && next start`). Migration nova aplica em produção no deploy que segue o merge na `main` — e, **falhando, derruba o serviço** em loop de restart: falha de dado vira indisponibilidade. A tentativa de mover para `preDeployCommand` (#317) foi revertida pela #335. **Único lugar que descreve o mecanismo: o bloco `[deploy]` do `railway.toml`** — conferir lá antes de afirmar qualquer coisa sobre deploy.
 - Toda migration nova derruba espuriamente o índice `PainelEmailAI_tsv_idx` — **remover manualmente** antes de aplicar (drift conhecido em 7+ migrations).
 - `NEXT_PUBLIC_*` são inlined no build — mudar exige rebuild, não restart.
 - Recomendado antes de qualquer PR com migration: `healthcheckPath = "/api/health"` no `railway.toml`.
