@@ -343,12 +343,19 @@ jobs:
             echo "Primeiro ciclo com estado — sem intervalo para comparar."
           fi
 
+          # `if` e não `[ ... ] && echo`: com `set -e`, um AND-list cujo teste é
+          # FALSO devolve 1, e como ele é o ÚLTIMO comando do grupo, a função
+          # inteira devolve 1 e mata o passo. Isso disparava justamente no
+          # caminho de SUCESSO — `escrever_estado "" "" ""` é chamado quando o
+          # deploy CONVERGIU, com os três argumentos vazios. O smoke reprovava
+          # exatamente quando produção estava saudável, e cada ciclo abria uma
+          # issue de incidente. `if` devolve 0 quando a condição é falsa.
           escrever_estado() {
             {
               echo "ULTIMO_SMOKE=$AGORA"
-              [ -n "${1:-}" ] && echo "DIV_ESPERADO=$1"
-              [ -n "${2:-}" ] && echo "DIV_NO_AR=$2"
-              [ -n "${3:-}" ] && echo "DIV_DESDE=$3"
+              if [ -n "${1:-}" ]; then echo "DIV_ESPERADO=$1"; fi
+              if [ -n "${2:-}" ]; then echo "DIV_NO_AR=$2"; fi
+              if [ -n "${3:-}" ]; then echo "DIV_DESDE=$3"; fi
             } > /tmp/smoke-estado
           }
 
