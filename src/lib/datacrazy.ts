@@ -450,36 +450,3 @@ export function buildTranscricao(
 
   return linhas.join("\n");
 }
-
-/**
- * Probe leve da API Datacrazy — uma página de 1 conversa na primeira instância
- * configurada. Só responde "as credenciais valem e a API atende?".
- *
- * É read-only por construção: `GET /conversations`. Não escreve nada, não
- * mexe em `ultimoContatoAt` — quem faz isso é o poll de 30 em 30 minutos.
- * Usa `take=1` de propósito: a pergunta é sobre disponibilidade, não sobre
- * dados, e um probe caro vira motivo pra desligar o probe.
- */
-export async function testDatacrazyConnection(
-  token: string,
-  instanceId: string,
-): Promise<{ success: boolean; message: string }> {
-  const url = `${DATACRAZY_BASE_URL}/conversations?instanceId=${instanceId}&take=1&skip=0`;
-  try {
-    const res = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-    });
-    if (!res.ok) {
-      return {
-        success: false,
-        message: `Datacrazy respondeu HTTP ${res.status} em /conversations`,
-      };
-    }
-    return { success: true, message: "Datacrazy API respondendo em /conversations" };
-  } catch (e) {
-    return { success: false, message: e instanceof Error ? e.message : "Erro desconhecido" };
-  }
-}

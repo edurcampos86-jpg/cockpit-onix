@@ -8,7 +8,8 @@ import {
   recordMicrosoftAuthError,
 } from "@/lib/integrations/microsoft-user-oauth";
 import { testConnection as testBtgConnection } from "@/lib/integrations/btg";
-import { testDatacrazyConnection, VENDEDORES_CONFIG } from "@/lib/datacrazy";
+import { VENDEDORES_CONFIG } from "@/lib/datacrazy";
+import { testDatacrazyConnection } from "@/lib/integrations/datacrazy-probe";
 import { testZapiConnection } from "@/lib/integrations/datacrazy-send";
 import { testB2BackupsConnection } from "@/lib/b2/client";
 import {
