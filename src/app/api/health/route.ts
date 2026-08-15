@@ -7,7 +7,9 @@ import { versaoDeploy } from "@/lib/versao-deploy";
 import { lerEstadoMigrations, type EstadoMigrations } from "@/lib/migrations-aplicadas";
 import {
   resumirAuditoria,
+  resumirPorIntegracao,
   type EstadoIntegracoes,
+  type EstadoDeUmaIntegracao,
 } from "@/lib/integracoes-auditadas";
 
 // Health check público. Usado por:
@@ -81,8 +83,15 @@ export async function GET(request: Request) {
      *
      * `integracoes.idadeMinutos` é o campo que importa tanto quanto `ok`: com
      * o cron de 30 em 30, idade muito maior que isso quer dizer que o próprio
-     * auditor parou, e aí o `ok` é verde do tipo que engana. */
-    let integracoes: EstadoIntegracoes | undefined;
+     * auditor parou, e aí o `ok` é verde do tipo que engana.
+     *
+     * `integracoes.porIntegracao` quebra o veredito por integração (6 hoje:
+     * google, microsoft, btg, datacrazy, zapi, b2), cada uma com a própria
+     * idade. Uma rodada verde não diz que a linha do Datacrazy está verde — e
+     * é o Datacrazy que mantém `ultimoContatoAt` vivo. */
+    let integracoes:
+      | (EstadoIntegracoes & { porIntegracao: EstadoDeUmaIntegracao[] })
+      | undefined;
     if (autorizado) {
       try {
         const estado = await resolverEstadoDasFlags();
@@ -120,7 +129,18 @@ export async function GET(request: Request) {
             resumo: true,
           },
         });
-        integracoes = resumirAuditoria(ultimaAuditoria, new Date());
+        // Duas leituras, dois níveis: `BtgSyncLog` diz como foi a RODADA;
+        // `IntegracaoAuditoria` diz o estado de cada integração. Uma rodada
+        // verde com uma linha parada há dias é exatamente o caso que a média
+        // esconderia.
+        const linhas = await prisma.integracaoAuditoria.findMany({
+          select: { integracao: true, status: true, updatedAt: true },
+        });
+        const agora = new Date();
+        integracoes = {
+          ...resumirAuditoria(ultimaAuditoria, agora),
+          porIntegracao: resumirPorIntegracao(linhas, agora),
+        };
       } catch (error) {
         console.warn(
           `[health] falha ao ler auditoria de integrações: ${error instanceof Error ? error.message : String(error)}`,

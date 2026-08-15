@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { resumirAuditoria, type LinhaAuditoria } from "./integracoes-auditadas";
+import {
+  resumirAuditoria,
+  resumirPorIntegracao,
+  type LinhaAuditoria,
+  type LinhaIntegracao,
+} from "./integracoes-auditadas";
 
 /**
  * Teste do resumo do auditor de integrações — src/lib/integracoes-auditadas.ts.
@@ -97,4 +102,94 @@ test("não publica a coluna `erros` — nem por acidente", () => {
     "resumo",
     "ultima",
   ]);
+});
+
+/* ── Quebra por integração ───────────────────────────────────────────────── */
+
+function li(
+  integracao: string,
+  status: string,
+  updatedAt = "2026-08-15T11:30:00.000Z",
+): LinhaIntegracao {
+  return { integracao, status, updatedAt: new Date(updatedAt) };
+}
+
+test("agrega por integração, não por chave", () => {
+  // 3 contas Google viram UMA linha "google" — a chave (`google:<userId>`)
+  // nunca sai, porque carrega identificador de usuário.
+  const r = resumirPorIntegracao(
+    [li("google", "ok"), li("google", "ok"), li("google", "ok"), li("btg", "ok")],
+    AGORA,
+  );
+  assert.equal(r.length, 2);
+  assert.equal(r[0].integracao, "btg");
+  assert.equal(r[1].contas, 3);
+  assert.equal(r[1].ok, 3);
+});
+
+test("o status publicado é o PIOR, não a maioria", () => {
+  // 2 de 3 contas boas não fazem a integração boa: o que precisa de ação é o 1.
+  const r = resumirPorIntegracao(
+    [li("google", "ok"), li("google", "ok"), li("google", "precisa_reconectar")],
+    AGORA,
+  );
+  assert.equal(r[0].status, "precisa_reconectar");
+  assert.equal(r[0].ok, 2);
+  assert.equal(r[0].contas, 3);
+});
+
+test("transitorio perde para precisa_reconectar e ganha de refresh_recuperado", () => {
+  assert.equal(
+    resumirPorIntegracao([li("x", "transitorio"), li("x", "refresh_recuperado")], AGORA)[0]
+      .status,
+    "transitorio",
+  );
+  assert.equal(
+    resumirPorIntegracao([li("x", "transitorio"), li("x", "precisa_reconectar")], AGORA)[0]
+      .status,
+    "precisa_reconectar",
+  );
+});
+
+test("a idade é a da conta MAIS VELHA — probe parado não se esconde atrás de vizinho novo", () => {
+  const r = resumirPorIntegracao(
+    [
+      li("google", "ok", "2026-08-15T11:55:00.000Z"), // 5 min
+      li("google", "ok", "2026-08-13T12:00:00.000Z"), // 2 dias
+    ],
+    AGORA,
+  );
+  assert.equal(r[0].idadeMinutos, 2880);
+});
+
+test("idade nunca é negativa na quebra por integração", () => {
+  const r = resumirPorIntegracao([li("b2", "ok", "2026-08-15T12:05:00.000Z")], AGORA);
+  assert.equal(r[0].idadeMinutos, 0);
+});
+
+test("ordem é estável por nome — health entra em diff de texto", () => {
+  const r = resumirPorIntegracao(
+    [li("zapi", "ok"), li("b2", "ok"), li("datacrazy", "ok"), li("microsoft", "ok")],
+    AGORA,
+  );
+  assert.deepEqual(
+    r.map((x) => x.integracao),
+    ["b2", "datacrazy", "microsoft", "zapi"],
+  );
+});
+
+test("a quebra por integração não publica chave, userId nem ultimoErro", () => {
+  // Mesmo motivo do teste de `erros`: o health é colado em issue de incidente.
+  const r = resumirPorIntegracao([li("datacrazy", "ok")], AGORA);
+  assert.deepEqual(Object.keys(r[0]).sort(), [
+    "contas",
+    "idadeMinutos",
+    "integracao",
+    "ok",
+    "status",
+  ]);
+});
+
+test("sem nenhuma linha, a quebra é lista vazia (não erro)", () => {
+  assert.deepEqual(resumirPorIntegracao([], AGORA), []);
 });
