@@ -19,6 +19,29 @@ resumo e o link.
 
 Quando ele quiser mais, ele pede.
 
+### O teto, porque a regra sozinha não segurou
+
+A regra acima existia e mesmo assim as respostas cresceram: tabelas de
+verificação inteiras, logs colados, o raciocínio da investigação todo no chat.
+Escrever "seja curto" não encurta nada — o que encurta é ter um teto e um
+lugar para o resto.
+
+**Teto: ~15 linhas de chat por resposta**, fora as três sugestões. Passou
+disso, o excedente estava no lugar errado.
+
+O que **nunca** vai para o chat, porque já tem lugar próprio:
+
+- saída de comando, log de CI, diff, SQL na íntegra → corpo do PR
+- tabela de "o que foi conferido" → corpo do PR
+- justificativa longa de decisão técnica → comentário no código ou no commit
+- o caminho até a resposta (o que tentei, o que falhou, o que descartei) →
+  não vai a lugar nenhum, a menos que ELE pergunte
+
+O que **sempre** vai: a conclusão, o número que a sustenta, e o link.
+
+Vale igual quando a resposta é boa notícia. "Deu certo" não precisa de prova
+anexa — a prova mora no PR.
+
 ## A cada TAREFA concluída: sempre 3 sugestões de melhoria da página
 
 O gatilho é o **fim de cada tarefa** — não só o merge. PR aberta, investigação
