@@ -321,13 +321,13 @@ publicada por engano na #327 teria reprovado no primeiro CI, e não 25 h depois.
 > aqui, que listava como pendentes três itens já entregues pelas #316, #322 e
 > #324.
 
-🔎 **Desde a #332 o hash cobre a PASTA inteira, não só o `SKILL.md`.** A
+🔎 **Desde a #333 o hash cobre a PASTA inteira, não só o `SKILL.md`.** A
 `story-fitness-onix` traz `scripts/retoque_story.py`, e um script de 115 linhas
 de OpenCV é exatamente o arquivo cuja troca ninguém percebe numa revisão. Vale
 nos dois sentidos: arquivo em disco que o manifesto não declara, e arquivo
 declarado que sumiu do disco.
 
-🔎 **`scripts/exporta-skills.sh` (#332) leva o repo para a conta** — um ZIP por
+🔎 **`scripts/exporta-skills.sh` (#333) leva o repo para a conta** — um ZIP por
 skill, com a pasta dentro (não o conteúdo solto, que é o erro que faz a skill
 subir sem erro e não carregar), mais o manifesto junto. Roda a guarda antes de
 empacotar. A ordem é: editar → `atualiza-manifesto.sh` → `guarda-skills.sh` →
@@ -390,7 +390,7 @@ vaga.**
 > andando.
 
 🔎 **Alarme de envelhecimento** (`scripts/aviso-pr-envelhecendo.sh`, no
-`ci.yml` desde a #332) substitui o efeito colateral que segurava a fila curta,
+`ci.yml` desde a #333) substitui o efeito colateral que segurava a fila curta,
 medindo a cauda longa que era o gargalo real:
 
 | faixa | limiar | ≈ múltiplo da mediana |
