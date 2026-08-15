@@ -28,6 +28,39 @@ import { isAdmin, type PerfilAcesso } from "@/lib/rbac-papeis";
  * caminho para sobrescrever segredo de OAuth por uma superfície que não foi
  * desenhada para isso.
  */
+/**
+ * Chaves cujo store canônico é o **Config DB**, não o `.integrations.json`.
+ *
+ * O arquivo é EFÊMERO no Railway (vive no filesystem do container e some no
+ * redeploy). Chave gravada só nele volta a "não configurada" no próximo deploy,
+ * em silêncio — e pior: quem a lê por `getConfig()` nunca a encontra, nem antes
+ * do redeploy, porque `getConfig` consulta o banco e não o arquivo.
+ *
+ * Toda chave nova consumida via `getConfig()` PRECISA entrar aqui — e, por
+ * consequência, em `CHAVES_GRAVAVEIS` também (invariante testada logo abaixo,
+ * em `config-acesso.test.ts`): chave que o banco guarda mas o endpoint recusa
+ * gravar é config morta.
+ */
+export const CHAVES_CONFIG_DB = new Set([
+  "ANTHROPIC_API_KEY",
+  // Sincronia de status dos PRs da Central de Implementações (leitura apenas).
+  "GITHUB_TOKEN",
+  "GITHUB_REPO",
+  /*
+   * Segredo do webhook do Zapier/Plaud. Entrou aqui porque é o único segredo
+   * gravável pela tela que também é credencial de uma rota PÚBLICA
+   * (`/api/integracoes/zapier/webhook`, na allowlist do proxy).
+   *
+   * No arquivo efêmero a sequência era: salva pela tela → a tela mostra
+   * "configurada" → o deploy seguinte apaga o container → a chave some sem
+   * aviso, e a tela segue dizendo o contrário até alguém abrir de novo.
+   *
+   * Não é hipótese: a nota em `src/lib/proxy-rotas.ts` já registrava esse
+   * desaparecimento como o caminho pelo qual a rota do Zapier reabria sozinha.
+   */
+  "ZAPIER_WEBHOOK_SECRET",
+]);
+
 export const CHAVES_GRAVAVEIS = new Set([
   "MANYCHAT_API_TOKEN",
   "ANTHROPIC_API_KEY",
