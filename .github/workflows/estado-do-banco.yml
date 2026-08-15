@@ -44,6 +44,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: estado-do-banco-${{ github.ref }}
@@ -62,6 +63,92 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # O gate destrutivo compara a PR com a base; `fetch-depth: 0` porque
+          # um clone raso não tem o merge-base para o diff.
+          fetch-depth: 0
+
+      # ── GATE · migration destrutiva exige decisão explícita ──────────────
+      #
+      # Informação sem gate depende de alguém ler. A PR #301 provou isso: o SQL
+      # estava na descrição, em texto, e mesmo assim a premissa errada
+      # sobreviveu por dias — porque ler é opcional e o merge não era.
+      #
+      # `DROP COLUMN` e `DROP TABLE` apagam dado que nenhum backup traz de volta
+      # sem downtime. Não são proibidos: são decisão, e decisão precisa de
+      # assinatura. A label `migration-destrutiva` na PR é a assinatura.
+      #
+      # Roda ANTES da leitura do banco de propósito: é análise do diff e não
+      # precisa de secret, então um `DROP` acidental falha rápido e falha mesmo
+      # que o banco esteja fora do ar.
+      - name: Gate de migration destrutiva
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: |
+          set -euo pipefail
+
+          # Só as migrations ACRESCENTADAS por esta PR. Migration já mergeada
+          # não volta a ser decisão a cada PR que passa perto dela.
+          NOVAS=$(git diff --name-only --diff-filter=A "$BASE_SHA" "$HEAD_SHA" \
+            -- 'prisma/migrations/*/migration.sql' || true)
+
+          if [ -z "$NOVAS" ]; then
+            echo "Nenhuma migration nova nesta PR."
+            exit 0
+          fi
+
+          echo "Migrations novas:"
+          echo "$NOVAS" | while IFS= read -r l; do echo "  $l"; done
+
+          # -i porque SQL não distingue caixa; \s\+ para tolerar espaçamento.
+          # Os dois verbos são os que apagam dado sem pedir confirmação. RENAME
+          # e ALTER TYPE também doem, mas são recuperáveis sem restore — ficam
+          # de fora para o gate não virar ruído que se aprende a ignorar.
+          PADRAO='DROP[[:space:]]+COLUMN|DROP[[:space:]]+TABLE'
+          ACHADOS=""
+          for f in $NOVAS; do
+            # Ignora linhas comentadas: `-- DROP COLUMN` numa explicação não é
+            # um DROP. É o caso REAL do drift do FTS, comentado em várias
+            # migrations do repositório.
+            HIT=$(grep -nEi "$PADRAO" "$f" | grep -vE '^[0-9]+:[[:space:]]*--' || true)
+            if [ -n "$HIT" ]; then
+              INDENTADO=$(echo "$HIT" | while IFS= read -r l; do echo "    $l"; done)
+              ACHADOS="${ACHADOS}\n${f}:\n${INDENTADO}"
+            fi
+          done
+
+          if [ -z "$ACHADOS" ]; then
+            echo "Nenhum DROP COLUMN / DROP TABLE executável."
+            exit 0
+          fi
+
+          echo "-----"
+          printf 'Encontrado:%b\n' "$ACHADOS"
+
+          case ",$LABELS," in
+            *,migration-destrutiva,*)
+              echo "Label 'migration-destrutiva' presente — liberado."
+              {
+                echo '## ⚠️ Migration destrutiva — liberada por label'
+                echo
+                printf 'Alguém assinou embaixo com a label migration-destrutiva.%b\n' "$ACHADOS"
+              } >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            *)
+              {
+                echo '## 🛑 Migration destrutiva sem autorização'
+                echo
+                printf 'Esta PR acrescenta DROP COLUMN ou DROP TABLE:%b\n' "$ACHADOS"
+                echo
+                echo 'Se a perda de dado é intencional, adicione a label **migration-destrutiva** na PR e rode o check de novo. Se não é, o DROP está sobrando.'
+              } >> "$GITHUB_STEP_SUMMARY"
+              echo "::error::Migration destrutiva sem a label 'migration-destrutiva'. Veja o resumo do job."
+              exit 1
+              ;;
+          esac
 
       - name: Conferir que o secret existe
         env:
