@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Heart,
   FileText,
@@ -119,6 +120,14 @@ interface Cliente {
 
 type Tab = "descoberta" | "cadastro" | "plano" | "checklist" | "metas" | "eventos" | "perfil" | "rca" | "cockpit-reuniao" | "fatos";
 
+/* Aba vinda da URL é entrada externa: só vale se for uma das que existem.
+ * Sem esta trava, `?aba=qualquer-coisa` deixaria a ficha sem nenhuma aba
+ * renderizada — tela em branco em vez de erro. */
+const TABS_VALIDAS = new Set<Tab>([
+  "descoberta", "cadastro", "plano", "checklist", "metas",
+  "eventos", "perfil", "rca", "cockpit-reuniao", "fatos",
+]);
+
 const TABS: { id: Tab; label: string; icon: typeof Heart }[] = [
   { id: "descoberta", label: "Descoberta", icon: Heart },
   { id: "cadastro", label: "Cadastro", icon: IdCard },
@@ -147,7 +156,16 @@ export function ClienteDetalhe({
   pessoas?: { id: string; nome: string }[];
   pessoasComLogin?: { id: string; nome: string }[];
 }) {
-  const [tab, setTab] = useState<Tab>("descoberta");
+  /* Aba inicial vinda da URL. Existe para a ponte de /reunioes: o link de
+   * "Levar para a ficha" precisa cair NA aba do Cockpit de Reunião, senão o
+   * Eduardo chega na Descoberta e tem de procurar. `importarReuniao` carrega o
+   * id da transcrição que o formulário vai pré-carregar. */
+  const params = useSearchParams();
+  const abaDaUrl = params.get("aba");
+  const importarReuniao = params.get("importarReuniao");
+  const [tab, setTab] = useState<Tab>(
+    TABS_VALIDAS.has(abaDaUrl as Tab) ? (abaDaUrl as Tab) : "descoberta",
+  );
   const [cliente, setCliente] = useState(inicial);
 
   // Cada flag OFF → aba correspondente some (tela byte-idêntica à de hoje).
@@ -236,6 +254,7 @@ export function ClienteDetalhe({
       {tab === "cockpit-reuniao" && (
         <CockpitReuniaoTab
           clienteId={cliente.id}
+          importarReuniaoId={importarReuniao}
           cliente={cliente}
           interacoes={cliente.interacoes}
           metas={cliente.metas}
