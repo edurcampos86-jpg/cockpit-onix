@@ -276,7 +276,7 @@ jobs:
 
           if [ -n "$PENDENTES" ]; then
             echo "| Migrations PENDENTES | \`$PENDENTES\` |" >> "$GITHUB_STEP_SUMMARY"
-            echo "::error::App no ar com schema velho. O código servindo tráfego espera migrations que o banco não tem: $PENDENTES. Conserto: redeploy (o Pre-deploy aplica) ou 'npm run db:migrate' com a DATABASE_URL de produção."
+            echo "::error::App no ar com schema velho. O código servindo tráfego espera migrations que o banco não tem: $PENDENTES. Conserto: redeploy (o startCommand aplica as migrations antes de subir) ou 'npm run db:migrate' com a DATABASE_URL de producao."
             exit 1
           fi
 
