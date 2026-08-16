@@ -1,47 +1,72 @@
 /**
- * Piloto de UM parceiro real, ponta a ponta — Michel.
+ * Piloto de UM parceiro real, ponta a ponta — Renan, com os 4 clientes dele.
  *
  * Cria a primeira linha de cada tabela da Fase 1 de Parceiros e prova que o
  * modelo aguenta o caso concreto ANTES de existir UI:
  *
- *     Parceiro  →  AcordoComercialParceiro  →  ParceiroCliente
+ *     Parceiro  →  AcordoComercialParceiro  →  ParceiroCliente (N clientes)
  *
  * ── POR QUE EXISTE ───────────────────────────────────────────────────────
  * Cinco tabelas estão em produção desde a Fase 1 e todas estão VAZIAS. As
  * garantias foram provadas em shadow-DB com dado sintético; o que ainda não
- * foi provado é que a modelagem serve ao caso real — que o Michel cabe em
- * `Parceiro` sem campo faltando, que 20% em assessoria cabe em
- * `AcordoComercialParceiro`, e que o cliente dele entra por `ParceiroCliente`
+ * foi provado é que a modelagem serve ao caso real — que o Renan cabe em
+ * `Parceiro` sem campo faltando, que o acordo dele cabe em
+ * `AcordoComercialParceiro`, e que os clientes entram por `ParceiroCliente`
  * sem esbarrar na exclusividade da #310.
  *
  * Estrutura sem uso não recebe correção da realidade. Este script é o menor
  * uso possível.
  *
+ * ── VÁRIOS CLIENTES, E POR ISSO TUDO-OU-NADA ─────────────────────────────
+ * O piloto real não é 1 cliente, são 4 — e um lote parcialmente aplicado é
+ * pior do que nenhum: ninguém sabe de cabeça quais entraram, e a segunda
+ * tentativa vira adivinhação. Então TODAS as contas são resolvidas ANTES de
+ * qualquer escrita; se uma só falhar, o relatório sai completo (as 4 linhas,
+ * não a primeira que quebrou) e NADA é escrito.
+ *
+ * As três recusas continuam valendo, agora por cliente:
+ *   1. `numeroConta` que casa com mais de um cliente → ABORTA (não escolhe).
+ *   2. cliente com parceiro vigente DIFERENTE → ABORTA (a #310 rejeitaria).
+ *   3. acordo vigente com outro percentual → NÃO sobrescreve.
+ * A recusa 2 tem uma exceção que é justamente a idempotência: se o parceiro
+ * vigente do cliente JÁ É este parceiro, isso não é conflito, é reexecução.
+ *
  * ── DRY-RUN É O PADRÃO ───────────────────────────────────────────────────
- * Sem `--aplicar`, NADA é escrito: o script lê, resolve o cliente, monta o
- * plano e imprime o que faria. É o mesmo desenho de
+ * Sem `--aplicar`, NADA é escrito: o script lê, resolve os clientes, monta o
+ * plano e imprime, POR CLIENTE, o que faria. É o mesmo desenho de
  * `scripts/ensaio-backfill-pessoa-grupo.ts` e do backfill da #299 — dry-run
  * primeiro porque um seed que já nasce escrevendo é indistinguível de um
  * acidente.
  *
  * Com `--aplicar`, escreve dentro de UMA transação e é IDEMPOTENTE: rodar de
- * novo não duplica nada (ver `jaExiste` em cada etapa). Reexecução é o caso
- * comum de um seed — alguém roda, o terminal fecha, ninguém sabe se passou.
+ * novo não duplica nada. Reexecução é o caso comum de um seed — alguém roda,
+ * o terminal fecha, ninguém sabe se passou.
  *
  * ── O QUE ELE NÃO FAZ ────────────────────────────────────────────────────
  * Não cria cliente. O cliente tem de existir, e é identificado por
  * `numeroConta` — inventar um cliente para o piloto testaria o script, não a
  * modelagem.
  *
+ * Não inventa o acordo. `--produto` e `--percentual` são OBRIGATÓRIOS e não
+ * têm default: o acordo comercial do Renan é decisão do Eduardo, e um default
+ * embutido viraria número gravado em produção que ninguém escolheu.
+ *
+ * Não toca em `Indicacao`. O texto livre de `nomeIndicado` (ex.: "Michelle e
+ * Renan") permanece como está — o vínculo estruturado é complementar, não
+ * substituto, e reescrever o texto apagaria o registro de como a indicação
+ * chegou.
+ *
  * Como rodar:
- *   # dry-run (padrão, não escreve)
- *   DATABASE_URL="postgresql://..." npx tsx scripts/seed-parceiro-piloto.ts --conta 123456
+ *   # dry-run (padrão, não escreve) — os 4 clientes do Renan
+ *   DATABASE_URL="postgresql://..." npx tsx scripts/seed-parceiro-piloto.ts \
+ *     --conta 009100909 004968281 037584174 008541947 \
+ *     --produto <PRODUTO> --percentual <PERCENTUAL>
  *
- *   # aplicar de verdade
- *   DATABASE_URL="postgresql://..." npx tsx scripts/seed-parceiro-piloto.ts --conta 123456 --aplicar
+ *   # aplicar de verdade (só depois de conferir o dry-run)
+ *   ... --aplicar
  *
- *   # ajustar o piloto
- *   ... --nome "Michel" --tipo contabil --produto assessoria --percentual 20
+ *   # `--conta` também aceita repetição e vírgula:
+ *   ... --conta 009100909 --conta 004968281,037584174
  */
 import "dotenv/config";
 import { PrismaClient, Prisma } from "../src/generated/prisma/client";
@@ -68,12 +93,38 @@ function arg(nome: string): string | null {
   return v && !v.startsWith("--") ? v : null;
 }
 
+/**
+ * Argumento de LISTA. Aceita as três formas que alguém digita sem pensar:
+ *
+ *     --conta A B C        (vários valores depois da flag)
+ *     --conta A --conta B  (flag repetida)
+ *     --conta A,B          (vírgula)
+ *
+ * Preserva a ordem e remove duplicata — passar a mesma conta duas vezes é erro
+ * de digitação, não pedido de dois vínculos (e o segundo bateria na #310).
+ * Valor fica STRING: `numeroConta` tem zero à esquerda ("009100909"), e
+ * converter para número apagaria o zero e não acharia o cliente.
+ */
+function argLista(nome: string): string[] {
+  const fora: string[] = [];
+  for (let i = 0; i < process.argv.length; i++) {
+    if (process.argv[i] !== `--${nome}`) continue;
+    for (let j = i + 1; j < process.argv.length; j++) {
+      const v = process.argv[j];
+      if (v.startsWith("--")) break;
+      fora.push(...v.split(",").map((s) => s.trim()).filter(Boolean));
+    }
+  }
+  return [...new Set(fora)];
+}
+
 const APLICAR = process.argv.includes("--aplicar");
-const CONTA = arg("conta");
-const NOME = arg("nome") ?? "Michel";
-const TIPO_BRUTO = arg("tipo") ?? "contabil";
-const PRODUTO_BRUTO = arg("produto") ?? "assessoria";
-const PERCENTUAL_BRUTO = arg("percentual") ?? "20";
+const CONTAS = argLista("conta");
+const NOME = arg("nome") ?? "Renan";
+const TIPO_BRUTO = arg("tipo") ?? "socio";
+// Sem default, de propósito. Ver "O QUE ELE NÃO FAZ" no cabeçalho.
+const PRODUTO_BRUTO = arg("produto");
+const PERCENTUAL_BRUTO = arg("percentual");
 
 // ── Saída ────────────────────────────────────────────────────────────────
 
@@ -81,7 +132,29 @@ const linha = (s = "") => console.log(s);
 const passo = (n: number, s: string) => console.log(`\n${n}. ${s}`);
 const ok = (s: string) => console.log(`   ✓ ${s}`);
 const aviso = (s: string) => console.log(`   ⚠ ${s}`);
+const erro = (s: string) => console.log(`   ✗ ${s}`);
 const plano = (s: string) => console.log(`   → ${s}`);
+
+// ── Situação de cada conta ───────────────────────────────────────────────
+//
+// Resolver TODAS antes de decidir é o que torna o tudo-ou-nada possível: a
+// decisão de escrever é tomada uma vez, com o lote inteiro na mão.
+
+type Situacao =
+  | { conta: string; estado: "vincular"; clienteId: string; nome: string; saldo: number }
+  | { conta: string; estado: "ja_vinculado"; clienteId: string; nome: string; saldo: number }
+  | { conta: string; estado: "nao_encontrada" }
+  | { conta: string; estado: "ambigua"; candidatos: string }
+  | { conta: string; estado: "ocupada"; nome: string; parceiroAtual: string };
+
+type Falha = Extract<Situacao, { estado: "nao_encontrada" | "ambigua" | "ocupada" }>;
+type Vincular = Extract<Situacao, { estado: "vincular" }>;
+
+// Type predicates e não `filter(s => s.estado === ...)`: sem elas o TypeScript
+// devolve `Situacao[]` e ler `s.clienteId` no lote a escrever não compila.
+const ehFalha = (s: Situacao): s is Falha =>
+  s.estado === "nao_encontrada" || s.estado === "ambigua" || s.estado === "ocupada";
+const ehVincular = (s: Situacao): s is Vincular => s.estado === "vincular";
 
 async function main() {
   linha("═".repeat(72));
@@ -89,10 +162,16 @@ async function main() {
   linha("═".repeat(72));
 
   // ── Validação de entrada, antes de tocar o banco ───────────────────────
-  if (!CONTA) {
+  if (CONTAS.length === 0) {
     throw new Error(
-      "Falta --conta <numeroConta>. O cliente a vincular tem de existir; o script não cria cliente.",
+      "Falta --conta <numeroConta> [<numeroConta> ...]. Os clientes têm de existir; o script não cria cliente.",
     );
+  }
+  if (!PRODUTO_BRUTO) {
+    throw new Error("Falta --produto <tipoProduto>. Não há default: o acordo é decisão de negócio.");
+  }
+  if (!PERCENTUAL_BRUTO) {
+    throw new Error("Falta --percentual <0-100>. Não há default: o acordo é decisão de negócio.");
   }
 
   const tipo = normalizarTipoParceiro(TIPO_BRUTO);
@@ -115,67 +194,116 @@ async function main() {
   }
 
   passo(1, "Entrada normalizada");
-  ok(`nome:      ${NOME}`);
-  ok(`tipo:      ${TIPO_BRUTO} → ${tipo}`);
-  ok(`produto:   ${PRODUTO_BRUTO} → ${produto}`);
+  ok(`nome:       ${NOME}`);
+  ok(`tipo:       ${TIPO_BRUTO} → ${tipo}`);
+  ok(`produto:    ${PRODUTO_BRUTO} → ${produto}`);
   ok(`percentual: ${percentual.toString()}%`);
+  ok(`contas:     ${CONTAS.length} — ${CONTAS.join(", ")}`);
   if (!ehTipoParceiroConhecido(tipo)) aviso(`tipo "${tipo}" fora da lista de referência (permitido)`);
   if (!ehTipoProdutoConhecido(produto)) aviso(`produto "${produto}" fora da lista de referência (permitido)`);
 
-  // ── Cliente alvo ───────────────────────────────────────────────────────
-  passo(2, `Cliente da conta ${CONTA}`);
-  // findMany e não findFirst: numeroConta NÃO é @unique no schema (ver
-  // upsert-cliente.ts:10-11). Duas contas com o mesmo número é situação real,
-  // e escolher em silêncio a primeira vincularia o parceiro ao cliente errado.
-  const clientes = await prisma.clienteBackoffice.findMany({
-    where: { numeroConta: CONTA },
-    select: { id: true, nome: true, numeroConta: true, saldo: true },
-  });
-  if (clientes.length === 0) throw new Error(`Nenhum cliente com numeroConta=${CONTA}.`);
-  if (clientes.length > 1) {
-    throw new Error(
-      `${clientes.length} clientes com numeroConta=${CONTA}: ${clientes.map((c) => `${c.id} (${c.nome})`).join(", ")}. ` +
-        `Desambigue antes de rodar o piloto.`,
-    );
-  }
-  const cliente = clientes[0];
-  ok(`${cliente.nome} — id ${cliente.id}, PL ${cliente.saldo.toLocaleString("pt-BR")}`);
-
-  // ── Estado atual ───────────────────────────────────────────────────────
-  passo(3, "Estado atual (o que já existe)");
+  // ── Parceiro ───────────────────────────────────────────────────────────
+  passo(2, "Parceiro");
   const parceiroExistente = await prisma.parceiro.findFirst({
     where: { nome: NOME },
     select: { id: true, nome: true, tipo: true },
   });
-  ok(parceiroExistente ? `Parceiro "${NOME}" já existe (${parceiroExistente.id})` : `Parceiro "${NOME}" não existe`);
+  ok(parceiroExistente ? `"${NOME}" já existe (${parceiroExistente.id})` : `"${NOME}" não existe — seria criado`);
 
-  const vinculoVigenteDoCliente = await prisma.parceiroCliente.findFirst({
-    where: { clienteId: cliente.id, dataFim: null },
-    select: { id: true, parceiroId: true },
-  });
-  if (vinculoVigenteDoCliente) {
-    // A #310 garante no banco no máximo um vínculo vigente POR CLIENTE. Se já
-    // houver outro parceiro, o INSERT falharia com unique_violation — melhor
-    // dizer isso agora, com o nome do parceiro, do que devolver o código do erro.
+  // ── Uma passada por conta, sem escrever nada ───────────────────────────
+  passo(3, `Clientes (${CONTAS.length} conta(s))`);
+  const situacoes: Situacao[] = [];
+
+  for (const conta of CONTAS) {
+    // findMany e não findFirst: numeroConta NÃO é @unique no schema (ver
+    // upsert-cliente.ts:10-11). Duas contas com o mesmo número é situação real,
+    // e escolher em silêncio a primeira vincularia o parceiro ao cliente errado.
+    const clientes = await prisma.clienteBackoffice.findMany({
+      where: { numeroConta: conta },
+      select: { id: true, nome: true, saldo: true },
+    });
+
+    if (clientes.length === 0) {
+      situacoes.push({ conta, estado: "nao_encontrada" });
+      erro(`${conta} — nenhum cliente com este numeroConta`);
+      continue;
+    }
+    if (clientes.length > 1) {
+      const candidatos = clientes.map((c) => `${c.id} (${c.nome})`).join(", ");
+      situacoes.push({ conta, estado: "ambigua", candidatos });
+      erro(`${conta} — ${clientes.length} clientes: ${candidatos}`);
+      continue;
+    }
+
+    const cliente = clientes[0];
+    const vinculoVigente = await prisma.parceiroCliente.findFirst({
+      where: { clienteId: cliente.id, dataFim: null },
+      select: { parceiroId: true },
+    });
+
+    if (!vinculoVigente) {
+      situacoes.push({ conta, estado: "vincular", clienteId: cliente.id, nome: cliente.nome, saldo: cliente.saldo });
+      ok(`${conta} — ${cliente.nome} · PL ${cliente.saldo.toLocaleString("pt-BR")} · sem parceiro vigente`);
+      continue;
+    }
+
+    // Vigente e É este parceiro: reexecução, não conflito.
+    if (parceiroExistente && vinculoVigente.parceiroId === parceiroExistente.id) {
+      situacoes.push({
+        conta,
+        estado: "ja_vinculado",
+        clienteId: cliente.id,
+        nome: cliente.nome,
+        saldo: cliente.saldo,
+      });
+      ok(`${conta} — ${cliente.nome} · já vinculado a "${NOME}" (nada a fazer)`);
+      continue;
+    }
+
+    // Vigente e é OUTRO parceiro: a #310 rejeitaria o INSERT com
+    // unique_violation. Melhor dizer agora, com o nome, do que devolver o
+    // código do erro no meio da transação.
     const dono = await prisma.parceiro.findUnique({
-      where: { id: vinculoVigenteDoCliente.parceiroId },
+      where: { id: vinculoVigente.parceiroId },
       select: { nome: true },
     });
-    aviso(`cliente já tem parceiro vigente: ${dono?.nome ?? vinculoVigenteDoCliente.parceiroId}`);
-  } else {
-    ok("cliente sem parceiro vigente");
+    situacoes.push({
+      conta,
+      estado: "ocupada",
+      nome: cliente.nome,
+      parceiroAtual: dono?.nome ?? vinculoVigente.parceiroId,
+    });
+    erro(`${conta} — ${cliente.nome} já tem parceiro vigente: ${dono?.nome ?? vinculoVigente.parceiroId}`);
+  }
+
+  // ── Tudo-ou-nada ───────────────────────────────────────────────────────
+  const falhas = situacoes.filter(ehFalha);
+  if (falhas.length > 0) {
+    linha();
+    linha("─".repeat(72));
+    linha(`${falhas.length} de ${CONTAS.length} conta(s) impedem o lote. NADA foi escrito.`);
+    for (const f of falhas) {
+      const motivo =
+        f.estado === "nao_encontrada"
+          ? "não encontrada"
+          : f.estado === "ambigua"
+            ? `ambígua — ${f.candidatos}`
+            : `ocupada por "${f.parceiroAtual}"`;
+      linha(`  ✗ ${f.conta}: ${motivo}`);
+    }
+    linha("─".repeat(72));
+    throw new Error("Lote não aplicado — resolva as contas acima e rode de novo.");
   }
 
   // ── Plano ──────────────────────────────────────────────────────────────
+  const aVincular = situacoes.filter(ehVincular);
+  const jaVinculados = situacoes.filter((s) => s.estado === "ja_vinculado");
+
   passo(4, "Plano");
-  const criaParceiro = !parceiroExistente;
-  plano(criaParceiro ? `CRIAR Parceiro "${NOME}" (tipo ${tipo})` : `REUSAR Parceiro ${parceiroExistente!.id}`);
+  plano(parceiroExistente ? `REUSAR Parceiro ${parceiroExistente.id}` : `CRIAR Parceiro "${NOME}" (tipo ${tipo})`);
   plano(`GARANTIR acordo vigente ${percentual.toString()}% em "${produto}"`);
-  plano(
-    vinculoVigenteDoCliente
-      ? `PULAR vínculo — cliente já tem parceiro vigente (a #310 rejeitaria um segundo)`
-      : `VINCULAR cliente ${cliente.nome} ao parceiro`,
-  );
+  plano(`VINCULAR ${aVincular.length} cliente(s)${aVincular.length ? ": " + aVincular.map((s) => s.conta).join(", ") : ""}`);
+  if (jaVinculados.length) plano(`PULAR ${jaVinculados.length} já vinculado(s): ${jaVinculados.map((s) => s.conta).join(", ")}`);
 
   if (!APLICAR) {
     linha();
@@ -186,6 +314,10 @@ async function main() {
   }
 
   // ── Aplicação, em transação e idempotente ──────────────────────────────
+  //
+  // Uma transação para o lote inteiro: se o último vínculo falhar (por uma
+  // corrida com outra escrita, por exemplo), o parceiro e o acordo voltam
+  // atrás junto. Meio-lote é o estado que este script existe para não criar.
   passo(5, "Aplicando");
   const agora = new Date();
 
@@ -228,20 +360,19 @@ async function main() {
       ok(`Acordo ${novo.id} — ${percentual.toString()}% em ${produto}`);
     }
 
-    if (vinculoVigenteDoCliente) {
-      ok("Vínculo pulado (cliente já tem parceiro vigente)");
-    } else {
+    for (const s of aVincular) {
       const v = await tx.parceiroCliente.create({
         data: {
           parceiroId: parceiro.id,
-          clienteId: cliente.id,
+          clienteId: s.clienteId,
           dataInicio: agora,
           vinculadoPor: "seed-parceiro-piloto",
         },
         select: { id: true },
       });
-      ok(`Vínculo ${v.id} — ${cliente.nome}`);
+      ok(`Vínculo ${v.id} — ${s.conta} · ${s.nome}`);
     }
+    for (const s of jaVinculados) ok(`Vínculo pulado — ${s.conta} já era de "${NOME}"`);
   });
 
   // ── Conferência: o que a modelagem responde agora ──────────────────────
@@ -263,6 +394,7 @@ async function main() {
   for (const a of parceiro.acordos) ok(`  acordo vigente: ${a.percentual.toString()}% em ${a.tipoProduto}`);
   const aum = parceiro.clientes.reduce((s, c) => s + c.cliente.saldo, 0);
   ok(`  clientes vigentes: ${parceiro.clientes.length} · AUM ${aum.toLocaleString("pt-BR")}`);
+  for (const c of parceiro.clientes) ok(`    ${c.cliente.nome} · ${c.cliente.saldo.toLocaleString("pt-BR")}`);
 }
 
 main()
