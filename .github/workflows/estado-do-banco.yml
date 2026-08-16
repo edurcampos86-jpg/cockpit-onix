@@ -279,6 +279,31 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # Quem consegue ler transcrição de reunião fora do escopo. Só no disparo
+      # manual: a resposta muda com o cadastro de papéis, não com a PR.
+      - name: Quem lê reunião fora do escopo
+        if: github.event_name == 'workflow_dispatch' && inputs.consultas == 'completo'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          set +e
+          npx tsx scripts/quem-le-reuniao.ts > "${RUNNER_TEMP}/reuniao.txt" 2>&1
+          CODIGO=$?
+          set -e
+          {
+            echo
+            echo '## Quem lê transcrição de reunião'
+            echo
+            echo '```'
+            cat "${RUNNER_TEMP}/reuniao.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "${RUNNER_TEMP}/reuniao.txt"
+          # Consulta informativa: não reprova a execução. Código 2 é "não
+          # consegui perguntar", e isso já sai escrito no texto acima.
+          echo "código: $CODIGO"
+
       # Só no disparo manual com `completo`. São as consultas da auditoria BTG:
       # úteis de vez em quando, ruído em toda PR de migration.
       - name: Consultas de auditoria (BtgSyncLog e fontes)
