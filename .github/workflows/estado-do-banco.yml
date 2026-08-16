@@ -275,6 +275,24 @@ jobs:
           FROM "BtgSyncLog" WHERE tipo = 'balances'
           ORDER BY iniciado DESC LIMIT 20;
 
+          -- 2b. OS OUTROS DOIS EXPORTS. Base BTG e Informações sobem pela
+          --     MESMA rota do Saldo D0. Se os campos deles também pararam em
+          --     30/07, a causa é a rota — não o mapeamento do Saldo.
+          --     `api` também escreve alguns destes (cadastral semanal), então
+          --     o que interessa é a data mais recente POR FONTE.
+          SELECT '=== outros exports: última escrita por campo e fonte ===' AS secao;
+          SELECT
+            e.key                                                     AS campo,
+            split_part(e.value, ':', 1)                               AS fonte,
+            count(*)                                                  AS clientes,
+            max(substring(e.value from position(':' in e.value) + 1)) AS mais_recente
+          FROM "ClienteBackoffice" c,
+               LATERAL jsonb_each_text(c."fonteUltimoUpdate") AS e(key, value)
+          WHERE e.key IN ('cpfCnpj','perfilInvestidor','suitabilityValidoAte',
+                          'profissao','telefone','email','assessorCge','saldo')
+          GROUP BY 1, 2
+          ORDER BY 1, 4 DESC;
+
           -- 3. Defasagem do saldoConta — a pergunta "quantos clientes estão
           --    com saldo velho na tela".
           SELECT '=== idade do saldoConta ===' AS secao;

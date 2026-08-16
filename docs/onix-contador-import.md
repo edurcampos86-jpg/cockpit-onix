@@ -149,3 +149,66 @@ hipóteses**, porque guarda só o último escritor e o cron das 09:00 UTC reescr
 
 Esse é o argumento inteiro para construir o contador: não é higiene, é o único
 instrumento que responde a pergunta.
+
+---
+
+## 7. A consulta comparativa — planilha × Partner API
+
+> **Não roda ainda.** Sem escrita da planilha no banco não há o que comparar:
+> hoje `saldoConta` carrega o valor da API em 2.654 dos 2.681 clientes. Esta
+> consulta só faz sentido **depois** de um import que grave.
+
+A pergunta por trás dela é séria: o cron cobre ~2.650 clientes/dia com 0 falhas
+em 20 dias, e a planilha traz 1.188. **Pode ser que o trabalho manual seja
+redundante** — e aí o conserto certo é aposentar o passo, não repará-lo.
+
+O que decide isso é a divergência entre os dois números nas contas em comum. Se
+for zero (ou centavos de arredondamento), a planilha não acrescenta informação.
+Se houver divergência material, ela acrescenta — e aí vale entender qual das
+duas está certa antes de escolher.
+
+### Como preparar
+
+O comparativo exige os dois valores ao mesmo tempo, e hoje a coluna guarda só um.
+A forma barata, sem coluna nova: rodar a consulta **logo depois** de um import
+bem-sucedido, contra o snapshot que o cron gravou de manhã. `MovimentacaoBtg` não
+serve — é movimentação, não saldo.
+
+```sql
+-- Rodar em .github/workflows/estado-do-banco.yml, no passo
+-- "Incidente — quem escreve saldoConta", DEPOIS de o import voltar a gravar.
+--
+-- Pré-condição, conferir ANTES de ler o resultado: a maioria dos carimbos de
+-- saldoConta tem de estar em 'saldo_em_cc'. Se ainda estiver em 'api', a
+-- consulta está comparando a API com ela mesma e o resultado é zero por
+-- construção — o mesmo tipo de armadilha do `com_erros`.
+SELECT
+  count(*)                                                    AS contas_comparadas,
+  count(*) FILTER (WHERE ABS(dif) > 0.01)                     AS divergem,
+  round(100.0 * count(*) FILTER (WHERE ABS(dif) > 0.01)
+        / NULLIF(count(*), 0), 1)                             AS pct_divergem,
+  round(percentile_cont(0.5) WITHIN GROUP (ORDER BY ABS(dif))::numeric, 2) AS mediana_dif,
+  round(max(ABS(dif))::numeric, 2)                            AS maior_dif
+FROM (
+  SELECT c."saldoConta" - c."contaCorrenteBase" AS dif
+  FROM "ClienteBackoffice" c
+  WHERE c."fonteUltimoUpdate"->>'saldoConta' LIKE 'saldo\_em\_cc:%'
+    AND c."contaCorrenteBase" IS NOT NULL
+) AS t;
+```
+
+`contaCorrenteBase` (`schema.prisma:796`) existe justamente para guardar o CC da
+Base BTG **sem** colidir com `saldoConta` — é o campo dedicado que o comentário
+da policy manda usar. Se ele estiver desatualizado, o caminho alternativo é
+gravar o valor da API num campo dedicado no mesmo padrão, o que é PR própria.
+
+### Como ler o resultado
+
+| resultado | o que significa |
+|---|---|
+| `divergem` ≈ 0 | a planilha é redundante — **aposentar o passo manual** |
+| `divergem` alto, `mediana_dif` pequena | diferença de arredondamento/horário; provavelmente redundante |
+| `divergem` alto, `mediana_dif` material | as duas fontes discordam de verdade — decidir qual manda ANTES de automatizar |
+
+**Não concluir nada antes de rodar.** O ponto desta rodada inteira é que número
+sem conferência vira premissa.

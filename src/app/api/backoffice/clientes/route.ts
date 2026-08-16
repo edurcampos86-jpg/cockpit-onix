@@ -3,6 +3,11 @@ import { getSession } from "@/lib/session";
 import { type FonteImport } from "@/lib/backoffice/field-source-policy";
 import { upsertPorPolitica } from "@/lib/backoffice/upsert-cliente";
 import { gateSanidadeSaldoCc } from "@/lib/backoffice/import-sanity";
+import {
+  apurarImport,
+  frasePraTela,
+  type MotivoDescarte,
+} from "@/lib/backoffice/contador-import";
 import { NextRequest, NextResponse } from "next/server";
 import { rbacEnforcementHabilitado, resolverCgesVisiveis } from "@/lib/rbac";
 import { getAuthContext } from "@/lib/auth-helpers";
@@ -448,12 +453,64 @@ export async function POST(request: NextRequest) {
     };
     const fonte: FonteImport | null = fontePorModo[modo] ?? null;
 
+    /* ── O RECIBO ──────────────────────────────────────────────────────────
+     * Esta rota era a ÚNICA dos ~19 tipos de job do sistema que não gravava
+     * linha de log. De 30/07 a 15/08 o Eduardo subiu o Saldo D0 em ~11 dias
+     * úteis; o banco registrou UMA escrita. Todo dia a resposta foi 200 e a
+     * tela disse "importado".
+     *
+     * A linha é criada ANTES de qualquer escrita e fechada em todos os
+     * caminhos de saída — inclusive nos que rejeitam o arquivo. Log que só
+     * existe no caminho feliz não teria pego este incidente.
+     *
+     * `tipo` por fonte (`import-saldo_em_cc`, `import-base_btg`, …) para que
+     * "quando foi o último Saldo D0?" seja uma linha de SQL, não um LIKE no
+     * resumo.
+     */
+    const tipoLog = `import-${fonte ?? modo}`;
+    const logImport = await prisma.btgSyncLog.create({
+      data: { tipo: tipoLog, trigger: "manual", userId: guard.session?.userId as string | undefined },
+    });
+    const iniciouEm = Date.now();
+
+    // Descartes por MOTIVO — agregado, nunca linha de cliente (o log é colado
+    // dentro de issue de incidente, e `conta` identifica cliente).
+    const descartes: Partial<Record<MotivoDescarte, number>> = {};
+    const contarDescarte = (m: MotivoDescarte, n = 1) => {
+      descartes[m] = (descartes[m] ?? 0) + n;
+    };
+
+    /** Fecha a linha de log. Chamado em TODA saída, inclusive rejeição. */
+    const fecharLog = async (args: {
+      sucesso: boolean;
+      escritas: number;
+      descartadas: number;
+      resumo: string;
+    }) => {
+      await prisma.btgSyncLog.update({
+        where: { id: logImport.id },
+        data: {
+          finalizado: new Date(),
+          sucesso: args.sucesso,
+          contasProcessadas: args.escritas,
+          contasComErro: args.descartadas,
+          resumo: `${args.resumo} dur:${Date.now() - iniciouEm}ms`,
+        },
+      });
+    };
+
     // Caller pode declarar o que ACHA que está mandando (automação sempre
     // declara). Heurística divergente = arquivo errado/malformado — rejeita
     // inteiro em vez de importar no modo errado (pior caso: saldo CC
     // truncado detectado como `primario` CRIARIA clientes-fantasma).
     const fonteEsperada = clean(body?.fonteEsperada);
     if (fonteEsperada && fonteEsperada !== fonte) {
+      await fecharLog({
+        sucesso: false,
+        escritas: 0,
+        descartadas: recebidos.length,
+        resumo: `rejeitado: fonte declarada "${fonteEsperada}" != detectada "${fonte}"`,
+      });
       return NextResponse.json(
         {
           error:
@@ -476,6 +533,12 @@ export async function POST(request: NextRequest) {
       });
       if (!gate.ok) {
         console.warn("[POST /clientes] gate de sanidade rejeitou:", gate.erro);
+        await fecharLog({
+          sucesso: false,
+          escritas: 0,
+          descartadas: recebidos.length,
+          resumo: `rejeitado pelo gate de sanidade (lidas:${recebidos.length} validas:${limpos.length})`,
+        });
         return NextResponse.json({ error: gate.erro }, { status: 422 });
       }
     }
@@ -496,6 +559,10 @@ export async function POST(request: NextRequest) {
     let criados = 0;
     let atualizados = 0;
     let orfaos = 0;
+    // `noop` = a linha chegou ao upsert e NENHUM campo foi escrito. Não é
+    // erro nem escrita, e até aqui não aparecia em lugar nenhum — é o ramo
+    // mais silencioso dos três.
+    let noopTotal = 0;
     let duplicadosResolvidos = 0;
     const bloqueadosAgg: Record<string, number> = {};
 
@@ -552,7 +619,10 @@ export async function POST(request: NextRequest) {
       let pareadosParaEnviar = pareados;
       if (fonte === "saldo_em_cc" || fonte === "informacoes") {
         for (const { existente } of pareados) {
-          if (!existente) orfaos++;
+          if (!existente) {
+            orfaos++;
+            contarDescarte("orfao_sem_cliente");
+          }
         }
         pareadosParaEnviar = pareados.filter((p) => p.existente);
       }
@@ -564,6 +634,14 @@ export async function POST(request: NextRequest) {
       criados += resPolitica.criados;
       atualizados += resPolitica.atualizados;
       orfaos += resPolitica.descartesTotal; // sem numeroConta = órfão também
+      // Separa os dois motivos que `descartesTotal` soma. Chamar os dois de
+      // "órfão" mandaria consertar a base quando o problema é o cabeçalho.
+      for (const d of resPolitica.descartes) {
+        contarDescarte(
+          d.motivo.startsWith("sem numeroConta") ? "sem_numero_conta" : "erro_no_upsert",
+        );
+      }
+      noopTotal += resPolitica.noop;
       for (const [campo, qtd] of Object.entries(resPolitica.camposBloqueados)) {
         bloqueadosAgg[campo] = (bloqueadosAgg[campo] ?? 0) + qtd;
       }
@@ -804,8 +882,27 @@ export async function POST(request: NextRequest) {
       partes.push("ABC recalculado");
     }
 
-    return NextResponse.json({
-      message: partes.join(" · "),
+    /* ── O VEREDITO ────────────────────────────────────────────────────────
+     * `recebidos.length` é o denominador certo, não `limpos.length`: linha
+     * que o `.map()` já descartou (sem nome E sem conta) também sumiu, e
+     * contar só as "limpas" esconderia justamente esse sumiço.
+     */
+    const veredicto = apurarImport({
+      lidas: recebidos.length,
+      criadas: criados,
+      atualizadas: atualizados,
+      semMudanca: noopTotal,
+      descartes,
+    });
+
+    await fecharLog({
+      sucesso: veredicto.ok,
+      escritas: veredicto.escritas,
+      descartadas: veredicto.descartadas,
+      resumo: `${fonte ?? modo} ${veredicto.resumo}${veredicto.fecha ? "" : " CONTA-NAO-FECHA"}`,
+    });
+
+    const corpo = {
       total: limpos.length,
       modo,
       fonte,
@@ -815,6 +912,36 @@ export async function POST(request: NextRequest) {
       orfaos,
       duplicadosResolvidos,
       camposBloqueados: bloqueadosAgg,
+      // O recibo, sempre — é o que a tela passa a mostrar.
+      recibo: {
+        lidas: veredicto.lidas,
+        escritas: veredicto.escritas,
+        semMudanca: veredicto.semMudanca,
+        descartadas: veredicto.descartadas,
+        motivos: veredicto.motivos,
+        ramo: veredicto.ramo,
+      },
+    };
+
+    /* Leu linhas e escreveu zero → ERRO, não sucesso.
+     *
+     * Foi `200 OK` com zero escrita que deixou ~11 dias úteis de importação do
+     * Eduardo evaporarem sem sinal nenhum. Sucesso silencioso é pior que falha
+     * barulhenta: a falha custa um susto, o silêncio custou onze dias.
+     *
+     * 422 e não 500: o servidor funcionou perfeitamente — quem não serviu foi
+     * o conteúdo. O `error` traz o RAMO, que é a resposta a "onde morreu?".
+     */
+    if (!veredicto.ok) {
+      return NextResponse.json(
+        { ...corpo, error: frasePraTela(veredicto, rotuloModo) },
+        { status: 422 },
+      );
+    }
+
+    return NextResponse.json({
+      ...corpo,
+      message: `${frasePraTela(veredicto, rotuloModo)} · ${partes.slice(1).join(" · ")}`,
     });
   } catch (error) {
     console.error("Erro ao importar clientes:", error);
