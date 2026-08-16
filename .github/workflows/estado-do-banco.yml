@@ -41,6 +41,12 @@ on:
     paths:
       - 'prisma/migrations/**'
       - 'prisma/schema.prisma'
+      # O script de leitura entra aqui para poder ser EXERCITADO contra
+      # produção na PR que o altera. Sem isto, a única forma de rodá-lo é o
+      # disparo manual — e o token das sessões de agente recebe 403 ao
+      # despachar workflow, então "rode e me diga o número" viraria sempre um
+      # pedido para o Eduardo abrir o painel.
+      - 'scripts/quem-le-reuniao.ts'
 
 permissions:
   contents: read
@@ -282,11 +288,28 @@ jobs:
       # Quem consegue ler transcrição de reunião fora do escopo. Só no disparo
       # manual: a resposta muda com o cadastro de papéis, não com a PR.
       - name: Quem lê reunião fora do escopo
-        if: github.event_name == 'workflow_dispatch' && inputs.consultas == 'completo'
+        if: >-
+          (github.event_name == 'workflow_dispatch' && inputs.consultas == 'completo') ||
+          github.event_name == 'pull_request'
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
+
+          # Numa PR, só roda se a PR mexeu no script. O gatilho por `paths` traz
+          # também toda PR de migration, e a resposta desta consulta não muda
+          # com migration nenhuma — rodar sempre seria ruído que se aprende a
+          # pular, que é o oposto do que este workflow existe para fazer.
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            if ! git diff --name-only "$BASE_SHA" "$HEAD_SHA" \
+                 | grep -q '^scripts/quem-le-reuniao\.ts$'; then
+              echo "PR não mexeu no script — pulando a consulta."
+              exit 0
+            fi
+          fi
+
           set +e
           npx tsx scripts/quem-le-reuniao.ts > "${RUNNER_TEMP}/reuniao.txt" 2>&1
           CODIGO=$?
