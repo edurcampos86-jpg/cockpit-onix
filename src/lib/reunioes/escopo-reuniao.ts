@@ -22,6 +22,13 @@
  * tudo pelo RBAC (admin, escopo "todas", config incompleta) segue enxergando
  * tudo — a mesma postura não-disruptiva de `src/lib/rbac.ts`.
  *
+ * ── ATENÇÃO: A FLAG ESTÁ LIGADA EM PRODUÇÃO ─────────────────────────────
+ * O DEFAULT de `RBAC_ENFORCEMENT` no código é OFF, mas o valor gravado em
+ * produção é `true` (medido em 16/08/2026). Este gate portanto VALE assim que
+ * subir — ele não fica dormente esperando alguém ligar a flag. Na mesma
+ * medição: 22 pessoas ativas, 1 com escopo restrito, e `Meeting` com ZERO
+ * linhas — o buraco era real, o acervo exposto por ele era vazio.
+ *
  * Quando a ponte reunião→cliente (#357) entrar, dá para somar um segundo eixo:
  * reunião cujo cliente casado está no seu escopo de CGE. Enquanto ela não
  * existir na `main`, prender o gate a ela seria adiar a correção do vazamento.
