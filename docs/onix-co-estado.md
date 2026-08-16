@@ -547,10 +547,34 @@ silenciosa não avisa; indisponibilidade avisa.
 **Revertido pela #335.** Nenhuma migration entrou entre a #317 e o revert, então
 o estrago ficou em zero — por sorte de calendário, não por desenho.
 
-⚠️ **O caminho revertido ainda NÃO foi exercitado.** A última migration
-(`20260812205040`) já estava aplicada antes do revert, e nenhuma nova entrou
-desde. O smoke prova que **não há divergência**, não que o mecanismo funciona.
-A primeira PR que carregar migration é a prova — trate-a como tal.
+✅ **EXERCITADO E PROVADO em 15/08/2026** pela #355 (`DeployProbe`), a primeira
+migration a entrar depois do revert. Até ali o smoke provava apenas **ausência
+de divergência**; a #355 criou o caso que faltava — um schema que o banco
+PRECISAVA mudar.
+
+O que se observou, no smoke das 22:45 UTC sobre `b0ebafb`:
+
+| sinal | resultado |
+|---|---|
+| `Convergiu: b0ebafb está no ar` | o código no ar É o commit da migration |
+| `migrations.pendentes` | **vazio** |
+| `migrations.falhas` | vazio (não vazio reprova o step) |
+
+Como `pendentes` é a diferença entre as pastas de `prisma/migrations/` **na
+imagem no ar** e as linhas de `_prisma_migrations` com `finished_at`
+preenchido e `rolled_back_at` nulo (`src/lib/migrations-aplicadas.ts`),
+`pendentes` vazio significa que `20260815152536_deploy_probe` **entrou no
+banco com `finished_at` gravado**. O `startCommand` aplicou.
+
+⚠️ Registro honesto do método: os dois sinais vêm da **mesma fonte** (o
+`/api/health` lendo `_prisma_migrations`). Nem `psql` contra produção nem o
+`workflow_dispatch` de `estado-do-banco.yml` estavam disponíveis à sessão
+(rede bloqueada e 403 de permissão). A leitura independente por SQL continua
+pendente — e a PR que remover a `DeployProbe` é a segunda prova, desta vez de
+um `DROP`.
+
+A tabela `DeployProbe` **fica no ar como marco** até o Eduardo confirmar a
+remoção.
 
 **Para retomar o `preDeployCommand`** (não fazer sem isto):
 1. Sintaxe em **array**, confirmada em documentação.
