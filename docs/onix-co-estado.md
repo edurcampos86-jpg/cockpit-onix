@@ -605,7 +605,9 @@ teste sem banco.
 
 ### Parceiros — Fase 1 completa em produção
 
-Cinco tabelas no ar, **todas vazias**, e nada as lê ainda:
+Cinco tabelas no ar, **todas vazias** — e desde a #362 a ficha do cliente
+**lê** `ParceiroCliente` (primeira leitura da Fase 1 no produto: o cabeçalho
+mostra `· Parceiro X` quando existe vínculo vigente).
 
 | tabela / campo | PR | o que garante |
 |---|---|---|
@@ -626,10 +628,33 @@ Aquele é da `Pessoa` do time, tem `pessoaId` NOT NULL, **não tem campo de
 percentual**, e `atualizarAcordo` faz `UPDATE` no lugar — o que violaria a regra
 de que alterar percentual FECHA e ABRE.
 
-**Piloto: `scripts/seed-parceiro-piloto.ts` (#330).** Dry-run por padrão;
-escreve só com `--aplicar`. Existe para provar que a modelagem serve ao caso
-real antes de haver UI. **Não contém migration** — merge dele não aplica nada;
-a escrita é ato manual separado.
+**Piloto: `scripts/seed-parceiro-piloto.ts` (#330, #360, #362).** Dry-run por
+padrão; escreve só com `--aplicar`, em UMA transação, tudo-ou-nada. Existe para
+provar que a modelagem serve ao caso real antes de haver UI. **Não contém
+migration** — merge dele não aplica nada; a escrita é ato separado.
+
+⚠️ **O piloto do Renan ainda NÃO foi executado em produção**, e a razão é
+estrutural, não de agenda: **uma sessão de agente não alcança produção**. O
+`DATABASE_URL` de produção é secret do repositório e a rede da sessão é
+bloqueada (`CONNECT 403` até o próprio domínio do app). O único lugar deste
+projeto que tem o segredo E a rota é o **GitHub Actions** — daí
+`.github/workflows/piloto-parceiro.yml` (dispatch manual, `aplicar` nascendo
+em `nao`, com checagem de `numeroConta` duplicado ANTES de qualquer escrita).
+
+Combinado com o Eduardo para o acordo do Renan (sócio da Onix Imobiliária):
+**20% em todos os produtos, EXCETO imobiliária**, gravado como **seis linhas** —
+cinco a 20% e `imobiliaria` a **0% explícito**. O 0% é o ponto: linha com zero
+É acordo, registra que o produto foi decidido como fora; ausência de linha é
+indistinguível de "ainda não cadastrei". Ele já recebe como sócio na Imob, e
+uma sexta linha a 20% ali pagaria duas vezes.
+
+🔴 **Pendência do Financeiro — o campo guarda o percentual, não a BASE.**
+`AcordoComercialParceiro.percentual` diz *20%*, e **em lugar nenhum do banco
+está escrito 20% DE QUÊ**. O acordo real é sobre a **receita líquida**, e isso
+existe hoje só na cabeça de quem combinou. Duas leituras futuras (uma sobre
+receita bruta, outra sobre líquida) devolveriam números diferentes com a mesma
+linha e ambas pareceriam certas. Resolver isso é decisão do Financeiro antes de
+qualquer cálculo de comissão automático — não de código.
 
 ### Infra de CI observada
 

@@ -1,0 +1,234 @@
+name: piloto-parceiro
+
+# Roda o piloto de parceiro CONTRA PRODUÇÃO, a partir do painel de Actions.
+#
+# ── POR QUE UM WORKFLOW, E NÃO O TERMINAL ────────────────────────────────
+# `scripts/seed-parceiro-piloto.ts` existe desde a #330 e nunca rodou: quem
+# escreve o script (sessão de agente) NÃO ALCANÇA PRODUÇÃO — a rede é
+# bloqueada (`CONNECT 403`) e o `DATABASE_URL` de produção é secret do
+# repositório, não variável de ambiente da sessão.
+#
+# O Actions é o único lugar deste projeto que tem as duas coisas: o segredo e
+# a rota até o banco. É por isso que o `estado-do-banco.yml` existe, e é o
+# mesmo motivo aqui.
+#
+# ── DRY-RUN É O PADRÃO, E O PADRÃO É O QUE SE CLICA SEM LER ─────────────
+# `aplicar` nasce em `nao`. Escrever exige trocar o valor à mão, na hora, o
+# que é a diferença entre uma decisão e um clique distraído. O dry-run
+# imprime o plano completo e não abre transação nenhuma.
+#
+# ── A CHECAGEM QUE VEM ANTES ─────────────────────────────────────────────
+# `numeroConta` NÃO é @unique (src/lib/backoffice/upsert-cliente.ts:10-11). O
+# script aborta o lote quando uma conta casa com dois clientes, e é o certo —
+# mas descobrir isso já dentro da execução desperdiça a rodada. O primeiro
+# step confere SÓ AS CONTAS INFORMADAS e falha antes de qualquer escrita.
+
+on:
+  workflow_dispatch:
+    inputs:
+      contas:
+        description: 'numeroConta dos clientes, separados por vírgula'
+        required: true
+        default: '009100909,004968281,037584174,008541947'
+      nome:
+        description: 'Nome do parceiro'
+        required: true
+        default: 'Renan'
+      tipo:
+        description: 'Tipo do parceiro (socio, contabil, outro…)'
+        required: true
+        default: 'socio'
+      acordos:
+        description: 'produto:percentual, separados por vírgula. 0% É acordo — registra o produto decidido como fora'
+        required: true
+        default: 'assessoria:20,seguro_resgatavel:20,seguro_risco:20,previdencia:20,consorcio:20,imobiliaria:0'
+      data_inicio:
+        description: 'Início da vigência, AAAA-MM-DD. Vazio = agora'
+        required: false
+        default: ''
+      aplicar:
+        description: 'ESCREVE no banco de produção. Deixe em "nao" para dry-run'
+        type: choice
+        options:
+          - nao
+          - sim
+        default: nao
+
+permissions:
+  contents: read
+
+concurrency:
+  # Um de cada vez. Duas execuções simultâneas com `aplicar=sim` disputariam
+  # os mesmos índices parciais únicos, e a segunda morreria com erro de
+  # constraint no meio da transação em vez de mensagem.
+  group: piloto-parceiro
+  cancel-in-progress: false
+
+jobs:
+  piloto:
+    name: Piloto de parceiro
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Conferir que o secret existe
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "::error::secrets.DATABASE_URL não está configurado neste repositório."
+            exit 1
+          fi
+          echo "secrets.DATABASE_URL presente."
+
+      # ── Contas xará, restrito às contas informadas ──────────────────────
+      - name: Checagem de numeroConta duplicado
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          CONTAS: ${{ inputs.contas }}
+        run: |
+          set -euo pipefail
+
+          # Só dígitos e vírgula sobrevivem: `numeroConta` é numérico com zero à
+          # esquerda, e a lista entra numa consulta montada por string. Filtrar
+          # aqui é mais barato que confiar em quem digita.
+          LIMPO=$(printf '%s' "$CONTAS" | tr -cd '0-9,' | tr -s ',')
+          if [ -z "$LIMPO" ]; then
+            echo "::error::Lista de contas vazia depois da limpeza: $CONTAS"
+            exit 1
+          fi
+          EM_SQL=$(printf "'%s'" "$(printf '%s' "$LIMPO" | sed "s/,/','/g")")
+          echo "Conferindo: $EM_SQL"
+
+          cat > "${RUNNER_TEMP}/dup.sql" <<SQL
+          SELECT "numeroConta", count(*) AS clientes
+          FROM "ClienteBackoffice"
+          WHERE "numeroConta" IN (${EM_SQL})
+          GROUP BY 1
+          HAVING count(*) > 1
+          ORDER BY 1;
+          SQL
+
+          docker run --rm \
+            -v "${RUNNER_TEMP}/dup.sql:/q.sql:ro" \
+            -e "PGURL=${DATABASE_URL}" \
+            postgres:16-alpine \
+            sh -c 'psql "$PGURL" -v ON_ERROR_STOP=1 --no-psqlrc --tuples-only -f /q.sql' \
+            | tee "${RUNNER_TEMP}/dup.txt"
+
+          if [ -s "${RUNNER_TEMP}/dup.txt" ] && grep -q '[0-9]' "${RUNNER_TEMP}/dup.txt"; then
+            {
+              echo '## 🛑 Conta duplicada'
+              echo
+              echo 'Alguma das contas informadas casa com mais de um cliente:'
+              echo '```'
+              cat "${RUNNER_TEMP}/dup.txt"
+              echo '```'
+              echo
+              echo 'O piloto NÃO rodou. Desambigue os cadastros antes.'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::numeroConta duplicado entre as contas informadas. Piloto não executado."
+            exit 1
+          fi
+
+          echo "Nenhuma das contas informadas está duplicada."
+          echo '- ✅ contas sem duplicata' >> "$GITHUB_STEP_SUMMARY"
+
+      # ── O parceiro já existe como cliente? ──────────────────────────────
+      #
+      # Informativo, e de propósito ANTES da execução: se o Renan já tem conta
+      # na casa, o vínculo de identidade (`--parceiro-conta`) é uma decisão a
+      # tomar — e cadastrá-lo de novo criaria a segunda pessoa que o campo
+      # `Parceiro.clienteBackofficeId` existe para evitar.
+      #
+      # Devolve numeroConta e nome, sem PL nem documento.
+      - name: O parceiro já é cliente?
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          NOME: ${{ inputs.nome }}
+        run: |
+          set -euo pipefail
+          # Aspas simples do nome viram duplicadas — é o escape de literal do
+          # SQL, e nome com apóstrofo é comum ("D'Ávila").
+          SEGURO=$(printf '%s' "$NOME" | sed "s/'/''/g")
+
+          cat > "${RUNNER_TEMP}/quem.sql" <<SQL
+          SELECT "numeroConta", nome
+          FROM "ClienteBackoffice"
+          WHERE nome ILIKE '%${SEGURO}%'
+          ORDER BY nome
+          LIMIT 20;
+          SQL
+
+          docker run --rm \
+            -v "${RUNNER_TEMP}/quem.sql:/q.sql:ro" \
+            -e "PGURL=${DATABASE_URL}" \
+            postgres:16-alpine \
+            sh -c 'psql "$PGURL" -v ON_ERROR_STOP=1 --no-psqlrc -f /q.sql' \
+            | tee "${RUNNER_TEMP}/quem.txt"
+
+          {
+            echo
+            echo "## Clientes cujo nome contém \"${NOME}\""
+            echo
+            echo '```'
+            cat "${RUNNER_TEMP}/quem.txt"
+            echo '```'
+            echo
+            echo 'Se um deles É o parceiro, a conta dele deve entrar em `--parceiro-conta` numa próxima execução.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: npm ci
+        run: npm ci
+
+      - name: Piloto
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          CONTAS: ${{ inputs.contas }}
+          NOME: ${{ inputs.nome }}
+          TIPO: ${{ inputs.tipo }}
+          ACORDOS: ${{ inputs.acordos }}
+          DATA_INICIO: ${{ inputs.data_inicio }}
+          APLICAR: ${{ inputs.aplicar }}
+        run: |
+          set -euo pipefail
+
+          ARGS=(--conta "$CONTAS" --nome "$NOME" --tipo "$TIPO" --acordo "$ACORDOS")
+          if [ -n "${DATA_INICIO:-}" ]; then
+            ARGS+=(--data-inicio "$DATA_INICIO")
+          fi
+          if [ "$APLICAR" = "sim" ]; then
+            ARGS+=(--aplicar)
+            echo "::warning::APLICAR=sim — esta execução ESCREVE no banco de produção."
+          fi
+
+          npx tsx scripts/seed-parceiro-piloto.ts "${ARGS[@]}" 2>&1 | tee "${RUNNER_TEMP}/piloto.txt"
+
+      - name: Resumo
+        if: always()
+        env:
+          APLICAR: ${{ inputs.aplicar }}
+        run: |
+          set -euo pipefail
+          [ -f "${RUNNER_TEMP}/piloto.txt" ] || exit 0
+          if [ "$APLICAR" = "sim" ]; then
+            TITULO='## Piloto APLICADO (escreveu)'
+          else
+            TITULO='## Piloto em DRY-RUN (não escreveu)'
+          fi
+          {
+            echo
+            echo "$TITULO"
+            echo
+            echo '```'
+            cat "${RUNNER_TEMP}/piloto.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
