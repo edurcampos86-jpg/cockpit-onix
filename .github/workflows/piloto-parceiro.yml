@@ -178,7 +178,10 @@ jobs:
             cat "${RUNNER_TEMP}/quem.txt"
             echo '```'
             echo
-            echo 'Se um deles É o parceiro, a conta dele deve entrar em `--parceiro-conta` numa próxima execução.'
+            # Sem crase: dentro de aspas simples o shellcheck lê crase como
+            # substituição de comando (SC2016), e o gate do actionlint roda
+            # com -shellcheck. Aspas tipográficas dizem a mesma coisa.
+            echo 'Se um deles É o parceiro, a conta dele deve entrar em “--parceiro-conta” numa próxima execução.'
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/setup-node@v4
