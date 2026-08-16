@@ -67,6 +67,9 @@
  *
  *   # `--conta` também aceita repetição e vírgula:
  *   ... --conta 009100909 --conta 004968281,037584174
+ *
+ *   # se o parceiro TAMBÉM é cliente da casa, liga as duas pontas:
+ *   ... --parceiro-conta <numeroConta do próprio parceiro>
  */
 import "dotenv/config";
 import { PrismaClient, Prisma } from "../src/generated/prisma/client";
@@ -122,6 +125,8 @@ const APLICAR = process.argv.includes("--aplicar");
 const CONTAS = argLista("conta");
 const NOME = arg("nome") ?? "Renan";
 const TIPO_BRUTO = arg("tipo") ?? "socio";
+/** Conta do PRÓPRIO parceiro, quando ele também é cliente da casa. Opcional. */
+const PARCEIRO_CONTA = arg("parceiro-conta");
 // Sem default, de propósito. Ver "O QUE ELE NÃO FAZ" no cabeçalho.
 const PRODUTO_BRUTO = arg("produto");
 const PERCENTUAL_BRUTO = arg("percentual");
@@ -206,9 +211,71 @@ async function main() {
   passo(2, "Parceiro");
   const parceiroExistente = await prisma.parceiro.findFirst({
     where: { nome: NOME },
-    select: { id: true, nome: true, tipo: true },
+    select: { id: true, nome: true, tipo: true, clienteBackofficeId: true },
   });
   ok(parceiroExistente ? `"${NOME}" já existe (${parceiroExistente.id})` : `"${NOME}" não existe — seria criado`);
+
+  // ── O parceiro TAMBÉM é cliente? ───────────────────────────────────────
+  //
+  // `Parceiro.clienteBackofficeId` é o campo central da #306: parceiro PODE ser
+  // cliente e não precisa ser. Sem ele preenchido, um sócio que também tem
+  // conta na casa entra no sistema como duas pessoas diferentes, e ninguém
+  // consegue perguntar "quanto o Renan tem, entre o que é dele e o que ele
+  // trouxe?" sem casar nome à mão.
+  //
+  // Opcional, e resolvido pelas MESMAS regras das outras contas — inclusive a
+  // recusa por homônimo. Uma identidade atribuída ao cliente errado é pior que
+  // identidade nenhuma.
+  let identidade: { id: string; nome: string } | null = null;
+  if (PARCEIRO_CONTA) {
+    const achados = await prisma.clienteBackoffice.findMany({
+      where: { numeroConta: PARCEIRO_CONTA },
+      select: { id: true, nome: true },
+    });
+    if (achados.length === 0) {
+      throw new Error(`--parceiro-conta ${PARCEIRO_CONTA}: nenhum cliente com este numeroConta.`);
+    }
+    if (achados.length > 1) {
+      throw new Error(
+        `--parceiro-conta ${PARCEIRO_CONTA}: ${achados.length} clientes — ` +
+          `${achados.map((c) => `${c.id} (${c.nome})`).join(", ")}. Desambigue antes.`,
+      );
+    }
+    identidade = achados[0];
+
+    // @unique em clienteBackofficeId: se OUTRO parceiro já reivindica esta
+    // conta, o UPDATE falharia com unique_violation no meio da transação.
+    const jaReivindicado = await prisma.parceiro.findUnique({
+      where: { clienteBackofficeId: identidade.id },
+      select: { id: true, nome: true },
+    });
+    if (jaReivindicado && jaReivindicado.id !== parceiroExistente?.id) {
+      throw new Error(
+        `A conta ${PARCEIRO_CONTA} (${identidade.nome}) já é a identidade do parceiro ` +
+          `"${jaReivindicado.nome}". Uma conta representa no máximo um parceiro.`,
+      );
+    }
+
+    // Trocar identidade é decisão de negócio, do mesmo tipo de mudar percentual
+    // (regra (b) da #318): um seed não a toma sozinho.
+    if (
+      parceiroExistente?.clienteBackofficeId &&
+      parceiroExistente.clienteBackofficeId !== identidade.id
+    ) {
+      throw new Error(
+        `"${NOME}" já tem identidade de cliente (${parceiroExistente.clienteBackofficeId}) ` +
+          `diferente da conta ${PARCEIRO_CONTA}. NÃO sobrescrito: trocar identidade é decisão de negócio.`,
+      );
+    }
+
+    if (parceiroExistente?.clienteBackofficeId === identidade.id) {
+      ok(`identidade já gravada: ${identidade.nome} (conta ${PARCEIRO_CONTA})`);
+    } else {
+      ok(`identidade de cliente: ${identidade.nome} (conta ${PARCEIRO_CONTA})`);
+    }
+  } else {
+    ok("sem --parceiro-conta: o parceiro não fica ligado a nenhuma conta própria");
+  }
 
   // ── Uma passada por conta, sem escrever nada ───────────────────────────
   passo(3, `Clientes (${CONTAS.length} conta(s))`);
@@ -300,7 +367,9 @@ async function main() {
   const jaVinculados = situacoes.filter((s) => s.estado === "ja_vinculado");
 
   passo(4, "Plano");
+  const gravaIdentidade = identidade !== null && parceiroExistente?.clienteBackofficeId !== identidade.id;
   plano(parceiroExistente ? `REUSAR Parceiro ${parceiroExistente.id}` : `CRIAR Parceiro "${NOME}" (tipo ${tipo})`);
+  if (gravaIdentidade) plano(`LIGAR o parceiro à conta ${PARCEIRO_CONTA} (${identidade!.nome})`);
   plano(`GARANTIR acordo vigente ${percentual.toString()}% em "${produto}"`);
   plano(`VINCULAR ${aVincular.length} cliente(s)${aVincular.length ? ": " + aVincular.map((s) => s.conta).join(", ") : ""}`);
   if (jaVinculados.length) plano(`PULAR ${jaVinculados.length} já vinculado(s): ${jaVinculados.map((s) => s.conta).join(", ")}`);
@@ -325,10 +394,29 @@ async function main() {
     const parceiro =
       parceiroExistente ??
       (await tx.parceiro.create({
-        data: { nome: NOME, tipo, criadoPor: "seed-parceiro-piloto" },
-        select: { id: true, nome: true, tipo: true },
+        data: {
+          nome: NOME,
+          tipo,
+          // Já nasce ligado quando a conta veio na linha de comando — um
+          // UPDATE logo depois deixaria uma janela com o parceiro sem
+          // identidade, e é justamente essa janela que a #306 quis fechar.
+          clienteBackofficeId: identidade?.id ?? null,
+          criadoPor: "seed-parceiro-piloto",
+        },
+        select: { id: true, nome: true, tipo: true, clienteBackofficeId: true },
       }));
     ok(`Parceiro ${parceiro.id}`);
+
+    // Parceiro que já existia e ainda não tinha identidade. As duas recusas
+    // (conta de outro parceiro, identidade diferente já gravada) foram
+    // resolvidas no passo 2 — aqui só resta o caso limpo.
+    if (identidade && parceiro.clienteBackofficeId !== identidade.id) {
+      await tx.parceiro.update({
+        where: { id: parceiro.id },
+        data: { clienteBackofficeId: identidade.id, atualizadoPor: "seed-parceiro-piloto" },
+      });
+      ok(`Identidade de cliente ligada — ${identidade.nome}`);
+    }
 
     // Acordo: idempotente pelo par (parceiro, produto) vigente. Se já houver um
     // vigente com OUTRO percentual, NÃO sobrescreve — alterar percentual é
@@ -383,6 +471,7 @@ async function main() {
       id: true,
       nome: true,
       tipo: true,
+      clienteBackoffice: { select: { nome: true, numeroConta: true, saldo: true } },
       acordos: { where: { dataFim: null }, select: { tipoProduto: true, percentual: true } },
       clientes: {
         where: { dataFim: null },
@@ -391,6 +480,15 @@ async function main() {
     },
   });
   ok(`"${parceiro.nome}" (${parceiro.tipo})`);
+  // O PL próprio fica FORA do AUM abaixo de propósito: o que ele traz e o que
+  // ele tem são números diferentes, e somá-los inflaria a carteira do parceiro
+  // com o dinheiro dele mesmo.
+  if (parceiro.clienteBackoffice) {
+    ok(
+      `  é cliente: ${parceiro.clienteBackoffice.nome} · conta ${parceiro.clienteBackoffice.numeroConta}` +
+        ` · PL próprio ${parceiro.clienteBackoffice.saldo.toLocaleString("pt-BR")}`,
+    );
+  }
   for (const a of parceiro.acordos) ok(`  acordo vigente: ${a.percentual.toString()}% em ${a.tipoProduto}`);
   const aum = parceiro.clientes.reduce((s, c) => s + c.cliente.saldo, 0);
   ok(`  clientes vigentes: ${parceiro.clientes.length} · AUM ${aum.toLocaleString("pt-BR")}`);
