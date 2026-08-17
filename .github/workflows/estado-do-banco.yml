@@ -342,6 +342,65 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # ── Contas xará ──────────────────────────────────────────────────────
+      #
+      # `ClienteBackoffice.numeroConta` NÃO é @unique (ver o comentário em
+      # src/lib/backoffice/upsert-cliente.ts:10-11) — e dois clientes com o
+      # mesmo número é situação real, não hipótese. Todo script que resolve
+      # cliente POR CONTA aborta quando isso acontece: é o caso do
+      # seed-parceiro-piloto, que recusa o lote inteiro em vez de escolher.
+      #
+      # Sem esta leitura, a duplicata só aparece NA HORA de rodar, com o
+      # comando pronto e a conta na mão. Aqui ela aparece antes, ao lado do
+      # diff, na PR que já roda este workflow.
+      #
+      # SOMENTE LEITURA e SEM LINHA DE CLIENTE: agregados e o `numeroConta`
+      # cru, sem nome, CPF ou saldo — mesma régua do resto do arquivo.
+      - name: Contas com numeroConta duplicado
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          cat > "${RUNNER_TEMP}/duplicadas.sql" <<'SQL'
+          SELECT '=== Resumo ===' AS secao;
+          SELECT
+            count(*)                    AS numeros_duplicados,
+            coalesce(sum(linhas), 0)    AS clientes_envolvidos
+          FROM (
+            SELECT "numeroConta", count(*) AS linhas
+            FROM "ClienteBackoffice"
+            GROUP BY 1
+            HAVING count(*) > 1
+          ) d;
+
+          -- Só o número e a contagem. Quem precisa do nome abre a ficha.
+          SELECT '=== Quais (até 20) ===' AS secao;
+          SELECT "numeroConta", count(*) AS clientes
+          FROM "ClienteBackoffice"
+          GROUP BY 1
+          HAVING count(*) > 1
+          ORDER BY 2 DESC, 1
+          LIMIT 20;
+          SQL
+
+          # postgres:16-alpine para casar a versão do cliente com o Postgres 16
+          # do Railway — mesma escolha do db-backup.yml e do step de auditoria.
+          docker run --rm \
+            -v "${RUNNER_TEMP}/duplicadas.sql:/q.sql:ro" \
+            -e "PGURL=${DATABASE_URL}" \
+            postgres:16-alpine \
+            sh -c 'psql "$PGURL" -v ON_ERROR_STOP=1 --no-psqlrc -f /q.sql' \
+            | tee "${RUNNER_TEMP}/duplicadas.txt"
+
+          {
+            echo
+            echo '## Contas duplicadas'
+            echo
+            echo '```'
+            cat "${RUNNER_TEMP}/duplicadas.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       # Só no disparo manual com `completo`. São as consultas da auditoria BTG:
       # úteis de vez em quando, ruído em toda PR de migration.
       - name: Consultas de auditoria (BtgSyncLog e fontes)

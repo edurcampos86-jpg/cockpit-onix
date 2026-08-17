@@ -19,7 +19,7 @@ export default async function ClienteDetalhePage({
 }) {
   const { id } = await params;
 
-  const [cliente, movimentacoes] = await Promise.all([
+  const [cliente, movimentacoes, vinculoParceiro] = await Promise.all([
     prisma.clienteBackoffice.findUnique({
       where: { id },
       include: {
@@ -46,6 +46,20 @@ export default async function ClienteDetalhePage({
       where: { clienteId: id },
       orderBy: { data: "desc" },
       take: 30,
+    }),
+    // De quem é este cliente HOJE. Primeira leitura de `ParceiroCliente` no app:
+    // as tabelas da Fase 1 estão em produção desde a #306–#312 e, até aqui,
+    // NADA no produto as lia — o vínculo existia no banco e não chegava a quem
+    // atende. `dataFim: null` é a definição de vigente da casa (nunca comparar
+    // com `now()`: `TIMESTAMP(3)` arredonda para cima e joga a linha recém
+    // gravada no futuro).
+    //
+    // Fora do `include` do cliente de propósito: entra em paralelo aqui e não
+    // engorda o objeto que é serializado inteiro para o client em três
+    // componentes abaixo.
+    prisma.parceiroCliente.findFirst({
+      where: { clienteId: id, dataFim: null },
+      select: { parceiro: { select: { nome: true } } },
     }),
   ]);
 
@@ -86,7 +100,12 @@ export default async function ClienteDetalhePage({
     <div className="space-y-6">
       <PageHeader
         title={cliente.nome}
-        description={`Conta ${cliente.numeroConta} · Classe ${cliente.classificacao}`}
+        description={
+          `Conta ${cliente.numeroConta} · Classe ${cliente.classificacao}` +
+          // Só aparece quando existe: cliente sem parceiro é o caso comum, e um
+          // "Parceiro: —" fixo cansaria a linha em toda ficha para informar nada.
+          (vinculoParceiro ? ` · Parceiro ${vinculoParceiro.parceiro.nome}` : "")
+        }
       />
       <div className="px-8 space-y-6">
         <Link
