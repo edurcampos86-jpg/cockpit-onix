@@ -1,11 +1,11 @@
 /**
  * Semeadura idempotente da tabela `Empresa` — fonte única.
  *
- * Compartilhado por `scripts/seed-empresas.ts` (terminal, semeia raiz + as 5) e
- * por `POST /api/empresas/hierarquia` (navegador: `acao` omitida semeia SÓ a
- * raiz; `acao: "seed-filhas"` semeia as 5 já penduradas). A mecânica de
- * idempotência e a lista canônica moram aqui; os consumidores só escolhem
- * QUAIS empresas passar e como reportar o resultado.
+ * Compartilhado por `scripts/seed-empresas.ts` (terminal, semeia a árvore
+ * inteira) e por `POST /api/empresas/hierarquia` (navegador: `acao` omitida
+ * semeia SÓ a holding; `acao: "seed-filhas"` semeia todo o resto já
+ * pendurado). A mecânica de idempotência e a lista canônica moram aqui; os
+ * consumidores só escolhem QUAIS nós passar e como reportar o resultado.
  *
  * ── AS FILHAS NASCEM PENDURADAS ──────────────────────────────────────────
  * Até a PR-B4 o seed criava TODA empresa como raiz solta e o reparenting as
@@ -14,6 +14,14 @@
  * com pai. O reparenting não some por isso; ele deixa de ser etapa obrigatória
  * do bootstrap e passa a ser o que sempre deveria ter sido — FERRAMENTA DE
  * REPARO, para o dia em que uma linha aparecer com o pai errado.
+ *
+ * ── TRÊS NÍVEIS: A ORDEM DE INSERÇÃO PASSOU A SER CALCULADA ──────────────
+ * Com 2 níveis bastava separar "raízes" de "filhas" e mandar dois
+ * `createMany`. Com 3, um departamento pendurado numa empresa exige que a
+ * EMPRESA já exista, que por sua vez exige a holding — a FK auto-referente
+ * impõe uma ordem topológica. `lotesPorProfundidade` calcula essa ordem a
+ * partir do próprio `parentId`, então acrescentar um quarto nível um dia não
+ * pede mudança nenhuma aqui.
  *
  * ── POR QUE É IDEMPOTENTE POR CONSTRUÇÃO ─────────────────────────────────
  * `createMany({ skipDuplicates: true })`: linha cuja PK já existe é ignorada e
@@ -38,6 +46,7 @@
  * `src/lib/backoffice/recon-identidade.ts`.
  */
 import type { PrismaClient } from "@/generated/prisma/client";
+import type { TipoNo } from "@/lib/empresas/hierarquia";
 
 /** O contrato mínimo usado aqui: contar, listar e criar pulando duplicata. */
 export type ClienteEmpresa = Pick<PrismaClient, "empresa">;
@@ -45,6 +54,10 @@ export type ClienteEmpresa = Pick<PrismaClient, "empresa">;
 export type EmpresaSemente = {
   id: string;
   nome: string;
+  /** holding | empresa | departamento. Vem do catálogo, nunca é deduzido. */
+  tipo: TipoNo;
+  /** Função que se repete no grupo (as 6 "Qualidade e Pós-venda"). */
+  transversal: boolean;
   /**
    * Pai com que a linha NASCE. `null` = raiz.
    *
@@ -58,9 +71,9 @@ export type EmpresaSemente = {
 /* ── A LISTA VEM DO CATÁLOGO, NÃO DAQUI ──────────────────────────────────
  *
  * As três constantes abaixo eram literais neste arquivo. Passaram a derivar de
- * `lib/empresas/catalogo.ts`, que é a declaração única de quem existe no grupo
- * e de ONDE cada empresa aparece (`cadastrada` para o cadastro, `noHub` para a
- * tela inicial).
+ * `lib/empresas/catalogo.ts`, que é a declaração única da ESTRUTURA — quem
+ * existe, com que papel (`tipo`), pendurado em quem (`parentId`) e onde
+ * aparece (`noHub`).
  *
  * O motivo é o histórico do repositório, não preferência: a mesma lista já
  * esteve escrita em três lugares que não se conheciam e os três divergiam —
@@ -69,56 +82,73 @@ export type EmpresaSemente = {
  * quarto. Um literal só é fonte de verdade enquanto é o ÚNICO; a partir do
  * segundo, é cópia.
  *
- * Os três símbolos e os consumidores são os mesmos; `catalogo.test.ts` trava os
- * ids contra o catálogo. O formato ganhou `parentId` na PR-B4 (ver o topo
- * deste arquivo) — a semente passou a carregar com quem a linha nasce.
+ * `catalogo.test.ts` trava os ids contra o catálogo. O formato ganhou
+ * `parentId` na PR-B4 e `tipo`/`transversal` nesta — a semente carrega tudo
+ * que a linha precisa para nascer no lugar certo, com o papel certo.
  *
- * Ninguém depende da ORDEM da lista: `semearEmpresas` separa raízes de filhas
- * antes de escrever, `lerArvore` ordena no SQL, e o script imprime contagens.
- * O CONJUNTO é o que o teste trava.
+ * Ninguém depende da ORDEM da lista: `semearEmpresas` reordena por
+ * profundidade antes de escrever, `lerArvore` ordena no SQL, e o script
+ * imprime contagens. O CONJUNTO é o que o teste trava.
  *
  * O import é seguro como estático: `catalogo.ts` é PURO (sem prisma, sem
  * `server-only`), então ele não reintroduz o problema que o guard de
  * DATABASE_URL do script existe para evitar. */
 import { CATALOGO_EMPRESAS, RAIZ_DO_GRUPO, empresasCadastradas } from "@/lib/empresas/catalogo";
 
-const doCatalogo = (id: string, parentId: string | null): EmpresaSemente => {
+const semear = (e: (typeof CATALOGO_EMPRESAS)[number]): EmpresaSemente => ({
+  id: e.id,
+  nome: e.nome,
+  tipo: e.tipo,
+  transversal: e.transversal === true,
+  parentId: e.parentId,
+});
+
+const doCatalogo = (id: string): EmpresaSemente => {
   const e = CATALOGO_EMPRESAS.find((x) => x.id === id);
   if (!e) throw new Error(`"${id}" não está em lib/empresas/catalogo.ts`);
-  return { id: e.id, nome: e.nome, parentId };
+  return semear(e);
 };
 
 /**
- * A raiz do grupo. `onix-co` é o único id que NÃO vem de
+ * A holding. `onix-co` é o único id que NÃO vem de
  * `src/lib/empresas-config.ts`: a empresa-mãe não é aba de navegação, então
  * nunca precisou existir lá.
+ *
+ * O `parentId` deixou de ser passado por fora — quem declara onde cada nó
+ * pendura é o catálogo, inclusive para dizer que a holding não pendura em
+ * ninguém.
  */
-export const ONIX_CO: EmpresaSemente = doCatalogo(RAIZ_DO_GRUPO, null);
+export const ONIX_CO: EmpresaSemente = doCatalogo(RAIZ_DO_GRUPO);
 
 /**
- * As 5 empresas jurídicas do grupo, cada uma já com `parentId = "onix-co"` —
- * as `cadastrada: true` do catálogo menos a raiz.
+ * Tudo abaixo da holding: as 6 empresas, os 2 departamentos dela e os 11
+ * departamentos das empresas — 19 nós, cada um já com o pai que o catálogo
+ * declara.
  *
- * Quem está e quem NÃO está (Agro, Planejamento, Contábil, Meu Sucesso
- * Patrimonial, Barreiras/Unaí) é decisão do Eduardo, escrita por extenso no
- * topo de `catalogo.ts`. Aqui não se decide nada: esta lista é derivação.
+ * ── POR QUE O NOME MUDOU ─────────────────────────────────────────────────
+ * Chamava-se `EMPRESAS_DO_GRUPO` e queria dizer "as 5 empresas jurídicas
+ * penduradas na raiz". Nenhuma das duas metades sobreviveu à estrutura de 3
+ * níveis: a maioria destes nós é DEPARTAMENTO, e nem todos penduram na raiz.
+ * Manter o nome antigo faria `planejarSeedFilhas(arvore, EMPRESAS_DO_GRUPO)`
+ * ler como se o segundo argumento fossem empresas.
  *
- * Os ids são os slugs de `empresas-config.ts` e casam por VALOR com
- * `Implementacao.empresaId`, que já tem linhas gravadas em produção; divergir
- * criaria empresa órfã no dia em que a FK entrar. É por isso que a lista é
- * derivada e não redigitada.
+ * Quem é quem, e por quê, está por extenso no topo de `catalogo.ts`. Aqui não
+ * se decide nada: esta lista é derivação, e os ids casam por VALOR com
+ * `Implementacao.empresaId`, que já tem linhas gravadas em produção.
  */
-export const EMPRESAS_DO_GRUPO: EmpresaSemente[] = empresasCadastradas()
+export const NOS_ABAIXO_DA_HOLDING: EmpresaSemente[] = empresasCadastradas()
   .filter((e) => e.id !== RAIZ_DO_GRUPO)
-  .map((e) => ({ id: e.id, nome: e.nome, parentId: RAIZ_DO_GRUPO }));
+  .map(semear);
 
-/** Raiz + as 5 — o que o script de terminal semeia. Total esperado: 6 linhas. */
-export const TODAS_AS_EMPRESAS: EmpresaSemente[] = [ONIX_CO, ...EMPRESAS_DO_GRUPO];
+/** A árvore inteira — o que o script de terminal semeia. Total esperado: 20 linhas. */
+export const TODAS_AS_EMPRESAS: EmpresaSemente[] = [ONIX_CO, ...NOS_ABAIXO_DA_HOLDING];
 
 /** Um nó da árvore, como sai para quem consome. */
 export type NoArvore = {
   id: string;
   nome: string;
+  tipo: TipoNo;
+  transversal: boolean;
   parentId: string | null;
 };
 
@@ -131,16 +161,74 @@ export type ResultadoSemeadura = {
   /** Ids que foram efetivamente pedidos nesta chamada. */
   solicitadas: string[];
   arvore: NoArvore[];
-  /** Empresas com pai. Esperado 0 até a PR de reparenting. */
+  /**
+   * Nós com pai. Depois do seed completo são 19 dos 20 — só a holding fica
+   * sem. Continua reportado porque é a contagem que denuncia, numa linha, um
+   * banco que voltou a ficar plano.
+   */
   comPai: number;
 };
 
 /** Árvore inteira, ordenada — raízes primeiro, depois por id. */
 export async function lerArvore(db: ClienteEmpresa): Promise<NoArvore[]> {
   return db.empresa.findMany({
-    select: { id: true, nome: true, parentId: true },
+    select: { id: true, nome: true, tipo: true, transversal: true, parentId: true },
     orderBy: [{ parentId: { sort: "asc", nulls: "first" } }, { id: "asc" }],
   });
+}
+
+/**
+ * Agrupa as sementes em lotes que respeitam a FK: primeiro as raízes, depois
+ * quem pendura nelas, e assim por diante.
+ *
+ * Semente cujo pai NÃO está na lista entra no primeiro lote — é o caso de
+ * semear só um pedaço da árvore (o `seed-filhas` com a holding já no banco).
+ * A FK ainda protege: se o pai também não estiver no BANCO, o INSERT falha,
+ * que é o comportamento certo. O que esta função garante é a ordem entre as
+ * sementes de uma mesma chamada.
+ *
+ * Devolve `null` se as sementes formarem ciclo entre si — sem isso o laço não
+ * terminaria, e um ciclo declarado no catálogo é bug de código, não estado
+ * ruim de banco.
+ */
+export function lotesPorProfundidade(
+  sementes: readonly EmpresaSemente[],
+): EmpresaSemente[][] | null {
+  const idsPedidos = new Set(sementes.map((s) => s.id));
+  const pendentes = new Map(sementes.map((s) => [s.id, s]));
+  const colocados = new Set<string>();
+  const lotes: EmpresaSemente[][] = [];
+
+  while (pendentes.size > 0) {
+    const lote = [...pendentes.values()].filter(
+      (s) =>
+        s.parentId === null ||
+        // Pai fora desta chamada: já está no banco (ou vai falhar na FK).
+        !idsPedidos.has(s.parentId) ||
+        colocados.has(s.parentId),
+    );
+
+    if (lote.length === 0) return null; // ciclo entre as sementes
+
+    for (const s of lote) {
+      pendentes.delete(s.id);
+      colocados.add(s.id);
+    }
+    lotes.push(lote);
+  }
+
+  return lotes;
+}
+
+/** As linhas como o Prisma as recebe. Um lugar só, usado pelos dois `createMany`. */
+function paraCreate(sementes: readonly EmpresaSemente[]) {
+  return sementes.map((e) => ({
+    id: e.id,
+    nome: e.nome,
+    tipo: e.tipo,
+    transversal: e.transversal,
+    parentId: e.parentId,
+  }));
 }
 
 /** Total de linhas em `Empresa`. */
@@ -165,20 +253,24 @@ export async function semearEmpresas(
   // precisar de leitura-antes-de-escrever (que teria corrida entre o SELECT e
   // o INSERT se duas chamadas chegassem juntas).
   //
-  // DOIS createMany, não um: `Empresa.parentId` é FK auto-referente, e uma
-  // filha só pode entrar depois de o pai existir. Postgres verifica RI em
-  // AFTER ROW trigger no fim do statement, então um INSERT único com a raiz na
-  // primeira posição até funcionaria — mas isso é detalhe de implementação do
-  // banco, invisível para quem lê, e uma reordenação inocente da lista
-  // quebraria em produção. Separar torna a ordem uma propriedade do código.
-  const raizes = empresas.filter((e) => e.parentId === null);
-  const filhas = empresas.filter((e) => e.parentId !== null);
+  // UM createMany POR NÍVEL, não um só: `Empresa.parentId` é FK auto-referente,
+  // e um nó só pode entrar depois do pai. Postgres verifica RI em AFTER ROW
+  // trigger no fim do statement, então um INSERT único bem ordenado até
+  // funcionaria — mas isso é detalhe de implementação do banco, invisível para
+  // quem lê, e uma reordenação inocente da lista quebraria em produção.
+  // Separar torna a ordem uma propriedade do código.
+  const lotes = lotesPorProfundidade(empresas);
+  if (lotes === null) {
+    throw new Error(
+      "As sementes formam ciclo entre si (algum `parentId` aponta para um descendente). " +
+        "Nada foi escrito — conserte src/lib/empresas/catalogo.ts.",
+    );
+  }
 
   let count = 0;
-  for (const lote of [raizes, filhas]) {
-    if (lote.length === 0) continue;
+  for (const lote of lotes) {
     const r = await db.empresa.createMany({
-      data: lote.map((e) => ({ id: e.id, nome: e.nome, parentId: e.parentId })),
+      data: paraCreate(lote),
       skipDuplicates: true,
     });
     count += r.count;
@@ -261,12 +353,12 @@ export type PlanoSeedFilhas = {
  * silenciosamente uma hierarquia que alguém pode ter mexido de propósito.
  * Quem quer corrigir chama `acao: "reparent"`, que mostra o plano antes.
  *
- * A idempotência sai daqui de graça: na segunda execução todas as 5 caem em
+ * A idempotência sai daqui de graça: na segunda execução todos os 19 caem em
  * `jaExistiam`, `criar` fica vazio, e não há escrita nenhuma para fazer.
  */
 export function planejarSeedFilhas(
   arvore: readonly NoArvore[],
-  filhas: readonly EmpresaSemente[] = EMPRESAS_DO_GRUPO,
+  filhas: readonly EmpresaSemente[] = NOS_ABAIXO_DA_HOLDING,
 ): PlanoSeedFilhas {
   const porId = new Map(arvore.map((e) => [e.id, e]));
 
@@ -298,7 +390,13 @@ export function planejarSeedFilhas(
   // escrita deste módulo muda linha existente. É a árvore que a régua valida.
   const arvoreSimulada: NoArvore[] = [
     ...arvore.map((e) => ({ ...e })),
-    ...criar.map((e) => ({ id: e.id, nome: e.nome, parentId: e.parentId })),
+    ...criar.map((e) => ({
+      id: e.id,
+      nome: e.nome,
+      tipo: e.tipo,
+      transversal: e.transversal,
+      parentId: e.parentId,
+    })),
   ];
 
   return {
@@ -346,7 +444,7 @@ export async function semearFilhas(
   let inseridas = 0;
   if (plano.criar.length > 0) {
     const r = await db.empresa.createMany({
-      data: plano.criar.map((e) => ({ id: e.id, nome: e.nome, parentId: e.parentId })),
+      data: paraCreate(plano.criar),
       skipDuplicates: true,
     });
     inseridas = r.count;

@@ -15,7 +15,9 @@
  * Responde quatro coisas de uma vez, para gastar uma execução só:
  *
  *   1. `Empresa` — a coluna `tipo` existe? as 6 linhas estão classificadas?
- *      `imobiliaria` virou "Onix Imob"? (estado da #301 em produção)
+ *      `imobiliaria` virou "Onix Imob"? (estado da #301 em produção — a PR
+ *      foi fundida em 17/08 06:17 UTC, então esta consulta agora serve de
+ *      CONFERÊNCIA do que a migration fez, não de pré-checagem)
  *   2. CENSO — contagem de linhas de TODAS as tabelas, em ordem decrescente.
  *      É a rede de arrasto: onde quer que as 192 reuniões estejam, elas
  *      aparecem como uma tabela com ~192 linhas.
