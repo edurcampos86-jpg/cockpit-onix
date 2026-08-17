@@ -61,5 +61,15 @@ dev.db-journal
 .migration-backups/
 scripts/_btg-discovery-output.json
 
+# Dumps de banco — em claro OU cifrados. Nunca entram no repositorio.
+# O .age tambem fica de fora: chave vaza, e ai o cifrado no historico do git
+# vira dado em claro retroativo, sem como apagar.
+*.dump
+*.dump.age
+*.dump.gz
+*.dump.gz.age
+msp-backups/
+msp-*-relatorio.md
+
 # ZIPs gerados por scripts/exporta-skills.sh — artefato de upload, não fonte.
 dist/
