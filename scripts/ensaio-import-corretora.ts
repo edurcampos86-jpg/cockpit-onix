@@ -170,7 +170,8 @@ async function preparar() {
   await prisma.empresa.upsert({
     where: { id: "corretora" },
     update: {},
-    create: { id: "corretora", nome: "Onix Corretora" },
+    // `tipo` não tem default no schema de propósito — o papel do nó é decisão.
+    create: { id: "corretora", nome: "Onix Corretora", tipo: "empresa" },
   });
 
   const pessoa = await prisma.pessoaGrupo.create({
