@@ -41,19 +41,13 @@ on:
     paths:
       - 'prisma/migrations/**'
       - 'prisma/schema.prisma'
-<<<<<<< HEAD
-      # O script de inventário entra aqui para poder ser EXERCITADO contra
-      # produção na PR que o altera. O disparo manual devolve 403 para o token
-      # das sessões de agente, então sem isto a única forma de obter o número
-      # seria pedir ao Eduardo para abrir o painel.
-      - 'scripts/inventario-reunioes.ts'
-=======
       # O próprio leitor entra na lista: mudar uma consulta e não poder rodá-la
       # é o que empurra a resposta para o `workflow_dispatch`, que exige um
       # humano clicando (sessão de agente leva 403 ao disparar). Quem edita a
       # pergunta precisa ver a pergunta respondida na mesma PR.
       - '.github/workflows/estado-do-banco.yml'
->>>>>>> origin/main
+      # Mesmo motivo, para o script de inventário.
+      - 'scripts/inventario-reunioes.ts'
 
 permissions:
   contents: read
