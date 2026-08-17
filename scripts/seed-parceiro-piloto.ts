@@ -47,20 +47,33 @@
  * `numeroConta` — inventar um cliente para o piloto testaria o script, não a
  * modelagem.
  *
- * Não inventa o acordo. `--produto` e `--percentual` são OBRIGATÓRIOS e não
- * têm default: o acordo comercial do Renan é decisão do Eduardo, e um default
- * embutido viraria número gravado em produção que ninguém escolheu.
+ * Não inventa o acordo. `--acordo <produto>:<percentual>` é OBRIGATÓRIO e não
+ * tem default: o acordo comercial é decisão do Eduardo, e um default embutido
+ * viraria número gravado em produção que ninguém escolheu. Vale para a DATA
+ * também — `--data-inicio` sem valor cai em `now()`, e vigência retroativa
+ * precisa ser dita.
  *
  * Não toca em `Indicacao`. O texto livre de `nomeIndicado` (ex.: "Michelle e
  * Renan") permanece como está — o vínculo estruturado é complementar, não
  * substituto, e reescrever o texto apagaria o registro de como a indicação
  * chegou.
  *
+ * ── VÁRIOS ACORDOS NA MESMA TRANSAÇÃO ────────────────────────────────────
+ * O acordo real tem uma linha POR PRODUTO (é assim que a #318 modela). Seis
+ * linhas em seis execuções seriam seis transações e seis chances de parar no
+ * meio; `--acordo` é repetível para elas entrarem juntas.
+ *
+ * Linha com 0% É acordo, não ausência de acordo — registra que o produto foi
+ * DECIDIDO como fora, em vez de deixar o silêncio parecer esquecimento.
+ *
  * Como rodar:
  *   # dry-run (padrão, não escreve) — os 4 clientes do Renan
  *   DATABASE_URL="postgresql://..." npx tsx scripts/seed-parceiro-piloto.ts \
  *     --conta 009100909 004968281 037584174 008541947 \
- *     --produto <PRODUTO> --percentual <PERCENTUAL>
+ *     --acordo assessoria:20 --acordo seguro_resgatavel:20 \
+ *     --acordo seguro_risco:20 --acordo previdencia:20 \
+ *     --acordo consorcio:20 --acordo imobiliaria:0 \
+ *     --data-inicio 2026-08-01
  *
  *   # aplicar de verdade (só depois de conferir o dry-run)
  *   ... --aplicar
@@ -128,8 +141,22 @@ const TIPO_BRUTO = arg("tipo") ?? "socio";
 /** Conta do PRÓPRIO parceiro, quando ele também é cliente da casa. Opcional. */
 const PARCEIRO_CONTA = arg("parceiro-conta");
 // Sem default, de propósito. Ver "O QUE ELE NÃO FAZ" no cabeçalho.
+//
+// Duas formas, porque o acordo real tem VÁRIAS linhas:
+//   --acordo assessoria:20 --acordo imobiliaria:0     (repetível, ou por vírgula)
+//   --produto assessoria --percentual 20              (atalho de uma linha só)
+const ACORDOS_BRUTOS = argLista("acordo");
 const PRODUTO_BRUTO = arg("produto");
 const PERCENTUAL_BRUTO = arg("percentual");
+/**
+ * Início da vigência dos acordos. Sem ela, `now()`.
+ *
+ * Existe porque acordo comercial costuma valer de uma data COMBINADA, anterior
+ * ao dia em que alguém cadastrou — e a #318 diz que vale o percentual da data
+ * do fato gerador. Cadastrar tudo com `now()` faria o passado ficar sem
+ * percentual nenhum.
+ */
+const DATA_INICIO_BRUTA = arg("data-inicio");
 
 // ── Saída ────────────────────────────────────────────────────────────────
 
@@ -172,40 +199,99 @@ async function main() {
       "Falta --conta <numeroConta> [<numeroConta> ...]. Os clientes têm de existir; o script não cria cliente.",
     );
   }
-  if (!PRODUTO_BRUTO) {
-    throw new Error("Falta --produto <tipoProduto>. Não há default: o acordo é decisão de negócio.");
-  }
-  if (!PERCENTUAL_BRUTO) {
-    throw new Error("Falta --percentual <0-100>. Não há default: o acordo é decisão de negócio.");
-  }
-
   const tipo = normalizarTipoParceiro(TIPO_BRUTO);
-  const produto = normalizarTipoProduto(PRODUTO_BRUTO);
   if (!tipo) throw new Error(`--tipo inválido: ${JSON.stringify(TIPO_BRUTO)}`);
-  if (!produto) throw new Error(`--produto inválido: ${JSON.stringify(PRODUTO_BRUTO)}`);
 
-  // Decimal e não Number: o percentual é DECIMAL(7,4) no banco, e converter
-  // por float aqui derrotaria a escolha da #318 na própria porta de entrada.
-  let percentual: Prisma.Decimal;
-  try {
-    percentual = new Prisma.Decimal(PERCENTUAL_BRUTO);
-  } catch {
-    throw new Error(`--percentual não é número: ${JSON.stringify(PERCENTUAL_BRUTO)}`);
+  // ── Os acordos ─────────────────────────────────────────────────────────
+  //
+  // O acordo real do parceiro tem VÁRIAS linhas — uma por tipo de produto,
+  // porque é assim que a #318 modela ("percentual varia por tipo de produto").
+  // Rodar o script seis vezes para gravar seis linhas faria seis transações e
+  // seis chances de parar no meio; aqui elas entram JUNTAS, na mesma.
+  //
+  // Linha com 0% é acordo, não ausência de acordo: registra que aquele produto
+  // foi DECIDIDO como fora, em vez de deixar o silêncio ser interpretado como
+  // "ainda não cadastrei".
+  const pares = ACORDOS_BRUTOS.slice();
+  if (PRODUTO_BRUTO || PERCENTUAL_BRUTO) {
+    if (!PRODUTO_BRUTO || !PERCENTUAL_BRUTO) {
+      throw new Error("--produto e --percentual andam juntos. Ou use --acordo <produto>:<percentual>.");
+    }
+    pares.push(`${PRODUTO_BRUTO}:${PERCENTUAL_BRUTO}`);
   }
-  if (percentual.lessThan(0) || percentual.greaterThan(100)) {
-    // O CHECK do banco também barra, mas falhar aqui dá uma mensagem que diz
-    // o que fazer em vez de um erro de constraint.
-    throw new Error(`--percentual fora de 0–100: ${percentual.toString()}`);
+  if (pares.length === 0) {
+    throw new Error(
+      "Falta --acordo <produto>:<percentual> (repetível). Não há default: o acordo é decisão de negócio.",
+    );
+  }
+
+  const acordos: { produto: string; bruto: string; percentual: Prisma.Decimal }[] = [];
+  for (const par of pares) {
+    // `lastIndexOf` e não `split`: um produto com dois-pontos no nome quebraria
+    // o split, e o percentual é sempre o pedaço DEPOIS do último separador.
+    const corte = par.lastIndexOf(":");
+    if (corte <= 0 || corte === par.length - 1) {
+      throw new Error(`--acordo inválido: ${JSON.stringify(par)}. Formato: <produto>:<percentual>.`);
+    }
+    const brutoProduto = par.slice(0, corte);
+    const brutoPercentual = par.slice(corte + 1);
+
+    const produto = normalizarTipoProduto(brutoProduto);
+    if (!produto) throw new Error(`--acordo com produto inválido: ${JSON.stringify(brutoProduto)}`);
+
+    // Depois de normalizar, e não antes: "Seguro Risco" e "seguro_risco" são o
+    // mesmo produto, e as duas linhas colidiriam no índice parcial único da
+    // #318 — no meio da transação, com erro de constraint em vez de mensagem.
+    if (acordos.some((a) => a.produto === produto)) {
+      throw new Error(`--acordo repetido para "${produto}" (de ${JSON.stringify(brutoProduto)}).`);
+    }
+
+    // Decimal e não Number: o percentual é DECIMAL(7,4) no banco, e converter
+    // por float aqui derrotaria a escolha da #318 na própria porta de entrada.
+    let percentual: Prisma.Decimal;
+    try {
+      percentual = new Prisma.Decimal(brutoPercentual);
+    } catch {
+      throw new Error(`--acordo com percentual não numérico: ${JSON.stringify(brutoPercentual)}`);
+    }
+    if (percentual.lessThan(0) || percentual.greaterThan(100)) {
+      // O CHECK do banco também barra, mas falhar aqui dá uma mensagem que diz
+      // o que fazer em vez de um erro de constraint.
+      throw new Error(`--acordo com percentual fora de 0–100: ${percentual.toString()}`);
+    }
+    acordos.push({ produto, bruto: brutoProduto, percentual });
+  }
+
+  // ── Início da vigência ─────────────────────────────────────────────────
+  let dataInicio: Date | null = null;
+  if (DATA_INICIO_BRUTA) {
+    // Meio-dia UTC quando vier só a data: a meia-noite de uma data ISO pode
+    // cair no dia anterior em qualquer fuso a oeste, e "vigente desde 01/08"
+    // virando 31/07 é o tipo de erro que ninguém confere.
+    const texto = /^\d{4}-\d{2}-\d{2}$/.test(DATA_INICIO_BRUTA)
+      ? `${DATA_INICIO_BRUTA}T12:00:00Z`
+      : DATA_INICIO_BRUTA;
+    const d = new Date(texto);
+    if (Number.isNaN(d.getTime())) {
+      throw new Error(`--data-inicio não é data válida: ${JSON.stringify(DATA_INICIO_BRUTA)}. Use AAAA-MM-DD.`);
+    }
+    dataInicio = d;
   }
 
   passo(1, "Entrada normalizada");
-  ok(`nome:       ${NOME}`);
-  ok(`tipo:       ${TIPO_BRUTO} → ${tipo}`);
-  ok(`produto:    ${PRODUTO_BRUTO} → ${produto}`);
-  ok(`percentual: ${percentual.toString()}%`);
-  ok(`contas:     ${CONTAS.length} — ${CONTAS.join(", ")}`);
+  ok(`nome:  ${NOME}`);
+  ok(`tipo:  ${TIPO_BRUTO} → ${tipo}`);
+  ok(`vigência desde: ${dataInicio ? dataInicio.toISOString() : "agora (now())"}`);
+  ok(`contas: ${CONTAS.length} — ${CONTAS.join(", ")}`);
+  ok(`acordos: ${acordos.length}`);
+  for (const a of acordos) ok(`   ${a.bruto} → ${a.produto} · ${a.percentual.toString()}%`);
   if (!ehTipoParceiroConhecido(tipo)) aviso(`tipo "${tipo}" fora da lista de referência (permitido)`);
-  if (!ehTipoProdutoConhecido(produto)) aviso(`produto "${produto}" fora da lista de referência (permitido)`);
+  for (const a of acordos) {
+    if (!ehTipoProdutoConhecido(a.produto)) aviso(`produto "${a.produto}" fora da lista de referência (permitido)`);
+  }
+  if (dataInicio && dataInicio.getTime() > Date.now()) {
+    aviso("data-inicio no FUTURO: a linha nasce com dataFim null e já conta como vigente hoje.");
+  }
 
   // ── Parceiro ───────────────────────────────────────────────────────────
   passo(2, "Parceiro");
@@ -343,7 +429,48 @@ async function main() {
     erro(`${conta} — ${cliente.nome} já tem parceiro vigente: ${dono?.nome ?? vinculoVigente.parceiroId}`);
   }
 
+  // ── Acordos: o que já existe vigente ───────────────────────────────────
+  //
+    // Conferido AQUI, antes da barreira do tudo-ou-nada, e não dentro da
+  // transação: acordo vigente com OUTRO percentual é recusa, e recusa
+  // descoberta no meio da escrita deixaria o relatório pela metade.
+  passo(4, `Acordos (${acordos.length})`);
+  const acordosACriar: typeof acordos = [];
+  const acordosEmConflito: string[] = [];
+  for (const a of acordos) {
+    const vigente = parceiroExistente
+      ? await prisma.acordoComercialParceiro.findFirst({
+          where: { parceiroId: parceiroExistente.id, tipoProduto: a.produto, dataFim: null },
+          select: { percentual: true },
+        })
+      : null;
+    if (!vigente) {
+      acordosACriar.push(a);
+      ok(`${a.produto} — ${a.percentual.toString()}% · seria criado`);
+    } else if (vigente.percentual.equals(a.percentual)) {
+      ok(`${a.produto} — ${a.percentual.toString()}% · já vigente, nada a fazer`);
+    } else {
+      // Alterar percentual é fechar-e-abrir (regra (b) da #318): reescrever no
+      // lugar mudaria o passado, e o fechamento de um mês já encerrado passaria
+      // a usar um número que não valia lá.
+      acordosEmConflito.push(
+        `${a.produto}: vigente ${vigente.percentual.toString()}%, pedido ${a.percentual.toString()}%`,
+      );
+      erro(`${a.produto} — vigente ${vigente.percentual.toString()}%, pedido ${a.percentual.toString()}%`);
+    }
+  }
+
   // ── Tudo-ou-nada ───────────────────────────────────────────────────────
+  if (acordosEmConflito.length > 0) {
+    linha();
+    linha("─".repeat(72));
+    linha(`${acordosEmConflito.length} acordo(s) já vigente(s) com OUTRO percentual. NADA foi escrito.`);
+    for (const c of acordosEmConflito) linha(`  ✗ ${c}`);
+    linha("Mudar percentual é fechar o vigente e abrir outro — decisão de negócio, não de seed.");
+    linha("─".repeat(72));
+    throw new Error("Lote não aplicado — resolva os acordos acima e rode de novo.");
+  }
+
   const falhas = situacoes.filter(ehFalha);
   if (falhas.length > 0) {
     linha();
@@ -366,11 +493,16 @@ async function main() {
   const aVincular = situacoes.filter(ehVincular);
   const jaVinculados = situacoes.filter((s) => s.estado === "ja_vinculado");
 
-  passo(4, "Plano");
+  passo(5, "Plano");
   const gravaIdentidade = identidade !== null && parceiroExistente?.clienteBackofficeId !== identidade.id;
   plano(parceiroExistente ? `REUSAR Parceiro ${parceiroExistente.id}` : `CRIAR Parceiro "${NOME}" (tipo ${tipo})`);
   if (gravaIdentidade) plano(`LIGAR o parceiro à conta ${PARCEIRO_CONTA} (${identidade!.nome})`);
-  plano(`GARANTIR acordo vigente ${percentual.toString()}% em "${produto}"`);
+  plano(
+    `CRIAR ${acordosACriar.length} acordo(s)` +
+      (acordosACriar.length
+        ? ": " + acordosACriar.map((a) => `${a.produto} ${a.percentual.toString()}%`).join(", ")
+        : ""),
+  );
   plano(`VINCULAR ${aVincular.length} cliente(s)${aVincular.length ? ": " + aVincular.map((s) => s.conta).join(", ") : ""}`);
   if (jaVinculados.length) plano(`PULAR ${jaVinculados.length} já vinculado(s): ${jaVinculados.map((s) => s.conta).join(", ")}`);
 
@@ -387,8 +519,12 @@ async function main() {
   // Uma transação para o lote inteiro: se o último vínculo falhar (por uma
   // corrida com outra escrita, por exemplo), o parceiro e o acordo voltam
   // atrás junto. Meio-lote é o estado que este script existe para não criar.
-  passo(5, "Aplicando");
+  passo(6, "Aplicando");
   const agora = new Date();
+  // Vínculo e acordo compartilham o mesmo instante quando não há data
+  // combinada — nasceram da mesma decisão, e datas diferentes por milissegundos
+  // sugeririam dois eventos onde houve um.
+  const inicio = dataInicio ?? agora;
 
   await prisma.$transaction(async (tx) => {
     const parceiro =
@@ -418,34 +554,31 @@ async function main() {
       ok(`Identidade de cliente ligada — ${identidade.nome}`);
     }
 
-    // Acordo: idempotente pelo par (parceiro, produto) vigente. Se já houver um
-    // vigente com OUTRO percentual, NÃO sobrescreve — alterar percentual é
-    // fechar-e-abrir (regra (b) da #318), e um seed não deve tomar essa decisão.
-    const acordoVigente = await tx.acordoComercialParceiro.findFirst({
-      where: { parceiroId: parceiro.id, tipoProduto: produto, dataFim: null },
-      select: { id: true, percentual: true },
-    });
-    if (acordoVigente) {
-      if (acordoVigente.percentual.equals(percentual)) {
-        ok(`Acordo já vigente com ${percentual.toString()}% — nada a fazer`);
-      } else {
-        aviso(
-          `Acordo vigente tem ${acordoVigente.percentual.toString()}%, pedido ${percentual.toString()}%. ` +
-            `NÃO alterado: mudar percentual é fechar-e-abrir, decisão de negócio.`,
-        );
+    // Acordos: só os que faltam. Conflito de percentual já barrou o lote no
+    // passo 4 — chegar aqui significa que não há decisão de negócio pendente.
+    // Reconferidos dentro da transação de propósito: entre a leitura e a
+    // escrita cabe uma corrida, e o índice parcial único da #318 devolveria
+    // erro de constraint em vez de mensagem.
+    for (const a of acordosACriar) {
+      const jaVigente = await tx.acordoComercialParceiro.findFirst({
+        where: { parceiroId: parceiro.id, tipoProduto: a.produto, dataFim: null },
+        select: { id: true },
+      });
+      if (jaVigente) {
+        ok(`Acordo em ${a.produto} já vigente — nada a fazer`);
+        continue;
       }
-    } else {
       const novo = await tx.acordoComercialParceiro.create({
         data: {
           parceiroId: parceiro.id,
-          tipoProduto: produto,
-          percentual,
-          dataInicio: agora,
+          tipoProduto: a.produto,
+          percentual: a.percentual,
+          dataInicio: inicio,
           criadoPor: "seed-parceiro-piloto",
         },
         select: { id: true },
       });
-      ok(`Acordo ${novo.id} — ${percentual.toString()}% em ${produto}`);
+      ok(`Acordo ${novo.id} — ${a.percentual.toString()}% em ${a.produto}`);
     }
 
     for (const s of aVincular) {
@@ -453,7 +586,7 @@ async function main() {
         data: {
           parceiroId: parceiro.id,
           clienteId: s.clienteId,
-          dataInicio: agora,
+          dataInicio: inicio,
           vinculadoPor: "seed-parceiro-piloto",
         },
         select: { id: true },
@@ -464,7 +597,7 @@ async function main() {
   });
 
   // ── Conferência: o que a modelagem responde agora ──────────────────────
-  passo(6, "Conferência — as perguntas que a Fase 1 existe para responder");
+  passo(7, "Conferência — as perguntas que a Fase 1 existe para responder");
   const parceiro = await prisma.parceiro.findFirstOrThrow({
     where: { nome: NOME },
     select: {
