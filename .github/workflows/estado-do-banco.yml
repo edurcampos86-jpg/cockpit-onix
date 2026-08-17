@@ -41,6 +41,11 @@ on:
     paths:
       - 'prisma/migrations/**'
       - 'prisma/schema.prisma'
+      # O próprio leitor entra na lista: mudar uma consulta e não poder rodá-la
+      # é o que empurra a resposta para o `workflow_dispatch`, que exige um
+      # humano clicando (sessão de agente leva 403 ao disparar). Quem edita a
+      # pergunta precisa ver a pergunta respondida na mesma PR.
+      - '.github/workflows/estado-do-banco.yml'
 
 permissions:
   contents: read
@@ -219,6 +224,182 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           cat "${RUNNER_TEMP}/empresa.txt"
           echo "código: $CODIGO"
+
+      # ── INCIDENTE 15/08: quem escreve saldoConta, e quando ─────────────
+      #
+      # O Eduardo confirmou que baixa e importa o Saldo D0 à mão todo dia, e o
+      # arquivo de hoje traz 1.188 contas com saldo. A medição anterior achou
+      # UM carimbo `saldo_em_cc`, de 30/07.
+      #
+      # Antes de concluir "o import parou", estas consultas separam as duas
+      # explicações, porque elas preveem coisas DIFERENTES:
+      #
+      #   (A) o import parou   → nenhum carimbo saldo_em_cc novo em dia nenhum
+      #   (B) o import escreve → carimbos aparecem e SOMEM, porque o cron
+      #       `btg-balances-poll` (09:00 UTC) reescreve saldoConta de todo
+      #       cliente que a Partner API devolve e recarimba como `api`
+      #       (src/lib/integrations/btg-api-sync.ts:139-147)
+      #
+      # Roda em PR de propósito: é diagnóstico de incidente, e a resposta
+      # precisa chegar junto com a análise, não depois dela.
+      - name: Incidente — quem escreve saldoConta
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          cat > "${RUNNER_TEMP}/incidente.sql" <<'SQL'
+          -- 0. Tipos de job vistos desde 25/07, AGREGADO (a versão por dia
+          --    tinha 170 linhas e afogava as consultas seguintes no log).
+          --    Se o import manual gravasse log, apareceria aqui. Não grava —
+          --    e é essa ausência que obriga a deduzir por carimbo.
+          SELECT '=== BtgSyncLog desde 25/07, por tipo ===' AS secao;
+          SELECT tipo, count(*) AS execucoes, count(DISTINCT date_trunc('day', iniciado)) AS dias,
+                 count(*) FILTER (WHERE NOT sucesso) AS com_falha, max(iniciado) AS ultimo
+          FROM "BtgSyncLog" WHERE iniciado >= date '2026-07-25'
+          GROUP BY 1 ORDER BY 2 DESC;
+
+          -- 1. Histograma do carimbo saldo_em_cc por dia. Em (A) o último dia
+          --    com carimbo é a data em que o import parou. Em (B) sobram só os
+          --    clientes que a Partner API não devolve.
+          SELECT '=== carimbo saldo_em_cc por dia ===' AS secao;
+          SELECT
+            substring(c."fonteUltimoUpdate"->>'saldoConta' from ':(\d{4}-\d{2}-\d{2})') AS dia,
+            count(*) AS clientes
+          FROM "ClienteBackoffice" c
+          WHERE c."fonteUltimoUpdate"->>'saldoConta' LIKE 'saldo\_em\_cc:%'
+          GROUP BY 1 ORDER BY 1 DESC;
+
+          -- 2. O OUTRO escritor, que grava log (ao contrário do import manual).
+          SELECT '=== BtgSyncLog balances: últimas 20 execuções ===' AS secao;
+          SELECT iniciado, sucesso, "contasProcessadas", "contasComErro", resumo
+          FROM "BtgSyncLog" WHERE tipo = 'balances'
+          ORDER BY iniciado DESC LIMIT 20;
+
+          -- 2b. OS OUTROS DOIS EXPORTS. Base BTG e Informações sobem pela
+          --     MESMA rota do Saldo D0. Se os campos deles também pararam em
+          --     30/07, a causa é a rota — não o mapeamento do Saldo.
+          --     `api` também escreve alguns destes (cadastral semanal), então
+          --     o que interessa é a data mais recente POR FONTE.
+          SELECT '=== outros exports: última escrita por campo e fonte ===' AS secao;
+          SELECT
+            e.key                                                     AS campo,
+            split_part(e.value, ':', 1)                               AS fonte,
+            count(*)                                                  AS clientes,
+            max(substring(e.value from position(':' in e.value) + 1)) AS mais_recente
+          FROM "ClienteBackoffice" c,
+               LATERAL jsonb_each_text(c."fonteUltimoUpdate") AS e(key, value)
+          WHERE e.key IN ('cpfCnpj','perfilInvestidor','suitabilityValidoAte',
+                          'profissao','telefone','email','assessorCge','saldo')
+          GROUP BY 1, 2
+          ORDER BY 1, 4 DESC;
+
+          -- 2c. O RECIBO DE HOJE. Se a #359 estiver no ar, todo import grava
+          --     `import-<fonte>`. Ausência de linha aqui = o recibo ainda não
+          --     estava em produção quando o Eduardo importou — não é prova de
+          --     que ele não importou.
+          SELECT '=== BtgSyncLog: imports registrados (todos) ===' AS secao;
+          SELECT tipo, iniciado, sucesso, "contasProcessadas", "contasComErro", resumo
+          FROM "BtgSyncLog" WHERE tipo LIKE 'import%'
+          ORDER BY iniciado DESC LIMIT 15;
+
+          -- 2d. Tudo que rodou HOJE, para situar o dia.
+          SELECT '=== BtgSyncLog: hoje ===' AS secao;
+          SELECT tipo, iniciado, sucesso, "contasProcessadas", resumo
+          FROM "BtgSyncLog" WHERE iniciado >= current_date
+          ORDER BY iniciado DESC;
+
+          -- 3. Defasagem do saldoConta — a pergunta "quantos clientes estão
+          --    com saldo velho na tela".
+          SELECT '=== idade do saldoConta ===' AS secao;
+          SELECT
+            count(*)                                                      AS com_carimbo,
+            count(*) FILTER (WHERE carimbo > now() - interval '1 day')    AS ate_1_dia,
+            count(*) FILTER (WHERE carimbo <= now() - interval '15 days') AS mais_de_15_dias,
+            min(carimbo)                                                  AS mais_antigo,
+            max(carimbo)                                                  AS mais_recente
+          FROM (
+            SELECT (substring("fonteUltimoUpdate"->>'saldoConta'
+                    from ':(.*)$'))::timestamptz AS carimbo
+            FROM "ClienteBackoffice"
+            WHERE "fonteUltimoUpdate" ? 'saldoConta'
+          ) AS t;
+
+          SQL
+
+          docker run --rm \
+            -v "${RUNNER_TEMP}/incidente.sql:/q.sql:ro" \
+            -e "PGURL=${DATABASE_URL}" \
+            postgres:16-alpine \
+            sh -c 'psql "$PGURL" -v ON_ERROR_STOP=1 --no-psqlrc -f /q.sql' \
+            | tee "${RUNNER_TEMP}/incidente.txt"
+
+          {
+            echo
+            echo '## Incidente — quem escreve saldoConta'
+            echo
+            echo '```'
+            cat "${RUNNER_TEMP}/incidente.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # ── Contas xará ──────────────────────────────────────────────────────
+      #
+      # `ClienteBackoffice.numeroConta` NÃO é @unique (ver o comentário em
+      # src/lib/backoffice/upsert-cliente.ts:10-11) — e dois clientes com o
+      # mesmo número é situação real, não hipótese. Todo script que resolve
+      # cliente POR CONTA aborta quando isso acontece: é o caso do
+      # seed-parceiro-piloto, que recusa o lote inteiro em vez de escolher.
+      #
+      # Sem esta leitura, a duplicata só aparece NA HORA de rodar, com o
+      # comando pronto e a conta na mão. Aqui ela aparece antes, ao lado do
+      # diff, na PR que já roda este workflow.
+      #
+      # SOMENTE LEITURA e SEM LINHA DE CLIENTE: agregados e o `numeroConta`
+      # cru, sem nome, CPF ou saldo — mesma régua do resto do arquivo.
+      - name: Contas com numeroConta duplicado
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          cat > "${RUNNER_TEMP}/duplicadas.sql" <<'SQL'
+          SELECT '=== Resumo ===' AS secao;
+          SELECT
+            count(*)                    AS numeros_duplicados,
+            coalesce(sum(linhas), 0)    AS clientes_envolvidos
+          FROM (
+            SELECT "numeroConta", count(*) AS linhas
+            FROM "ClienteBackoffice"
+            GROUP BY 1
+            HAVING count(*) > 1
+          ) d;
+
+          -- Só o número e a contagem. Quem precisa do nome abre a ficha.
+          SELECT '=== Quais (até 20) ===' AS secao;
+          SELECT "numeroConta", count(*) AS clientes
+          FROM "ClienteBackoffice"
+          GROUP BY 1
+          HAVING count(*) > 1
+          ORDER BY 2 DESC, 1
+          LIMIT 20;
+          SQL
+
+          # postgres:16-alpine para casar a versão do cliente com o Postgres 16
+          # do Railway — mesma escolha do db-backup.yml e do step de auditoria.
+          docker run --rm \
+            -v "${RUNNER_TEMP}/duplicadas.sql:/q.sql:ro" \
+            -e "PGURL=${DATABASE_URL}" \
+            postgres:16-alpine \
+            sh -c 'psql "$PGURL" -v ON_ERROR_STOP=1 --no-psqlrc -f /q.sql' \
+            | tee "${RUNNER_TEMP}/duplicadas.txt"
+
+          {
+            echo
+            echo '## Contas duplicadas'
+            echo
+            echo '```'
+            cat "${RUNNER_TEMP}/duplicadas.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       # Só no disparo manual com `completo`. São as consultas da auditoria BTG:
       # úteis de vez em quando, ruído em toda PR de migration.

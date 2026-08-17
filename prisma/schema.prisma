@@ -925,6 +925,9 @@ model PessoaGrupo {
   updatedAt DateTime @updatedAt
 
   clientes ClienteBackoffice[]
+  /// Lado inverso de `ContratoCorretora.pessoaGrupo`. Campo de RELAÇÃO:
+  /// não vira coluna nem altera a tabela `PessoaGrupo` no SQL.
+  contratosCorretora ContratoCorretora[]
 
   @@index([tipoDocumento])
 }
@@ -1439,6 +1442,9 @@ model Parceiro {
   /// Acordos de comissão deste parceiro, um por tipo de produto e por
   /// vigência. Ver AcordoComercialParceiro.
   acordos AcordoComercialParceiro[]
+  /// Lado inverso de `ContratoCorretora.parceiroIndicador` — os contratos da
+  /// Corretora cuja indicação veio deste parceiro. Campo de RELAÇÃO, sem SQL.
+  contratosCorretora ContratoCorretora[] @relation("ParceiroContratoCorretora")
 
   @@index([ativo])
   @@index([tipo])
@@ -1599,6 +1605,38 @@ model AcordoComercialParceiro {
   /// "Quem tem acordo neste produto?" — a leitura que a régua de comissão faz
   /// ao fechar um tipo de produto inteiro.
   @@index([tipoProduto])
+}
+
+// ============================================
+// DEPLOY PROBE — infraestrutura, não domínio
+// ============================================
+// Existe por UM motivo: exercitar o `startCommand` com uma migration REAL.
+//
+// A #317 tirou as migrations do start e as pôs em `preDeployCommand`; o Railway
+// nunca leu a chave, e migration pendente deixou de aplicar EM SILÊNCIO — o app
+// subia saudável com o schema atrás do código. A #335 reverteu para o start.
+//
+// O problema é que o caminho revertido NUNCA FOI EXERCITADO: a última migration
+// já estava aplicada antes do revert, e nenhuma nova entrou desde. O smoke
+// verde prova AUSÊNCIA DE DIVERGÊNCIA, não que o mecanismo funciona. São coisas
+// diferentes, e a confusão entre as duas é o que deixou o bug anterior passar.
+//
+// Esta tabela é a diferença: uma migration que o banco precisa de fato aplicar.
+// A prova é dupla e observável sem abrir o psql:
+//   - `_prisma_migrations` passa a ter 20260815152424_deploy_probe
+//   - `/api/health` (bloco autenticado) passa a reportar esse nome em
+//     `migrations.ultima`, e `migrations.pendentes` continua vazio
+//
+// NENHUMA LINHA é inserida. A existência da tabela é a prova; dado dentro dela
+// não acrescentaria nada e viraria lixo a limpar.
+//
+// COMO REMOVER, depois de provado: apagar este model e rodar
+// `prisma migrate dev --name remove_deploy_probe`. O Prisma gera o
+// `DROP TABLE "DeployProbe"` sozinho. É PR própria, tier 🔴 por conter
+// migration, e some sem deixar rastro no domínio — nada referencia esta tabela.
+model DeployProbe {
+  /// Única coluna. Não guarda nada; existe porque toda tabela precisa de chave.
+  id String @id @default(cuid())
 }
 
 // Questionário de descoberta profunda (Storyselling — hemisfério direito)
@@ -1988,6 +2026,10 @@ model Empresa {
   updatedAt DateTime @updatedAt
 
   acessos PessoaEmpresa[]
+  /// Lados inversos das FKs novas. Campos de RELAÇÃO: nenhum SQL na
+  /// tabela `Empresa`.
+  contratosCorretora ContratoCorretora[]
+  perfisImportacao   PerfilImportacao[]
 
   @@index([parentId])
   /// Para a consulta cruzada de `transversal` não varrer a tabela inteira.
@@ -2981,4 +3023,305 @@ model AdCampaignSnapshot {
 
   @@unique([date, campaignId, adsetId, adId])
   @@index([date(sort: Desc)])
+}
+
+// ============================================
+// ONIX CORRETORA — contratos e perfis de importação
+// ============================================
+// A Corretora importa a base dela: UMA LINHA POR PRODUTO CONTRATADO (cliente
+// com três seguros = três linhas), com histórico completo, inclusive o que já
+// foi cancelado.
+//
+// ── POR QUE UMA TABELA IRMÃ, E NÃO `empresaId` EM ClienteBackoffice ──────
+// A recusa está escrita em `schema.prisma` na seção da `PessoaGrupo` e vale
+// literalmente aqui: pôr `empresaId` no cliente e duplicar a linha por empresa
+// quebraria o import (que descarta linha sem `numeroConta`), o RBAC (que
+// esconde quem não tem `assessorCge`) e os campos de relacionamento (que
+// passariam a existir em N linhas sem regra de qual é a verdadeira).
+//
+// O fan-out mora ACIMA de `ClienteBackoffice`, na `PessoaGrupo`. E é essa
+// escolha que resolve, DE GRAÇA, o requisito mais difícil: a Corretora tem
+// clientes EXCLUSIVOS dela. Uma pessoa que nunca abriu conta no BTG tem
+// `PessoaGrupo` (basta o CPF) e nenhum `ClienteBackoffice` — e nada aqui
+// precisa saber disso. Se o vínculo fosse com `ClienteBackoffice`, cliente só
+// da Corretora exigiria uma conta BTG fantasma.
+
+/// Um contrato/apólice da Onix Corretora. Uma linha por produto contratado.
+model ContratoCorretora {
+  id String @id @default(cuid())
+
+  /// A pessoa titular, ACIMA das empresas do grupo. NOT NULL e nunca nullable:
+  /// contrato sem titular é linha órfã, e uma coluna nullable aqui viraria, na
+  /// primeira importação apressada, uma base inteira sem dono.
+  ///
+  /// `Restrict` (não `Cascade`): apagar uma pessoa não pode apagar o histórico
+  /// de contratos dela — mesmo contrato de reter que `EmpresaBootstrapLog` usa
+  /// para o usuário.
+  pessoaGrupoId String
+  pessoaGrupo   PessoaGrupo @relation(fields: [pessoaGrupoId], references: [id], onDelete: Restrict)
+
+  /// FK REAL para `Empresa` — o padrão da `PessoaEmpresa`, não o da
+  /// `Implementacao` (que é `String` solta, sem validação, e por isso admite
+  /// empresa fantasma). Existe mesmo sendo hoje sempre "corretora": a tabela é
+  /// o molde das irmãs que vêm depois, e uma coluna que nasce constante é mais
+  /// barata que a migration que a acrescenta com dado dentro.
+  empresaId String
+  empresa   Empresa @relation(fields: [empresaId], references: [id], onDelete: Restrict)
+
+  /// Família canônica do produto. `String` validada contra
+  /// `src/lib/corretora/catalogo-produtos.ts`, NÃO enum de banco: a lista
+  /// cresce por decisão comercial do parceiro, e produto novo não pode custar
+  /// migration de faixa vermelha. A validação na escrita é obrigatória
+  /// (`exigirTipoProduto`) — o erro da `Implementacao` foi não validar, não
+  /// foi ser `String`.
+  tipoProduto String
+
+  /// Seguradora/administradora de origem, como texto. Separado de `parceiroId`
+  /// de propósito: `parceiro` é DE ONDE O PRODUTO VEM (Porto, Bradesco) e
+  /// `parceiroId` é QUEM INDICOU o cliente. São perguntas diferentes e podem
+  /// coexistir na mesma linha.
+  parceiro String
+
+  /// Identificador do contrato/apólice no parceiro.
+  ///
+  /// SEM `@@unique` de propósito. O par (parceiro, numeroContrato) parece a
+  /// chave natural, mas uma apólice pode cobrir vários produtos e alguns
+  /// parceiros reaproveitam numeração entre ramos — um UNIQUE errado aqui
+  /// recusaria linha legítima em produção e só sairia com outra migration
+  /// vermelha. A idempotência do import fica na camada de import, que vê o
+  /// arquivo real, e o UNIQUE entra quando os dados dos 5–15 parceiros
+  /// estiverem na mesa.
+  numeroContrato String
+
+  inicioVigencia DateTime
+  /// `null` = sem fim definido (vigência contínua) ou fim desconhecido no
+  /// relatório de origem. As duas coisas se parecem no dado e não vale
+  /// inventar a diferença.
+  fimVigencia DateTime?
+
+  /// Validado contra `src/lib/corretora/status-contrato.ts` (mesma postura do
+  /// `tipoProduto`). Seis valores, e a distinção `cancelado` × `encerrado` é
+  /// deliberada: churn e ciclo normal não podem virar um "inativo" só.
+  status String
+
+  /// DECIMAL, não Float — dinheiro. Mesma razão do `AcordoComercialParceiro`:
+  /// Float acumula erro de arredondamento e estes números entram em relatório
+  /// de comissão. Nullable porque relatório de parceiro frequentemente omite
+  /// prêmio em contrato antigo, e omitir é diferente de valer zero.
+  premio   Decimal? @db.Decimal(14, 2)
+  comissao Decimal? @db.Decimal(14, 2)
+
+  // ── Os três papéis. Distintos, todos opcionais ─────────────────────────
+  // São três perguntas diferentes sobre a MESMA linha, e nenhuma implica a
+  // outra. Colapsá-las num campo só perderia justamente o cruzamento.
+
+  /// Quem atende esta conta NA CORRETORA. Texto por ora — a pessoa que atende
+  /// pode não ter `Pessoa` cadastrada no dia do import, e travar a importação
+  /// da base por causa disso seria a régua errada. Promover a FK → `Pessoa` é
+  /// PR própria, depois de saber quantos nomes distintos aparecem.
+  atendenteCorretora String?
+
+  /// CROSS-SELL — o indicador, não um campo solto.
+  ///
+  /// Preenchido significa: ESTA PESSOA É CLIENTE DAS DUAS CASAS. O valor casa
+  /// por valor com `ClienteBackoffice.assessorCge` e com `CarteiraCge.cge`,
+  /// exatamente como o RBAC de Investimentos já faz.
+  ///
+  /// É o campo que responde a pergunta que hoje o sistema não consegue
+  /// responder — "quantos clientes de Investimentos têm seguro conosco" —, e
+  /// é por isso que ele tem índice próprio (`[assessorCge, status]`) em vez de
+  /// depender de varredura. A query é:
+  ///
+  ///   SELECT COUNT(DISTINCT "pessoaGrupoId") FROM "ContratoCorretora"
+  ///    WHERE "assessorCge" IS NOT NULL AND "status" = 'ativo';
+  ///
+  /// e, por assessor:
+  ///
+  ///   SELECT "assessorCge", COUNT(DISTINCT "pessoaGrupoId")
+  ///     FROM "ContratoCorretora"
+  ///    WHERE "assessorCge" IS NOT NULL AND "status" = 'ativo'
+  ///    GROUP BY "assessorCge";
+  ///
+  /// `null` NÃO significa "não é cliente de Investimentos" — significa que o
+  /// relatório do parceiro não trouxe o CGE. Descobrir o resto é cruzar
+  /// `PessoaGrupo` com `ClienteBackoffice`, que o vínculo desta tabela já
+  /// permite; este campo é o caminho barato, não o único.
+  assessorCge String?
+
+  /// Quem INDICOU o cliente. FK real para o `Parceiro` que já existe —
+  /// aquela entidade nasceu justamente para quem indica sem ter conta no BTG.
+  /// `SetNull`: apagar o parceiro não pode apagar o contrato.
+  parceiroId String?
+  parceiroIndicador Parceiro? @relation("ParceiroContratoCorretora", fields: [parceiroId], references: [id], onDelete: SetNull)
+
+  /// Campos ESPECÍFICOS do produto: capital segurado, carta de crédito,
+  /// franquia, acomodação, carência, placa do veículo…
+  ///
+  /// POR QUE Json: são seis famílias × 5–15 parceiros, cada uma com o próprio
+  /// conjunto. Como colunas, seriam dezenas quase sempre nulas, e cada produto
+  /// novo custaria uma migration de faixa vermelha — o oposto do que o
+  /// catálogo em código foi desenhado para evitar.
+  ///
+  /// O QUE NÃO PODE ENTRAR AQUI, e é o que importa da decisão: nada que seja
+  /// filtrado, agregado ou ordenado entre contratos. Json no Postgres não tem
+  /// tipo verificado, não tem FK, e indexar caminho de Json custa índice
+  /// GIN — que é o mesmo mecanismo do `PainelEmailAI_tsv_idx`, cujo drift já
+  /// derruba manualmente sete migrations deste repositório. Por isso `premio`,
+  /// `comissao`, `status`, as vigências e o `tipoProduto` são COLUNAS, e a
+  /// régua para promover qualquer chave daqui a coluna é uma só: alguém
+  /// precisou dela num `WHERE`.
+  dadosProduto Json?
+
+  // ── Rastro da importação ───────────────────────────────────────────────
+  // Nullable inteiro: contrato cadastrado à mão não tem arquivo de origem.
+
+  /// Qual perfil traduziu o arquivo. `SetNull` para o contrato sobreviver ao
+  /// perfil, como todo rastro deste schema.
+  perfilImportacaoId String?
+  perfilImportacao   PerfilImportacao? @relation(fields: [perfilImportacaoId], references: [id], onDelete: SetNull)
+
+  /// Identificador do LOTE — uma execução de importação. É o que torna
+  /// "desfazer aquela importação de terça" uma operação possível, em vez de
+  /// uma arqueologia por `createdAt`.
+  loteImportacao String?
+  arquivoOrigem  String?
+  /// Linha do arquivo. Com `arquivoOrigem`, aponta a célula que originou o
+  /// registro quando alguém contestar um número.
+  linhaOrigem Int?
+  importadoEm DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // ── Índices ────────────────────────────────────────────────────────────
+  // O Postgres NÃO cria índice para chave estrangeira sozinho: sem os de FK
+  // abaixo, todo `DELETE` no lado pai vira varredura desta tabela.
+
+  /// Ficha da pessoa: todos os contratos dela, de todos os produtos. É a
+  /// consulta mais frequente da tela e o índice da FK ao mesmo tempo.
+  @@index([pessoaGrupoId])
+  /// Lista da empresa já com o filtro padrão (`status = 'ativo'`) aplicado.
+  /// Empresa primeiro porque é a coluna de menor cardinalidade e a que sempre
+  /// aparece; cobre também a FK.
+  @@index([empresaId, status])
+  /// Carteira do atendente — "meus contratos ativos", a tela dele.
+  @@index([atendenteCorretora, status])
+  /// Renovações a vencer. `status` antes de `fimVigencia` de propósito:
+  /// igualdade primeiro, faixa depois — invertido, o índice não serve ao
+  /// `BETWEEN`.
+  @@index([status, fimVigencia])
+  /// CROSS-SELL. Sustenta a contagem de clientes das duas casas sem varrer a
+  /// tabela. Um índice PARCIAL (`WHERE "assessorCge" IS NOT NULL`) seria mais
+  /// enxuto, mas o Prisma não o declara no schema e ele viraria drift em toda
+  /// migration seguinte — exatamente a dor do `PainelEmailAI_tsv_idx`. Fica
+  /// como otimização a considerar se a tabela crescer muito.
+  @@index([assessorCge, status])
+  /// Relatório consolidado por produto — o motivo de existir a normalização de
+  /// vocabulário. Sem ele, a pergunta "quanto de vida temos vigente" varre a
+  /// base inteira.
+  @@index([tipoProduto, status])
+  /// FKs restantes.
+  @@index([parceiroId])
+  @@index([perfilImportacaoId])
+  /// Desfazer/auditar uma importação inteira.
+  @@index([loteImportacao])
+}
+
+/// Mapeamento de UM arquivo de UMA fonte para campos canônicos.
+///
+/// ── GENÉRICO DE PROPÓSITO: NADA AQUI FALA DE SEGURO ────────────────────
+/// Este model é o ativo de longo prazo da PR, e ele só vale se servir a
+/// Imobiliária, a Corporate e a Tech sem alteração de schema. Por isso não há
+/// nenhum campo com nome de produto, de apólice ou de seguradora: os nomes de
+/// campo de destino são STRINGS dentro de `mapeamentoColunas`, e este model
+/// não conhece a tabela de destino.
+///
+/// O teste da generalidade: uma planilha de imóveis da Imobiliária, com
+/// colunas "Endereço", "Valor Locação" e "Proprietário", é o MESMO
+/// `PerfilImportacao` com outro conteúdo em `mapeamentoColunas`
+/// (`{"Endereço": "endereco", "Valor Locação": "valorLocacao"}`) e o mesmo
+/// `formatosValor` (`valorLocacao` é `decimal_ptbr`, igual a `premio`).
+///
+/// ── UM FORMATO SÓ DE MAPEAMENTO PARA QUATRO FORMATOS DE ARQUIVO ────────
+/// Excel, CSV, PDF e Word são reduzidos ao mesmo modelo mental: cada um vira
+/// uma lista de CÉLULAS NOMEADAS. O que muda entre eles é só COMO chegar às
+/// células, e isso mora em `extracao`. Depois desse passo, o mapeamento é
+/// sempre "rótulo de origem → campo de destino", igual para os quatro.
+model PerfilImportacao {
+  id String @id @default(cuid())
+
+  /// Nome humano: "Porto Seguro — apólices mensais".
+  nome String
+
+  /// Dona do perfil. FK REAL para `Empresa`, o padrão da `PessoaEmpresa`.
+  /// É o que permite a Imobiliária ter perfis próprios sem colidir com os da
+  /// Corretora, e o que faz a tela de perfis já nascer filtrável por empresa.
+  empresaId String
+  empresa   Empresa @relation(fields: [empresaId], references: [id], onDelete: Restrict)
+
+  /// De onde vem o arquivo: "Porto Seguro", "Bradesco", "Imobiliária X".
+  /// Texto, e NÃO FK para `Parceiro`: a fonte de um arquivo com frequência não
+  /// é um parceiro cadastrado (é a administradora, um cartório, um sistema).
+  fonte String
+
+  /// "xlsx" | "csv" | "pdf" | "docx". `String` validada em código, mesma
+  /// postura do `tipoProduto`.
+  formato String
+
+  /// COMO chegar às células — o único campo que sabe a diferença entre os
+  /// formatos. Exemplos:
+  ///   xlsx → {"aba": "Apólices", "linhaCabecalho": 3}
+  ///   csv  → {"delimitador": ";", "encoding": "latin1", "linhaCabecalho": 1}
+  ///   pdf  → {"estrategia": "tabela", "paginas": "todas"}  ou
+  ///          {"estrategia": "regex", "padroes": {"numeroContrato": "Apólice nº (\\d+)"}}
+  ///   docx → {"estrategia": "tabela", "indiceTabela": 0}
+  /// Json porque cada formato tem opções próprias e a lista cresce com o
+  /// primeiro parceiro que entregar um layout novo.
+  extracao Json
+
+  /// rótulo de origem → nome do campo canônico de destino.
+  ///   {"CPF/CNPJ": "cpfCnpj", "Apólice": "numeroContrato", "Prêmio": "premio"}
+  /// Strings dos dois lados: é isto que mantém o model ignorante sobre a
+  /// tabela de destino, e portanto reutilizável fora da Corretora.
+  mapeamentoColunas Json
+
+  /// campo de destino → como PARSEAR o valor bruto.
+  ///   {"premio": "decimal_ptbr", "inicioVigencia": "data_ddmmaaaa",
+  ///    "cpfCnpj": "documento_digitos"}
+  /// Separado de `mapeamentoColunas` porque as duas coisas mudam por motivos
+  /// diferentes: a coluna muda quando o parceiro renomeia o cabeçalho; o
+  /// formato muda quando ele troca o sistema que gera o arquivo.
+  formatosValor Json
+
+  /// campo de destino → { rótulo do parceiro → valor canônico }.
+  ///   {"tipoProduto": {"VIDA PREMIADA PLUS": "vida", "AUTO FÁCIL": "auto_residencial"},
+  ///    "status":      {"EM VIGOR": "ativo", "CANCELADA": "cancelado"}}
+  ///
+  /// É AQUI que mora a normalização de vocabulário por parceiro, e não
+  /// espalhada no código: "Seguro de Vida" na Porto e "Vida Individual" na
+  /// Bradesco são o mesmo produto, e quem sabe disso é o perfil de cada uma.
+  /// `resolverFamilia()` consome este dicionário e lhe dá precedência sobre os
+  /// aliases genéricos do catálogo.
+  dicionarios Json
+
+  /// Perfil velho não é apagado: é desligado. Import antigo precisa continuar
+  /// apontando para o perfil que de fato o traduziu.
+  ativo Boolean @default(true)
+  /// Sobe quando o parceiro muda o layout. Com `ativo`, permite guardar o
+  /// histórico de como cada lote foi lido.
+  versao Int @default(1)
+
+  observacoes String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  contratos ContratoCorretora[]
+
+  /// Um nome por empresa — o que impede duas versões do "Porto Seguro"
+  /// convivendo sem ninguém saber qual está valendo. A `versao` cobre a
+  /// evolução; o nome identifica.
+  @@unique([empresaId, nome])
+  /// Lista de perfis da empresa, filtrando os desligados. Cobre a FK.
+  @@index([empresaId, ativo])
 }
