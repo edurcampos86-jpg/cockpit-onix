@@ -1,15 +1,17 @@
 /**
  * Seed da tabela `Empresa` — IDEMPOTENTE.
  *
- * Cria a raiz "Onix Co" e as 5 empresas jurídicas do grupo — estas já com
- * `parentId = "onix-co"`. Total: 6 linhas.
+ * Cria a holding "Onix Co" e os 19 nós abaixo dela — 6 empresas e 13
+ * departamentos, cada um já com o `parentId` que o catálogo declara.
+ * Total: 20 linhas.
  *
  * ── ONDE MORA A LÓGICA ───────────────────────────────────────────────────
  * Não aqui. A lista canônica e a mecânica de idempotência vivem em
  * `src/lib/empresas/seed-hierarquia.ts`, compartilhado com
  * `POST /api/empresas/hierarquia`. A diferença entre os dois consumidores é só
- * QUAIS empresas cada um passa: este script semeia as 6 de uma vez; o endpoint
- * separa em duas ações (a raiz por padrão, as filhas em `acao: "seed-filhas"`).
+ * QUAIS nós cada um passa: este script semeia os 20 de uma vez; o endpoint
+ * separa em duas ações (a holding por padrão, o resto em
+ * `acao: "seed-filhas"`).
  *
  * ── O QUE ESTE SEED NÃO FAZ ──────────────────────────────────────────────
  * NÃO faz reparenting. Ele decide o pai de linha que NASCE; o pai de linha que
@@ -19,7 +21,8 @@
  * A única escrita é um create condicional; não há UPDATE nem DELETE.
  *
  * Como rodar:
- *   npx tsx scripts/seed-empresas.ts
+ *   npx tsx scripts/seed-empresas.ts --dry-run   # só mostra o plano, não grava
+ *   npx tsx scripts/seed-empresas.ts             # aplica
  */
 
 /*
@@ -41,8 +44,10 @@ import {
   ONIX_CO,
   TODAS_AS_EMPRESAS,
   conferirRaiz,
+  lerArvore,
   semearEmpresas,
 } from "../src/lib/empresas/seed-hierarquia";
+import { descreverPlano, planejarSemeadura } from "../src/lib/empresas/plano-semeadura";
 
 /** Só o contrato de desconexão, para o `finally` não exigir import estático do tipo. */
 let clienteAberto: { $disconnect: () => Promise<void> } | null = null;
@@ -68,6 +73,22 @@ async function main(): Promise<void> {
 
   const { prisma } = await import("../src/lib/prisma");
   clienteAberto = prisma;
+
+  /*
+   * `--dry-run` NÃO ESCREVE NADA. Lê a árvore, imprime o que faria e sai.
+   *
+   * Existe porque "idempotente" não é o mesmo que "previsível": até então a
+   * única forma de saber o que este script faria numa tabela que o RBAC
+   * consulta era rodá-lo. O relatório também é o único lugar onde uma
+   * DIVERGÊNCIA aparece — `skipDuplicates` ignora a linha inteira, então nome
+   * ou pai fora do catálogo sobrevivem ao seed em silêncio.
+   */
+  if (process.argv.includes("--dry-run")) {
+    const plano = planejarSemeadura(TODAS_AS_EMPRESAS, await lerArvore(prisma));
+    console.log("\n── DRY-RUN · nada foi escrito ──\n");
+    console.log(descreverPlano(plano));
+    return;
+  }
 
   const r = await semearEmpresas(prisma, TODAS_AS_EMPRESAS);
 
@@ -101,7 +122,7 @@ async function main(): Promise<void> {
 
   console.log(
     `Empresas com pai:  ${r.comPai}   ` +
-      "(esperado 0 nesta fase — o reparenting é PR seguinte.)",
+      `(esperado ${TODAS_AS_EMPRESAS.length - 1} — só a holding fica sem pai.)`,
   );
 }
 

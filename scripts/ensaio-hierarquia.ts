@@ -162,7 +162,7 @@ async function main(): Promise<void> {
   const { validarArvore } = await import("../src/lib/empresas/hierarquia");
   conferir(
     validarArvore(depoisDoSeed).length === 0,
-    "a árvore recém-semeada já respeita a régua de 2 níveis",
+    "a árvore recém-semeada já respeita a régua de 3 níveis",
     validarArvore(depoisDoSeed).map((p) => `${p.id}: ${p.mensagem}`).join("; "),
   );
 
@@ -185,8 +185,12 @@ async function main(): Promise<void> {
     "../src/lib/empresas/seed-hierarquia"
   );
 
-  // Apaga duas filhas para simular o bootstrap parcial.
-  const apagadas = ["tech", "corporate"];
+  // Apaga dois nós para simular o bootstrap parcial. Precisam ser FOLHAS
+  // penduradas na raiz: com 3 níveis, apagar "tech" agora violaria a FK
+  // (`tech-qualidade` pendura nele), e a conferência de linha 220 só vale
+  // para quem tem `parentId = onix-co`. Os dois departamentos da holding
+  // satisfazem as duas condições.
+  const apagadas = ["onix-co-expansao", "onix-co-marketing"];
   await prisma.empresa.deleteMany({ where: { id: { in: apagadas } } });
   conferir(
     (await prisma.empresa.count()) === ESPERADO_TOTAL - apagadas.length,
@@ -195,7 +199,7 @@ async function main(): Promise<void> {
   );
 
   const planoParcial = planejarSeedFilhas(await prisma.empresa.findMany({
-    select: { id: true, nome: true, parentId: true },
+    select: { id: true, nome: true, tipo: true, transversal: true, parentId: true },
   }));
   conferir(
     [...planoParcial.criar.map((e) => e.id)].sort().join(",") === [...apagadas].sort().join(","),
@@ -226,7 +230,7 @@ async function main(): Promise<void> {
   console.log("\n4. seed-filhas repetido (idempotência)");
   for (let volta = 1; volta <= 10; volta++) {
     const plano = planejarSeedFilhas(
-      await prisma.empresa.findMany({ select: { id: true, nome: true, parentId: true } }),
+      await prisma.empresa.findMany({ select: { id: true, nome: true, tipo: true, transversal: true, parentId: true } }),
     );
     const r = await semearFilhas(prisma, plano);
     if (r.inseridas !== 0 || r.totalDepois !== ESPERADO_TOTAL) {
@@ -251,7 +255,7 @@ async function main(): Promise<void> {
   await prisma.empresa.update({ where: { id: "tech" }, data: { parentId: null } });
 
   const planoDivergente = planejarSeedFilhas(
-    await prisma.empresa.findMany({ select: { id: true, nome: true, parentId: true } }),
+    await prisma.empresa.findMany({ select: { id: true, nome: true, tipo: true, transversal: true, parentId: true } }),
   );
   conferir(
     planoDivergente.divergencias.length === 1 && planoDivergente.divergencias[0].id === "tech",
@@ -342,11 +346,11 @@ async function main(): Promise<void> {
     "a raiz ganhou pai",
   );
 
-  // A régua de 2 níveis tem de valer no resultado real, não só na simulação.
+  // A régua de 3 níveis tem de valer no resultado real, não só na simulação.
   const problemas = validarArvore(depoisDoReparent);
   conferir(
     problemas.length === 0,
-    "árvore final respeita a régua de 2 níveis",
+    "árvore final respeita a régua de 3 níveis",
     problemas.map((p) => `${p.id}: ${p.mensagem}`).join("; "),
   );
 
