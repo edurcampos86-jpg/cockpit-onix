@@ -1965,19 +1965,59 @@ model PainelEmailAI {
 // reescrever chave — as linhas existentes já casam. Um cuid aqui obrigaria a
 // mapear slug→id e reescrever a tabela inteira.
 //
-// A hierarquia é auto-relação N níveis DE PROPÓSITO. A regra de negócio hoje
-// é de 2 níveis (raiz "Onix Co" + as empresas), mas ela vive como VALIDAÇÃO
-// em código (src/lib/empresas/hierarquia.ts), não como constraint de banco:
-// uma constraint de profundidade em SQL exigiria trigger ou CHECK recursivo,
-// e mudar a régua depois viraria migration em tabela viva. O schema aguenta
+// A hierarquia é auto-relação N níveis DE PROPÓSITO. A régua de negócio — hoje
+// 3 níveis: holding → empresa → departamento — vive como VALIDAÇÃO em código
+// (src/lib/empresas/hierarquia.ts), não como constraint de banco: uma
+// constraint de profundidade em SQL exigiria trigger ou CHECK recursivo, e
+// mudar a régua depois viraria migration em tabela viva. O schema aguenta
 // mais níveis; o app é quem recusa.
+//
+// O que o BANCO garante é o `tipo`: o enum recusa valor fora do vocabulário,
+// que é a única parte da régua barata de impor em SQL.
+
+/// O papel do nó na estrutura do grupo. É DECLARADO, não deduzido da
+/// profundidade — os dois coincidem hoje (holding=1, empresa=2,
+/// departamento=2 ou 3) e essa coincidência é justamente o que não se quer
+/// virar regra: "Expansão" é departamento pendurado direto na holding, no
+/// mesmo nível das empresas. Ler o tipo pela profundidade classificaria a
+/// Expansão como empresa.
+///
+/// PRIMEIRO enum do schema, e por um motivo estreito: o vocabulário é FECHADO
+/// e estrutural. Os outros campos de vocabulário do arquivo (`User.role`,
+/// `EmpresaBootstrapLog.acao`, `.resultado`) são String de propósito, porque
+/// são listas que crescem e não queriam migration a cada valor novo. Aqui é o
+/// contrário: acrescentar um quarto papel MUDA a régua da árvore, então passar
+/// por migration é a consequência desejada, não o custo.
+enum TipoNo {
+  holding
+  empresa
+  departamento
+}
+
 model Empresa {
   /// Slug estável, igual ao id em `src/lib/empresas-config.ts`.
   id   String @id
   nome String
 
-  /// NULL = raiz. A "Onix Co" é a raiz; as demais empresas apontam para ela
-  /// numa PR seguinte (o reparenting NÃO acontece nesta).
+  /// holding | empresa | departamento. SEM default de propósito: o papel do nó
+  /// é decisão, e um default faria toda inserção descuidada nascer com um papel
+  /// que ninguém escolheu. A ausência de default também é o guard da migration
+  /// — `ADD COLUMN NOT NULL` sem default FALHA se a tabela tiver linhas, que é
+  /// exatamente o alarme que se quer se a `Empresa` não estiver vazia.
+  tipo TipoNo
+
+  /// Função que se repete em várias empresas do grupo e é a MESMA função —
+  /// hoje só "Qualidade e Pós-venda", presente nas 6 empresas.
+  ///
+  /// São 6 LINHAS distintas (cada uma pendurada na sua empresa), não uma linha
+  /// compartilhada: o RBAC concede acesso por `empresaId`, e uma linha só
+  /// significaria "quem vê Qualidade vê a de todo mundo". A flag é o que
+  /// permite a consulta cruzada — "toda a Qualidade do grupo" — sem desfazer
+  /// a separação por empresa.
+  transversal Boolean @default(false)
+
+  /// NULL = raiz. Só a holding "Onix Co" é raiz; empresas penduram nela e
+  /// departamentos penduram na holding ou numa empresa.
   parentId String?
   parent   Empresa?  @relation("EmpresaHierarquia", fields: [parentId], references: [id])
   children Empresa[] @relation("EmpresaHierarquia")
@@ -1992,6 +2032,8 @@ model Empresa {
   perfisImportacao   PerfilImportacao[]
 
   @@index([parentId])
+  /// Para a consulta cruzada de `transversal` não varrer a tabela inteira.
+  @@index([transversal])
 }
 
 /// Quem enxerga qual empresa. É a peça que faltava entre `Pessoa` e `Empresa`.
