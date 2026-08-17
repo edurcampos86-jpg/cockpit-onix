@@ -21,7 +21,8 @@
  * A única escrita é um create condicional; não há UPDATE nem DELETE.
  *
  * Como rodar:
- *   npx tsx scripts/seed-empresas.ts
+ *   npx tsx scripts/seed-empresas.ts --dry-run   # só mostra o plano, não grava
+ *   npx tsx scripts/seed-empresas.ts             # aplica
  */
 
 /*
@@ -43,8 +44,10 @@ import {
   ONIX_CO,
   TODAS_AS_EMPRESAS,
   conferirRaiz,
+  lerArvore,
   semearEmpresas,
 } from "../src/lib/empresas/seed-hierarquia";
+import { descreverPlano, planejarSemeadura } from "../src/lib/empresas/plano-semeadura";
 
 /** Só o contrato de desconexão, para o `finally` não exigir import estático do tipo. */
 let clienteAberto: { $disconnect: () => Promise<void> } | null = null;
@@ -70,6 +73,22 @@ async function main(): Promise<void> {
 
   const { prisma } = await import("../src/lib/prisma");
   clienteAberto = prisma;
+
+  /*
+   * `--dry-run` NÃO ESCREVE NADA. Lê a árvore, imprime o que faria e sai.
+   *
+   * Existe porque "idempotente" não é o mesmo que "previsível": até então a
+   * única forma de saber o que este script faria numa tabela que o RBAC
+   * consulta era rodá-lo. O relatório também é o único lugar onde uma
+   * DIVERGÊNCIA aparece — `skipDuplicates` ignora a linha inteira, então nome
+   * ou pai fora do catálogo sobrevivem ao seed em silêncio.
+   */
+  if (process.argv.includes("--dry-run")) {
+    const plano = planejarSemeadura(TODAS_AS_EMPRESAS, await lerArvore(prisma));
+    console.log("\n── DRY-RUN · nada foi escrito ──\n");
+    console.log(descreverPlano(plano));
+    return;
+  }
 
   const r = await semearEmpresas(prisma, TODAS_AS_EMPRESAS);
 
