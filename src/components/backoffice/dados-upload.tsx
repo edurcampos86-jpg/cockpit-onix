@@ -29,6 +29,18 @@ interface DadosUploadProps {
 // "Razão Social" perdia o nome e a linha era descartada (filter
 // `c.nome.length > 0` mais abaixo). Agora delega pro mapping compartilhado
 // que conhece dezenas de variantes BTG.
+/** O que a rota devolve em `recibo` — ver `src/lib/backoffice/contador-import.ts`. */
+type ReciboImport = {
+  rotulo: string;
+  lidas: number;
+  escritas: number;
+  semMudanca: number;
+  descartadas: number;
+  motivos: Record<string, number>;
+  ramo: string | null;
+  ok: boolean;
+};
+
 function mapRowToClienteLocal(row: Record<string, unknown>) {
   const { data } = mapRowShared(row);
   const nome = String(data.nome ?? "").trim();
@@ -50,6 +62,13 @@ export function DadosUpload({ initialClientes, initialTotal }: DadosUploadProps)
   const [deleting, setDeleting] = useState(false);
   const [confirmText, setConfirmText] = useState("");
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  /* O RECIBO — não some sozinho, de propósito.
+   *
+   * O banner de mensagem se apaga em 5 s (`clearMessage`). De 30/07 a 15/08 o
+   * Eduardo importou o Saldo D0 em ~11 dias úteis e o banco registrou UMA
+   * escrita: o único número que teria denunciado isso aparecia por 5 segundos
+   * e ia embora. O recibo fica na tela até a próxima importação. */
+  const [recibo, setRecibo] = useState<ReciboImport | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [xlsxReady, setXlsxReady] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -141,6 +160,22 @@ export function DadosUpload({ initialClientes, initialTotal }: DadosUploadProps)
       });
 
       const data = await res.json();
+
+      // O recibo vem nos DOIS casos: 200 e 422. O 422 é justamente o import
+      // que leu linhas e não gravou nenhuma — o caso em que o número mais
+      // importa.
+      if (data.recibo) {
+        setRecibo({
+          rotulo: data.rotuloModo ?? "Importação",
+          lidas: data.recibo.lidas ?? 0,
+          escritas: data.recibo.escritas ?? 0,
+          semMudanca: data.recibo.semMudanca ?? 0,
+          descartadas: data.recibo.descartadas ?? 0,
+          motivos: data.recibo.motivos ?? {},
+          ramo: data.recibo.ramo ?? null,
+          ok: res.ok,
+        });
+      }
 
       if (!res.ok) {
         setMessage({ type: "error", text: data.error || "Erro ao importar" });
@@ -303,6 +338,72 @@ export function DadosUpload({ initialClientes, initialTotal }: DadosUploadProps)
               <AlertCircle className="h-4 w-4 shrink-0" />
             )}
             {message.text}
+          </div>
+        )}
+
+        {/* RECIBO — fica na tela até a próxima importação.
+            "Importado com sucesso" sem número ao lado foi o que deixou ~11
+            dias úteis de Saldo D0 passarem sem ninguém notar. */}
+        {recibo && (
+          <div
+            className={`mt-4 rounded-lg border p-4 text-sm ${
+              recibo.ok
+                ? "border-border bg-muted/40"
+                : "border-red-300 bg-red-50 dark:border-red-900 dark:bg-red-950/40"
+            }`}
+          >
+            <div className="mb-3 flex items-center gap-2 font-medium">
+              <FileSpreadsheet className="h-4 w-4 shrink-0" />
+              <span>Recibo — {recibo.rotulo}</span>
+              {!recibo.ok && (
+                <span className="rounded bg-red-600 px-1.5 py-0.5 text-xs font-semibold text-white">
+                  NADA GRAVADO
+                </span>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div>
+                <div className="text-xs uppercase tracking-wide text-muted-foreground">Lidas</div>
+                <div className="text-lg font-semibold tabular-nums">{recibo.lidas}</div>
+              </div>
+              <div>
+                <div className="text-xs uppercase tracking-wide text-muted-foreground">Gravadas</div>
+                <div
+                  className={`text-lg font-semibold tabular-nums ${
+                    recibo.escritas === 0 && recibo.lidas > 0 ? "text-red-600 dark:text-red-400" : ""
+                  }`}
+                >
+                  {recibo.escritas}
+                </div>
+              </div>
+              <div>
+                <div className="text-xs uppercase tracking-wide text-muted-foreground">Sem mudança</div>
+                <div className="text-lg font-semibold tabular-nums">{recibo.semMudanca}</div>
+              </div>
+              <div>
+                <div className="text-xs uppercase tracking-wide text-muted-foreground">Descartadas</div>
+                <div className="text-lg font-semibold tabular-nums">{recibo.descartadas}</div>
+              </div>
+            </div>
+
+            {Object.keys(recibo.motivos).length > 0 && (
+              <ul className="mt-3 space-y-1 text-xs text-muted-foreground">
+                {Object.entries(recibo.motivos).map(([motivo, qtd]) => (
+                  <li key={motivo}>
+                    <span className="font-medium tabular-nums">{qtd}</span>{" "}
+                    {motivo.replace(/_/g, " ")}
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {!recibo.ok && (
+              <p className="mt-3 text-xs">
+                Nenhuma linha chegou ao banco. O motivo acima é o ramo exato onde o
+                arquivo parou — mande junto ao pedir ajuda.
+              </p>
+            )}
           </div>
         )}
       </div>
