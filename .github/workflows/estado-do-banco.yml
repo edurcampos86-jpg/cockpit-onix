@@ -293,6 +293,21 @@ jobs:
           GROUP BY 1, 2
           ORDER BY 1, 4 DESC;
 
+          -- 2c. O RECIBO DE HOJE. Se a #359 estiver no ar, todo import grava
+          --     `import-<fonte>`. Ausência de linha aqui = o recibo ainda não
+          --     estava em produção quando o Eduardo importou — não é prova de
+          --     que ele não importou.
+          SELECT '=== BtgSyncLog: imports registrados (todos) ===' AS secao;
+          SELECT tipo, iniciado, sucesso, "contasProcessadas", "contasComErro", resumo
+          FROM "BtgSyncLog" WHERE tipo LIKE 'import%'
+          ORDER BY iniciado DESC LIMIT 15;
+
+          -- 2d. Tudo que rodou HOJE, para situar o dia.
+          SELECT '=== BtgSyncLog: hoje ===' AS secao;
+          SELECT tipo, iniciado, sucesso, "contasProcessadas", resumo
+          FROM "BtgSyncLog" WHERE iniciado >= current_date
+          ORDER BY iniciado DESC;
+
           -- 3. Defasagem do saldoConta — a pergunta "quantos clientes estão
           --    com saldo velho na tela".
           SELECT '=== idade do saldoConta ===' AS secao;
