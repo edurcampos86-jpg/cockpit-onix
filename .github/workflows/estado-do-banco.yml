@@ -1,0 +1,508 @@
+name: estado-do-banco
+
+# Lê o estado do banco de PRODUÇÃO e escreve o resultado no resumo do job, para
+# quem revisa uma PR de migration ver o banco REAL ao lado do diff.
+#
+# ── POR QUE ISTO EXISTE ──────────────────────────────────────────────────
+# A PR #301 foi escrita inteira sobre a premissa "a tabela `Empresa` está
+# vazia em produção". A tabela tem 6 linhas. A migration dela teria falhado com
+# 23502 no meio do `migrate deploy` — e, com o `startCommand` de então, isso
+# não pararia a migration: pararia o serviço.
+#
+# A premissa não era mentira, era uma coisa que ninguém tinha como conferir: a
+# rede das sessões de agente é bloqueada para produção (`CONNECT 403`), e
+# conferir à mão depende de alguém lembrar. Este workflow tira a conferência do
+# "alguém lembra" e a coloca no lugar onde a decisão é tomada — a própria PR.
+#
+# ── SOMENTE LEITURA ──────────────────────────────────────────────────────
+# `migrate status` (que não aplica nada), consultas agregadas e um script
+# read-only. Nenhum INSERT/UPDATE/DELETE/DDL. Nenhuma consulta devolve linha de
+# cliente.
+#
+# ── SOBRE O SECRET NUMA PR ───────────────────────────────────────────────
+# O gatilho é `pull_request`, NUNCA `pull_request_target`. A diferença é de
+# segurança, não de estilo: `pull_request` roda o workflow da branch da PR SEM
+# segredos quando a PR vem de um fork, e o repositório é público. O `if` do job
+# torna isso explícito em vez de depender só desse comportamento — PR de fora
+# do repositório nem começa, em vez de começar e falhar no guard com o secret
+# vazio.
+
+on:
+  workflow_dispatch:
+    inputs:
+      consultas:
+        description: 'basico = migrations + Empresa · completo = inclui BtgSyncLog e fontes do backoffice'
+        type: choice
+        options:
+          - basico
+          - completo
+        default: basico
+  pull_request:
+    paths:
+      - 'prisma/migrations/**'
+      - 'prisma/schema.prisma'
+      # O próprio leitor entra na lista: mudar uma consulta e não poder rodá-la
+      # é o que empurra a resposta para o `workflow_dispatch`, que exige um
+      # humano clicando (sessão de agente leva 403 ao disparar). Quem edita a
+      # pergunta precisa ver a pergunta respondida na mesma PR.
+      - '.github/workflows/estado-do-banco.yml'
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: estado-do-banco-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ler:
+    name: Estado do banco de produção
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # PR de fork não tem secret — e não deve ter. Melhor não rodar do que rodar
+    # e falhar com uma mensagem que parece problema de configuração.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # O gate destrutivo compara a PR com a base; `fetch-depth: 0` porque
+          # um clone raso não tem o merge-base para o diff.
+          fetch-depth: 0
+
+      # ── GATE · migration destrutiva exige decisão explícita ──────────────
+      #
+      # Informação sem gate depende de alguém ler. A PR #301 provou isso: o SQL
+      # estava na descrição, em texto, e mesmo assim a premissa errada
+      # sobreviveu por dias — porque ler é opcional e o merge não era.
+      #
+      # `DROP COLUMN` e `DROP TABLE` apagam dado que nenhum backup traz de volta
+      # sem downtime. Não são proibidos: são decisão, e decisão precisa de
+      # assinatura. A label `migration-destrutiva` na PR é a assinatura.
+      #
+      # Roda ANTES da leitura do banco de propósito: é análise do diff e não
+      # precisa de secret, então um `DROP` acidental falha rápido e falha mesmo
+      # que o banco esteja fora do ar.
+      - name: Gate de migration destrutiva
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: |
+          set -euo pipefail
+
+          # Só as migrations ACRESCENTADAS por esta PR. Migration já mergeada
+          # não volta a ser decisão a cada PR que passa perto dela.
+          NOVAS=$(git diff --name-only --diff-filter=A "$BASE_SHA" "$HEAD_SHA" \
+            -- 'prisma/migrations/*/migration.sql' || true)
+
+          if [ -z "$NOVAS" ]; then
+            echo "Nenhuma migration nova nesta PR."
+            exit 0
+          fi
+
+          echo "Migrations novas:"
+          echo "$NOVAS" | while IFS= read -r l; do echo "  $l"; done
+
+          # -i porque SQL não distingue caixa; \s\+ para tolerar espaçamento.
+          # Os dois verbos são os que apagam dado sem pedir confirmação. RENAME
+          # e ALTER TYPE também doem, mas são recuperáveis sem restore — ficam
+          # de fora para o gate não virar ruído que se aprende a ignorar.
+          PADRAO='DROP[[:space:]]+COLUMN|DROP[[:space:]]+TABLE'
+          ACHADOS=""
+          for f in $NOVAS; do
+            # Ignora linhas comentadas: `-- DROP COLUMN` numa explicação não é
+            # um DROP. É o caso REAL do drift do FTS, comentado em várias
+            # migrations do repositório.
+            HIT=$(grep -nEi "$PADRAO" "$f" | grep -vE '^[0-9]+:[[:space:]]*--' || true)
+            if [ -n "$HIT" ]; then
+              INDENTADO=$(echo "$HIT" | while IFS= read -r l; do echo "    $l"; done)
+              ACHADOS="${ACHADOS}\n${f}:\n${INDENTADO}"
+            fi
+          done
+
+          if [ -z "$ACHADOS" ]; then
+            echo "Nenhum DROP COLUMN / DROP TABLE executável."
+            exit 0
+          fi
+
+          echo "-----"
+          printf 'Encontrado:%b\n' "$ACHADOS"
+
+          case ",$LABELS," in
+            *,migration-destrutiva,*)
+              echo "Label 'migration-destrutiva' presente — liberado."
+              {
+                echo '## ⚠️ Migration destrutiva — liberada por label'
+                echo
+                printf 'Alguém assinou embaixo com a label migration-destrutiva.%b\n' "$ACHADOS"
+              } >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            *)
+              {
+                echo '## 🛑 Migration destrutiva sem autorização'
+                echo
+                printf 'Esta PR acrescenta DROP COLUMN ou DROP TABLE:%b\n' "$ACHADOS"
+                echo
+                echo 'Se a perda de dado é intencional, adicione a label **migration-destrutiva** na PR e rode o check de novo. Se não é, o DROP está sobrando.'
+              } >> "$GITHUB_STEP_SUMMARY"
+              echo "::error::Migration destrutiva sem a label 'migration-destrutiva'. Veja o resumo do job."
+              exit 1
+              ;;
+          esac
+
+      - name: Conferir que o secret existe
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "::error::secrets.DATABASE_URL não está configurado neste repositório."
+            exit 1
+          fi
+          echo "secrets.DATABASE_URL presente."
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: npm ci
+        run: npm ci
+
+      # A pergunta que mais importa numa PR de migration: o que ainda não foi
+      # aplicado? `migrate status` sai com código != 0 quando há migration
+      # pendente, o que é o estado NORMAL de uma PR que acrescenta uma — por
+      # isso o código é capturado, e não deixado derrubar o job.
+      - name: Migrations pendentes
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          set +e
+          npx prisma migrate status > "${RUNNER_TEMP}/status.txt" 2>&1
+          set -e
+          {
+            echo '## Migrations'
+            echo
+            echo '```'
+            cat "${RUNNER_TEMP}/status.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "${RUNNER_TEMP}/status.txt"
+
+      # `Empresa` tem tratamento próprio porque é a tabela cuja pré-condição já
+      # foi lida errada uma vez. O script sai 0 (vazia), 1 (tem linhas) ou 2
+      # (não sei dizer) — os três são RESULTADO, não falha do workflow.
+      - name: Estado de "Empresa"
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          set +e
+          npx tsx scripts/verificar-empresa-vazia.ts > "${RUNNER_TEMP}/empresa.txt" 2>&1
+          CODIGO=$?
+          set -e
+          case "$CODIGO" in
+            0) VEREDITO='**VAZIA** — migration que exija tabela vazia pode ser aplicada.' ;;
+            1) VEREDITO='**TEM LINHAS** — toda migration sobre a tabela precisa tratar o dado que existe.' ;;
+            *) VEREDITO='**INDETERMINADO** — não consegui perguntar ao banco. Isto não é "está limpo".' ;;
+          esac
+          {
+            echo
+            echo '## Tabela Empresa'
+            echo
+            echo "$VEREDITO"
+            echo
+            echo '```'
+            cat "${RUNNER_TEMP}/empresa.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "${RUNNER_TEMP}/empresa.txt"
+          echo "código: $CODIGO"
+
+      # ── INCIDENTE 15/08: quem escreve saldoConta, e quando ─────────────
+      #
+      # O Eduardo confirmou que baixa e importa o Saldo D0 à mão todo dia, e o
+      # arquivo de hoje traz 1.188 contas com saldo. A medição anterior achou
+      # UM carimbo `saldo_em_cc`, de 30/07.
+      #
+      # Antes de concluir "o import parou", estas consultas separam as duas
+      # explicações, porque elas preveem coisas DIFERENTES:
+      #
+      #   (A) o import parou   → nenhum carimbo saldo_em_cc novo em dia nenhum
+      #   (B) o import escreve → carimbos aparecem e SOMEM, porque o cron
+      #       `btg-balances-poll` (09:00 UTC) reescreve saldoConta de todo
+      #       cliente que a Partner API devolve e recarimba como `api`
+      #       (src/lib/integrations/btg-api-sync.ts:139-147)
+      #
+      # Roda em PR de propósito: é diagnóstico de incidente, e a resposta
+      # precisa chegar junto com a análise, não depois dela.
+      - name: Incidente — quem escreve saldoConta
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          cat > "${RUNNER_TEMP}/incidente.sql" <<'SQL'
+          -- 0. Tipos de job vistos desde 25/07, AGREGADO (a versão por dia
+          --    tinha 170 linhas e afogava as consultas seguintes no log).
+          --    Se o import manual gravasse log, apareceria aqui. Não grava —
+          --    e é essa ausência que obriga a deduzir por carimbo.
+          SELECT '=== BtgSyncLog desde 25/07, por tipo ===' AS secao;
+          SELECT tipo, count(*) AS execucoes, count(DISTINCT date_trunc('day', iniciado)) AS dias,
+                 count(*) FILTER (WHERE NOT sucesso) AS com_falha, max(iniciado) AS ultimo
+          FROM "BtgSyncLog" WHERE iniciado >= date '2026-07-25'
+          GROUP BY 1 ORDER BY 2 DESC;
+
+          -- 1. Histograma do carimbo saldo_em_cc por dia. Em (A) o último dia
+          --    com carimbo é a data em que o import parou. Em (B) sobram só os
+          --    clientes que a Partner API não devolve.
+          SELECT '=== carimbo saldo_em_cc por dia ===' AS secao;
+          SELECT
+            substring(c."fonteUltimoUpdate"->>'saldoConta' from ':(\d{4}-\d{2}-\d{2})') AS dia,
+            count(*) AS clientes
+          FROM "ClienteBackoffice" c
+          WHERE c."fonteUltimoUpdate"->>'saldoConta' LIKE 'saldo\_em\_cc:%'
+          GROUP BY 1 ORDER BY 1 DESC;
+
+          -- 2. O OUTRO escritor, que grava log (ao contrário do import manual).
+          SELECT '=== BtgSyncLog balances: últimas 20 execuções ===' AS secao;
+          SELECT iniciado, sucesso, "contasProcessadas", "contasComErro", resumo
+          FROM "BtgSyncLog" WHERE tipo = 'balances'
+          ORDER BY iniciado DESC LIMIT 20;
+
+          -- 2b. OS OUTROS DOIS EXPORTS. Base BTG e Informações sobem pela
+          --     MESMA rota do Saldo D0. Se os campos deles também pararam em
+          --     30/07, a causa é a rota — não o mapeamento do Saldo.
+          --     `api` também escreve alguns destes (cadastral semanal), então
+          --     o que interessa é a data mais recente POR FONTE.
+          SELECT '=== outros exports: última escrita por campo e fonte ===' AS secao;
+          SELECT
+            e.key                                                     AS campo,
+            split_part(e.value, ':', 1)                               AS fonte,
+            count(*)                                                  AS clientes,
+            max(substring(e.value from position(':' in e.value) + 1)) AS mais_recente
+          FROM "ClienteBackoffice" c,
+               LATERAL jsonb_each_text(c."fonteUltimoUpdate") AS e(key, value)
+          WHERE e.key IN ('cpfCnpj','perfilInvestidor','suitabilityValidoAte',
+                          'profissao','telefone','email','assessorCge','saldo')
+          GROUP BY 1, 2
+          ORDER BY 1, 4 DESC;
+
+          -- 2c. O RECIBO DE HOJE. Se a #359 estiver no ar, todo import grava
+          --     `import-<fonte>`. Ausência de linha aqui = o recibo ainda não
+          --     estava em produção quando o Eduardo importou — não é prova de
+          --     que ele não importou.
+          SELECT '=== BtgSyncLog: imports registrados (todos) ===' AS secao;
+          SELECT tipo, iniciado, sucesso, "contasProcessadas", "contasComErro", resumo
+          FROM "BtgSyncLog" WHERE tipo LIKE 'import%'
+          ORDER BY iniciado DESC LIMIT 15;
+
+          -- 2d. Tudo que rodou HOJE, para situar o dia.
+          SELECT '=== BtgSyncLog: hoje ===' AS secao;
+          SELECT tipo, iniciado, sucesso, "contasProcessadas", resumo
+          FROM "BtgSyncLog" WHERE iniciado >= current_date
+          ORDER BY iniciado DESC;
+
+          -- 3. Defasagem do saldoConta — a pergunta "quantos clientes estão
+          --    com saldo velho na tela".
+          SELECT '=== idade do saldoConta ===' AS secao;
+          SELECT
+            count(*)                                                      AS com_carimbo,
+            count(*) FILTER (WHERE carimbo > now() - interval '1 day')    AS ate_1_dia,
+            count(*) FILTER (WHERE carimbo <= now() - interval '15 days') AS mais_de_15_dias,
+            min(carimbo)                                                  AS mais_antigo,
+            max(carimbo)                                                  AS mais_recente
+          FROM (
+            SELECT (substring("fonteUltimoUpdate"->>'saldoConta'
+                    from ':(.*)$'))::timestamptz AS carimbo
+            FROM "ClienteBackoffice"
+            WHERE "fonteUltimoUpdate" ? 'saldoConta'
+          ) AS t;
+
+          SQL
+
+          docker run --rm \
+            -v "${RUNNER_TEMP}/incidente.sql:/q.sql:ro" \
+            -e "PGURL=${DATABASE_URL}" \
+            postgres:16-alpine \
+            sh -c 'psql "$PGURL" -v ON_ERROR_STOP=1 --no-psqlrc -f /q.sql' \
+            | tee "${RUNNER_TEMP}/incidente.txt"
+
+          {
+            echo
+            echo '## Incidente — quem escreve saldoConta'
+            echo
+            echo '```'
+            cat "${RUNNER_TEMP}/incidente.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # ── Contas xará ──────────────────────────────────────────────────────
+      #
+      # `ClienteBackoffice.numeroConta` NÃO é @unique (ver o comentário em
+      # src/lib/backoffice/upsert-cliente.ts:10-11) — e dois clientes com o
+      # mesmo número é situação real, não hipótese. Todo script que resolve
+      # cliente POR CONTA aborta quando isso acontece: é o caso do
+      # seed-parceiro-piloto, que recusa o lote inteiro em vez de escolher.
+      #
+      # Sem esta leitura, a duplicata só aparece NA HORA de rodar, com o
+      # comando pronto e a conta na mão. Aqui ela aparece antes, ao lado do
+      # diff, na PR que já roda este workflow.
+      #
+      # SOMENTE LEITURA e SEM LINHA DE CLIENTE: agregados e o `numeroConta`
+      # cru, sem nome, CPF ou saldo — mesma régua do resto do arquivo.
+      - name: Contas com numeroConta duplicado
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          cat > "${RUNNER_TEMP}/duplicadas.sql" <<'SQL'
+          SELECT '=== Resumo ===' AS secao;
+          SELECT
+            count(*)                    AS numeros_duplicados,
+            coalesce(sum(linhas), 0)    AS clientes_envolvidos
+          FROM (
+            SELECT "numeroConta", count(*) AS linhas
+            FROM "ClienteBackoffice"
+            GROUP BY 1
+            HAVING count(*) > 1
+          ) d;
+
+          -- Só o número e a contagem. Quem precisa do nome abre a ficha.
+          SELECT '=== Quais (até 20) ===' AS secao;
+          SELECT "numeroConta", count(*) AS clientes
+          FROM "ClienteBackoffice"
+          GROUP BY 1
+          HAVING count(*) > 1
+          ORDER BY 2 DESC, 1
+          LIMIT 20;
+          SQL
+
+          # postgres:16-alpine para casar a versão do cliente com o Postgres 16
+          # do Railway — mesma escolha do db-backup.yml e do step de auditoria.
+          docker run --rm \
+            -v "${RUNNER_TEMP}/duplicadas.sql:/q.sql:ro" \
+            -e "PGURL=${DATABASE_URL}" \
+            postgres:16-alpine \
+            sh -c 'psql "$PGURL" -v ON_ERROR_STOP=1 --no-psqlrc -f /q.sql' \
+            | tee "${RUNNER_TEMP}/duplicadas.txt"
+
+          {
+            echo
+            echo '## Contas duplicadas'
+            echo
+            echo '```'
+            cat "${RUNNER_TEMP}/duplicadas.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Só no disparo manual com `completo`. São as consultas da auditoria BTG:
+      # úteis de vez em quando, ruído em toda PR de migration.
+      - name: Consultas de auditoria (BtgSyncLog e fontes)
+        if: github.event_name == 'workflow_dispatch' && inputs.consultas == 'completo'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          cat > "${RUNNER_TEMP}/auditoria.sql" <<'SQL'
+          -- ⚠️ ARMADILHA, JÁ PISADA UMA VEZ: para tipo='webhook', a coluna
+          -- `erros` NÃO guarda erro. Guarda o payload recebido, em toda
+          -- chamada — `src/app/api/webhooks/btg/route.ts:53` grava
+          -- `erros: { payload: body }`. É empréstimo de campo, do mesmo tipo
+          -- que `EmpresaBootstrapLog.empresaId`.
+          --
+          -- A versão de 12/08 desta consulta tinha
+          --     count(*) FILTER (WHERE erros IS NOT NULL) AS com_erros
+          -- e devolveu `com_erros = 15` sobre 15 linhas, ao lado de
+          -- `com_sucesso = 15`. Os dois 15 não se contradiziam: um contava
+          -- "tem payload guardado" (todas), o outro "deu certo" (todas). Mas
+          -- o RÓTULO dizia erro, e o número virou premissa de que o webhook
+          -- estava falhando.
+          --
+          -- O sinal real de erro nesta tabela é `sucesso = false` e
+          -- `contasComErro > 0`. NÃO reintroduzir `erros IS NOT NULL`.
+          SELECT '=== BtgSyncLog: webhook ===' AS secao;
+          SELECT
+            count(*)                                     AS total,
+            min(iniciado)                                AS primeiro,
+            max(iniciado)                                AS ultimo,
+            count(*) FILTER (WHERE sucesso)              AS com_sucesso,
+            count(*) FILTER (WHERE NOT sucesso)          AS com_falha,
+            count(*) FILTER (WHERE "contasComErro" > 0)  AS com_conta_em_erro
+          FROM "BtgSyncLog"
+          WHERE tipo = 'webhook';
+
+          -- Os timestamps INDIVIDUAIS, não só min/max/count.
+          --
+          -- Sem eles, mediana, p90 e maior intervalo entre chamadas são
+          -- incalculáveis — e foi exatamente onde a análise de 15/08 parou:
+          -- com 15 chamadas em 101 dias dava para dizer "média 7,2 dias" e
+          -- nada mais. Média não descreve distribuição irregular, e é
+          -- distribuição que decide se 4 dias de silêncio são normais.
+          --
+          -- `lag()` já entrega o intervalo pronto, em horas, para quem lê o
+          -- summary não precisar subtrair timestamps à mão.
+          SELECT '=== BtgSyncLog: webhook, últimas 30 chamadas ===' AS secao;
+          SELECT
+            iniciado,
+            sucesso,
+            round(
+              EXTRACT(EPOCH FROM (iniciado - lag(iniciado) OVER (ORDER BY iniciado))) / 3600
+            )::int AS horas_desde_a_anterior
+          FROM (
+            SELECT iniciado, sucesso
+            FROM "BtgSyncLog"
+            WHERE tipo = 'webhook'
+            ORDER BY iniciado DESC
+            LIMIT 30
+          ) AS ultimas
+          ORDER BY iniciado DESC;
+
+          SELECT '=== BtgSyncLog: todos os tipos ===' AS secao;
+          SELECT tipo, count(*) AS linhas, max(iniciado) AS ultimo
+          FROM "BtgSyncLog" GROUP BY tipo ORDER BY count(*) DESC;
+
+          SELECT '=== Volume do backoffice ===' AS secao;
+          SELECT
+            (SELECT count(*) FROM "ClienteBackoffice")                         AS clientes,
+            (SELECT count(*) FROM "ClienteBackoffice" WHERE "saldoConta" <> 0) AS com_saldo_cc,
+            (SELECT count(*) FROM "MovimentacaoBtg")                           AS movimentacoes;
+
+          -- `upsert-cliente.ts` grava `{campo: "fonte:timestamp"}`. Desmontar isso
+          -- diz QUEM escreve hoje — a planilha ou a Partner API. Lê a etiqueta de
+          -- origem, nunca o valor do campo.
+          SELECT '=== Qual fonte escreveu, e quando ===' AS secao;
+          SELECT
+            split_part(e.value, ':', 1)                               AS fonte,
+            count(*)                                                  AS campos_gravados,
+            count(DISTINCT c.id)                                      AS clientes,
+            max(substring(e.value from position(':' in e.value) + 1)) AS mais_recente
+          FROM "ClienteBackoffice" c,
+               LATERAL jsonb_each_text(c."fonteUltimoUpdate") AS e(key, value)
+          WHERE c."fonteUltimoUpdate" IS NOT NULL
+          GROUP BY 1
+          ORDER BY 2 DESC;
+          SQL
+
+          # postgres:16-alpine pelo mesmo motivo do db-backup.yml: casar a versão
+          # do cliente com o Postgres 16 do Railway.
+          docker run --rm \
+            -v "${RUNNER_TEMP}/auditoria.sql:/q.sql:ro" \
+            -e "PGURL=${DATABASE_URL}" \
+            postgres:16-alpine \
+            sh -c 'psql "$PGURL" -v ON_ERROR_STOP=1 --no-psqlrc -f /q.sql' \
+            | tee "${RUNNER_TEMP}/auditoria.txt"
+
+          {
+            echo
+            echo '## Auditoria'
+            echo
+            echo '```'
+            cat "${RUNNER_TEMP}/auditoria.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

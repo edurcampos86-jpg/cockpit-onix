@@ -1,13 +1,25 @@
 # Branches remotas — resíduo vs trabalho não integrado
 
 > **Levantado em 2026-08-14**, contra `main` em `aa78914`.
+> **Atualizado em 2026-08-15**: #309 e #323 mergearam, a #315 foi arquivada.
 > **NADA foi apagado.** Este documento separa; apagar é decisão do Eduardo.
 
-| | |
-|---|---|
-| branches remotas (fora a `main`) | **134** |
-| **JÁ MERGEADAS** — resíduo, seguro apagar | **114** |
-| **NÃO MERGEADAS** — não tocar sem decisão | **20** |
+| | 14/08 | 15/08 |
+|---|---:|---:|
+| branches remotas (fora a `main`) | 134 | **146** |
+| **JÁ MERGEADAS** — resíduo, seguro apagar | 114 | **116 +** |
+| **NÃO MERGEADAS** — não tocar sem decisão | 20 | **18** |
+
+> ⚠️ **O total subiu de 134 para 146 em um dia** — 12 branches novas, e nenhuma
+> apagada, porque `push --delete` devolve 403 nesta sessão. A conta das
+> mergeadas está marcada com `+` porque as branches criadas depois do
+> levantamento de 14/08 não foram reclassificadas uma a uma; as 18 não
+> mergeadas, sim. É a lista que não se toca que precisa estar exata — e é ela
+> que foi conferida.
+>
+> Enquanto a deleção depender de ato manual, este número só cresce: **~3
+> branches por sessão**. É a mesma dinâmica de abandono que as 23 frentes
+> revelaram, em outra camada.
 
 ## Como cada branch foi classificada
 
@@ -42,18 +54,16 @@ Tudo que não satisfaz (1) nem (2) fica na segunda lista, **por padrão**.
 
 ---
 
-## ⚠️ NÃO MERGEADAS — 20 branches, NÃO TOCAR
+## ⚠️ NÃO MERGEADAS — 18 branches, NÃO TOCAR
 
 Pode haver trabalho não integrado aqui. **Nenhuma será apagada sem decisão
-explícita do Eduardo.** Onze são head de PR aberta hoje.
+explícita do Eduardo.** Nove são head de PR aberta hoje.
 
 | branch | último commit | por que está aqui |
 |---|---|---|
-| `claude/deploy-guardas` | 2026-08-14 | PR aberta ou fechada sem merge |
-| `claude/auditoria-btg-leitura` | 2026-08-14 | PR aberta ou fechada sem merge |
 | `claude/permissoes-3-niveis` | 2026-08-12 | PR aberta ou fechada sem merge |
 | `claude/hub-ecossistema-onix-m3m4b8` | 2026-08-12 | PR aberta ou fechada sem merge |
-| `claude/ci-guarda-not-null-sem-default` | 2026-08-12 | PR aberta ou fechada sem merge |
+| `claude/ci-guarda-not-null-sem-default` | 2026-08-12 | 🗄️ **ARQUIVADA** — ver abaixo |
 | `backup/pre-split-fcb41a2` | 2026-08-08 | sem PR |
 | `feat/backfill-conversas-dryrun` | 2026-06-16 | PR aberta ou fechada sem merge |
 | `chore/no-any-datacrazy` | 2026-06-13 | PR aberta ou fechada sem merge |
@@ -70,18 +80,54 @@ explícita do Eduardo.** Onze são head de PR aberta hoje.
 | `claude/security-analysis-3a4Va` | 2026-05-01 | sem PR |
 | `claude/editorial-calendar-planning-MChss` | 2026-04-26 | sem PR |
 
-**Das 20:**
 
-- **11** são head de **PR aberta** — `deploy-guardas` (#323),
-  `auditoria-btg-leitura` (#309), `permissoes-3-niveis` (#304),
+### 🗄️ Arquivada em 2026-08-15 — `claude/ci-guarda-not-null-sem-default` (#315)
+
+**Conferido antes de arquivar: não há commit exclusivo que valha resgatar.**
+
+A branch tem **1 commit** fora da `main` (`f54dd41`), e ele introduz exatamente
+os mesmos **3 arquivos** que a **#320** já entregou — em versão mais completa:
+
+| arquivo | #315 | #320 (na `main`) |
+|---|---:|---:|
+| `scripts/guarda-not-null-sem-default.sh` | 106 linhas | **111** |
+| `src/lib/guarda-not-null-sem-default.test.ts` | 199 linhas | **242** |
+| step no `ci.yml` | 9 linhas | **17** |
+
+As diferenças linha a linha são **redação de comentário e formatação de
+fixture**, não regra: os padrões que a guarda casa (`NOT NULL`, `DEFAULT`,
+`CREATE TABLE`, comentário `--`) aparecem nos dois, e a `main` tem *mais*
+ocorrências, não menos.
+
+`merge-tree` devolve árvore diferente da `main` — mas isso aqui **não**
+significa trabalho perdido: significa que a versão da #315 é mais pobre e
+sobrescreveria a da #320 se fosse mergeada. É o caso em que a árvore diferente
+é motivo para arquivar, não para preservar.
+
+**Não foi apagada** — `git push --delete` devolve 403 nesta sessão (escopo do
+token). Continua contada entre as não mergeadas até alguém apagar pela UI.
+
+### 🗄️ Resíduo criado por engano — `teste-403-descartavel`
+
+Criada em 2026-08-14 por um teste de permissão que precisava distinguir
+"proteção de branch" de "escopo do token", e **não pôde ser apagada pelo mesmo
+403 que o teste estava investigando**. Aponta para o mesmo commit da `main` da
+época; não contém trabalho. Some junto na primeira limpeza.
+
+**Das 18:**
+
+- **9** são head de **PR aberta** — `permissoes-3-niveis` (#304),
   `hub-ecossistema-onix-m3m4b8` (#301), `backfill-conversas-dryrun` (#180),
   `no-any-datacrazy` (#166), `automation-import-saldo-cc` (#161),
   `carousel-visual-identity-jcvfcw` (#154), `busca-inteligente` (#113),
   `remove-credentials-from-tutorial` (#27), `rename-cockpit-ecossistema-rRFXH` (#2).
 - **1** é head de PR **fechada sem merge**: `ci-guarda-not-null-sem-default`
-  (#315, substituída pela #320).
+  (#315, substituída pela #320) — **arquivada em 2026-08-15**, ver abaixo.
 - **8** não têm PR nenhuma. `backup/pre-split-fcb41a2` é foto deliberada; as
   outras 7 precisam de olhada humana antes de qualquer coisa.
+
+🔎 **`deploy-guardas` (#323) e `auditoria-btg-leitura` (#309) saíram desta
+lista em 2026-08-15**: as duas mergearam e viraram resíduo.
 
 ---
 

@@ -3,7 +3,7 @@
 Memória compartilhada entre sessões. Quem chega novo lê **este arquivo** e sabe
 o estado real sem auditar o repositório do zero.
 
-> **Última atualização:** 2026-08-14, contra `main` em `aa78914`.
+> **Última atualização:** 2026-08-15, contra `main` em `f5d6646`.
 
 ## Como ler este arquivo
 
@@ -289,7 +289,7 @@ sincronizado da conta. Entraram na **#327**.
 
 | pasta em `.claude/skills/` | versão |
 |---|---|
-| `onix-entrega-segura` | **2.2** |
+| `onix-entrega-segura` | **2.3** |
 | `backoffice-btg-onix` · `create-prompt-onix` · `instagram-carousel-onix` · `onix-atendimento-analise` · `onix-briefing-reuniao` · `orquestra-multiagente` · `story-fitness-onix` | 1.0 |
 
 **O repositório é a fonte canônica.** Editar aqui e subir para a conta
@@ -321,6 +321,18 @@ publicada por engano na #327 teria reprovado no primeiro CI, e não 25 h depois.
 > aqui, que listava como pendentes três itens já entregues pelas #316, #322 e
 > #324.
 
+🔎 **Desde a #333 o hash cobre a PASTA inteira, não só o `SKILL.md`.** A
+`story-fitness-onix` traz `scripts/retoque_story.py`, e um script de 115 linhas
+de OpenCV é exatamente o arquivo cuja troca ninguém percebe numa revisão. Vale
+nos dois sentidos: arquivo em disco que o manifesto não declara, e arquivo
+declarado que sumiu do disco.
+
+🔎 **`scripts/exporta-skills.sh` (#333) leva o repo para a conta** — um ZIP por
+skill, com a pasta dentro (não o conteúdo solto, que é o erro que faz a skill
+subir sem erro e não carregar), mais o manifesto junto. Roda a guarda antes de
+empacotar. A ordem é: editar → `atualiza-manifesto.sh` → `guarda-skills.sh` →
+`exporta-skills.sh` → subir em Customize > Skills.
+
 ### Contador de revisão da skill
 
 A `onix-entrega-segura` é revisada **a cada 10 PRs fechadas**, por calendário
@@ -331,7 +343,7 @@ e não por acúmulo de dor (seção 10 da própria skill).
 | | |
 |---|---|
 | **última revisão da skill** | **PR #327** (v2.2) |
-| **commit do marco zero** | **`a609d09`** (merge da #327 na `main`) |
+| **commit do marco zero** | **`a609d09`** (merge da #327 na `main`) — fonte única em **`.claude/skills/MARCO-ZERO`** |
 | **data** | **2026-08-14**, 12:19 UTC |
 | limite | **10** PRs fechadas |
 | próxima revisão | ao fechar a 10ª PR **a partir de `a609d09`** |
@@ -349,19 +361,47 @@ roda em toda PR (`ci.yml`) e emite `::warning::` ao atingir 10, com as três
 perguntas fixas no corpo do aviso. **É aviso, não gate** — "está na hora de
 revisar o método" não reprova a PR de outra pessoa.
 
-O sha do marco zero vive em **dois lugares**, e os dois mudam juntos ao
-revisar a skill: esta tabela e o step do `ci.yml`.
+🔎 **O sha tem UMA fonte: `.claude/skills/MARCO-ZERO`.** O `ci.yml` lê o
+arquivo; esta tabela repete o valor só para leitura humana. Antes ele vivia em
+dois lugares e nada os amarrava — e sha desatualizado não é relido por
+ninguém: o contador passaria a contar do ponto errado, em silêncio. Ao revisar
+a skill, troque o sha **no arquivo** e atualize a data aqui.
 
 Ao revisar, responder as três perguntas fixas da seção 10 e — só se houver o
 que mudar — subir `version` e `updated` no frontmatter **e rodar
 `./scripts/atualiza-manifesto.sh`**, senão a guarda de sha256 reprova a
 própria PR de revisão.
 
-### Teto de WIP = 3 frentes
+### Teto de WIP = 3 frentes — critério recalibrado na v2.3
 
 **Proibido abrir a quarta antes de fechar uma.** O inventário completo, com o
 critério e o que está congelado ou arquivado, está em
 `docs/onix-wip-inventario.md` (entrou na #326).
+
+🔎 **O que conta como frente mudou na skill v2.3:** só conta o que
+**atravessa sessão OU exige mais de uma PR**. **PR verde única não ocupa
+vaga.**
+
+> A v2.2 contava toda PR aberta, e isso estava calibrado errado porque não
+> havia medição. A #326 mediu: mediana 🟢 **1,0 h**, 🟡 **1,0 h**,
+> 🔴 **2,8 h**. Com verde fechando em uma hora, contar PR única como frente
+> fazia uma tarefa de 60 minutos disputar vaga com a **#301**, travada há
+> semanas — o teto passava a proteger o que está parado em vez do que está
+> andando.
+
+🔎 **Alarme de envelhecimento** (`scripts/aviso-pr-envelhecendo.sh`, no
+`ci.yml` desde a #333) substitui o efeito colateral que segurava a fila curta,
+medindo a cauda longa que era o gargalo real:
+
+| faixa | limiar | ≈ múltiplo da mediana |
+|---|---|---|
+| 🟢 verde | 8 h | 8× |
+| 🟡 amarela | 12 h | 12× |
+| 🔴 vermelha | 48 h | 17×, com o **bloqueio nomeado** |
+
+**Aviso, nunca gate.** PR 🔴 esperando decisão deve esperar; o que não pode é
+ninguém saber que ela espera. A #327 ficou 25,1 h errada — 21× a mediana — com
+CI verde o tempo todo.
 
 As frentes abertas hoje — pilha empilhada conta como uma:
 
@@ -483,6 +523,232 @@ registrados como backlog, não como trabalho pendente de revisão:
 - merge de leading zeros órfão
 - guard de `DATABASE_URL`
 - SHA do build no `/api/health`
+
+### Deploy — migrations rodam no `startCommand`
+
+**Estado atual:** `package.json` → `"start": "prisma migrate deploy && next start"`,
+e `railway.toml` **não tem** `preDeployCommand`.
+
+🔎 **A #317 tentou tirar as migrations do start** e pô-las como
+`preDeployCommand`, por um motivo correto: dentro do `start`, o `&&` amarra
+migrar e subir ao mesmo destino, e migration que falha derruba o serviço em
+loop de restart — falha de DADO vira INDISPONIBILIDADE.
+
+**O Railway nunca leu a chave.** Conferido no painel: o deploy mostrava
+Initialization / Build / Deploy / Post-deploy, **sem estágio Pre-deploy**. A
+causa é de tipo — a chave espera **array** (`preDeployCommand = ["npm run
+db:migrate"]`) e a #317 escreveu string.
+
+O efeito era **pior** que o problema original: com o `start` reduzido a `next
+start`, migration pendente **não aplicava**, o app subia saudável, healthcheck
+e smoke passavam, e o schema ficava atrás do código em silêncio. Divergência
+silenciosa não avisa; indisponibilidade avisa.
+
+**Revertido pela #335.** Nenhuma migration entrou entre a #317 e o revert, então
+o estrago ficou em zero — por sorte de calendário, não por desenho.
+
+✅ **EXERCITADO E PROVADO em 15/08/2026** pela #355 (`DeployProbe`), a primeira
+migration a entrar depois do revert. Até ali o smoke provava apenas **ausência
+de divergência**; a #355 criou o caso que faltava — um schema que o banco
+PRECISAVA mudar.
+
+O que se observou, no smoke das 22:45 UTC sobre `b0ebafb`:
+
+| sinal | resultado |
+|---|---|
+| `Convergiu: b0ebafb está no ar` | o código no ar É o commit da migration |
+| `migrations.pendentes` | **vazio** |
+| `migrations.falhas` | vazio (não vazio reprova o step) |
+
+Como `pendentes` é a diferença entre as pastas de `prisma/migrations/` **na
+imagem no ar** e as linhas de `_prisma_migrations` com `finished_at`
+preenchido e `rolled_back_at` nulo (`src/lib/migrations-aplicadas.ts`),
+`pendentes` vazio significa que `20260815152536_deploy_probe` **entrou no
+banco com `finished_at` gravado**. O `startCommand` aplicou.
+
+⚠️ Registro honesto do método: os dois sinais vêm da **mesma fonte** (o
+`/api/health` lendo `_prisma_migrations`). Nem `psql` contra produção nem o
+`workflow_dispatch` de `estado-do-banco.yml` estavam disponíveis à sessão
+(rede bloqueada e 403 de permissão). A leitura independente por SQL continua
+pendente — e a PR que remover a `DeployProbe` é a segunda prova, desta vez de
+um `DROP`.
+
+A tabela `DeployProbe` **fica no ar como marco** até o Eduardo confirmar a
+remoção.
+
+**Para retomar o `preDeployCommand`** (não fazer sem isto):
+1. Sintaxe em **array**, confirmada em documentação.
+2. ⚠️ **O builder é `DOCKERFILE`** (`railway.toml`, `builder = "DOCKERFILE"`,
+   com `Dockerfile` no repo — o comentário lá diz "NÃO usar Nixpacks"). Sob
+   Dockerfile o pré-deploy pode precisar de shell explícito
+   (`["/bin/sh", "-c", "..."]`), porque `&&` é sintaxe de shell. Quem assumir
+   Railpack vai depurar o sintoma errado.
+3. Provar com migration real e inofensiva, conferindo **os dois** sinais: o
+   estágio Pre-deploy no painel **e** o nome da migration no `/api/health`.
+
+### Detecção de schema pendente — entregue pela #323
+
+`/api/health` (bloco autenticado) expõe `migrations`, com `pendentes`, ao lado
+de `versao` e `flags`. O `post-deploy-smoke.yml` **reprova em vermelho** quando
+há pendente, e também quando há migration **começada e não concluída** — que é
+um modo de falha distinto, com conserto distinto (`prisma migrate resolve`).
+
+É a rede que faltava no episódio acima: a partir dela, schema atrás do código
+para de ser silencioso. Lógica pura em `src/lib/migrations-aplicadas.ts`, com
+teste sem banco.
+
+> ⚠️ O gate de divergência do mesmo workflow chegou a **reprovar o caminho
+> feliz** (`escrever_estado` terminava em `[ -n "$x" ] && echo`, que sob
+> `set -e` devolve 1 quando o teste é falso — e é chamada com argumentos
+> vazios justamente quando o deploy CONVERGE). Corrigido pela #350. Enquanto
+> durou, abriu issue de incidente a cada ciclo com produção sadia.
+
+### Parceiros — Fase 1 completa em produção
+
+Cinco tabelas no ar, **todas vazias** — e desde a #362 a ficha do cliente
+**lê** `ParceiroCliente` (primeira leitura da Fase 1 no produto: o cabeçalho
+mostra `· Parceiro X` quando existe vínculo vigente).
+
+| tabela / campo | PR | o que garante |
+|---|---|---|
+| `Parceiro` | #306 | entidade própria; `clienteBackofficeId` é FK **opcional** — parceiro PODE ser cliente, não precisa ser |
+| `Indicacao.parceiroId` | #306 | anda ao lado de `indicadorId` (#302), que não foi tocado |
+| `ParceiroCliente` | #307 | vínculo **datado** (`dataFim` null = vigente) |
+| índice `..._cliente_vigente_key` | #310 | **um cliente tem no máximo UM parceiro vigente** — a comissão do parceiro sai da do assessor, e dois retirariam da mesma base duas vezes |
+| `Parceiro.indicadoPorParceiroId` + trigger | #308 | árvore com guarda anti-ciclo **no banco**, não no TS |
+| `AcordoComercialParceiro` | #318 | comissão datada por `tipoProduto`; `DECIMAL(7,4)`, 2 CHECKs, um vigente por (parceiro, produto) |
+
+Apoio sem banco: `src/lib/parceiros/parceiro-core.ts` (#312, travessia da
+árvore, teto próprio de 64 níveis) e `vocabulario.ts` (#329, normalização —
+sem ela `"assessoria"` e `"Assessoria"` passam os dois pelo índice parcial e
+criam **dois acordos vigentes no mesmo produto** sem violar constraint).
+
+**`AcordoComercialParceiro` é tabela IRMÃ de `AcordoComercial`, não extensão.**
+Aquele é da `Pessoa` do time, tem `pessoaId` NOT NULL, **não tem campo de
+percentual**, e `atualizarAcordo` faz `UPDATE` no lugar — o que violaria a regra
+de que alterar percentual FECHA e ABRE.
+
+**Piloto: `scripts/seed-parceiro-piloto.ts` (#330, #360, #362).** Dry-run por
+padrão; escreve só com `--aplicar`, em UMA transação, tudo-ou-nada. Existe para
+provar que a modelagem serve ao caso real antes de haver UI. **Não contém
+migration** — merge dele não aplica nada; a escrita é ato separado.
+
+⚠️ **O piloto do Renan ainda NÃO foi executado em produção**, e a razão é
+estrutural, não de agenda: **uma sessão de agente não alcança produção**. O
+`DATABASE_URL` de produção é secret do repositório e a rede da sessão é
+bloqueada (`CONNECT 403` até o próprio domínio do app). O único lugar deste
+projeto que tem o segredo E a rota é o **GitHub Actions** — daí
+`.github/workflows/piloto-parceiro.yml` (dispatch manual, `aplicar` nascendo
+em `nao`, com checagem de `numeroConta` duplicado ANTES de qualquer escrita).
+
+Combinado com o Eduardo para o acordo do Renan (sócio da Onix Imobiliária):
+**20% em todos os produtos, EXCETO imobiliária**, gravado como **seis linhas** —
+cinco a 20% e `imobiliaria` a **0% explícito**. O 0% é o ponto: linha com zero
+É acordo, registra que o produto foi decidido como fora; ausência de linha é
+indistinguível de "ainda não cadastrei". Ele já recebe como sócio na Imob, e
+uma sexta linha a 20% ali pagaria duas vezes.
+
+🔴 **Pendência do Financeiro — o campo guarda o percentual, não a BASE.**
+`AcordoComercialParceiro.percentual` diz *20%*, e **em lugar nenhum do banco
+está escrito 20% DE QUÊ**. O acordo real é sobre a **receita líquida**, e isso
+existe hoje só na cabeça de quem combinou. Duas leituras futuras (uma sobre
+receita bruta, outra sobre líquida) devolveriam números diferentes com a mesma
+linha e ambas pareceriam certas. Resolver isso é decisão do Financeiro antes de
+qualquer cálculo de comissão automático — não de código.
+
+### 🚨 INCIDENTE Saldo D0 — o cron sobrescreve o import todo dia
+
+🔎 Medido em produção em 2026-08-15 22:48 UTC (`estado-do-banco.yml`, run 31913069806).
+
+O Eduardo confirmou que baixa e importa o Saldo D0 **à mão, todo dia**. O arquivo
+de hoje traz 1.188 contas com saldo. O banco tem **um** carimbo `saldo_em_cc`, de
+30/07.
+
+**O fato que reorganiza o problema:** `saldoConta` tem DOIS escritores
+(`field-source-policy.ts:119` → `["saldo_em_cc", "api"]`), e o segundo roda todo dia.
+
+| `BtgSyncLog` tipo `balances` | valor |
+|---|---|
+| execuções | **1 por dia, 20/20 dias, sem falha** |
+| clientes reescritos por execução | **~2.650** (hoje: 2.654) |
+| última | 15/08 09:28 UTC |
+
+| idade do `saldoConta` (2.681 com carimbo) | |
+|---|---|
+| escritos nas últimas 24 h | **2.654** |
+| com mais de 15 dias | **24** |
+| escrita mais recente, de qualquer fonte | **15/08 09:29 UTC** |
+
+Duas leituras saem daí, e as duas importam:
+
+1. **O `saldoConta` NÃO está defasado** — 2.654 de 2.681 têm menos de 24 h. Só que
+   o valor na tela é o `availableBalance` da Partner API
+   (`btg-api-sync.ts:139-147`), não o do Saldo D0 que o Eduardo subiu.
+2. **Nada escreveu `saldoConta` depois das 09:29 UTC de hoje** (06:29 BRT). Se a
+   importação de hoje aconteceu depois desse horário, ela **não gravou**.
+
+**A prioridade declarada na policy é ficção.** `field-source-policy.ts:16-18` diz
+que a lista é "ORDENADA pela prioridade — primeiro = mais autoritativo", e
+`saldo_em_cc` vem primeiro. Mas `upsertPorPolitica` (`upsert-cliente.ts:54-74`) só
+confere **pertinência** à lista, nunca prioridade. Última escrita vence — e a
+última é sempre o cron das 09h UTC, porque roda antes do expediente.
+
+*É deixar uma ordem no book e a mesa reprocessar por cima toda manhã, com o preço
+de outra fonte. A posição existe; só não é a que você montou.*
+
+**O que NÃO deu para determinar, e por quê.** A etapa exata onde a importação
+morre continua indeterminada — o POST `/api/backoffice/clientes` **não grava linha
+de log nenhuma** (único dos ~19 tipos de job que não grava; só `console.log` em
+`route.ts:895-905`). Sem esse rastro, "tentou e falhou" e "não tentou" são
+indistinguíveis retroativamente. Desenho do contador em
+`docs/onix-contador-import.md`.
+
+Descartado por leitura de código, nesta rodada:
+
+- headers `Conta`/`Nome`/`Saldo` são reconhecidos (`xlsx-mapping.ts:41`, `:24`,
+  `:56`), e o "Saldo"→`saldoConta` é compensado pelo swap em `route.ts:541-548`;
+- a policy **não** bloqueia `saldoConta` para `saldo_em_cc`;
+- `BTG_FRESHNESS_INPROCESS` e `DATACRAZY_POLL_INPROCESS` (`instrumentation.ts:69`
+  e `:40`) não tocam o caminho; `RBAC_ENFORCEMENT` só afeta o **GET**
+  (`route.ts:322`);
+- `assessorCge` **não** é filtro de escrita — é filtro de leitura (RBAC). Zero das
+  1.190 linhas seria descartada por ele.
+
+Restam três candidatos, todos com a mesma aparência na tela (`200 OK`):
+`sem numeroConta` (`route.ts:863-871`), `órfão sem cliente`
+(`route.ts:550-557`) e `noop` — este último não aparece em lugar nenhum, nem na
+resposta. **O discriminador já está na tela do Eduardo**: a mensagem
+`Relatório: Saldo em CC · N novos · M atualizados · K órfãos`
+(`route.ts:790-800`) separa os três. Ela não é guardada em lugar nenhum.
+
+### Base BTG × Informações — os conjuntos divergem, e ninguém supõe o contrário
+
+🔎 Conferido em 2026-08-15. Os dois exports têm 2.661 contas, mas os conjuntos não
+são idênticos. **Não é bug**: nenhum ponto do código supõe que sejam iguais.
+
+- `field-source-policy.ts` atribui cada campo a fontes específicas; conta ausente
+  numa fonte só deixa aqueles campos intocados;
+- `btg-freshness.ts:41-64` trata as três fontes de forma independente, cada uma
+  com a própria janela;
+- `import-sanity.ts:17-21` **removeu** de propósito o gate por "base-ratio",
+  registrando que o relatório é por natureza um subconjunto;
+- `reconciliacao-btg.ts` compara conjuntos — mas API BTG × banco, não export ×
+  export, e não é acionado pelo import.
+
+Nenhuma reconciliação, contagem cruzada ou gate compara os dois exports.
+
+### ✅ ENCERRADO — nenhum export BTG fornece `nomeCompleto`
+
+📋 Conferido pelo Eduardo em 2026-08-15 contra **2.660 nomes**: Base BTG,
+Informações e Saldo D0 têm **0% de sobrenome**. Os três trazem só o primeiro nome.
+
+O item de backlog "identificar o export BTG que fornece nome completo" fica
+**fechado por evidência**, não por desistência: os três candidatos foram medidos e
+os três falharam. Não há um quarto export em uso.
+
+Consequência para quem chegar depois: `nomeCompleto` **não vem de planilha BTG**.
+Quem precisar dele terá de buscar outra origem (cadastro, contrato, Partner API) —
+e não vale reabrir a busca nos exports, que é onde ela já morreu uma vez.
 
 ### Infra de CI observada
 

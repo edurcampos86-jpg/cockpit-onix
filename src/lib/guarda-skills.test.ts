@@ -158,14 +158,30 @@ test("diretório inexistente sai 0 — a guarda não reprova a si mesma", () => 
 
 // ── Regra 6 · sha256 contra o MANIFESTO.md ───────────────────────────────
 
-/** Monta o manifesto no formato que `atualiza-manifesto.sh` gera. */
-function manifesto(linhas: Array<[string, string]>): string {
+/**
+ * Monta o manifesto no formato que `atualiza-manifesto.sh` gera: duas tabelas,
+ * a de skills (version/updated) e a de ARQUIVOS (caminho/sha256). As duas têm
+ * três colunas, e o que as separa é o sha256 de 64 hexa — por isso a tabela de
+ * skills entra aqui também, para o teste exercitar a distinção de verdade.
+ */
+function manifesto(linhas: Array<[string, string, string?]>): string {
+  const skills = [...new Set(linhas.map(([skill]) => skill))];
   return [
     "# Manifesto",
     "",
-    "| skill | version | updated | sha256 do SKILL.md |",
-    "|---|---|---|---|",
-    ...linhas.map(([skill, hash]) => `| \`${skill}\` | 1.0 | 2026-08-13 | \`${hash}\` |`),
+    "## Skills",
+    "",
+    "| skill | version | updated |",
+    "|---|---|---|",
+    ...skills.map((skill) => `| \`${skill}\` | 1.0 | 2026-08-13 |`),
+    "",
+    "## Arquivos",
+    "",
+    "| skill | arquivo | sha256 |",
+    "|---|---|---|",
+    ...linhas.map(
+      ([skill, hash, rel]) => `| \`${skill}\` | \`${rel ?? "SKILL.md"}\` | \`${hash}\` |`
+    ),
     "",
   ].join("\n");
 }
@@ -189,7 +205,7 @@ test("reprova sha256 divergente, mostrando esperado e encontrado", () => {
     "MANIFESTO.md": manifesto([["minha-skill", HASH_FALSO]]),
   });
   assert.equal(code, 1);
-  assert.match(saida, /sha256 diverge do manifesto/);
+  assert.match(saida, /sha256 de 'SKILL.md' diverge do manifesto/);
   assert.match(saida, new RegExp(`esperado: *${HASH_FALSO}`));
   assert.match(saida, new RegExp(`encontrado: *${HASH_OK}`));
 });
@@ -201,7 +217,7 @@ test("reprova skill em disco que o manifesto não declara", () => {
     "MANIFESTO.md": manifesto([["minha-skill", HASH_OK]]),
   });
   assert.equal(code, 1);
-  assert.match(saida, /não está declarada/);
+  assert.match(saida, /'SKILL.md' não está declarado/);
 });
 
 test("reprova skill declarada no manifesto e ausente do disco", () => {
@@ -239,4 +255,22 @@ test("reporta todas as skills quebradas num run só", () => {
   assert.match(saida, /campo obrigatório 'updated'/);
   assert.match(saida, /≠ name 'outra-errada'/);
   assert.match(saida, /2 violação\(ões\)/);
+});
+
+test("cobre arquivo de apoio, não só o SKILL.md", () => {
+  // O caso concreto: story-fitness-onix/scripts/retoque_story.py. Cobrir só o
+  // SKILL.md deixaria de fora exatamente o arquivo cuja troca ninguém percebe.
+  const apoio = "print('oi')\n";
+  const hashApoio = createHash("sha256").update(apoio).digest("hex");
+  const { code, saida } = rodarGuarda({
+    "minha-skill/SKILL.md": FRONTMATTER_OK,
+    "minha-skill/scripts/util.py": apoio,
+    "MANIFESTO.md": manifesto([
+      ["minha-skill", HASH_OK],
+      ["minha-skill", HASH_FALSO, "scripts/util.py"],
+    ]),
+  });
+  assert.equal(code, 1);
+  assert.match(saida, /sha256 de 'scripts\/util.py' diverge/);
+  assert.doesNotMatch(saida, new RegExp(hashApoio + ".*esperado"));
 });

@@ -223,6 +223,311 @@ jobs:
           echo "Configuração confere com EXPECTED_FLAGS_ON."
           echo "status=ok" >> "$GITHUB_OUTPUT"
 
+      # ── ESTADO ENTRE EXECUÇÕES ─────────────────────────────────────────
+      #
+      # Restaurado ANTES dos steps que o leem (migrations e divergência). Chave
+      # por `run_id` porque chave de cache é imutável; `restore-keys` traz a
+      # mais recente.
+      - name: Restaurar estado do ciclo anterior
+        if: always()
+        uses: actions/cache/restore@v4
+        with:
+          path: /tmp/smoke-estado
+          key: smoke-estado-${{ github.run_id }}
+          restore-keys: smoke-estado-
+
+      # ── MIGRATIONS PENDENTES — FALHA, E MEDE O ATRASO ──────────────────
+      #
+      # App no ar com schema velho. O probe de `/api/health` acima passa verde
+      # nele — `SELECT 1` responde —, e o erro só aparece depois, como coluna
+      # inexistente no meio de uma requisição de usuário. (Como a migration
+      # roda hoje e por quê: bloco `[deploy]` do `railway.toml`.)
+      #
+      # FALHA, e não avisa: a lição da #301 é que informação sem gate depende de
+      # alguém ler. Aqui não há ambiguidade a preservar — `pendentes` não vazio
+      # significa que o código servindo tráfego espera colunas que o banco não
+      # tem, e isso é errado em qualquer janela, inclusive durante um deploy.
+      #
+      # ── E MEDE HÁ QUANTO TEMPO ─────────────────────────────────────────
+      # Saber que o schema está atrás não diz se são 5 minutos de janela de
+      # deploy ou três dias como em agosto/2026. O post-mortem daquele caso só
+      # foi possível comparando timestamps de runs à mão; aqui o número sai
+      # pronto.
+      #
+      # PRECISÃO, sem fingir mais do que tem: o fim da janela vem de
+      # `aplicadaEm` (o `finished_at` do próprio `_prisma_migrations`, exato); o
+      # início vem da PRIMEIRA VEZ QUE O SMOKE VIU pendente, que chega até um
+      # ciclo atrasado. O número é portanto um PISO — o atraso real é esse ou
+      # maior, nunca menor.
+      - name: Probe migrations aplicadas
+        id: migrations
+        if: always()
+        run: |
+          set -euo pipefail
+
+          # Lido com grep/cut, não com `source`: o arquivo vem do cache, e
+          # executá-lo seria dar poder de execução a um artefato de estado.
+          ler() {
+            [ -f /tmp/smoke-estado ] || return 0
+            grep -m1 "^$1=" /tmp/smoke-estado 2>/dev/null | cut -d= -f2- || true
+          }
+          ANT_LISTA=$(ler MIG_ATRAS_LISTA)
+          ANT_DESDE=$(ler MIG_ATRAS_DESDE)
+          HIST=$(ler MIG_HISTORICO)
+          AGORA=$(date +%s)
+
+          # Quem grava o arquivo de estado é o step de divergência — um único
+          # escritor, para dois steps não se sobrescreverem. Aqui só se decide
+          # O QUE ele grava, e isso viaja por outputs.
+          emitir() {
+            {
+              echo "atras_lista=${1:-}"
+              echo "atras_desde=${2:-}"
+              echo "historico=${3:-}"
+            } >> "$GITHUB_OUTPUT"
+          }
+
+          # Ausente quando CRON_SECRET não está configurado: o step anterior sai
+          # cedo sem escrever o arquivo. Nada a conferir, e não é falha deste —
+          # mas a janela em curso é PRESERVADA (ciclo cego não é evidência de
+          # que o schema alcançou).
+          if [ ! -s /tmp/health-auth.json ]; then
+            echo "Sem resposta autenticada — nada a conferir, janela preservada."
+            emitir "$ANT_LISTA" "$ANT_DESDE" "$HIST"
+            exit 0
+          fi
+
+          # Campo ausente = versão anterior à que passou a publicá-lo. Avisa e
+          # segue, mesmo critério de `flags` e `flagsValorInvalido`.
+          if ! jq -e 'has("migrations")' /tmp/health-auth.json > /dev/null; then
+            echo "::warning::/api/health não trouxe 'migrations' — versão antiga no ar."
+            emitir "$ANT_LISTA" "$ANT_DESDE" "$HIST"
+            exit 0
+          fi
+
+          ULTIMA=$(jq -r '.migrations.ultima // "(nenhuma)"' /tmp/health-auth.json)
+          APLICADA_EM=$(jq -r '.migrations.aplicadaEm // ""' /tmp/health-auth.json)
+          APLICADAS=$(jq -r '.migrations.aplicadas' /tmp/health-auth.json)
+          PENDENTES=$(jq -r '.migrations.pendentes | join(", ")' /tmp/health-auth.json)
+          FALHAS=$(jq -r '.migrations.falhas | join(", ")' /tmp/health-auth.json)
+
+          echo "Migrations aplicadas: $APLICADAS · última: $ULTIMA"
+          {
+            echo "| Migrations aplicadas | \`$APLICADAS\` |"
+            echo "| Última migration | \`$ULTIMA\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # Separado de `pendentes` porque o conserto é outro: linha começada e
+          # não terminada precisa de `migrate resolve` antes de qualquer nova
+          # tentativa (ver Cenário 2 do DISASTER_RECOVERY).
+          if [ -n "$FALHAS" ]; then
+            emitir "$ANT_LISTA" "$ANT_DESDE" "$HIST"
+            echo "| Migrations com falha | \`$FALHAS\` |" >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Migration começada e não concluída, ou revertida: $FALHAS. Rode 'prisma migrate resolve' antes de tentar de novo — ver Cenário 2 do docs/DISASTER_RECOVERY.md."
+            exit 1
+          fi
+
+          if [ -n "$PENDENTES" ]; then
+            # Conjunto igual ao do ciclo anterior = mesma janela, o relógio
+            # continua. Conjunto diferente = migration nova entrou; a janela
+            # recomeça, senão o deploy de hoje nasceria já vencido.
+            if [ "$ANT_LISTA" = "$PENDENTES" ] && [ -n "$ANT_DESDE" ]; then
+              DESDE="$ANT_DESDE"
+            else
+              DESDE="$AGORA"
+            fi
+            emitir "$PENDENTES" "$DESDE" "$HIST"
+            MIN=$(( (AGORA - DESDE) / 60 ))
+            {
+              echo "| Migrations PENDENTES | \`$PENDENTES\` |"
+              echo "| Schema atrás há | **${MIN} min** (piso — ver comentário no workflow) |"
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::App no ar com schema velho há ${MIN} min. O código servindo tráfego espera migrations que o banco não tem: $PENDENTES. Conserto: redeploy (o start aplica as migrations antes de subir — ver railway.toml) ou 'npm run db:migrate' com a DATABASE_URL de producao."
+            exit 1
+          fi
+
+          # Estava atrás no ciclo anterior e alcançou agora: é a única hora em
+          # que dá para FECHAR a medição, então é aqui que ela entra na série.
+          NOVO_HIST="$HIST"
+          if [ -n "$ANT_LISTA" ] && [ -n "$ANT_DESDE" ]; then
+            FIM="$AGORA"
+            if [ -n "$APLICADA_EM" ]; then
+              FIM_DB=$(date -u -d "$APLICADA_EM" +%s 2>/dev/null || true)
+              if [ -n "$FIM_DB" ] && [ "$FIM_DB" -gt "$ANT_DESDE" ]; then FIM="$FIM_DB"; fi
+            fi
+            ATRASO=$(( (FIM - ANT_DESDE) / 60 ))
+            # Série curta de propósito: 8 entradas cabem no resumo sem virar
+            # relatório, e o histórico longo de verdade são as issues.
+            NOVO_HIST=$(printf '%s;%s:%s' "$HIST" "$ULTIMA" "$ATRASO" \
+              | tr ';' '\n' | grep -v '^$' | tail -8 | paste -sd';' -)
+            {
+              echo "| ⏱️ Schema alcançou | \`$ULTIMA\` depois de **${ATRASO} min** atrás |"
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::notice::Schema alcançou o código: $ULTIMA aplicada após ${ATRASO} min de atraso (piso)."
+          fi
+
+          if [ -n "$NOVO_HIST" ]; then
+            {
+              echo ""
+              echo "<details><summary>Série de atrasos de schema (últimos 8)</summary>"
+              echo ""
+              echo "| Migration | Atraso (min) |"
+              echo "|---|---|"
+              # <code> em vez de crase: crase dentro de aspas simples dispara
+              # SC2016 no actionlint, e o `disable` não pega em heredoc de YAML.
+              echo "$NOVO_HIST" | tr ';' '\n' | grep -v '^$' \
+                | sed -E 's|^(.*):([0-9]+)$|<code>\1</code> \| \2|' \
+                | sed -E 's|^|\| |; s|$| \||'
+              echo ""
+              echo "</details>"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          emitir "" "" "$NOVO_HIST"
+          echo "Schema em dia — nenhuma migration pendente."
+
+      # ── DIVERGÊNCIA DE SHA — reporta, e falha depois de 30 MINUTOS ────
+      #
+      # Divergir é NORMAL durante a janela de build: o commit entrou na main e o
+      # Railway ainda está construindo a imagem. O que não é normal é a
+      # divergência que NÃO PASSA — deploy não promovido deixa a versão anterior
+      # servindo indefinidamente, e o aviso repetido tem a mesma cara do aviso
+      # de build.
+      #
+      # O limiar é em MINUTOS, e não em número de ciclos, porque a cadência do
+      # `schedule` do GitHub não é a que o cron pede: o arquivo diz `*/15`, e a
+      # entrega medida em 14 execuções seguidas ficou entre 46 e 94 minutos.
+      # Contar ciclos faria o gate disparar entre 1,5 h e 3 h conforme a sorte
+      # da fila. Contar tempo dá a mesma resposta em qualquer cadência.
+      #
+      # 30 minutos: com a cadência real, equivale a "falha na próxima
+      # verificação se ainda estiver divergente", e é folgado para um build de
+      # imagem Docker completo.
+      #
+      # O estado entre execuções vive no cache do Actions, restaurado lá em
+      # cima. Este step é o ÚNICO que escreve o arquivo — o de migrations
+      # manda o que quer gravar por output.
+      - name: Divergência de sha e intervalo entre ciclos
+        id: divergencia
+        if: always()
+        env:
+          LIMIAR_MIN: '30'
+          MIG_LISTA: ${{ steps.migrations.outputs.atras_lista }}
+          MIG_DESDE: ${{ steps.migrations.outputs.atras_desde }}
+          MIG_HIST: ${{ steps.migrations.outputs.historico }}
+        run: |
+          set -euo pipefail
+
+          # Lido com grep/cut, não com `source`: o arquivo vem do cache, e
+          # executá-lo seria dar poder de execução a um artefato de estado.
+          ler() {
+            [ -f /tmp/smoke-estado ] || return 0
+            grep -m1 "^$1=" /tmp/smoke-estado 2>/dev/null | cut -d= -f2- || true
+          }
+          ANT_SMOKE=$(ler ULTIMO_SMOKE)
+          ANT_ESPERADO=$(ler DIV_ESPERADO)
+          ANT_NO_AR=$(ler DIV_NO_AR)
+          ANT_DESDE=$(ler DIV_DESDE)
+
+          AGORA=$(date +%s)
+
+          # ── Intervalo desde o smoke anterior ─────────────────────────────
+          # A lentidão do agendamento é invisível sem isto: só aparece
+          # comparando timestamps de runs à mão. E ela muda o significado do
+          # próprio gate abaixo, então pertence ao mesmo resumo.
+          if [ -n "$ANT_SMOKE" ]; then
+            INTERVALO=$(( (AGORA - ANT_SMOKE) / 60 ))
+            echo "Intervalo desde o smoke anterior: ${INTERVALO} min"
+            echo "| Intervalo desde o smoke anterior | \`${INTERVALO} min\` |" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Primeiro ciclo com estado — sem intervalo para comparar."
+          fi
+
+          # ── ESCRITA DE ESTADO NÃO PODE REPROVAR O SMOKE ─────────────────
+          #
+          # Esta função já derrubou o workflow: era `[ -n "$1" ] && echo ...`, e
+          # com `set -e` uma AND-list que devolve 1 (argumento vazio → `[` falha
+          # → a lista inteira devolve 1) mata o step. O caminho "Convergiu"
+          # chama com os três argumentos VAZIOS, ou seja, o caminho FELIZ era o
+          # que reprovava. Entre 15/08 08:35 e 13:07 isso abriu 11 issues de
+          # incidente com a produção 100% saudável.
+          #
+          # Duas travas contra a repetição: `if` em vez de AND-list (um `if`
+          # com condição falsa devolve 0), e `|| warning` na chamada — anotar
+          # o ciclo é escrituração, não é probe, e escrituração que falha vira
+          # aviso, nunca alarme.
+          escrever_estado() {
+            {
+              echo "ULTIMO_SMOKE=$AGORA"
+              if [ -n "${1:-}" ]; then echo "DIV_ESPERADO=$1"; fi
+              if [ -n "${2:-}" ]; then echo "DIV_NO_AR=$2"; fi
+              if [ -n "${3:-}" ]; then echo "DIV_DESDE=$3"; fi
+              if [ -n "${MIG_LISTA:-}" ]; then echo "MIG_ATRAS_LISTA=$MIG_LISTA"; fi
+              if [ -n "${MIG_DESDE:-}" ]; then echo "MIG_ATRAS_DESDE=$MIG_DESDE"; fi
+              if [ -n "${MIG_HIST:-}" ]; then echo "MIG_HISTORICO=$MIG_HIST"; fi
+            } > /tmp/smoke-estado
+          }
+          gravar() {
+            escrever_estado "$@" || echo "::warning::Não consegui gravar o estado do ciclo — a próxima execução recomeça a contagem."
+          }
+
+          # Ciclo cego (sem CRON_SECRET, ou resposta sem `versao`): NÃO é
+          # evidência de convergência. A janela de divergência é preservada —
+          # só o relógio do intervalo avança.
+          if [ ! -s /tmp/health-auth.json ] || ! jq -e '.versao.shaCurto' /tmp/health-auth.json > /dev/null 2>&1; then
+            echo "Sem sha no ar para comparar — janela preservada."
+            gravar "$ANT_ESPERADO" "$ANT_NO_AR" "$ANT_DESDE"
+            exit 0
+          fi
+
+          NO_AR=$(jq -r '.versao.shaCurto' /tmp/health-auth.json)
+          ESPERADO="${GITHUB_SHA:0:7}"
+
+          if [ "$NO_AR" = "$ESPERADO" ]; then
+            echo "Convergiu: $NO_AR está no ar."
+            gravar "" "" ""
+            exit 0
+          fi
+
+          # Par diferente do anterior = deploy NOVO em voo. A janela recomeça:
+          # herdar o relógio de uma divergência antiga faria o build seguinte
+          # nascer já vencido.
+          if [ "$ANT_ESPERADO" = "$ESPERADO" ] && [ "$ANT_NO_AR" = "$NO_AR" ] && [ -n "$ANT_DESDE" ]; then
+            DESDE="$ANT_DESDE"
+          else
+            DESDE="$AGORA"
+          fi
+
+          # Grava ANTES de decidir: se este ciclo falhar, o próximo tem de
+          # continuar vendo a mesma janela, não recomeçar a contagem.
+          gravar "$ESPERADO" "$NO_AR" "$DESDE"
+
+          MIN=$(( (AGORA - DESDE) / 60 ))
+          echo "Divergente há ${MIN} min (limiar: ${LIMIAR_MIN} min)."
+
+          if [ "$MIN" -ge "$LIMIAR_MIN" ]; then
+            {
+              echo ""
+              echo "### 🛑 Deploy não entrou"
+              echo ""
+              echo "No ar: \`$NO_AR\` · esperado: \`$ESPERADO\` · divergente há **${MIN} min**."
+              echo ""
+              echo "Passou de ${LIMIAR_MIN} min, então não é janela de build."
+              echo "Railway → Deployments: procure o deploy vermelho e leia os **Deploy Logs**."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Commit no ar ($NO_AR) difere do esperado ($ESPERADO) há ${MIN} min, acima do limiar de ${LIMIAR_MIN} min. Não é build — é deploy que não foi promovido."
+            exit 1
+          fi
+
+          echo "::warning::Commit no ar ($NO_AR) difere do esperado ($ESPERADO) há ${MIN} min. Dentro do limiar de ${LIMIAR_MIN} min — provavelmente build em andamento."
+
+      - name: Guardar estado para o próximo ciclo
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: /tmp/smoke-estado
+          key: smoke-estado-${{ github.run_id }}
+
       # ─────────────────────────────────────────────────────────────────
       # `/api/empresas/hierarquia` está gateada?
       #

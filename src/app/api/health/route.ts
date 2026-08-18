@@ -4,6 +4,11 @@ import { cronAutorizado } from "@/lib/painel-do-dia/cron-guard";
 import { resolverEstadoDasFlags } from "@/lib/flags/estado";
 import { chavesLigadasDe, chavesNaoReconhecidasDe } from "@/lib/flags/ligadas";
 import { versaoDeploy } from "@/lib/versao-deploy";
+import { lerEstadoMigrations, type EstadoMigrations } from "@/lib/migrations-aplicadas";
+import {
+  resumirAuditoria,
+  type EstadoIntegracoes,
+} from "@/lib/integracoes-auditadas";
 
 // Health check público. Usado por:
 //   - .github/workflows/post-deploy-smoke.yml (após deploy + cron 15min)
@@ -56,6 +61,28 @@ export async function GET(request: Request) {
      * resposta na issue de incidente. "2 flags com valor inválido" manda
      * alguém procurar; os nomes mandam alguém consertar. */
     let flagsValorInvalido: string[] | undefined;
+    /* QUAL SCHEMA está no ar, ao lado de qual CÓDIGO está no ar (`versao`).
+     *
+     * Passou a fazer falta quando `prisma migrate deploy` saiu do `startCommand`
+     * e virou `preDeployCommand` (#317). Antes, app respondendo implicava schema
+     * aplicado — migrar e subir eram o mesmo comando. Agora não são, e existe um
+     * estado novo: app no ar com schema velho, que o `SELECT 1` acima não vê.
+     *
+     * `migrations.pendentes` é o campo que importa: > 0 significa que o código
+     * servindo requisições espera colunas que o banco não tem. */
+    let migrations: EstadoMigrations | undefined;
+    /* O último veredito de `/api/cron/integration-audit`, que roda de 30 em 30
+     * minutos e já sabe se Google e BTG estão sãos.
+     *
+     * Ele funcionava e ninguém via: a resposta só existia no log do run e numa
+     * linha de `BtgSyncLog`. Em 15/08, responder "o webhook do BTG parou por
+     * credencial?" custou abrir o log de um run à mão — a resposta estava
+     * pronta havia 30 minutos.
+     *
+     * `integracoes.idadeMinutos` é o campo que importa tanto quanto `ok`: com
+     * o cron de 30 em 30, idade muito maior que isso quer dizer que o próprio
+     * auditor parou, e aí o `ok` é verde do tipo que engana. */
+    let integracoes: EstadoIntegracoes | undefined;
     if (autorizado) {
       try {
         const estado = await resolverEstadoDasFlags();
@@ -64,6 +91,39 @@ export async function GET(request: Request) {
       } catch (error) {
         console.warn(
           `[health] falha ao ler flags: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+
+      // try/catch próprio, e não o mesmo das flags: ler `_prisma_migrations` e
+      // ler `Config` falham por motivos diferentes, e uma falha não deve apagar
+      // o diagnóstico da outra.
+      try {
+        migrations = await lerEstadoMigrations(prisma);
+      } catch (error) {
+        console.warn(
+          `[health] falha ao ler migrations: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+
+      // try/catch próprio pela mesma razão dos dois acima: são leituras
+      // independentes, e uma falhar não pode apagar o diagnóstico da outra.
+      try {
+        const ultimaAuditoria = await prisma.btgSyncLog.findFirst({
+          where: { tipo: "integration-audit" },
+          orderBy: { iniciado: "desc" },
+          select: {
+            iniciado: true,
+            finalizado: true,
+            sucesso: true,
+            contasProcessadas: true,
+            contasComErro: true,
+            resumo: true,
+          },
+        });
+        integracoes = resumirAuditoria(ultimaAuditoria, new Date());
+      } catch (error) {
+        console.warn(
+          `[health] falha ao ler auditoria de integrações: ${error instanceof Error ? error.message : String(error)}`,
         );
       }
     }
@@ -81,6 +141,8 @@ export async function GET(request: Request) {
         // antiga no ar".
         ...(flags ? { flags } : {}),
         ...(flagsValorInvalido ? { flagsValorInvalido } : {}),
+        ...(migrations ? { migrations } : {}),
+        ...(integracoes ? { integracoes } : {}),
         // `versao` não depende do banco (só de env), então sai mesmo que a
         // leitura das flags tenha falhado — é justamente nesse cenário que
         // saber qual commit está no ar mais ajuda.

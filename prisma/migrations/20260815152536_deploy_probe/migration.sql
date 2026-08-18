@@ -1,0 +1,86 @@
+-- DeployProbe — migration cujo ÚNICO propósito é ser aplicada.
+--
+-- Cria UMA tabela nova, de UMA coluna, que nada referencia e onde nenhuma
+-- linha é inserida. 100% aditiva.
+--
+-- ─────────────────────────────────────────────────────────────────────────
+-- POR QUE UMA MIGRATION EXISTE SÓ PARA RODAR
+-- ─────────────────────────────────────────────────────────────────────────
+-- A #317 tirou `prisma migrate deploy` do `startCommand` e o pôs como
+-- `preDeployCommand`. O Railway NUNCA leu a chave (era string; espera array),
+-- e o efeito foi silencioso: migration pendente deixou de aplicar, o app subia
+-- saudável, healthcheck e smoke passavam, e o schema ficava atrás do código.
+-- A #335 reverteu para o `startCommand`.
+--
+-- O problema é que o caminho revertido NUNCA FOI EXERCITADO. A última migration
+-- (20260812205040) já estava aplicada antes do revert, e nenhuma nova entrou
+-- desde. O smoke verde prova AUSÊNCIA DE DIVERGÊNCIA — não prova que o
+-- mecanismo aplica. São afirmações diferentes, e confundir uma com a outra foi
+-- exatamente o que deixou o bug anterior passar despercebido.
+--
+-- Esta migration é a diferença entre as duas: um schema que o banco PRECISA
+-- mudar para ficar em dia.
+--
+-- ─────────────────────────────────────────────────────────────────────────
+-- A PROVA, e onde olhar
+-- ─────────────────────────────────────────────────────────────────────────
+-- Depois do deploy, dois sinais, nenhum deles exigindo abrir o psql:
+--
+--   1. `/api/health` (bloco autenticado) reporta em `migrations`:
+--        "ultima": "20260815152536_deploy_probe"
+--        "pendentes": []
+--      Se `pendentes` trouxer este nome, o `startCommand` NÃO aplicou — e é o
+--      mesmo modo de falha da #317, agora visível em vez de silencioso.
+--
+--   2. `_prisma_migrations` passa a ter a linha correspondente:
+--        SELECT migration_name, finished_at FROM "_prisma_migrations"
+--         WHERE migration_name = '20260815152536_deploy_probe';
+--
+-- O post-deploy-smoke (#323) já reprova em vermelho se `pendentes` não estiver
+-- vazio, então a verificação acontece sozinha no primeiro ciclo pós-deploy.
+--
+-- ─────────────────────────────────────────────────────────────────────────
+-- POR QUE TABELA, E NÃO UMA MIGRATION VAZIA
+-- ─────────────────────────────────────────────────────────────────────────
+-- Uma migration só com `SELECT 1` também seria registrada em
+-- `_prisma_migrations` e apareceria no health, sem deixar resíduo nenhum. Foi
+-- considerada e descartada: ela provaria que o Prisma REGISTROU a migration,
+-- não que o banco EXECUTOU DDL. A tabela prova as duas coisas, e o custo é uma
+-- PR de remoção — barato perto de uma prova pela metade sobre o mecanismo que
+-- protege o schema de produção.
+--
+-- NENHUMA LINHA é inserida: a existência da tabela é a prova. Dado dentro dela
+-- não acrescentaria nada e viraria lixo a limpar.
+--
+-- ─────────────────────────────────────────────────────────────────────────
+-- COMO REMOVER, depois de provado
+-- ─────────────────────────────────────────────────────────────────────────
+-- Apagar o model `DeployProbe` de prisma/schema.prisma e rodar
+--
+--     npx prisma migrate dev --name remove_deploy_probe
+--
+-- O Prisma gera `DROP TABLE "DeployProbe";` sozinho. É PR própria, tier 🔴 por
+-- conter migration, e sai sem deixar rastro: nada no domínio referencia esta
+-- tabela, não há FK apontando para ela, e ela está vazia.
+--
+-- E essa PR de remoção é, ela própria, a SEGUNDA prova do mecanismo — desta vez
+-- exercitando um DROP em vez de um CREATE.
+--
+-- Rollback (se precisar antes disso) = DROP TABLE "DeployProbe";
+--
+-- ATENÇÃO: o `prisma migrate dev` gerou aqui 2 statements de drift sobre
+-- PainelEmailAI.tsv, REMOVIDOS À MÃO:
+--
+--     DROP INDEX "PainelEmailAI_tsv_idx";
+--     ALTER TABLE "PainelEmailAI" ALTER COLUMN "tsv" DROP DEFAULT;
+--
+-- É a NONA migration seguida com a mesma remoção. Desde a #311 existe teste
+-- automatizado da guarda (scripts/guarda-drift-fts.sh), então esquecer reprova
+-- o CI em vez de chegar em produção.
+
+-- CreateTable
+CREATE TABLE "DeployProbe" (
+    "id" TEXT NOT NULL,
+
+    CONSTRAINT "DeployProbe_pkey" PRIMARY KEY ("id")
+);
