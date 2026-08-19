@@ -6,7 +6,8 @@ import { prisma } from "@/lib/prisma";
 import { getAuthContext, isAdmin } from "@/lib/auth-helpers";
 import { uploadContrato, deleteContrato } from "@/lib/b2/upload";
 import { b2ContratosConfigurado } from "@/lib/b2/client";
-import { calcRiceScore } from "@/lib/rice";
+import { calcRiceScore, validarRice } from "@/lib/rice";
+import { implementacoesV2Habilitado } from "@/lib/implementacoes/v2-flag";
 import {
   MAX_ANEXOS,
   MAX_ANEXO_BYTES,
@@ -31,7 +32,19 @@ function intOrNull(v: number | null | undefined): number | null {
   return Math.trunc(v);
 }
 
-export type CriarState = { ok: boolean; error?: string };
+export type CriarState = {
+  ok: boolean;
+  error?: string;
+  /** Id da sugestão criada — só no caminho do FAB, para o modal linkar até ela. */
+  id?: string;
+  /**
+   * Se quem enviou consegue ABRIR a triagem. O FAB é de todo usuário logado, mas
+   * /configuracoes/implementacoes é admin-only: oferecer o link a quem não é
+   * admin manda a pessoa para um redirect e faz a confirmação parecer quebrada.
+   * Quem decide é o servidor, que sabe o papel; o modal só renderiza se vier.
+   */
+  podeVerNaTriagem?: boolean;
+};
 
 /**
  * Cria uma Implementação (Golden Circle). Obrigatórios: porQue, oQue, empresaId.
@@ -94,6 +107,9 @@ export async function criarImplementacao(
   // Sobe tudo pro B2 ANTES de criar a sugestão. Se algum upload falhar, limpa o
   // que já subiu e aborta — não deixa órfão no bucket nem sugestão sem anexo.
   const uploadedKeys: string[] = [];
+  // Declarado FORA do try: o `catch` abaixo faz limpeza e sai, e o retorno de
+  // sucesso está depois do bloco — o id precisa sobreviver ao escopo.
+  let criadaId: string | undefined;
   const anexosData: {
     b2Key: string;
     nomeArquivo: string;
@@ -119,7 +135,7 @@ export async function criarImplementacao(
     }
 
     // create + anexos numa única operação (nested create é atômico no Prisma).
-    await prisma.implementacao.create({
+    const criada = await prisma.implementacao.create({
       data: {
         userId: ctx.userId,
         empresaId,
@@ -131,7 +147,9 @@ export async function criarImplementacao(
         pagina,
         anexos: anexosData.length ? { create: anexosData } : undefined,
       },
+      select: { id: true },
     });
+    criadaId = criada.id;
   } catch (err) {
     // Loga a causa REAL no servidor (antes o catch engolia tudo → o erro ficava
     // invisível em produção e o bug parecia um fantasma).
@@ -151,7 +169,7 @@ export async function criarImplementacao(
   // FAB (origem=fab): fica na página atual e o modal mostra sucesso.
   // Form da página /nova: mantém o redirect pra central (comportamento original).
   if (inline) {
-    return { ok: true };
+    return { ok: true, id: criadaId, podeVerNaTriagem: isAdmin(ctx) };
   }
   redirect("/configuracoes/implementacoes");
 }
@@ -184,7 +202,21 @@ export async function removerAnexo(
   return { ok: true };
 }
 
-/** Atualiza os 4 fatores RICE e recalcula o score. Cliente envia o conjunto completo. */
+export type AtualizarRiceState = { ok: boolean; erro?: string };
+
+/**
+ * Atualiza os 4 fatores RICE e recalcula o score. Cliente envia o conjunto completo.
+ *
+ * Passou a DEVOLVER resultado (antes era `void`) para que a tela consiga desfazer
+ * a atualização otimista quando o servidor recusa. Acrescentar retorno é
+ * compatível: quem já chamava e ignorava continua funcionando igual.
+ *
+ * A validação de escala só entra com IMPLEMENTACOES_V2 ligada. Com a flag OFF o
+ * caminho é byte a byte o de antes — inclusive aceitar um valor fora de régua,
+ * que é o comportamento atual. Ligar a flag é que aperta o parafuso; e ele
+ * aperta AQUI, no servidor, porque o cliente não é autoridade sobre o que entra
+ * no banco (a mesma checagem roda lá só para avisar antes).
+ */
 export async function atualizarRice(
   id: string,
   vals: {
@@ -193,14 +225,24 @@ export async function atualizarRice(
     confidence?: number | null;
     effort?: number | null;
   },
-): Promise<void> {
+): Promise<AtualizarRiceState> {
   const ctx = await getAuthContext();
-  if (!isAdmin(ctx)) return; // central é admin-only — defesa em profundidade
+  if (!isAdmin(ctx)) return { ok: false, erro: "Sem permissão." }; // central é admin-only
 
   const reach = intOrNull(vals.reach);
   const impact = intOrNull(vals.impact);
   const confidence = intOrNull(vals.confidence);
   const effort = intOrNull(vals.effort);
+
+  if (await implementacoesV2Habilitado()) {
+    // Validado sobre os valores JÁ truncados: é o que de fato iria para o banco.
+    // Checar o número cru deixaria passar 0,5 no impacto — que vira 0 e some.
+    const erros = validarRice({ reach, impact, confidence, effort });
+    if (erros.length > 0) {
+      return { ok: false, erro: erros.map((e) => e.mensagem).join(" ") };
+    }
+  }
+
   const score = calcRiceScore(reach, impact, confidence, effort);
 
   await prisma.implementacao.update({
@@ -208,6 +250,7 @@ export async function atualizarRice(
     data: { reach, impact, confidence, effort, score },
   });
   revalidatePath("/configuracoes/implementacoes");
+  return { ok: true };
 }
 
 /** Atualiza o status (triagem|aprovada|em-andamento|concluida|recusada). */
