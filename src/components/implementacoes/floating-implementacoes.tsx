@@ -39,7 +39,13 @@ type Similar = { id: string; oQue: string; status: string };
  * vez de abrir a quarta redação do mesmo pedido, que é o que acontece hoje porque
  * ninguém rola uma fila de 300 linhas antes de sugerir.
  */
-function DuplicatasProvaveis({ texto }: { texto: string }) {
+function DuplicatasProvaveis({
+  texto,
+  empresaId,
+}: {
+  texto: string;
+  empresaId: string;
+}) {
   const [similares, setSimilares] = useState<Similar[]>([]);
   const ultimaBusca = useRef(0);
 
@@ -59,7 +65,8 @@ function DuplicatasProvaveis({ texto }: { texto: string }) {
       const meu = ++ultimaBusca.current;
       try {
         const res = await fetch(
-          `/api/implementacoes/similares?q=${encodeURIComponent(termo)}`,
+          `/api/implementacoes/similares?q=${encodeURIComponent(termo)}` +
+            `&empresa=${encodeURIComponent(empresaId)}`,
         );
         if (!res.ok) return;
         const d = await res.json();
@@ -71,7 +78,7 @@ function DuplicatasProvaveis({ texto }: { texto: string }) {
     }, DEBOUNCE_SIMILARES_MS);
 
     return () => clearTimeout(t);
-  }, [termo, curto]);
+  }, [termo, curto, empresaId]);
 
   if (curto || similares.length === 0) return null;
 
@@ -125,6 +132,9 @@ function SugestaoForm({
   // Espelho do "O quê?" só para a busca de parecidas. O campo segue não
   // controlado (o form manda pelo `name`), então isto não muda o envio em nada.
   const [oQueTexto, setOQueTexto] = useState("");
+  // A empresa escolhida no seletor acima recorta a busca de parecidas — o
+  // endpoint não responde sem ela, de propósito.
+  const [empresaSel, setEmpresaSel] = useState(EMPRESAS_IMPLEMENTACOES[0].id);
 
   // Reporta o envio pro pai bloquear o fechamento enquanto a action roda — evita
   // desmontar o form em voo, perder a confirmação e o usuário reenviar (duplicata).
@@ -176,6 +186,7 @@ function SugestaoForm({
         <select
           name="empresaId"
           defaultValue={EMPRESAS_IMPLEMENTACOES[0].id}
+          onChange={v2 ? (e) => setEmpresaSel(e.target.value) : undefined}
           className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
         >
           {EMPRESAS_IMPLEMENTACOES.map((e) => (
@@ -214,7 +225,11 @@ function SugestaoForm({
           className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none"
           placeholder="O pedido concreto, em uma frase."
         />
-        {v2 && <div className="mt-2"><DuplicatasProvaveis texto={oQueTexto} /></div>}
+        {v2 && (
+          <div className="mt-2">
+            <DuplicatasProvaveis texto={oQueTexto} empresaId={empresaSel} />
+          </div>
+        )}
       </div>
 
       <div>

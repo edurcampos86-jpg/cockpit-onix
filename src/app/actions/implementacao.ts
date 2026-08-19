@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { getAuthContext, isAdmin } from "@/lib/auth-helpers";
 import { uploadContrato, deleteContrato } from "@/lib/b2/upload";
 import { b2ContratosConfigurado } from "@/lib/b2/client";
-import { calcRiceScore, validarRice } from "@/lib/rice";
+import { calcRiceScore, validarRice, type RiceEixo } from "@/lib/rice";
 import { implementacoesV2Habilitado } from "@/lib/implementacoes/v2-flag";
 import {
   MAX_ANEXOS,
@@ -235,9 +235,30 @@ export async function atualizarRice(
   const effort = intOrNull(vals.effort);
 
   if (await implementacoesV2Habilitado()) {
+    // Valida só os eixos que MUDARAM em relação ao que está gravado.
+    //
+    // O cliente manda sempre os quatro, então validar o conjunto reprovaria uma
+    // edição legítima por causa de um valor herdado — e existem linhas assim: o
+    // texto de ajuda antigo ensinava "0,5 baixo", o servidor truncava para 0 e
+    // gravava. Quem tentasse corrigir o Alcance de uma delas receberia um erro
+    // sobre o Impacto e não conseguiria salvar campo nenhum, para sempre.
+    //
+    // Uma leitura a mais por gravação é o preço; o autosave já é debounced, então
+    // isso não vira uma leitura por tecla.
+    const atual = await prisma.implementacao.findUnique({
+      where: { id },
+      select: { reach: true, impact: true, confidence: true, effort: true },
+    });
+    if (!atual) return { ok: false, erro: "Sugestão não encontrada." };
+
+    const novos = { reach, impact, confidence, effort };
+    const mudaram = (Object.keys(novos) as RiceEixo[]).filter(
+      (e) => novos[e] !== atual[e],
+    );
+
     // Validado sobre os valores JÁ truncados: é o que de fato iria para o banco.
     // Checar o número cru deixaria passar 0,5 no impacto — que vira 0 e some.
-    const erros = validarRice({ reach, impact, confidence, effort });
+    const erros = validarRice(novos, mudaram);
     if (erros.length > 0) {
       return { ok: false, erro: erros.map((e) => e.mensagem).join(" ") };
     }

@@ -61,8 +61,13 @@ export function calcRiceScore(
  * A v1 arredonda a 2 casas; a v2 vale 1/100 dela. Arredondar a v2 também a 2
  * casas colapsaria pares que a v1 distingue — 240,00 e 240,30 virariam ambos
  * 2,40 — e um empate onde antes havia ordem É mudança de ranking. Duas casas
- * a mais compensam exatamente o fator 100, e a igualdade
- * `calcRiceScoreV2(x) === calcRiceScore(x) / 100` passa a valer para todo x.
+ * a mais compensam exatamente o fator 100.
+ *
+ * A igualdade que vale é DECIMAL, não binária: `v2 × 10000` e `v1 × 100` dão o
+ * mesmo inteiro para todo x gravável. Escrever `v2 === v1 / 100` seria falso —
+ * `n / 10000` e `(n / 100) / 100` divergem no último bit em boa parte dos
+ * doubles (já em n = 7). O que o ranking precisa é da ordem, e a ordem vem da
+ * igualdade decimal; `rice.test.ts` compara em espaço inteiro por isso.
  */
 export function calcRiceScoreV2(
   reach?: number | null,
@@ -156,15 +161,28 @@ export type ErroRice = { eixo: RiceEixo; mensagem: string };
  * Campo VAZIO não é erro: a fila aceita item sem RICE completo de propósito —
  * ele fica sem score e cai no recorte "sem RICE". Só valida o que foi digitado.
  */
-export function validarRice(vals: {
-  reach?: number | null;
-  impact?: number | null;
-  confidence?: number | null;
-  effort?: number | null;
-}): ErroRice[] {
+export function validarRice(
+  vals: {
+    reach?: number | null;
+    impact?: number | null;
+    confidence?: number | null;
+    effort?: number | null;
+  },
+  /**
+   * Restringe a checagem a estes eixos. Sem isto, editar UM campo reprova a
+   * gravação por causa de OUTRO que já estava errado no banco — e trava a linha
+   * inteira. É um caso real: enquanto a ajuda ensinava "0,5 baixo", o servidor
+   * truncava para 0 e gravava; essas linhas existem, e quem tentasse corrigir o
+   * Alcance delas receberia uma mensagem sobre o Impacto e não conseguiria
+   * salvar nada. Validar o que a pessoa mexeu deixa o legado editável em vez de
+   * congelado.
+   */
+  apenas?: readonly RiceEixo[],
+): ErroRice[] {
   const erros: ErroRice[] = [];
+  const checa = (e: RiceEixo) => !apenas || apenas.includes(e);
 
-  if (vals.confidence != null) {
+  if (checa("confidence") && vals.confidence != null) {
     if (!Number.isFinite(vals.confidence) || vals.confidence < 1 || vals.confidence > 100) {
       erros.push({
         eixo: "confidence",
@@ -173,7 +191,7 @@ export function validarRice(vals: {
     }
   }
 
-  if (vals.effort != null) {
+  if (checa("effort") && vals.effort != null) {
     if (!Number.isFinite(vals.effort) || vals.effort <= 0) {
       erros.push({
         eixo: "effort",
@@ -182,11 +200,15 @@ export function validarRice(vals: {
     }
   }
 
-  if (vals.reach != null && (!Number.isFinite(vals.reach) || vals.reach < 0)) {
+  if (checa("reach") && vals.reach != null && (!Number.isFinite(vals.reach) || vals.reach < 0)) {
     erros.push({ eixo: "reach", mensagem: "Alcance não pode ser negativo." });
   }
 
-  if (vals.impact != null && !RICE_CAMPOS.impact.presets.some((p) => p.valor === vals.impact)) {
+  if (
+    checa("impact") &&
+    vals.impact != null &&
+    !RICE_CAMPOS.impact.presets.some((p) => p.valor === vals.impact)
+  ) {
     erros.push({
       eixo: "impact",
       mensagem: "Impacto aceita 1 (médio), 2 (alto) ou 3 (massivo).",

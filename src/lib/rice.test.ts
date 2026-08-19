@@ -137,3 +137,19 @@ test("impacto fracionário é recusado enquanto a coluna for inteira", () => {
     assert.equal(validarRice({ impact: p.valor }).length, 0);
   }
 });
+
+test("validação restrita a um eixo não reprova por causa de outro", () => {
+  // O caso real: linha legada com impact = 0 (o help antigo ensinava 0,5 e o
+  // servidor truncava). Corrigir só o Alcance dela precisa passar — validar o
+  // conjunto inteiro travaria a linha para sempre.
+  const legada = { reach: 40, impact: 0, confidence: 80, effort: 2 };
+  assert.equal(validarRice(legada).length, 1, "sem recorte, o impacto reprova");
+  assert.deepEqual(validarRice(legada, ["reach"]), [], "editando o alcance, passa");
+  assert.deepEqual(validarRice(legada, ["confidence"]), []);
+  assert.equal(validarRice(legada, ["impact"]).length, 1, "editando o impacto, reprova");
+});
+
+test("o recorte não afrouxa o eixo editado", () => {
+  assert.equal(validarRice({ confidence: 150 }, ["confidence"]).length, 1);
+  assert.equal(validarRice({ effort: 0 }, ["effort"]).length, 1);
+});

@@ -23,9 +23,16 @@ export const dynamic = "force-dynamic";
  * alvo é a fila inteira, inclusive o que ainda está em triagem — que é
  * justamente onde a duplicata costuma estar parada.
  *
- * Campos devolvidos ao mínimo (id, o quê, status): o modal é aberto a todo
- * usuário logado, e "por quê" é texto livre onde as pessoas escrevem contexto
- * que não precisa circular só para desduplicar um título.
+ * ESCOPO: só a empresa que a pessoa selecionou no modal, e nunca a fila inteira.
+ * A tela de triagem é admin-only (`page.tsx`), mas este endpoint precisa
+ * responder a todo usuário logado — é o modal do FAB que o chama. Sem o recorte
+ * por empresa, qualquer pessoa logada sondaria termos e enumeraria os títulos da
+ * fila de TODAS as empresas, que hoje só admin vê. Duplicata só interessa dentro
+ * da própria fila de qualquer forma, então o recorte não custa nada ao produto.
+ *
+ * Campos devolvidos ao mínimo (id, o quê, status): "por quê" é texto livre onde
+ * as pessoas escrevem contexto que não precisa circular só para desduplicar um
+ * título.
  */
 
 /** Teto de linhas varridas. A comparação é O(n) em memória; 400 é folgado. */
@@ -45,7 +52,14 @@ export async function GET(req: Request) {
     return NextResponse.json({ similares: [] });
   }
 
-  const q = (new URL(req.url).searchParams.get("q") ?? "").trim();
+  const params = new URL(req.url).searchParams;
+  const q = (params.get("q") ?? "").trim();
+  const empresaId = (params.get("empresa") ?? "").trim();
+  // Sem empresa declarada não há recorte seguro a aplicar — responde vazio em
+  // vez de cair para "todas", que é exatamente o vazamento que se quer evitar.
+  if (!empresaId) {
+    return NextResponse.json({ similares: [] });
+  }
   const alvo = tokenizar(q);
   // Menos de dois tokens úteis não distingue nada: "relatório" casaria com
   // meia fila e a pessoa aprenderia a ignorar o aviso já na terceira letra.
@@ -54,6 +68,7 @@ export async function GET(req: Request) {
   }
 
   const linhas = await prisma.implementacao.findMany({
+    where: { empresaId },
     orderBy: { createdAt: "desc" },
     take: MAX_VARREDURA,
     select: { id: true, oQue: true, status: true },

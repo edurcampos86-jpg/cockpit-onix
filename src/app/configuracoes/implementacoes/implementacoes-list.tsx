@@ -107,8 +107,6 @@ function eixosEditados(d: RiceDraft): Eixo[] {
 }
 
 const GOLD = "#FFB114";
-/** Cor da barra de score (elemento gráfico). Neutra: o dourado já marca "rascunho da IA". */
-const BARRA = "#B8923D";
 
 /**
  * Teto de itens por rodada do lote de sugestão da IA.
@@ -218,20 +216,21 @@ function RiceInput({
   onCommit,
   v2 = false,
   erro = false,
+  descritoPor,
 }: {
   value: number | null;
   onCommit: (v: number | null, imediato?: boolean) => void;
   v2?: boolean;
   erro?: boolean;
+  /** id do parágrafo de erro da linha, para o leitor de tela ligar um ao outro. */
+  descritoPor?: string;
 }) {
   const [local, setLocal] = useState(value?.toString() ?? "");
-  const focado = useRef(false);
 
-  // Sem efeito espelhando a prop no estado local. O único momento em que o valor
-  // salvo muda POR FORA é o desfazer de uma gravação recusada — e ali o pai
-  // troca a `key` deste input, o que o remonta já com o valor certo. Um efeito
-  // aqui rodaria a cada tecla, para reafirmar um valor que na quase totalidade
-  // das vezes é o que já está na tela.
+  // Sem efeito espelhando a prop no estado local. Quando o valor muda POR FORA
+  // — desfazer de uma gravação recusada, clique num preset — o pai troca a `key`
+  // deste input e ele remonta já com o valor certo. Um efeito aqui rodaria a
+  // cada tecla, para reafirmar um valor que quase sempre já é o que está na tela.
   const parse = (t: string) => {
     const n = t === "" ? null : Number(t);
     return n != null && Number.isNaN(n) ? null : n;
@@ -242,18 +241,13 @@ function RiceInput({
       type="number"
       min={0}
       value={local}
-      onFocus={() => {
-        focado.current = true;
-      }}
       onChange={(e) => {
         setLocal(e.target.value);
         if (v2) onCommit(parse(e.target.value));
       }}
-      onBlur={() => {
-        focado.current = false;
-        onCommit(parse(local), true);
-      }}
+      onBlur={() => onCommit(parse(local), true)}
       aria-invalid={erro || undefined}
+      aria-describedby={erro ? descritoPor : undefined}
       className={cn(
         "w-14 rounded-md border bg-background px-1.5 py-1 text-center text-xs tabular-nums focus:outline-none",
         erro
@@ -425,12 +419,19 @@ function ScoreCell({
         className="h-1 w-16 overflow-hidden rounded-full bg-muted"
         role="presentation"
       >
+        {/* Cores medidas contra o trilho (--muted) nos dois temas, porque o
+          * mínimo para elemento gráfico é 3:1 e o dourado da marca não chega lá
+          * no claro: #B8923D dá 2,38:1 sobre #EDE8DE. Os valores abaixo passam
+          * nos dois — 4,00:1 e 8,12:1 na barra normal, 3,88:1 e 9,57:1 no
+          * rascunho — e são os mesmos tons já usados no texto do score. */}
         <div
-          className="h-full rounded-full"
-          style={{
-            width: `${Math.max(2, Math.round(fracao * 100))}%`,
-            backgroundColor: rascunho ? GOLD : BARRA,
-          }}
+          className={cn(
+            "h-full rounded-full",
+            rascunho
+              ? "bg-[#9a6a00] dark:bg-[#FFB114]"
+              : "bg-[#8A6D2A] dark:bg-[#D2AC5B]",
+          )}
+          style={{ width: `${Math.max(2, Math.round(fracao * 100))}%` }}
         />
       </div>
     </div>
@@ -696,9 +697,18 @@ export function ImplementacoesList({
   const [busca, setBusca] = useState("");
   const [ordem, setOrdem] = useState<Ordem>("score");
   /** Erro devolvido pelo servidor por linha, depois de desfazer a gravação. */
-  const [erroSalvar, setErroSalvar] = useState<Record<string, string | null>>({});
-  /** Contador de desfazeres por linha — entra na `key` dos inputs para remontá-los. */
-  const [desfeitos, setDesfeitos] = useState<Record<string, number>>({});
+  const [erroSalvar, setErroSalvar] = useState<
+    Record<string, { mensagem: string; eixos: RiceEixo[] } | null>
+  >({});
+  /**
+   * Contador de remontagem por linha — entra na `key` dos inputs.
+   *
+   * Sobe em toda mudança de valor vinda de FORA do próprio input: o desfazer de
+   * uma gravação recusada e o clique num preset. Sem isso o campo continua
+   * exibindo o que a pessoa digitou enquanto a tela já mostra outro número — e o
+   * blur seguinte regrava o valor velho por cima do novo.
+   */
+  const [remontas, setRemontas] = useState<Record<string, number>>({});
   // Lote de sugestão da IA: trava o botão e mostra progresso item a item.
   const [loteAtivo, setLoteAtivo] = useState(false);
   const [loteFeitos, setLoteFeitos] = useState(0);
@@ -723,6 +733,16 @@ export function ImplementacoesList({
 
   /** Timer do autosave por linha (v2). */
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  /**
+   * Linhas com gravação JÁ despachada, esperando resposta.
+   *
+   * Separado de `timers` porque o timer é apagado no instante em que dispara,
+   * antes do await. Sem esta marca, uma tecla digitada durante o voo veria
+   * "nenhuma gravação pendente" e regravaria `antesDoAutosave` com um estado que
+   * o servidor ainda pode recusar — e o desfazer restauraria justamente o valor
+   * recusado.
+   */
+  const gravando = useRef<Record<string, true>>({});
   /** O que ainda não foi para o banco, por linha. Espelha `timers`. */
   const pendentes = useRef<Record<string, RiceVals>>({});
   /**
@@ -837,6 +857,15 @@ export function ImplementacoesList({
    * da corretora não disputa fila com uma da gestora — quem executa é outro time,
    * e "#14 de 200" some com o fato de ela ser a primeira da própria casa.
    *
+   * Calculado sobre `rows` — a fila carregada inteira —, NUNCA sobre o recorte
+   * visível. Se dependesse do que está na tela, digitar na busca mudaria a
+   * posição: um item que é o 17º da própria empresa passaria a exibir "#1/2" só
+   * porque os outros 15 não casaram com o termo. A posição é a prioridade do
+   * item na fila; ela não pode responder ao filtro de quem está olhando.
+   *
+   * Sempre agrupado por empresa: com o filtro numa empresa só, o grupo é ela
+   * mesma, então a conta é a mesma dos dois jeitos.
+   *
    * Calculado sempre sobre o score, mesmo quando a tabela está ordenada por data
    * ou empresa: a posição É a prioridade, não a linha em que o item calhou de cair.
    */
@@ -845,12 +874,11 @@ export function ImplementacoesList({
     if (!v2) return mapa;
 
     const grupos = new Map<string, ImplementacaoDTO[]>();
-    for (const r of visiveis) {
+    for (const r of rows) {
       if (r.score == null) continue; // sem RICE não entra no ranking
-      const chave = fEmpresa === "todas" ? r.empresaId : "__unico__";
-      const atual = grupos.get(chave);
+      const atual = grupos.get(r.empresaId);
       if (atual) atual.push(r);
-      else grupos.set(chave, [r]);
+      else grupos.set(r.empresaId, [r]);
     }
 
     for (const lista of grupos.values()) {
@@ -867,7 +895,7 @@ export function ImplementacoesList({
       });
     }
     return mapa;
-  }, [visiveis, fEmpresa, v2]);
+  }, [rows, v2]);
 
   /**
    * Aplica o patch na tela na hora (otimista) e devolve os fatores resultantes.
@@ -901,12 +929,19 @@ export function ImplementacoesList({
   /**
    * Restaura a linha ao estado anterior à rajada e mostra o motivo da recusa.
    *
-   * Incrementa `desfeitos[id]`, que entra na `key` dos inputs daquela linha: os
+   * Incrementa `remontas[id]`, que entra na `key` dos inputs daquela linha: os
    * quatro campos remontam já com o valor restaurado. É o que evita ter de
    * espelhar prop em estado dentro do input — a tela mostraria o valor antigo e
    * o campo continuaria exibindo o recusado.
    */
   function desfazer(id: string, motivo: string) {
+    // Cancela o que ainda está agendado. Sem isto, o desfazer restaura a linha,
+    // avisa "voltou ao anterior" — e 600 ms depois o timer da tecla seguinte
+    // dispara e grava mesmo assim. A tela diria uma coisa e o banco outra.
+    clearTimeout(timers.current[id]);
+    delete timers.current[id];
+    delete pendentes.current[id];
+
     const antes = antesDoAutosave.current[id];
     if (antes) {
       const next = rowsRef.current.map((r) => (r.id === id ? antes : r));
@@ -914,8 +949,28 @@ export function ImplementacoesList({
       setRows(next);
     }
     delete antesDoAutosave.current[id];
-    setDesfeitos((m) => ({ ...m, [id]: (m[id] ?? 0) + 1 }));
-    setErroSalvar((m) => ({ ...m, [id]: motivo }));
+    setRemontas((m) => ({ ...m, [id]: (m[id] ?? 0) + 1 }));
+    // Recusa do servidor não diz qual eixo caiu — marca a linha, não um campo.
+    setErroSalvar((m) => ({ ...m, [id]: { mensagem: motivo, eixos: [] } }));
+  }
+
+  /** Despacha a gravação pendente e trata a resposta. Usado pelo timer e pelo blur. */
+  function gravarPendente(id: string) {
+    const aGravar = pendentes.current[id];
+    delete pendentes.current[id];
+    if (!aGravar) return;
+    gravando.current[id] = true;
+    startTransition(async () => {
+      const res = await atualizarRice(id, aGravar);
+      delete gravando.current[id];
+      if (res?.ok) {
+        // Só limpa o "antes" se nada novo entrou na fila enquanto isto voava —
+        // senão o desfazer da próxima recusa perderia o alvo.
+        if (!timers.current[id]) delete antesDoAutosave.current[id];
+        return;
+      }
+      desfazer(id, res?.erro ?? "Não deu para salvar. O valor voltou ao anterior.");
+    });
   }
 
   function commitRice(id: string, patch: Partial<ImplementacaoDTO>) {
@@ -929,46 +984,42 @@ export function ImplementacoesList({
     }
 
     // ── Autosave (flag ON) ────────────────────────────────────────────────
-    // Guarda o "antes" só na PRIMEIRA tecla da rajada: com uma gravação já
-    // pendente, o estado anterior verdadeiro é o que foi salvo por último, não
-    // o caractere anterior.
-    if (!timers.current[id]) {
+    // Guarda o "antes" só quando NADA está em curso para esta linha — nem
+    // agendado (`timers`) nem em voo (`gravando`). Com algo em curso, o estado
+    // anterior verdadeiro é o último confirmado, não o caractere de agora.
+    if (!timers.current[id] && !gravando.current[id]) {
       const atual = rowsRef.current.find((r) => r.id === id);
       if (atual) antesDoAutosave.current[id] = atual;
     }
 
-    const vals = aplicarNaTela(id, patch);
-    pendentes.current[id] = vals;
-    setErroSalvar((m) => (m[id] ? { ...m, [id]: null } : m));
-
-    // Avisa antes de mandar: erro de escala aparece enquanto a pessoa ainda olha
-    // o campo, em vez de 600 ms depois, quando ela já está em outra linha.
-    const errosLocais = validarRice(vals);
+    // Valida ANTES de aplicar. Aplicar primeiro e recusar depois deixava a coluna
+    // Score exibindo um número que nunca foi gravado, até alguém recarregar.
+    // Só o eixo editado: reprovar por causa de um valor herdado travaria a linha.
+    const eixosTocados = Object.keys(patch) as RiceEixo[];
+    const candidato = { ...pegarVals(id), ...patch } as RiceVals;
+    const errosLocais = validarRice(candidato, eixosTocados);
     if (errosLocais.length > 0) {
       clearTimeout(timers.current[id]);
       delete timers.current[id];
       delete pendentes.current[id];
       setErroSalvar((m) => ({
         ...m,
-        [id]: errosLocais.map((e) => e.mensagem).join(" "),
+        [id]: {
+          mensagem: errosLocais.map((e) => e.mensagem).join(" "),
+          eixos: errosLocais.map((e) => e.eixo),
+        },
       }));
       return;
     }
 
+    const vals = aplicarNaTela(id, patch);
+    pendentes.current[id] = vals;
+    setErroSalvar((m) => (m[id] ? { ...m, [id]: null } : m));
+
     clearTimeout(timers.current[id]);
     timers.current[id] = setTimeout(() => {
       delete timers.current[id];
-      const aGravar = pendentes.current[id];
-      delete pendentes.current[id];
-      if (!aGravar) return;
-      startTransition(async () => {
-        const res = await atualizarRice(id, aGravar);
-        if (res?.ok) {
-          delete antesDoAutosave.current[id];
-          return;
-        }
-        desfazer(id, res?.erro ?? "Não deu para salvar. O valor voltou ao anterior.");
-      });
+      gravarPendente(id);
     }, DEBOUNCE_AUTOSAVE_MS);
   }
 
@@ -977,17 +1028,18 @@ export function ImplementacoesList({
     if (!v2 || !timers.current[id]) return;
     clearTimeout(timers.current[id]);
     delete timers.current[id];
-    const aGravar = pendentes.current[id];
-    delete pendentes.current[id];
-    if (!aGravar) return;
-    startTransition(async () => {
-      const res = await atualizarRice(id, aGravar);
-      if (res?.ok) {
-        delete antesDoAutosave.current[id];
-        return;
-      }
-      desfazer(id, res?.erro ?? "Não deu para salvar. O valor voltou ao anterior.");
-    });
+    gravarPendente(id);
+  }
+
+  /** Os quatro fatores da linha, como estão na tela agora. */
+  function pegarVals(id: string): RiceVals {
+    const r = rowsRef.current.find((x) => x.id === id);
+    return {
+      reach: r?.reach ?? null,
+      impact: r?.impact ?? null,
+      confidence: r?.confidence ?? null,
+      effort: r?.effort ?? null,
+    };
   }
 
   function commitStatus(id: string, status: string) {
@@ -1469,10 +1521,11 @@ export function ImplementacoesList({
                   ) : v2 ? (
                     <div>
                       <RiceInput
-                        key={`${eixo}-${desfeitos[r.id] ?? 0}`}
+                        key={`${eixo}-${remontas[r.id] ?? 0}`}
                         value={value}
                         v2
-                        erro={!!erroSalvar[r.id]}
+                        erro={erroSalvar[r.id]?.eixos.includes(eixo) ?? false}
+                        descritoPor={erroSalvar[r.id] ? `erro-${r.id}` : undefined}
                         onCommit={(v, imediato) => {
                           commitRice(r.id, { [eixo]: v });
                           if (imediato) flushRice(r.id);
@@ -1484,6 +1537,11 @@ export function ImplementacoesList({
                         onEscolher={(v) => {
                           commitRice(r.id, { [eixo]: v });
                           flushRice(r.id);
+                          // Remonta o campo: o valor veio de FORA dele, e o
+                          // estado local do input não sabe disso. Sem isto a
+                          // caixa segue exibindo o número antigo e o próximo
+                          // blur o regrava por cima do que o preset salvou.
+                          setRemontas((m) => ({ ...m, [r.id]: (m[r.id] ?? 0) + 1 }));
                         }}
                       />
                     </div>
@@ -1514,10 +1572,25 @@ export function ImplementacoesList({
                           <span className="font-semibold">Por quê:</span> {r.porQue}
                         </p>
                       )}
-                      {v2 && erroSalvar[r.id] && (
-                        <p className="mt-1 flex items-start gap-1 text-[11px] font-medium text-destructive">
-                          <Undo2 className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
-                          <span role="status">{erroSalvar[r.id]}</span>
+                      {/* A região viva fica SEMPRE montada, vazia quando não há
+                        * erro. Criar o `role="status"` no mesmo instante em que
+                        * o texto entra costuma não ser anunciado por leitor de
+                        * tela — e o aviso de que a gravação foi desfeita é
+                        * justamente o que não pode passar despercebido. */}
+                      {v2 && (
+                        <p
+                          id={`erro-${r.id}`}
+                          role="status"
+                          aria-live="polite"
+                          className={cn(
+                            "mt-1 flex items-start gap-1 text-[11px] font-medium text-destructive",
+                            !erroSalvar[r.id] && "sr-only",
+                          )}
+                        >
+                          {erroSalvar[r.id] && (
+                            <Undo2 className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
+                          )}
+                          {erroSalvar[r.id]?.mensagem ?? ""}
                         </p>
                       )}
                       {r.anexos.length > 0 ? (
