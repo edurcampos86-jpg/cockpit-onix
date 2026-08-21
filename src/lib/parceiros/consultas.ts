@@ -178,3 +178,24 @@ export async function buscarClientesParaVincular(
     parceiroAtual: c.parceirosVinculo[0]?.parceiro.nome ?? null,
   }));
 }
+
+/**
+ * Quem trouxe ESTE cliente, e desde quando. `null` quando não veio por
+ * parceiro — que é o caso da maioria e não é uma falta.
+ *
+ * Devolve o vínculo VIGENTE (`dataFim: null`). O histórico de quem já trouxe
+ * o cliente antes fica na ficha do parceiro, não na do cliente: na ficha do
+ * cliente a pergunta é "de quem ele é hoje".
+ */
+export async function parceiroVigenteDoCliente(clienteId: string) {
+  const vinculo = await prisma.parceiroCliente.findFirst({
+    where: { clienteId, dataFim: null },
+    select: {
+      dataInicio: true,
+      parceiro: {
+        select: { id: true, nome: true, tipo: true, ativo: true },
+      },
+    },
+  });
+  return vinculo;
+}
