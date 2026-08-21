@@ -8,6 +8,7 @@ import { requireLideranca, canManageTeam } from "@/lib/auth-helpers";
 import { obterParceiro } from "@/lib/parceiros/consultas";
 import { alternarAtivoForm, salvarContratoForm } from "@/app/actions/parceiros";
 import { ConfirmarAcao } from "../_components/confirmar-acao";
+import { AcordosSection } from "../_components/acordos-section";
 
 /* ──────────────────────────────────────────────────────────────
  * Ficha do parceiro. Nesta PR ela responde três perguntas:
@@ -37,12 +38,12 @@ export default async function ParceiroPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ novo?: string }>;
+  searchParams: Promise<{ novo?: string; acordo?: string; erroAcordo?: string }>;
 }) {
   const ctx = await requireLideranca();
   const podeGerenciar = canManageTeam(ctx);
   const { id } = await params;
-  const { novo } = await searchParams;
+  const { novo, acordo, erroAcordo } = await searchParams;
 
   const parceiro = await obterParceiro(id);
   if (!parceiro) notFound();
@@ -87,6 +88,42 @@ export default async function ParceiroPage({
             histórico continua aqui; ele só não aparece na lista padrão.
           </div>
         )}
+
+        {erroAcordo && (
+          <div
+            role="alert"
+            className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-foreground"
+          >
+            {erroAcordo}
+          </div>
+        )}
+
+        {acordo === "salvo" && (
+          <div
+            role="status"
+            className="rounded-lg border border-[var(--parceiro-borda)] bg-[var(--parceiro-faixa)] px-4 py-3 text-sm text-foreground"
+          >
+            Acordo registrado. O que valia antes naquele produto foi encerrado e
+            continua no histórico.
+          </div>
+        )}
+
+        {acordo === "encerrado" && (
+          <div
+            role="status"
+            className="rounded-lg border border-border bg-muted px-4 py-3 text-sm text-muted-foreground"
+          >
+            Acordo encerrado. Nada foi apagado — a combinação anterior segue no
+            histórico do produto.
+          </div>
+        )}
+
+        <AcordosSection
+          parceiroId={parceiro.id}
+          parceiroNome={parceiro.nome}
+          acordos={parceiro.acordos}
+          podeGerenciar={podeGerenciar}
+        />
 
         {/* ── Contrato ─────────────────────────────────────────────────── */}
         <section className="rounded-xl border border-[var(--parceiro-borda)] bg-[var(--parceiro-superficie)] p-6">
