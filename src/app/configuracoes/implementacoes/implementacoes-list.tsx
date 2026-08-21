@@ -175,6 +175,23 @@ function normalizarBusca(t: string): string {
 }
 
 /**
+ * Score como número de LEITURA, não como número de cálculo.
+ *
+ * O score guarda 4 casas de propósito: é isso que impede a régua nova de criar
+ * empate onde a antiga distinguia (ver `lib/rice.ts`). Mas essa precisão existe
+ * para ORDENAR, não para ser lida — e ela vazou para a tela: numa fila em que
+ * quase todo score é redondo, um "266,6667" ao lado de um "300" parece defeito,
+ * e obriga a pessoa a contar casas decimais para comparar duas linhas.
+ *
+ * Uma casa basta para distinguir prioridades nesta grandeza. E arredondar aqui
+ * não mexe em ordenação nem em ranking: a posição continua sendo calculada sobre
+ * o valor cheio — o que muda é só o que se lê.
+ */
+function formatarScore(score: number): string {
+  return score.toLocaleString("pt-BR", { maximumFractionDigits: 1 });
+}
+
+/**
  * Data curta (dd/mm/aa) a partir do ISO que o servidor mandou.
  *
  * ISO string, e não `Date`, atravessando a fronteira servidor→cliente: assim a
@@ -411,8 +428,11 @@ function ScoreCell({
             "font-bold tabular-nums",
             rascunho ? "text-[#9a6a00] dark:text-[#FFB114]" : "text-foreground",
           )}
+          // Valor cheio no title: quem precisar conferir a conta acha, sem que
+          // a tabela inteira pague o preço de exibir 4 casas em toda linha.
+          title={`Score exato: ${score}`}
         >
-          {score}
+          {formatarScore(score)}
         </span>
       </div>
       <div
