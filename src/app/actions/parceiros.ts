@@ -3,8 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@/generated/prisma/client";
 import { requireAdmin } from "@/lib/auth-helpers";
-import { normalizarTipoParceiro, ehTipoParceiroConhecido } from "@/lib/parceiros/vocabulario";
+import {
+  normalizarTipoParceiro,
+  normalizarTipoProduto,
+  ehTipoParceiroConhecido,
+} from "@/lib/parceiros/vocabulario";
 import { parceiroPorNome } from "@/lib/parceiros/consultas";
 
 /* ──────────────────────────────────────────────────────────────
@@ -139,4 +144,119 @@ export async function salvarContratoForm(formData: FormData): Promise<void> {
   });
   revalidatePath("/time/parceiros");
   revalidatePath(`/time/parceiros/${id}`);
+}
+
+/* ──────────────────────────────────────────────────────────────
+ * ACORDOS DO PARCEIRO — uma linha por tipo de produto, datada.
+ *
+ * ── A REGRA QUE MANDA NO DESENHO: ALTERAR FECHA E ABRE ───────────────────
+ * O percentual NUNCA sofre UPDATE. Mudar de 20% para 25% é FECHAR a linha
+ * vigente (`dataFim`) e ABRIR outra — porque vale o percentual da data do
+ * fato gerador, não o do fechamento. Um UPDATE no lugar reescreveria o
+ * passado: o fechamento de março passaria a usar o percentual de junho, e
+ * nada no banco registraria que mudou.
+ *
+ * O banco tem índice parcial único por (parceiroId, tipoProduto) onde
+ * `dataFim IS NULL` (#318). Fechar e abrir na MESMA transação é o que impede
+ * a janela em que os dois existiriam vigentes — e o índice é a rede embaixo:
+ * se a ordem inverter algum dia, o INSERT falha em vez de duplicar comissão.
+ * ────────────────────────────────────────────────────────────── */
+
+export async function criarAcordoForm(formData: FormData): Promise<void> {
+  const ctx = await requireAdmin();
+
+  const parceiroId = texto(formData.get("parceiroId"));
+  const produtoBruto = texto(formData.get("tipoProduto"));
+  const percentualBruto = texto(formData.get("percentual")).replace(",", ".");
+  const dataInicio = dataOuNula(formData.get("dataInicio")) ?? new Date();
+
+  const volta = (erro: string) =>
+    redirect(`/time/parceiros/${parceiroId}?erroAcordo=${encodeURIComponent(erro)}`);
+
+  if (!parceiroId) return;
+
+  const produto = normalizarTipoProduto(produtoBruto);
+  if (!produto) volta("Escolha o produto do acordo.");
+
+  // Decimal e não Number: `percentual` é DECIMAL(7,4) e a aritmética de float
+  // erra somas de taxa (0.1 + 0.2 !== 0.3). Converter aqui derrotaria a escolha
+  // da #318 na porta de entrada.
+  let percentual: Prisma.Decimal;
+  try {
+    percentual = new Prisma.Decimal(percentualBruto);
+  } catch {
+    volta("Percentual precisa ser um número — use 20 ou 20,5.");
+    return;
+  }
+  if (percentual.lessThan(0) || percentual.greaterThan(100)) {
+    volta("Percentual precisa ficar entre 0 e 100.");
+  }
+
+  // ── Retroatividade que quebraria a linha anterior ──────────────────────
+  //
+  // Fechar o vigente grava `dataFim = dataInicio` do novo. Se alguém informar
+  // uma data ANTERIOR ao início do acordo que está valendo, a linha antiga
+  // ficaria com `dataFim < dataInicio` — o que o CHECK `vigencia_coerente` da
+  // #318 recusa, e o usuário veria um erro de constraint no lugar de uma
+  // frase. Pior: um acordo que termina antes de começar some de toda consulta
+  // por data, sem ninguém saber por quê.
+  const vigenteAtual = await prisma.acordoComercialParceiro.findFirst({
+    where: { parceiroId, tipoProduto: produto!, dataFim: null },
+    select: { dataInicio: true },
+  });
+  if (vigenteAtual && dataInicio < vigenteAtual.dataInicio) {
+    volta(
+      `O acordo que vale hoje nesse produto começou em ${vigenteAtual.dataInicio.toLocaleDateString("pt-BR", { timeZone: "UTC" })}. ` +
+        "A nova data precisa ser igual ou posterior — para corrigir o passado, encerre e registre de novo.",
+    );
+  }
+
+  await prisma.$transaction(async (tx) => {
+    // Fecha o vigente DESTE produto — e só dele. Os outros produtos seguem
+    // vigentes: é o ponto da modelagem por `tipoProduto`.
+    await tx.acordoComercialParceiro.updateMany({
+      where: { parceiroId, tipoProduto: produto!, dataFim: null },
+      data: { dataFim: dataInicio, encerradoPor: ctx.userId },
+    });
+
+    await tx.acordoComercialParceiro.create({
+      data: {
+        parceiroId,
+        tipoProduto: produto!,
+        percentual,
+        dataInicio,
+        criadoPor: ctx.userId,
+      },
+    });
+  });
+
+  revalidatePath(`/time/parceiros/${parceiroId}`);
+  revalidatePath("/time/parceiros");
+  redirect(`/time/parceiros/${parceiroId}?acordo=salvo`);
+}
+
+/**
+ * Encerra o acordo vigente de um produto sem abrir outro — o parceiro deixa de
+ * ter acordo naquele produto.
+ *
+ * Diferente de gravar 0%: 0% é acordo ("decidido que não remunera"), encerrar
+ * é ausência de acordo ("não há regra vigente"). Guardar os dois separados é o
+ * que permite responder "isso foi decidido ou ninguém cadastrou?".
+ */
+export async function encerrarAcordoForm(formData: FormData): Promise<void> {
+  const ctx = await requireAdmin();
+  const parceiroId = texto(formData.get("parceiroId"));
+  const acordoId = texto(formData.get("acordoId"));
+  if (!parceiroId || !acordoId) return;
+
+  await prisma.acordoComercialParceiro.updateMany({
+    // `dataFim: null` na condição: encerrar duas vezes (dois cliques, duas
+    // abas) não pode reescrever a data do encerramento original.
+    where: { id: acordoId, parceiroId, dataFim: null },
+    data: { dataFim: new Date(), encerradoPor: ctx.userId },
+  });
+
+  revalidatePath(`/time/parceiros/${parceiroId}`);
+  revalidatePath("/time/parceiros");
+  redirect(`/time/parceiros/${parceiroId}?acordo=encerrado`);
 }
