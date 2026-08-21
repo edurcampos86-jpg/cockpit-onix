@@ -52,6 +52,7 @@ import {
   Network,
   Cpu,
   Radar,
+  Handshake,
 } from "lucide-react";
 import { useState, useSyncExternalStore, useTransition, useEffect } from "react";
 import { cn } from "@/lib/utils";
@@ -123,6 +124,7 @@ const sharedNavigation = [
   { name: "Método Onix", href: "/metodo", icon: Compass },
   { name: "Time", href: "/time", icon: UsersRound },
   { name: "Insights do Time", href: "/time/insights", icon: PieChart },
+  { name: "Parceiros", href: "/time/parceiros", icon: Handshake },
   { name: "Jurídico", href: "/juridico/contratos", icon: Scale },
   { name: "Auditoria", href: "/admin/auditoria/contratos", icon: Shield },
   { name: "Ingestão por Email", href: "/admin/juridico/email-ingest", icon: Mail },
@@ -193,6 +195,9 @@ const marketingItemsV2 = mktNavigation.filter(
 const pessoasItemsV2 = [
   { name: "Time", href: "/time", icon: UsersRound },
   { name: "Insights do Time", href: "/time/insights", icon: PieChart },
+  // Parceiro não é do time — mas mora ao lado por ser gente, e por a ficha
+  // dele reusar o padrão de acordo comercial da Pessoa.
+  { name: "Parceiros", href: "/time/parceiros", icon: Handshake },
 ];
 
 const juridicoItemsV2 = [
