@@ -9,6 +9,7 @@ import { obterParceiro } from "@/lib/parceiros/consultas";
 import { alternarAtivoForm, salvarContratoForm } from "@/app/actions/parceiros";
 import { ConfirmarAcao } from "../_components/confirmar-acao";
 import { AcordosSection } from "../_components/acordos-section";
+import { ClientesSection } from "../_components/clientes-section";
 
 /* ──────────────────────────────────────────────────────────────
  * Ficha do parceiro. Nesta PR ela responde três perguntas:
@@ -38,12 +39,20 @@ export default async function ParceiroPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ novo?: string; acordo?: string; erroAcordo?: string }>;
+  searchParams: Promise<{
+    novo?: string;
+    acordo?: string;
+    erroAcordo?: string;
+    vinculo?: string;
+    erroVinculo?: string;
+    buscaCliente?: string;
+  }>;
 }) {
   const ctx = await requireLideranca();
   const podeGerenciar = canManageTeam(ctx);
   const { id } = await params;
-  const { novo, acordo, erroAcordo } = await searchParams;
+  const { novo, acordo, erroAcordo, vinculo, erroVinculo, buscaCliente } =
+    await searchParams;
 
   const parceiro = await obterParceiro(id);
   if (!parceiro) notFound();
@@ -89,6 +98,42 @@ export default async function ParceiroPage({
           </div>
         )}
 
+        {erroVinculo && (
+          <div
+            role="alert"
+            className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-foreground"
+          >
+            {erroVinculo}
+          </div>
+        )}
+
+        {vinculo === "criado" && (
+          <div
+            role="status"
+            className="rounded-lg border border-[var(--parceiro-borda)] bg-[var(--parceiro-faixa)] px-4 py-3 text-sm text-foreground"
+          >
+            Cliente vinculado. O nome do parceiro já aparece na ficha dele.
+          </div>
+        )}
+
+        {vinculo === "ja" && (
+          <div
+            role="status"
+            className="rounded-lg border border-border bg-muted px-4 py-3 text-sm text-muted-foreground"
+          >
+            Esse cliente já estava vinculado aqui — nada mudou.
+          </div>
+        )}
+
+        {vinculo === "encerrado" && (
+          <div
+            role="status"
+            className="rounded-lg border border-border bg-muted px-4 py-3 text-sm text-muted-foreground"
+          >
+            Vínculo encerrado. O período anterior continua registrado no histórico.
+          </div>
+        )}
+
         {erroAcordo && (
           <div
             role="alert"
@@ -123,6 +168,14 @@ export default async function ParceiroPage({
           parceiroNome={parceiro.nome}
           acordos={parceiro.acordos}
           podeGerenciar={podeGerenciar}
+        />
+
+        <ClientesSection
+          parceiroId={parceiro.id}
+          parceiroNome={parceiro.nome}
+          vinculos={parceiro.clientes}
+          podeGerenciar={podeGerenciar}
+          buscaCliente={buscaCliente}
         />
 
         {/* ── Contrato ─────────────────────────────────────────────────── */}

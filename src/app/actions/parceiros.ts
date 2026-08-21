@@ -260,3 +260,84 @@ export async function encerrarAcordoForm(formData: FormData): Promise<void> {
   revalidatePath("/time/parceiros");
   redirect(`/time/parceiros/${parceiroId}?acordo=encerrado`);
 }
+
+/* ──────────────────────────────────────────────────────────────
+ * VÍNCULO PARCEIRO ↔ CLIENTE — datado, e exclusivo por cliente.
+ *
+ * O banco garante o principal: índice parcial único em `clienteId` onde
+ * `dataFim IS NULL` (#310). Um cliente tem NO MÁXIMO UM parceiro vigente,
+ * porque a comissão do parceiro sai da mesma base que a do assessor e dois
+ * parceiros retirariam duas vezes.
+ *
+ * A checagem no código não substitui o índice — ela existe para a pessoa ver
+ * o NOME de quem já tem o cliente, em vez de um erro de unique violation.
+ * ────────────────────────────────────────────────────────────── */
+
+export async function vincularClienteForm(formData: FormData): Promise<void> {
+  const ctx = await requireAdmin();
+  const parceiroId = texto(formData.get("parceiroId"));
+  const clienteId = texto(formData.get("clienteId"));
+  if (!parceiroId || !clienteId) return;
+
+  const volta = (chave: string, valor: string) =>
+    redirect(`/time/parceiros/${parceiroId}?${chave}=${encodeURIComponent(valor)}`);
+
+  const vigente = await prisma.parceiroCliente.findFirst({
+    where: { clienteId, dataFim: null },
+    select: { parceiroId: true, parceiro: { select: { nome: true } } },
+  });
+
+  if (vigente?.parceiroId === parceiroId) {
+    // Reexecução (dois cliques, aba antiga). Não é erro: já está como se quer.
+    volta("vinculo", "ja");
+  }
+  if (vigente) {
+    volta(
+      "erroVinculo",
+      `Esse cliente já está com ${vigente.parceiro.nome}. Encerre o vínculo lá antes de trazer para cá — um cliente tem um parceiro de cada vez.`,
+    );
+  }
+
+  // A checagem acima resolve o caso comum; entre ela e este INSERT ainda cabe
+  // uma corrida (duas abas, dois cliques). Quem decide de verdade é o índice
+  // parcial único da #310 — e P2002 aqui significa exatamente "outro parceiro
+  // ficou com o cliente primeiro". Vira frase, não tela de erro.
+  try {
+    await prisma.parceiroCliente.create({
+      data: { parceiroId, clienteId, vinculadoPor: ctx.userId },
+    });
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+      volta(
+        "erroVinculo",
+        "Esse cliente acabou de ser vinculado a outro parceiro. Recarregue a página para ver quem está com ele.",
+      );
+    }
+    throw e;
+  }
+
+  revalidatePath(`/time/parceiros/${parceiroId}`);
+  revalidatePath("/time/parceiros");
+  revalidatePath(`/empresas/investimentos/clientes/${clienteId}`);
+  volta("vinculo", "criado");
+}
+
+export async function desvincularClienteForm(formData: FormData): Promise<void> {
+  const ctx = await requireAdmin();
+  const parceiroId = texto(formData.get("parceiroId"));
+  const vinculoId = texto(formData.get("vinculoId"));
+  const clienteId = texto(formData.get("clienteId"));
+  if (!parceiroId || !vinculoId) return;
+
+  await prisma.parceiroCliente.updateMany({
+    // `dataFim: null` na condição: desvincular duas vezes não pode reescrever
+    // a data do primeiro encerramento.
+    where: { id: vinculoId, parceiroId, dataFim: null },
+    data: { dataFim: new Date(), desvinculadoPor: ctx.userId },
+  });
+
+  revalidatePath(`/time/parceiros/${parceiroId}`);
+  revalidatePath("/time/parceiros");
+  if (clienteId) revalidatePath(`/empresas/investimentos/clientes/${clienteId}`);
+  redirect(`/time/parceiros/${parceiroId}?vinculo=encerrado`);
+}

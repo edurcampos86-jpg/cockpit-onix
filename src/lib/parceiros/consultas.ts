@@ -126,3 +126,55 @@ export async function parceiroPorNome(nome: string) {
     select: { id: true, nome: true },
   });
 }
+
+export type CandidatoCliente = {
+  id: string;
+  nome: string;
+  numeroConta: string;
+  saldo: number;
+  parceiroAtual: string | null;
+};
+
+/**
+ * Candidatos a vincular, por nome ou número da conta.
+ *
+ * Traz junto o parceiro vigente de cada um: a tela precisa MOSTRAR que o
+ * cliente já tem dono antes do clique, e não depois — a #310 recusaria o
+ * INSERT, mas com uma violação de unique em vez de um nome.
+ */
+export async function buscarClientesParaVincular(
+  termo: string,
+  limite = 8,
+): Promise<CandidatoCliente[]> {
+  const t = termo.trim();
+  if (t.length < 3) return [];
+
+  const clientes = await prisma.clienteBackoffice.findMany({
+    where: {
+      OR: [
+        { nome: { contains: t, mode: "insensitive" } },
+        { numeroConta: { contains: t } },
+      ],
+    },
+    orderBy: { nome: "asc" },
+    take: limite,
+    select: {
+      id: true,
+      nome: true,
+      numeroConta: true,
+      saldo: true,
+      parceirosVinculo: {
+        where: { dataFim: null },
+        select: { parceiro: { select: { nome: true } } },
+      },
+    },
+  });
+
+  return clientes.map((c) => ({
+    id: c.id,
+    nome: c.nome,
+    numeroConta: c.numeroConta,
+    saldo: c.saldo,
+    parceiroAtual: c.parceirosVinculo[0]?.parceiro.nome ?? null,
+  }));
+}
