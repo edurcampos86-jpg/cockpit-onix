@@ -214,8 +214,17 @@ async function preparar() {
 
 // ── O ensaio ──────────────────────────────────────────────────────────────
 
+/** Competências dos relatórios. Regra 5: é o que ordena dois arquivos. */
+const AGOSTO = new Date(Date.UTC(2026, 7, 1, 12, 0, 0));
+const SETEMBRO = new Date(Date.UTC(2026, 8, 1, 12, 0, 0));
+
 let lote = 0;
-function opcoes(formato: "xlsx" | "csv", perfilId: string, modo: "dry-run" | "aplicar") {
+function opcoes(
+  formato: "xlsx" | "csv",
+  perfilId: string,
+  modo: "dry-run" | "aplicar",
+  dataReferencia: Date = AGOSTO,
+) {
   lote += 1;
   return {
     modo,
@@ -225,6 +234,7 @@ function opcoes(formato: "xlsx" | "csv", perfilId: string, modo: "dry-run" | "ap
     parceiroPadrao: "Porto Seguro",
     iniciadoPorId: "ensaio",
     loteImportacao: `ensaio-${lote}`,
+    dataReferencia,
   } as const;
 }
 
@@ -246,6 +256,16 @@ function imprimir(rotulo: string, r: Awaited<ReturnType<typeof executarImportaca
       `  contratos a atualizar ..... ${r.contratosAAtualizar}\n` +
       `  histórico preservado ...... ${r.historicoPreservado.length}\n` +
       `  duplicadas no lote ........ ${r.duplicadasNoLote.length}\n` +
+      `  ignoradas (mais antigas) .. ${r.ignoradasPorAntiguidade.length}` +
+      (r.ignoradasPorAntiguidade.length
+        ? ` (${r.ignoradasPorAntiguidade
+            .map(
+              (x) =>
+                `linha ${x.linha}: lote ${x.referenciaDoLote.toISOString().slice(0, 10)} < gravado ${x.referenciaGravada.toISOString().slice(0, 10)}`,
+            )
+            .join("; ")})`
+        : "") +
+      "\n" +
       `  rejeitadas ................ ${r.rejeitadas.length}` +
       (r.rejeitadas.length ? ` (${r.rejeitadas.map((x) => `linha ${x.numero}`).join(", ")})` : "") +
       "\n" +
@@ -305,6 +325,52 @@ async function main() {
   assert.equal(viaCsv.contratosCriados, 0, "o CSV criou o que o XLSX já tinha criado");
   assert.deepEqual(await contar(), { pessoas: 3, contratos: 4, jobs: 3 });
 
+  // 4.5) REGRA 5, contra o banco: setembro reajusta, agosto reprocessado NÃO
+  //      desfaz o reajuste. Foi este cenário que revelou o bug.
+  const SETEMBRO_LINHAS = LINHAS.map((l) =>
+    l[3] === "AP-001" ? l.map((c, i) => (i === 7 ? "1.400,00" : c)) : l,
+  );
+  const livroSet = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(
+    livroSet,
+    XLSX.utils.aoa_to_sheet([CABECALHO, ...SETEMBRO_LINHAS]),
+    "Apólices",
+  );
+  const setembro = {
+    nome: "porto-setembro.xlsx",
+    conteudo: XLSX.write(livroSet, { type: "buffer", bookType: "xlsx" }) as Buffer,
+  };
+
+  const comSetembro = await executarImportacao(
+    prisma,
+    setembro,
+    opcoes("xlsx", perfis.xlsx, "aplicar", SETEMBRO),
+  );
+  imprimir("XLSX · setembro (competência maior)", comSetembro);
+  const premioSetembro = await prisma.contratoCorretora.findFirst({
+    where: { numeroContrato: "AP-001" },
+    select: { premio: true },
+  });
+  assert.equal(String(premioSetembro?.premio), "1400", "setembro não aplicou o reajuste");
+
+  const agostoDeNovo = await executarImportacao(
+    prisma,
+    xlsx,
+    opcoes("xlsx", perfis.xlsx, "aplicar", AGOSTO),
+  );
+  imprimir("XLSX · agosto REPROCESSADO (competência menor)", agostoDeNovo);
+  const premioDepois = await prisma.contratoCorretora.findFirst({
+    where: { numeroContrato: "AP-001" },
+    select: { premio: true },
+  });
+  assert.equal(
+    String(premioDepois?.premio),
+    "1400",
+    "REGRESSÃO: o arquivo de agosto reverteu o prêmio de setembro",
+  );
+  assert.equal(agostoDeNovo.contratosAtualizados, 0, "agosto sobrescreveu registro mais novo");
+  assert.equal(agostoDeNovo.ignoradasPorAntiguidade.length, 3);
+
   // 5) Word: a descompactação real, sem rede.
   const texto = textoDoDocx(documentoDocx());
   assert.ok(texto.includes("SEGURO DE VIDA") && texto.includes(CPF_EXISTENTE));
@@ -331,7 +397,11 @@ async function main() {
       ),
       contratosPorChave: new Map(),
     },
-    { parceiroPadrao: "Porto Seguro", dicionarioProduto: DICIONARIOS.tipoProduto },
+    {
+      parceiroPadrao: "Porto Seguro",
+      dicionarioProduto: DICIONARIOS.tipoProduto,
+      dataReferenciaDoLote: SETEMBRO,
+    },
   );
   assert.ok(planoIa.acoes.every((a) => a.registro.origemExtracao === "ia"));
   assert.equal(planoIa.rejeitadas.length, 1);

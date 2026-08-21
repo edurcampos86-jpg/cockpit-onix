@@ -75,13 +75,21 @@ const VAZIO: EstadoAtual = {
   contratosPorChave: new Map(),
 };
 
-const OPCOES = { parceiroPadrao: "Porto Seguro", dicionarioProduto: PERFIL.dicionarios.tipoProduto };
+/** Competências de referência dos testes — agosto e setembro de 2026. */
+const AGOSTO = new Date(Date.UTC(2026, 7, 1, 12, 0, 0));
+const SETEMBRO = new Date(Date.UTC(2026, 8, 1, 12, 0, 0));
+
+const OPCOES = {
+  parceiroPadrao: "Porto Seguro",
+  dicionarioProduto: PERFIL.dicionarios.tipoProduto,
+  dataReferenciaDoLote: AGOSTO,
+};
 
 // ── O registro ───────────────────────────────────────────────────────────
 
 test("uma linha completa vira registro, e o que não tem coluna vai para dadosProduto", () => {
   const [linha] = aplicar([BASE]);
-  const r = montarRegistro(linha, "Porto Seguro", OPCOES.dicionarioProduto);
+  const r = montarRegistro(linha, "Porto Seguro", OPCOES.dicionarioProduto, AGOSTO);
   assert.ok(r.ok, r.ok ? "" : r.motivo);
   assert.equal(r.registro.tipoProduto, "vida");
   assert.equal(r.registro.status, "ativo");
@@ -96,7 +104,7 @@ test("uma linha completa vira registro, e o que não tem coluna vai para dadosPr
 
 test("origem 'ia' é preservada no registro — auditabilidade linha a linha", () => {
   const [linha] = aplicar([BASE], "ia");
-  const r = montarRegistro(linha, "Porto Seguro", OPCOES.dicionarioProduto);
+  const r = montarRegistro(linha, "Porto Seguro", OPCOES.dicionarioProduto, AGOSTO);
   assert.ok(r.ok);
   assert.equal(r.registro.origemExtracao, "ia");
 });
@@ -105,7 +113,7 @@ test("origem 'ia' é preservada no registro — auditabilidade linha a linha", (
 
 test("linha sem cpfCnpj é rejeitada, ainda que tenha nome completo", () => {
   const [linha] = aplicar([{ ...BASE, "CPF/CNPJ": "" }]);
-  const r = montarRegistro(linha, "Porto Seguro", OPCOES.dicionarioProduto);
+  const r = montarRegistro(linha, "Porto Seguro", OPCOES.dicionarioProduto, AGOSTO);
   assert.equal(r.ok, false);
   assert.match(r.ok ? "" : r.motivo, /casamento só existe por documento/);
 });
@@ -184,7 +192,7 @@ test("reprocessar o mesmo arquivo ATUALIZA, não duplica", () => {
 
   const depois: EstadoAtual = {
     pessoasPorDocumento: new Map([["09714600510", "pg_1"]]),
-    contratosPorChave: new Map([[primeiro.acoes[0].chave, { id: "c_1", status: "ativo" }]]),
+    contratosPorChave: new Map([[primeiro.acoes[0].chave, { id: "c_1", status: "ativo", dataReferencia: null }]]),
   };
   const segundo = planejar(linhas, depois, OPCOES);
   assert.equal(segundo.acoes.length, 1);
@@ -214,7 +222,7 @@ test("arquivo antigo NÃO ressuscita contrato cancelado", () => {
   const chave = chaveNegocio({ parceiro: "Porto Seguro", numeroContrato: "AP-001234", tipoProduto: "vida" });
   const estado: EstadoAtual = {
     pessoasPorDocumento: new Map([["09714600510", "pg_1"]]),
-    contratosPorChave: new Map([[chave, { id: "c_1", status: "cancelado" }]]),
+    contratosPorChave: new Map([[chave, { id: "c_1", status: "cancelado", dataReferencia: null }]]),
   };
   const plano = planejar(linhas, estado, OPCOES);
   assert.equal(plano.acoes.length, 0, "nenhuma escrita — o cancelamento permanece");
@@ -230,7 +238,7 @@ test("reprocessar o MESMO cancelamento é atualização normal, não bloqueio", 
     linhas,
     {
       pessoasPorDocumento: new Map([["09714600510", "pg_1"]]),
-      contratosPorChave: new Map([[chave, { id: "c_1", status: "cancelado" }]]),
+      contratosPorChave: new Map([[chave, { id: "c_1", status: "cancelado", dataReferencia: null }]]),
     },
     OPCOES,
   );
@@ -246,7 +254,7 @@ test("contrato ativo PODE ser cancelado — a regra só barra a volta", () => {
     linhas,
     {
       pessoasPorDocumento: new Map([["09714600510", "pg_1"]]),
-      contratosPorChave: new Map([[chave, { id: "c_1", status: "ativo" }]]),
+      contratosPorChave: new Map([[chave, { id: "c_1", status: "ativo", dataReferencia: null }]]),
     },
     OPCOES,
   );
@@ -300,7 +308,7 @@ test("por NENHUM caminho um rótulo desconhecido vira tipoProduto válido", () =
   for (const rotulo of desconhecidos) {
     // Caminho 1: perfil COM dicionário que não conhece o rótulo.
     const [comDicionario] = aplicar([{ ...BASE, Ramo: rotulo }]);
-    const r1 = montarRegistro(comDicionario, "Porto Seguro", OPCOES.dicionarioProduto);
+    const r1 = montarRegistro(comDicionario, "Porto Seguro", OPCOES.dicionarioProduto, AGOSTO);
     assert.equal(r1.ok, false, `"${rotulo}" virou registro pelo caminho do dicionário`);
 
     // Caminho 2: perfil SEM dicionário nenhum — sobra o alias de mercado.
@@ -308,7 +316,7 @@ test("por NENHUM caminho um rótulo desconhecido vira tipoProduto válido", () =
       [{ numero: 2, celulas: { ...BASE, Ramo: rotulo }, origem: "deterministica" }],
       { ...PERFIL, dicionarios: { status: PERFIL.dicionarios.status } },
     );
-    const r2 = montarRegistro(semDicionario[0], "Porto Seguro");
+    const r2 = montarRegistro(semDicionario[0], "Porto Seguro", undefined, AGOSTO);
     assert.equal(r2.ok, false, `"${rotulo}" virou registro pelo caminho do alias`);
 
     // Caminho 3: o plano inteiro. Nenhuma ação pode carregar o rótulo.
@@ -329,7 +337,7 @@ test("dicionário do perfil apontando para id INVÁLIDO não grava nada", () => 
     [{ numero: 2, celulas: BASE, origem: "deterministica" }],
     { ...PERFIL, dicionarios: { ...PERFIL.dicionarios, tipoProduto: { "SEGURO DE VIDA": "vidas" } } },
   );
-  const r = montarRegistro(linhas[0], "Porto Seguro", { "SEGURO DE VIDA": "vidas" });
+  const r = montarRegistro(linhas[0], "Porto Seguro", { "SEGURO DE VIDA": "vidas" }, AGOSTO);
   assert.equal(r.ok, false);
   assert.match(r.ok ? "" : r.motivo, /sem mapeamento/);
 });
@@ -352,7 +360,7 @@ test("sem dicionário declarado, vale o alias de mercado do catálogo", () => {
     [{ numero: 2, celulas: { ...BASE, Ramo: "Consórcio" }, origem: "deterministica" as const }],
     semDicionario,
   );
-  const r = montarRegistro(linhas[0], "Porto Seguro");
+  const r = montarRegistro(linhas[0], "Porto Seguro", undefined, AGOSTO);
   assert.ok(r.ok, r.ok ? "" : r.motivo);
   assert.equal(r.registro.tipoProduto, "consorcio");
 });
@@ -378,4 +386,116 @@ test("status desconhecido também rejeita a linha", () => {
   assert.equal(plano.acoes.length, 0);
   assert.equal(plano.pendentes, 1);
   assert.match(plano.rejeitadas[0].motivo, /status sem mapeamento/);
+});
+
+// ── Regra 5: valor não anda para trás ────────────────────────────────────
+// O bug que estes testes fecham foi achado no ensaio, não na leitura: rodado
+// setembro, reprocessar agosto devolvia o prêmio velho — sem erro nenhum.
+
+test("agosto → setembro → agosto de novo: o prêmio de setembro PERMANECE", () => {
+  const linhaAgosto = aplicar([{ ...BASE, "Prêmio": "1.234,56" }]);
+  const linhaSetembro = aplicar([{ ...BASE, "Prêmio": "1.400,00" }]);
+
+  // 1ª passada: agosto cria.
+  const primeiro = planejar(linhaAgosto, VAZIO, OPCOES);
+  assert.equal(primeiro.acoes.length, 1);
+  assert.equal(primeiro.acoes[0].acao, "criar");
+  const chave = primeiro.acoes[0].chave;
+
+  // 2ª passada: setembro atualiza — competência maior, é o caminho normal.
+  const gravadoEmAgosto: EstadoAtual = {
+    pessoasPorDocumento: new Map([["09714600510", "p_1"]]),
+    contratosPorChave: new Map([[chave, { id: "c_1", status: "ativo", dataReferencia: AGOSTO }]]),
+  };
+  const segundo = planejar(linhaSetembro, gravadoEmAgosto, {
+    ...OPCOES,
+    dataReferenciaDoLote: SETEMBRO,
+  });
+  assert.equal(segundo.acoes.length, 1);
+  assert.equal(segundo.acoes[0].acao, "atualizar");
+  assert.equal(segundo.acoes[0].registro.premio, 1400);
+  assert.equal(segundo.ignoradasPorAntiguidade.length, 0);
+
+  // 3ª passada: agosto DE NOVO, contra o estado de setembro. É aqui que o bug
+  // vivia. Nenhuma ação, e o motivo sai no relatório com as duas datas.
+  const gravadoEmSetembro: EstadoAtual = {
+    pessoasPorDocumento: new Map([["09714600510", "p_1"]]),
+    contratosPorChave: new Map([[chave, { id: "c_1", status: "ativo", dataReferencia: SETEMBRO }]]),
+  };
+  const terceiro = planejar(linhaAgosto, gravadoEmSetembro, OPCOES);
+  assert.equal(terceiro.acoes.length, 0, "o arquivo de agosto reescreveu setembro");
+  assert.equal(terceiro.ignoradasPorAntiguidade.length, 1);
+  assert.equal(terceiro.ignoradasPorAntiguidade[0].linha, 2);
+  assert.equal(terceiro.ignoradasPorAntiguidade[0].referenciaDoLote.getTime(), AGOSTO.getTime());
+  assert.equal(terceiro.ignoradasPorAntiguidade[0].referenciaGravada.getTime(), SETEMBRO.getTime());
+});
+
+test("arquivo antigo com contrato INEXISTENTE cria normalmente", () => {
+  // A metade da regra que se esquece. Recusar o arquivo velho inteiro seria
+  // fácil e errado: ele tem direito de completar buraco, não de reescrever.
+  const gravadoEmSetembro: EstadoAtual = {
+    pessoasPorDocumento: new Map([["09714600510", "p_1"]]),
+    contratosPorChave: new Map([
+      [
+        chaveNegocio({ parceiro: "Porto Seguro", numeroContrato: "AP-999", tipoProduto: "vida" }),
+        { id: "c_9", status: "ativo", dataReferencia: SETEMBRO },
+      ],
+    ]),
+  };
+  const plano = planejar(aplicar([{ ...BASE, "Apólice": "AP-001234" }]), gravadoEmSetembro, OPCOES);
+  assert.equal(plano.acoes.length, 1);
+  assert.equal(plano.acoes[0].acao, "criar");
+  assert.equal(plano.ignoradasPorAntiguidade.length, 0);
+});
+
+test("MESMA competência duas vezes ATUALIZA — reprocessar não é regressão", () => {
+  // `>=`, não `>`. A segunda passada do mesmo relatório costuma ser a correção
+  // da primeira; tratá-la como regressão travaria o conserto.
+  const chave = chaveNegocio({
+    parceiro: "Porto Seguro",
+    numeroContrato: "AP-001234",
+    tipoProduto: "vida",
+  });
+  const gravadoEmAgosto: EstadoAtual = {
+    pessoasPorDocumento: new Map([["09714600510", "p_1"]]),
+    contratosPorChave: new Map([[chave, { id: "c_1", status: "ativo", dataReferencia: AGOSTO }]]),
+  };
+  const plano = planejar(aplicar([{ ...BASE, "Prêmio": "1.300,00" }]), gravadoEmAgosto, OPCOES);
+  assert.equal(plano.acoes.length, 1);
+  assert.equal(plano.acoes[0].acao, "atualizar");
+  assert.equal(plano.acoes[0].registro.premio, 1300);
+  assert.equal(plano.ignoradasPorAntiguidade.length, 0);
+});
+
+test("sem competência — nem no perfil, nem no lote — a linha é REJEITADA, não estimada", () => {
+  // Chutar "hoje" aqui devolveria o bug inteiro: hoje é sempre o mais recente.
+  const [linha] = aplicar([BASE]);
+  const r = montarRegistro(linha, "Porto Seguro", OPCOES.dicionarioProduto);
+  assert.equal(r.ok, false);
+  assert.match(r.ok ? "" : r.motivo, /dataReferencia/);
+});
+
+test("competência do ARQUIVO vence a do lote — relatório com meses misturados", () => {
+  // Um arquivo que traz a própria competência sabe mais do que quem digitou a
+  // do lote. É o caso em que o valor do lote mentiria para metade das linhas.
+  const perfilComColuna = {
+    ...PERFIL,
+    mapeamentoColunas: { ...PERFIL.mapeamentoColunas, "Competência": "dataReferencia" },
+    formatosValor: { ...PERFIL.formatosValor, dataReferencia: "data_ddmmaaaa" as const },
+  };
+  const linhas = aplicarPerfil(
+    [
+      {
+        numero: 2,
+        celulas: { ...BASE, "Competência": "01/09/2026" },
+        origem: "deterministica" as const,
+      },
+    ],
+    perfilComColuna,
+  );
+  const r = montarRegistro(linhas[0], "Porto Seguro", OPCOES.dicionarioProduto, AGOSTO);
+  assert.ok(r.ok, r.ok ? "" : r.motivo);
+  assert.equal(r.registro.dataReferencia.getTime(), SETEMBRO.getTime());
+  // E não vaza duplicada para dentro de dadosProduto.
+  assert.equal("dataReferencia" in r.registro.dadosProduto, false);
 });

@@ -27,6 +27,18 @@
  * 4. HISTÓRICO NÃO ANDA PARA TRÁS. Contrato cancelado, encerrado ou recusado
  *    é estado TERMINAL: um arquivo antigo reprocessado não o traz de volta
  *    para `ativo`. Churn reconstruído para trás é churn perdido.
+ *
+ * 5. VALOR TAMBÉM NÃO ANDA PARA TRÁS. A regra 4 protegia só o `status`, e o
+ *    ensaio mostrou o buraco: rodado setembro (prêmio 1.400), reprocessar o
+ *    arquivo de agosto devolvia 1.234,56 — sem erro, sem aviso, sem ninguém
+ *    saber. É a mesma inversão de precedência que o `upsertPorPolitica` do BTG
+ *    já documenta.
+ *
+ *    Agora cada lote declara sua COMPETÊNCIA (`dataReferencia`) e a gravação só
+ *    acontece se ela for MAIOR OU IGUAL à do registro gravado. Igual atualiza —
+ *    reprocessar o mesmo relatório é correção, não regressão. Menor é ignorado,
+ *    COM MOTIVO no relatório, e o arquivo antigo segue CRIANDO o que falta: ele
+ *    tem direito de completar a base, não de reescrevê-la.
  * ────────────────────────────────────────────────────────────── */
 
 import type { LinhaAplicada, ValorCanonico } from "@/lib/importacao/aplicar-perfil";
@@ -59,6 +71,15 @@ export type RegistroContrato = {
   readonly dadosProduto: Readonly<Record<string, unknown>>;
   readonly linhaOrigem: number;
   readonly origemExtracao: OrigemExtracao;
+  /**
+   * COMPETÊNCIA do relatório que originou a linha — não o instante do import.
+   *
+   * A distinção é o ponto todo da regra 5: "quando o arquivo foi processado"
+   * responde sempre "agora", e agora é sempre o mais novo, o que devolveria
+   * exatamente o bug. "De que mês é este relatório" é a única pergunta que
+   * ordena dois arquivos entre si.
+   */
+  readonly dataReferencia: Date;
 };
 
 export type LinhaRejeitada = {
@@ -71,7 +92,21 @@ export type EstadoAtual = {
   /** documento normalizado → id de `PessoaGrupo`. */
   readonly pessoasPorDocumento: ReadonlyMap<string, string>;
   /** chave de negócio → contrato existente. */
-  readonly contratosPorChave: ReadonlyMap<string, { readonly id: string; readonly status: string }>;
+  readonly contratosPorChave: ReadonlyMap<
+    string,
+    {
+      readonly id: string;
+      readonly status: string;
+      /**
+       * Competência do lote que gravou este registro. `null` em contrato
+       * cadastrado à mão ou importado antes desta regra existir — e `null`
+       * NÃO bloqueia: sem referência gravada não há como afirmar que a do
+       * arquivo é mais velha, e recusar por dúvida travaria a primeira
+       * importação de toda base existente.
+       */
+      readonly dataReferencia: Date | null;
+    }
+  >;
 };
 
 export type AcaoContrato =
@@ -114,6 +149,20 @@ export type Plano = {
   }[];
   /** Linhas repetidas dentro do MESMO lote, com a chave que já tinha aparecido. */
   readonly duplicadasNoLote: readonly { readonly linha: number; readonly chave: string }[];
+  /**
+   * Regra 5: linhas de um relatório MAIS ANTIGO que o registro gravado.
+   *
+   * Sai no relatório com as duas datas porque o número sozinho não decide
+   * nada — "12 linhas ignoradas" pode ser o comportamento certo (alguém
+   * reprocessou março por engano) ou o sintoma de uma competência informada
+   * errada no lote, e só as datas lado a lado distinguem os dois casos.
+   */
+  readonly ignoradasPorAntiguidade: readonly {
+    readonly chave: string;
+    readonly linha: number;
+    readonly referenciaDoLote: Date;
+    readonly referenciaGravada: Date;
+  }[];
   readonly grafiasAtendente: readonly GrafiaAtendente[];
 };
 
@@ -161,6 +210,9 @@ const CAMPOS_COM_COLUNA = new Set([
   "comissao",
   "atendenteCorretora",
   "assessorCge",
+  // Não é coluna própria — vai para `importadoEm`. Está aqui para NÃO vazar
+  // duplicada dentro de `dadosProduto`.
+  "dataReferencia",
 ]);
 
 /**
@@ -177,11 +229,21 @@ const CAMPOS_COM_COLUNA = new Set([
  * INTEIRO dela, e completar por fora traria de volta, pela porta dos fundos, o
  * encaixe que a regra do pendente existe para impedir. O custo é uma linha no
  * dicionário; o diagnóstico já diz qual.
+ *
+ * ── DE ONDE VEM A COMPETÊNCIA ───────────────────────────────────────────
+ * Do arquivo, se o perfil mapear uma coluna para `dataReferencia`; senão, do
+ * valor declarado para o lote inteiro. Coluna vence, porque um arquivo que traz
+ * a própria competência sabe mais do que quem digitou a do lote — e um relatório
+ * com meses misturados é justamente o caso em que o valor do lote mentiria.
+ *
+ * Sem nenhum dos dois a linha é REJEITADA, não estimada. Chutar "hoje" aqui
+ * reintroduziria o bug inteiro: hoje é sempre o mais recente.
  */
 export function montarRegistro(
   linha: LinhaAplicada,
   parceiroPadrao: string,
   dicionarioProduto?: Readonly<Record<string, string>>,
+  dataReferenciaDoLote?: Date,
 ): { ok: true; registro: RegistroContrato } | { ok: false; motivo: string } {
   if (linha.erros.length > 0) return { ok: false, motivo: linha.erros.join("; ") };
 
@@ -226,6 +288,15 @@ export function montarRegistro(
   const parceiro = texto(c.parceiro) ?? parceiroPadrao;
   if (!parceiro) return { ok: false, motivo: "sem parceiro — a chave de negócio depende dele" };
 
+  const dataReferencia = data(c.dataReferencia) ?? dataReferenciaDoLote ?? null;
+  if (!dataReferencia) {
+    return {
+      ok: false,
+      motivo:
+        "sem dataReferencia — mapeie a coluna de competência no perfil ou informe a do lote",
+    };
+  }
+
   const dadosProduto: Record<string, unknown> = {};
   for (const [campo, valor] of Object.entries(c)) {
     if (CAMPOS_COM_COLUNA.has(campo)) continue;
@@ -250,6 +321,7 @@ export function montarRegistro(
       dadosProduto,
       linhaOrigem: linha.numero,
       origemExtracao: linha.origem,
+      dataReferencia,
     },
   };
 }
@@ -294,6 +366,8 @@ export function planejar(
   opcoes: {
     readonly parceiroPadrao: string;
     readonly dicionarioProduto?: Readonly<Record<string, string>>;
+    /** Competência do lote. Ignorada nas linhas cujo perfil traz a própria. */
+    readonly dataReferenciaDoLote?: Date;
   },
 ): Plano {
   const rejeitadas: LinhaRejeitada[] = [];
@@ -302,7 +376,12 @@ export function planejar(
 
   for (const linha of linhas) {
     if (Object.keys(linha.pendentes).length > 0) pendentes += 1;
-    const r = montarRegistro(linha, opcoes.parceiroPadrao, opcoes.dicionarioProduto);
+    const r = montarRegistro(
+      linha,
+      opcoes.parceiroPadrao,
+      opcoes.dicionarioProduto,
+      opcoes.dataReferenciaDoLote,
+    );
     if (!r.ok) {
       rejeitadas.push({ numero: linha.numero, motivo: r.motivo });
       continue;
@@ -334,6 +413,12 @@ export function planejar(
     linha: number;
   }[] = [];
   const duplicadasNoLote: { linha: number; chave: string }[] = [];
+  const ignoradasPorAntiguidade: {
+    chave: string;
+    linha: number;
+    referenciaDoLote: Date;
+    referenciaGravada: Date;
+  }[] = [];
   const vistasNoLote = new Set<string>();
 
   for (const registro of registros) {
@@ -348,6 +433,8 @@ export function planejar(
 
     const existente = estado.contratosPorChave.get(chave);
     if (!existente) {
+      // Regra 5, a metade que se esquece: arquivo velho CRIA o que falta. Ele
+      // não pode reescrever o presente, mas completar buraco não é reescrever.
       acoes.push({ acao: "criar", chave, registro });
       continue;
     }
@@ -359,6 +446,21 @@ export function planejar(
         statusAtual: existente.status,
         statusRecusado: registro.status,
         linha: registro.linhaOrigem,
+      });
+      continue;
+    }
+
+    // Regra 5. `>=` e não `>`: reprocessar o MESMO relatório atualiza, porque
+    // a segunda passada costuma ser a correção da primeira.
+    if (
+      existente.dataReferencia &&
+      registro.dataReferencia.getTime() < existente.dataReferencia.getTime()
+    ) {
+      ignoradasPorAntiguidade.push({
+        chave,
+        linha: registro.linhaOrigem,
+        referenciaDoLote: registro.dataReferencia,
+        referenciaGravada: existente.dataReferencia,
       });
       continue;
     }
@@ -375,6 +477,7 @@ export function planejar(
     acoes,
     historicoPreservado,
     duplicadasNoLote,
+    ignoradasPorAntiguidade,
     grafiasAtendente: diagnosticarGrafias(registros),
   };
 }

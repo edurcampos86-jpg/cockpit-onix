@@ -30,6 +30,8 @@ import { prisma } from "@/lib/prisma";
  *   perfilId  (string)  id de `PerfilImportacao`
  *   modo      (string)  "dry-run" | "aplicar"
  *   confirmar (string)  "true" — obrigatório em "aplicar"
+ *   competencia (string) "AAAA-MM" ou "AAAA-MM-DD" — de que mês é o relatório.
+ *                        Obrigatória, exceto quando o perfil mapeia a coluna.
  *
  * Gate: `guardAdminApi`. Importar a base de uma empresa inteira é operação de
  * administrador, e o middleware só garante que existe sessão.
@@ -128,6 +130,30 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // COMPETÊNCIA — de que mês é este relatório, não quando ele foi enviado.
+  // Sem ela, reimportar um arquivo antigo reverteria valores da carteira em
+  // silêncio; com ela, o motor ignora o que é mais velho e diz quantas linhas
+  // ignorou. O perfil pode trazê-la por coluna; aí o campo é dispensável.
+  const competenciaCrua = String(form.get("competencia") ?? "").trim();
+  let dataReferencia: Date | undefined;
+  if (competenciaCrua) {
+    // "2026-08" vira o primeiro dia do mês, ao meio-dia UTC — mesma convenção
+    // de `valores.ts`, para que GMT-3 não empurre a data para o mês anterior.
+    const m = /^(\d{4})-(\d{2})(?:-(\d{2}))?$/.exec(competenciaCrua);
+    if (!m) {
+      return NextResponse.json(
+        { error: 'competencia deve ser "AAAA-MM" ou "AAAA-MM-DD"' },
+        { status: 400 },
+      );
+    }
+    dataReferencia = new Date(
+      Date.UTC(Number(m[1]), Number(m[2]) - 1, m[3] ? Number(m[3]) : 1, 12, 0, 0),
+    );
+    if (Number.isNaN(dataReferencia.getTime())) {
+      return NextResponse.json({ error: `competencia inexistente: ${competenciaCrua}` }, { status: 400 });
+    }
+  }
+
   const conteudo = Buffer.from(await arquivo.arrayBuffer());
 
   try {
@@ -142,6 +168,7 @@ export async function POST(req: NextRequest) {
         parceiroPadrao: perfilLinha.fonte,
         iniciadoPorId: ctx.userId,
         loteImportacao: randomUUID(),
+        dataReferencia,
         extracao: { apiKey },
       },
     );

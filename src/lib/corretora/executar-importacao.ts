@@ -79,6 +79,8 @@ export type ResultadoImportacao = {
   readonly contratosAAtualizar: number;
   readonly historicoPreservado: Plano["historicoPreservado"];
   readonly duplicadasNoLote: Plano["duplicadasNoLote"];
+  /** Regra 5 — linhas de relatório mais antigo que o registro gravado. */
+  readonly ignoradasPorAntiguidade: Plano["ignoradasPorAntiguidade"];
   readonly rejeitadas: readonly LinhaRejeitada[];
   readonly rotulosNaoMapeados: readonly RotuloNaoMapeado[];
   readonly grafiasAtendente: readonly GrafiaAtendente[];
@@ -139,13 +141,22 @@ async function carregarEstado(
           parceiro: true,
           numeroContrato: true,
           tipoProduto: true,
+          // A competência do lote que gravou a linha. É o que a regra 5 compara.
+          importadoEm: true,
         },
       })
     : [];
 
-  const contratosPorChave = new Map<string, { id: string; status: string }>();
+  const contratosPorChave = new Map<
+    string,
+    { id: string; status: string; dataReferencia: Date | null }
+  >();
   for (const c of contratos) {
-    contratosPorChave.set(chaveNegocio(c), { id: c.id, status: c.status });
+    contratosPorChave.set(chaveNegocio(c), {
+      id: c.id,
+      status: c.status,
+      dataReferencia: c.importadoEm,
+    });
   }
 
   return {
@@ -186,7 +197,12 @@ function dadosDoContrato(
     loteImportacao: contexto.loteImportacao,
     arquivoOrigem: contexto.arquivoOrigem,
     linhaOrigem: registro.linhaOrigem,
-    importadoEm: new Date(),
+    // A COMPETÊNCIA do relatório, não o relógio da máquina. `createdAt` e
+    // `updatedAt` já registram quando a linha foi escrita; gravar o relógio
+    // aqui de novo custaria a coluna que a regra 5 precisa para ordenar dois
+    // arquivos — e era exatamente por não existir essa coluna que agosto
+    // reprocessado revertia setembro.
+    importadoEm: registro.dataReferencia,
   };
 }
 
@@ -198,16 +214,37 @@ export type OpcoesExecucao = {
   readonly parceiroPadrao: string;
   readonly iniciadoPorId: string;
   readonly loteImportacao: string;
+  /**
+   * COMPETÊNCIA do relatório — de que mês é este arquivo.
+   *
+   * Obrigatória, a menos que o perfil mapeie uma coluna para `dataReferencia`
+   * (aí cada linha traz a sua). Sem nenhuma das duas a execução FALHA na
+   * entrada, antes de ler o arquivo: um import sem competência não consegue
+   * decidir se está atualizando ou revertendo, e essa dúvida em silêncio é o
+   * bug que a regra 5 fecha.
+   */
+  readonly dataReferencia?: Date;
   readonly extracao?: OpcoesExtracao;
   /** Consultada ENTRE lotes. `true` encerra a execução com estado íntegro. */
   readonly deveParar?: () => boolean;
 };
+
+/** O perfil traz a competência linha a linha? */
+function perfilMapeiaReferencia(perfil: PerfilImportacaoConfig): boolean {
+  return Object.values(perfil.mapeamentoColunas).includes("dataReferencia");
+}
 
 export async function executarImportacao(
   prisma: PrismaClient,
   arquivo: ArquivoEntrada,
   opcoes: OpcoesExecucao,
 ): Promise<ResultadoImportacao> {
+  if (!opcoes.dataReferencia && !perfilMapeiaReferencia(opcoes.perfil)) {
+    throw new Error(
+      "importação sem competência: informe `dataReferencia` na chamada ou mapeie a coluna no perfil",
+    );
+  }
+
   const extracaoResultado = await extrair(arquivo, opcoes.perfil, opcoes.extracao);
   const linhas: LinhaAplicada[] = aplicarPerfil(extracaoResultado.linhas, opcoes.perfil);
 
@@ -217,7 +254,7 @@ export async function executarImportacao(
   const documentos = new Set<string>();
   const chaves = new Set<string>();
   for (const linha of linhas) {
-    const r = montarRegistro(linha, opcoes.parceiroPadrao, dicionarioProduto);
+    const r = montarRegistro(linha, opcoes.parceiroPadrao, dicionarioProduto, opcoes.dataReferencia);
     if (!r.ok) continue;
     documentos.add(r.registro.cpfCnpj);
     chaves.add(chaveNegocio(r.registro));
@@ -227,6 +264,7 @@ export async function executarImportacao(
   const plano = planejar(linhas, estado, {
     parceiroPadrao: opcoes.parceiroPadrao,
     dicionarioProduto,
+    dataReferenciaDoLote: opcoes.dataReferencia,
   });
 
   const criar = plano.acoes.filter((a) => a.acao === "criar");
@@ -243,6 +281,7 @@ export async function executarImportacao(
     contratosAAtualizar: atualizar.length,
     historicoPreservado: plano.historicoPreservado,
     duplicadasNoLote: plano.duplicadasNoLote,
+    ignoradasPorAntiguidade: plano.ignoradasPorAntiguidade,
     rejeitadas: plano.rejeitadas,
     rotulosNaoMapeados: agruparNaoMapeados(linhas),
     grafiasAtendente: plano.grafiasAtendente,
@@ -267,7 +306,10 @@ export async function executarImportacao(
       zipFilename: arquivo.nome,
       zipBytes: BigInt(arquivo.conteudo.byteLength),
       totalArquivos: plano.acoes.length,
-      pulados: plano.duplicadasNoLote.length + plano.historicoPreservado.length,
+      pulados:
+        plano.duplicadasNoLote.length +
+        plano.historicoPreservado.length +
+        plano.ignoradasPorAntiguidade.length,
       erros: plano.rejeitadas.length,
       detalhes: {
         loteImportacao: opcoes.loteImportacao,
@@ -275,6 +317,7 @@ export async function executarImportacao(
         rotulosNaoMapeados: base.rotulosNaoMapeados,
         grafiasAtendente: base.grafiasAtendente,
         rejeitadas: plano.rejeitadas.slice(0, 200),
+        ignoradasPorAntiguidade: plano.ignoradasPorAntiguidade.slice(0, 200),
         custoIa: extracaoResultado.custo,
       },
     },
