@@ -365,6 +365,11 @@ jobs:
       #
       # SOMENTE LEITURA e sem linha de cliente: dois números.
       - name: Acordos de parceiro sem nó
+        # `always()` pelo mesmo motivo do check de cron em actionlint.yml: este
+        # número é O QUE DECIDE se a PR destrutiva pode ser mergeada, e o gate
+        # de assinatura roda ANTES. Sem isto, a resposta ficaria atrás da
+        # própria assinatura que ela deveria informar — assina-se no escuro.
+        if: always()
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
