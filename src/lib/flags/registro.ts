@@ -206,6 +206,19 @@ export const FLAGS_REGISTRADAS: readonly FlagRegistrada[] = [
     impacto: "normal",
   },
   {
+    key: "CLIENTES_REGISTRO_RICO",
+    rotulo: "Registro rico na ficha do cliente (contato, grupos, drawer, revisão, preparar reunião)",
+    onde: "src/lib/clientes-registro/flag.ts",
+    tipo: "booleana",
+    dialeto: "amplo",
+    // `normal`, e não `alto`, apesar de as rotas escreverem: o gate é de UI e
+    // as rotas dele recusam com a flag OFF. Desligar de volta faz as telas
+    // sumirem e as rotas voltarem a 404 — nada do que foi gravado enquanto
+    // ligada some, mas nada continua acontecendo sozinho. Não há scheduler nem
+    // escrita automática por trás desta chave.
+    impacto: "normal",
+  },
+  {
     key: "PERMISSOES_UI",
     rotulo: "Tela Configurações › Permissões",
     onde: "src/lib/permissoes/flag.ts",
