@@ -178,9 +178,9 @@ const INTEGRATIONS: IntegrationConfig[] = [
   },
   {
     id: "github",
-    name: "GitHub — status dos PRs",
+    name: "GitHub — estado das entregas",
     description:
-      "Fecha o loop da Central de Implementações: mantém o status do PR de cada sugestão em dia, sem ninguém voltar na tela para marcar \"merged\"",
+      "Fecha o loop da fila de melhorias (Configurações › Implementações): mantém em dia o estado da entrega de cada sugestão, sem ninguém voltar na tela para marcar que subiu",
     icon: <GitPullRequest className="h-6 w-6" />,
     status: "disconnected",
     envKey: "GITHUB_TOKEN",
@@ -189,10 +189,10 @@ const INTEGRATIONS: IntegrationConfig[] = [
     docsUrl:
       "https://docs.github.com/pt/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens",
     features: [
-      "Cron a cada 30min atualiza aberta → merged/fechada",
-      "Somente LEITURA — não comenta, não fecha e não mergeia nada",
+      "A cada 30 min: em construção → no ar / descartada",
+      "Somente LEITURA — não comenta, não fecha e não publica nada",
       "Basta escopo de leitura de PR (repo público: nenhum escopo)",
-      "Sem a chave nada quebra: o vínculo do PR segue manual",
+      "Sem a chave nada quebra: o vínculo da entrega segue manual",
     ],
   },
 ];

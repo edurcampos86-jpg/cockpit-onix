@@ -561,11 +561,12 @@ function MetricasBacklogBloco({ m }: { m: MetricasBacklog }) {
     },
     {
       valor: String(m.comPr - m.entregues),
-      // NÃO é o mesmo conjunto do status "Em andamento": este cartão conta item
-      // com entrega vinculada e sem merge (`metricas.ts:46,53`), enquanto o
-      // status é digitado à mão. Dois nomes iguais para conjuntos diferentes
-      // seriam dois números que ninguém consegue conciliar na mesma tela.
-      label: "entregas começadas, ainda não no ar",
+      // O rótulo diz exatamente o que a conta faz: `comPr − entregues`
+      // (`metricas.ts:46,53`) é toda linha com entrega VINCULADA e sem data de
+      // merge — o que inclui a descartada. "começadas" seria específico e
+      // falso: uma entrega descartada não está a caminho do ar. E não é o mesmo
+      // conjunto do status "Em andamento", que é digitado à mão.
+      label: "entregas vinculadas, ainda não no ar",
     },
   ];
 
@@ -1238,7 +1239,7 @@ export function ImplementacoesList({
     // Confirmação com a CONTA na frente. O gesto é 1 clique e o custo não é
     // óbvio pelo botão; confirmar é o único ponto em que dá para desistir.
     const aviso = [
-      `Sugerir RICE para ${alvos.length} ${alvos.length === 1 ? "sugestão" : "sugestões"}?`,
+      `Estimar a prioridade de ${alvos.length} ${alvos.length === 1 ? "sugestão" : "sugestões"} com IA?`,
       "",
       "Cada uma é uma chamada à IA que lê o conteúdo e os anexos — leva até ~1 min por item, em sequência.",
       sobra > 0
@@ -1451,7 +1452,7 @@ export function ImplementacoesList({
             ) : (
               <>
                 <Sparkles className="h-3.5 w-3.5" />
-                Sugerir RICE para{" "}
+                Estimar prioridade de{" "}
                 {aPontuarNoRecorte > MAX_LOTE
                   ? `${MAX_LOTE} de ${aPontuarNoRecorte}`
                   : `as ${aPontuarNoRecorte}`}
