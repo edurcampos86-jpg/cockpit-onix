@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { requireAdmin } from "@/lib/auth-helpers";
 import { criarParceiroForm } from "@/app/actions/parceiros";
 import { TIPOS_PARCEIRO } from "@/lib/parceiros/vocabulario";
+import { listarPessoasParaVinculo } from "@/lib/parceiros/consultas";
 
 export const metadata = { title: "Novo parceiro — Cockpit Onix" };
 
@@ -47,6 +48,7 @@ export default async function NovoParceiroPage({
 }) {
   await requireAdmin();
   const { erro, nome } = await searchParams;
+  const pessoas = await listarPessoasParaVinculo();
 
   return (
     <div className="space-y-6">
@@ -77,6 +79,35 @@ export default async function NovoParceiroPage({
           action={criarParceiroForm}
           className="max-w-xl space-y-5 rounded-xl border border-[var(--parceiro-borda)] bg-[var(--parceiro-superficie)] p-6"
         >
+          {/* ── É alguém do time? ──────────────────────────────────────────
+              Vem ANTES do nome de propósito: escolhida a pessoa, o nome é
+              herdado dela e o campo abaixo perde a razão de existir. Perguntar
+              o nome primeiro convidaria a digitar antes de saber que não
+              precisava. */}
+          <div className="space-y-1.5">
+            <label htmlFor="pessoaId" className="text-sm font-medium text-foreground">
+              É alguém do time? <span className="text-muted-foreground">(opcional)</span>
+            </label>
+            <select
+              id="pessoaId"
+              name="pessoaId"
+              defaultValue=""
+              className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--parceiro-ouro)]"
+            >
+              <option value="">Não é do time — vou digitar o nome</option>
+              {pessoas.map((p) => (
+                <option key={p.id} value={p.id} disabled={p.jaEhParceiro}>
+                  {p.nome} · {p.cargo}
+                  {p.jaEhParceiro ? " (já é parceiro)" : ""}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground">
+              Escolhendo aqui, o nome vem da ficha do time e e-mail, telefone e
+              cargo passam a ser lidos de lá — sem segunda versão da mesma pessoa.
+            </p>
+          </div>
+
           <div className="space-y-1.5">
             <label htmlFor="nome" className="text-sm font-medium text-foreground">
               Nome do parceiro
@@ -84,7 +115,6 @@ export default async function NovoParceiroPage({
             <input
               id="nome"
               name="nome"
-              required
               maxLength={120}
               defaultValue={nome ?? ""}
               autoComplete="off"
@@ -93,6 +123,7 @@ export default async function NovoParceiroPage({
             />
             <p className="text-xs text-muted-foreground">
               É o nome que vai aparecer na ficha dos clientes que ele trouxer.
+              Deixe em branco se escolheu alguém do time acima.
             </p>
           </div>
 
