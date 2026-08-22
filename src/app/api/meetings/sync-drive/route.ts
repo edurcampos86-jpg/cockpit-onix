@@ -1,12 +1,28 @@
 import { prisma } from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
+import { getAuthContext } from "@/lib/auth-helpers";
 
 /**
  * POST /api/meetings/sync-drive
- * Recebe transcrições do Google Drive (enviadas pelo frontend ou Zapier)
+ * Recebe transcrições do Google Drive em lote.
  * Body: { meetings: [{ title, content, driveId, createdAt }] }
+ *
+ * ── A TERCEIRA PORTA ─────────────────────────────────────────────────────
+ * Este é o caminho de entrada de transcrição que não aparece na tela de
+ * Integrações e que ninguém monitora — os outros dois são o webhook do Zapier
+ * e o import manual do Cockpit de Reunião. O comentário original dizia
+ * "enviadas pelo frontend ou Zapier": nem quem escreveu sabia quem chama.
+ *
+ * NÃO está na allowlist do proxy (`src/lib/proxy-rotas.ts`), então sempre
+ * exigiu sessão — o gate abaixo torna isso EXPLÍCITO em vez de depender só
+ * de configuração em outro arquivo. As reuniões que ela cria nascem SEM
+ * `vendedor`, o que, com o escopo de `/api/meetings` ligado, as deixa
+ * invisíveis para quem tem escopo restrito.
  */
 export async function POST(request: NextRequest) {
+  const ctx = await getAuthContext().catch(() => null);
+  if (!ctx) return NextResponse.json({ error: "Não autenticado." }, { status: 403 });
+
   try {
     const body = await request.json();
     const meetings = body.meetings || [];
