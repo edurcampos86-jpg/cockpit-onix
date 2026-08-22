@@ -114,6 +114,8 @@ export async function obterParceiro(id: string) {
           dataInicio: true,
           dataFim: true,
           criadoPor: true,
+          incluiDescendentes: true,
+          empresa: { select: { id: true, nome: true, tipo: true, parentId: true } },
         },
       },
       clientes: {
@@ -250,4 +252,58 @@ export async function listarPessoasParaVinculo(): Promise<PessoaVinculavel[]> {
     cargo: p.cargoTitulo?.trim() || p.cargoFamilia.replace(/_/g, " "),
     jaEhParceiro: p.parceiro !== null,
   }));
+}
+
+export type NoHierarquia = {
+  id: string;
+  nome: string;
+  tipo: string;
+  parentId: string | null;
+  /** Profundidade na árvore — vira indentação no seletor. */
+  nivel: number;
+};
+
+/**
+ * Os nós da hierarquia Onix Co, já ordenados como árvore para caber num
+ * `<select>`.
+ *
+ * A ordenação é feita aqui, e não no SQL, porque "ordem de árvore" não é
+ * `ORDER BY` — é percurso. São dezenas de linhas; carregar todas e percorrer
+ * em memória é mais barato que uma recursiva, e não esconde a lógica no banco.
+ */
+export async function listarNosHierarquia(): Promise<NoHierarquia[]> {
+  const nos = await prisma.empresa.findMany({
+    orderBy: { nome: "asc" },
+    select: { id: true, nome: true, tipo: true, parentId: true },
+  });
+
+  const porPai = new Map<string | null, typeof nos>();
+  for (const n of nos) {
+    const chave = n.parentId ?? null;
+    const lista = porPai.get(chave) ?? [];
+    lista.push(n);
+    porPai.set(chave, lista);
+  }
+
+  const saida: NoHierarquia[] = [];
+  const visitados = new Set<string>();
+  const descer = (paiId: string | null, nivel: number) => {
+    for (const n of porPai.get(paiId) ?? []) {
+      // Guarda contra ciclo: `Empresa.parentId` não tem trigger anti-ciclo (o
+      // que existe é o da árvore de Parceiro). Sem isto, um ciclo em produção
+      // viraria recursão infinita numa tela de cadastro.
+      if (visitados.has(n.id)) continue;
+      visitados.add(n.id);
+      saida.push({ ...n, nivel });
+      descer(n.id, nivel + 1);
+    }
+  };
+  descer(null, 0);
+
+  // Nós órfãos (pai inexistente) entram no fim em vez de sumir: some-los
+  // esconderia justamente o nó que precisa de conserto.
+  for (const n of nos) {
+    if (!visitados.has(n.id)) saida.push({ ...n, nivel: 0 });
+  }
+  return saida;
 }
