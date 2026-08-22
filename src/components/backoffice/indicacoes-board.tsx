@@ -25,6 +25,13 @@ interface Indicacao {
   notas: string | null;
   criadoEm: string;
   indicador: { id: string; nome: string; classificacao: string } | null;
+  /** Origem quando quem indicou é PARCEIRO, e não cliente. Os dois convivem. */
+  parceiro: { id: string; nome: string } | null;
+}
+
+interface Parceiro {
+  id: string;
+  nome: string;
 }
 
 interface Cliente {
@@ -43,12 +50,37 @@ const COLUNAS = [
   { id: "perdida", label: "Perdida", cor: "border-red-300 bg-red-50 dark:bg-red-950/20", icon: XCircle },
 ] as const;
 
+/* ──────────────────────────────────────────────────────────────
+ * QUEM INDICOU: cliente OU parceiro, num controle só.
+ *
+ * `Indicacao.parceiroId` existe no banco desde a #306 e, até aqui, NENHUMA
+ * tela o lia ou gravava — a indicação do contador chegava como texto no nome e
+ * o vínculo com o parceiro era feito à mão, noutra tela.
+ *
+ * Os dois campos convivem em vez de virarem um polimórfico: `indicadorId`
+ * aponta para `ClienteBackoffice` (com FK), `parceiroId` para `Parceiro` (com
+ * FK). Um `<select>` só, com dois grupos, porque para quem preenche a pergunta
+ * é uma só — "de quem veio?".
+ *
+ * O valor do controle carrega o tipo (`cliente:<id>` / `parceiro:<id>`) e é
+ * separado no envio. Sem prefixo, um id de cliente e um de parceiro seriam
+ * indistinguíveis — ambos são cuid.
+ * ────────────────────────────────────────────────────────────── */
+
+function separarOrigem(valor: string): { indicadorId: string | null; parceiroId: string | null } {
+  if (valor.startsWith("cliente:")) return { indicadorId: valor.slice(8), parceiroId: null };
+  if (valor.startsWith("parceiro:")) return { indicadorId: null, parceiroId: valor.slice(9) };
+  return { indicadorId: null, parceiroId: null };
+}
+
 export function IndicacoesBoard({
   indicacoes: iniciais,
   clientes,
+  parceiros,
 }: {
   indicacoes: Indicacao[];
   clientes: Cliente[];
+  parceiros: Parceiro[];
 }) {
   const [indicacoes, setIndicacoes] = useState(iniciais);
   const [criando, setCriando] = useState(false);
@@ -85,16 +117,19 @@ export function IndicacoesBoard({
       body: JSON.stringify({
         ...form,
         valorEstimado: form.valorEstimado ? Number(form.valorEstimado) : null,
-        indicadorId: form.indicadorId || null,
+        ...separarOrigem(form.indicadorId),
       }),
     });
     if (res.ok) {
       const nova = await res.json();
-      const indicador = clientes.find((c) => c.id === form.indicadorId);
+      const origem = separarOrigem(form.indicadorId);
+      const indicador = clientes.find((c) => c.id === origem.indicadorId);
+      const parceiroEscolhido = parceiros.find((p) => p.id === origem.parceiroId);
       setIndicacoes([
         {
           ...nova,
           criadoEm: nova.criadoEm,
+          parceiro: parceiroEscolhido ?? null,
           indicador: indicador
             ? { id: indicador.id, nome: indicador.nome, classificacao: indicador.classificacao }
             : null,
@@ -174,11 +209,22 @@ export function IndicacoesBoard({
               className="px-3 py-2 rounded-lg border bg-background text-sm"
             >
               <option value="">Quem indicou (opcional)...</option>
-              {clientes.map((c) => (
-                <option key={c.id} value={c.id}>
-                  [{c.classificacao}] {getNomeRelacionamento(c)}
-                </option>
-              ))}
+              {parceiros.length > 0 && (
+                <optgroup label="Parceiros">
+                  {parceiros.map((p) => (
+                    <option key={p.id} value={`parceiro:${p.id}`}>
+                      {p.nome}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              <optgroup label="Clientes">
+                {clientes.map((c) => (
+                  <option key={c.id} value={`cliente:${c.id}`}>
+                    [{c.classificacao}] {getNomeRelacionamento(c)}
+                  </option>
+                ))}
+              </optgroup>
             </select>
             <input
               type="text"
@@ -257,6 +303,20 @@ export function IndicacoesBoard({
                         <Trash2 className="h-3 w-3" />
                       </button>
                     </div>
+                    {i.parceiro && (
+                      <p className="text-xs text-muted-foreground">
+                        Por:{" "}
+                        <a
+                          href={`/time/parceiros/${i.parceiro.id}`}
+                          className="font-medium underline-offset-4 hover:underline"
+                        >
+                          {i.parceiro.nome}
+                        </a>{" "}
+                        <span className="rounded border px-1 py-0.5 text-[10px] uppercase tracking-wide">
+                          parceiro
+                        </span>
+                      </p>
+                    )}
                     {i.indicador && (
                       <p className="text-muted-foreground mb-1">
                         Por: <span className="font-medium">{i.indicador.nome}</span> [{i.indicador.classificacao}]
