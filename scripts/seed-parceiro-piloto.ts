@@ -47,7 +47,7 @@
  * `numeroConta` — inventar um cliente para o piloto testaria o script, não a
  * modelagem.
  *
- * Não inventa o acordo. `--acordo <produto>:<percentual>` é OBRIGATÓRIO e não
+ * Não inventa o acordo. `--acordo <idDoNo>:<percentual>` é OBRIGATÓRIO e não
  * tem default: o acordo comercial é decisão do Eduardo, e um default embutido
  * viraria número gravado em produção que ninguém escolheu. Vale para a DATA
  * também — `--data-inicio` sem valor cai em `now()`, e vigência retroativa
@@ -89,9 +89,7 @@ import { PrismaClient, Prisma } from "../src/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import {
   normalizarTipoParceiro,
-  normalizarTipoProduto,
   ehTipoParceiroConhecido,
-  ehTipoProdutoConhecido,
 } from "../src/lib/parceiros/vocabulario";
 
 // Import relativo e adapter explícito seguem o padrão dos scripts existentes
@@ -221,29 +219,27 @@ async function main() {
   }
   if (pares.length === 0) {
     throw new Error(
-      "Falta --acordo <produto>:<percentual> (repetível). Não há default: o acordo é decisão de negócio.",
+      "Falta --acordo <idDoNo>:<percentual> (repetível). Não há default: o acordo é decisão de negócio.",
     );
   }
 
-  const acordos: { produto: string; bruto: string; percentual: Prisma.Decimal }[] = [];
+  const acordos: { empresaId: string; bruto: string; percentual: Prisma.Decimal }[] = [];
   for (const par of pares) {
     // `lastIndexOf` e não `split`: um produto com dois-pontos no nome quebraria
     // o split, e o percentual é sempre o pedaço DEPOIS do último separador.
     const corte = par.lastIndexOf(":");
     if (corte <= 0 || corte === par.length - 1) {
-      throw new Error(`--acordo inválido: ${JSON.stringify(par)}. Formato: <produto>:<percentual>.`);
+      throw new Error(`--acordo inválido: ${JSON.stringify(par)}. Formato: <idDoNo>:<percentual>.`);
     }
-    const brutoProduto = par.slice(0, corte);
+    const brutoNo = par.slice(0, corte).trim();
     const brutoPercentual = par.slice(corte + 1);
 
-    const produto = normalizarTipoProduto(brutoProduto);
-    if (!produto) throw new Error(`--acordo com produto inválido: ${JSON.stringify(brutoProduto)}`);
-
-    // Depois de normalizar, e não antes: "Seguro Risco" e "seguro_risco" são o
-    // mesmo produto, e as duas linhas colidiriam no índice parcial único da
-    // #318 — no meio da transação, com erro de constraint em vez de mensagem.
-    if (acordos.some((a) => a.produto === produto)) {
-      throw new Error(`--acordo repetido para "${produto}" (de ${JSON.stringify(brutoProduto)}).`);
+    // O destino agora é o ID DO NÓ da hierarquia (`Empresa.id`, que é slug:
+    // "corretora", "imobiliaria"…). Não há normalização a fazer — ou o nó
+    // existe, ou não existe, e quem responde isso é o banco logo abaixo.
+    if (!brutoNo) throw new Error(`--acordo com nó inválido: ${JSON.stringify(par)}`);
+    if (acordos.some((a) => a.empresaId === brutoNo)) {
+      throw new Error(`--acordo repetido para o nó "${brutoNo}".`);
     }
 
     // Decimal e não Number: o percentual é DECIMAL(7,4) no banco, e converter
@@ -259,7 +255,7 @@ async function main() {
       // o que fazer em vez de um erro de constraint.
       throw new Error(`--acordo com percentual fora de 0–100: ${percentual.toString()}`);
     }
-    acordos.push({ produto, bruto: brutoProduto, percentual });
+    acordos.push({ empresaId: brutoNo, bruto: brutoNo, percentual });
   }
 
   // ── Início da vigência ─────────────────────────────────────────────────
@@ -284,10 +280,18 @@ async function main() {
   ok(`vigência desde: ${dataInicio ? dataInicio.toISOString() : "agora (now())"}`);
   ok(`contas: ${CONTAS.length} — ${CONTAS.join(", ")}`);
   ok(`acordos: ${acordos.length}`);
-  for (const a of acordos) ok(`   ${a.bruto} → ${a.produto} · ${a.percentual.toString()}%`);
+  for (const a of acordos) ok(`   nó ${a.empresaId} · ${a.percentual.toString()}%`);
   if (!ehTipoParceiroConhecido(tipo)) aviso(`tipo "${tipo}" fora da lista de referência (permitido)`);
-  for (const a of acordos) {
-    if (!ehTipoProdutoConhecido(a.produto)) aviso(`produto "${a.produto}" fora da lista de referência (permitido)`);
+  // O nó tem de existir: FK barraria de qualquer jeito, e falhar aqui devolve
+  // a lista do que existe em vez de um erro de constraint.
+  const nosConhecidos = await prisma.empresa.findMany({ select: { id: true, nome: true } });
+  const porId = new Map(nosConhecidos.map((n) => [n.id, n.nome]));
+  const inexistentes = acordos.filter((a) => !porId.has(a.empresaId));
+  if (inexistentes.length > 0) {
+    throw new Error(
+      `Nó(s) inexistente(s): ${inexistentes.map((a) => a.empresaId).join(", ")}. ` +
+        `Existem: ${nosConhecidos.map((n) => n.id).join(", ")}.`,
+    );
   }
   if (dataInicio && dataInicio.getTime() > Date.now()) {
     aviso("data-inicio no FUTURO: a linha nasce com dataFim null e já conta como vigente hoje.");
@@ -440,23 +444,23 @@ async function main() {
   for (const a of acordos) {
     const vigente = parceiroExistente
       ? await prisma.acordoComercialParceiro.findFirst({
-          where: { parceiroId: parceiroExistente.id, tipoProduto: a.produto, dataFim: null },
+          where: { parceiroId: parceiroExistente.id, empresaId: a.empresaId, dataFim: null },
           select: { percentual: true },
         })
       : null;
     if (!vigente) {
       acordosACriar.push(a);
-      ok(`${a.produto} — ${a.percentual.toString()}% · seria criado`);
+      ok(`${porId.get(a.empresaId)} — ${a.percentual.toString()}% · seria criado`);
     } else if (vigente.percentual.equals(a.percentual)) {
-      ok(`${a.produto} — ${a.percentual.toString()}% · já vigente, nada a fazer`);
+      ok(`${porId.get(a.empresaId)} — ${a.percentual.toString()}% · já vigente, nada a fazer`);
     } else {
       // Alterar percentual é fechar-e-abrir (regra (b) da #318): reescrever no
       // lugar mudaria o passado, e o fechamento de um mês já encerrado passaria
       // a usar um número que não valia lá.
       acordosEmConflito.push(
-        `${a.produto}: vigente ${vigente.percentual.toString()}%, pedido ${a.percentual.toString()}%`,
+        `${porId.get(a.empresaId)}: vigente ${vigente.percentual.toString()}%, pedido ${a.percentual.toString()}%`,
       );
-      erro(`${a.produto} — vigente ${vigente.percentual.toString()}%, pedido ${a.percentual.toString()}%`);
+      erro(`${porId.get(a.empresaId)} — vigente ${vigente.percentual.toString()}%, pedido ${a.percentual.toString()}%`);
     }
   }
 
@@ -500,7 +504,7 @@ async function main() {
   plano(
     `CRIAR ${acordosACriar.length} acordo(s)` +
       (acordosACriar.length
-        ? ": " + acordosACriar.map((a) => `${a.produto} ${a.percentual.toString()}%`).join(", ")
+        ? ": " + acordosACriar.map((a) => `${porId.get(a.empresaId)} ${a.percentual.toString()}%`).join(", ")
         : ""),
   );
   plano(`VINCULAR ${aVincular.length} cliente(s)${aVincular.length ? ": " + aVincular.map((s) => s.conta).join(", ") : ""}`);
@@ -561,24 +565,24 @@ async function main() {
     // erro de constraint em vez de mensagem.
     for (const a of acordosACriar) {
       const jaVigente = await tx.acordoComercialParceiro.findFirst({
-        where: { parceiroId: parceiro.id, tipoProduto: a.produto, dataFim: null },
+        where: { parceiroId: parceiro.id, empresaId: a.empresaId, dataFim: null },
         select: { id: true },
       });
       if (jaVigente) {
-        ok(`Acordo em ${a.produto} já vigente — nada a fazer`);
+        ok(`Acordo em ${porId.get(a.empresaId)} já vigente — nada a fazer`);
         continue;
       }
       const novo = await tx.acordoComercialParceiro.create({
         data: {
           parceiroId: parceiro.id,
-          tipoProduto: a.produto,
+          empresaId: a.empresaId,
           percentual: a.percentual,
           dataInicio: inicio,
           criadoPor: "seed-parceiro-piloto",
         },
         select: { id: true },
       });
-      ok(`Acordo ${novo.id} — ${a.percentual.toString()}% em ${a.produto}`);
+      ok(`Acordo ${novo.id} — ${a.percentual.toString()}% em ${porId.get(a.empresaId)}`);
     }
 
     for (const s of aVincular) {
@@ -605,7 +609,10 @@ async function main() {
       nome: true,
       tipo: true,
       clienteBackoffice: { select: { nome: true, numeroConta: true, saldo: true } },
-      acordos: { where: { dataFim: null }, select: { tipoProduto: true, percentual: true } },
+      acordos: {
+        where: { dataFim: null },
+        select: { percentual: true, empresa: { select: { nome: true } } },
+      },
       clientes: {
         where: { dataFim: null },
         select: { cliente: { select: { nome: true, saldo: true } } },
@@ -622,7 +629,7 @@ async function main() {
         ` · PL próprio ${parceiro.clienteBackoffice.saldo.toLocaleString("pt-BR")}`,
     );
   }
-  for (const a of parceiro.acordos) ok(`  acordo vigente: ${a.percentual.toString()}% em ${a.tipoProduto}`);
+  for (const a of parceiro.acordos) ok(`  acordo vigente: ${a.percentual.toString()}% em ${a.empresa.nome}`);
   const aum = parceiro.clientes.reduce((s, c) => s + c.cliente.saldo, 0);
   ok(`  clientes vigentes: ${parceiro.clientes.length} · AUM ${aum.toLocaleString("pt-BR")}`);
   for (const c of parceiro.clientes) ok(`    ${c.cliente.nome} · ${c.cliente.saldo.toLocaleString("pt-BR")}`);

@@ -14,8 +14,6 @@ import { ConfirmarAcao } from "./confirmar-acao";
 
 type Acordo = {
   id: string;
-  /** Caminho antigo — linha gravada antes da troca por nó da hierarquia. */
-  tipoProduto: string | null;
   empresa: { id: string; nome: string; tipo: string; parentId: string | null } | null;
   incluiDescendentes: boolean;
   percentual: { toString(): string };
@@ -23,29 +21,10 @@ type Acordo = {
   dataFim: Date | null;
 };
 
-const NOME_PRODUTO: Record<string, string> = {
-  assessoria: "Assessoria",
-  seguro_resgatavel: "Seguro resgatável",
-  seguro_risco: "Seguro de risco",
-  previdencia: "Previdência",
-  consorcio: "Consórcio",
-  imobiliaria: "Imobiliária",
-};
-
-function nomeProduto(chave: string): string {
-  return NOME_PRODUTO[chave] ?? chave.replace(/_/g, " ");
-}
-
-/**
- * Como o acordo se chama na tela. Linha nova tem nó; linha antiga só tem o
- * texto de produto, e continua legível até a migração do dado.
- */
+/** Como o acordo se chama na tela: o nome do nó da hierarquia. */
 function rotuloAcordo(a: Acordo): string {
-  if (a.empresa) return a.empresa.nome;
-  if (a.tipoProduto) return nomeProduto(a.tipoProduto);
-  return "Sem destino definido";
+  return a.empresa?.nome ?? "Sem destino definido";
 }
-
 
 function dataBr(d: Date): string {
   return d.toLocaleDateString("pt-BR", { timeZone: "UTC" });
@@ -114,11 +93,6 @@ export function AcordosSection({
                     {a.incluiDescendentes && (
                       <span className="rounded border border-[var(--parceiro-borda)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-foreground">
                         + o que está abaixo
-                      </span>
-                    )}
-                    {!a.empresa && a.tipoProduto && (
-                      <span className="rounded border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-                        cadastro antigo
                       </span>
                     )}
                     {zero && (

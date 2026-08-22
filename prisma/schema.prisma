@@ -1559,7 +1559,7 @@ model ParceiroCliente {
 //      `regrasEspeciais` em texto livre. O acordo de parceiro precisa de
 //      número por produto: forma diferente, não coluna nullable a mais.
 //   3. A cardinalidade diverge. Pessoa tem UM acordo vigente; parceiro tem um
-//      vigente POR tipoProduto, vários ao mesmo tempo. Compartilhar a tabela
+//      vigente POR NÓ da hierarquia, vários ao mesmo tempo. Compartilhar a tabela
 //      mudaria o sentido do invariante existente.
 //   4. `atualizarAcordo` (acordo-comercial.ts:147) faz UPDATE no lugar — o que
 //      viola frontalmente a regra abaixo de que alterar percentual FECHA e
@@ -1590,7 +1590,7 @@ model ParceiroCliente {
 //       - vigente na DATA $X -> "dataInicio" <= $X AND ("dataFim" IS NULL OR "dataFim" > $X)
 //
 // (c) PERCENTUAL VARIA POR TIPO DE PRODUTO (seguro resgatável ≠ assessoria).
-//     Por isso a unicidade do vigente é por (parceiroId, tipoProduto) e não
+//     Por isso a unicidade do vigente é por (parceiroId, empresaId) e não
 //     por parceiro — um parceiro tem vários acordos abertos ao mesmo tempo.
 //
 // NESTA PR a tabela nasce VAZIA e NADA a lê. Sem backfill, sem UI, sem rota.
@@ -1603,17 +1603,6 @@ model AcordoComercialParceiro {
   /// "seguro_resgatavel" | "assessoria" | … TEXTO LIVRE por ora, mesmo
   /// critério de `Parceiro.tipo`: a lista de produtos ainda muda, e um enum
   /// obrigaria migration a cada produto novo. Vira enum quando parar de mudar.
-  /// ⚠️ EM MIGRAÇÃO para `empresaId` — ver o campo abaixo. Continua aqui, e
-  /// agora NULLABLE, porque a troca é em duas PRs: esta acrescenta o caminho
-  /// novo, e uma futura remove a coluna. Linha antiga mantém o texto; linha
-  /// nova nasce com `empresaId` e este campo em NULL.
-  ///
-  /// NÃO confundir com `ContratoCorretora.tipoProduto`: aquele é o produto
-  /// VENDIDO pela corretora, tem catálogo próprio em
-  /// `src/lib/corretora/catalogo-produtos.ts` e alimenta a importação. Nome
-  /// igual, coisa diferente, e ele não é tocado.
-  tipoProduto String?
-
   /// O NÓ da hierarquia Onix Co sobre o qual o acordo incide — "Onix
   /// Corretora", "Planejamento Patrimonial", "Onix Imobiliária".
   ///
@@ -1628,10 +1617,10 @@ model AcordoComercialParceiro {
   /// acordo é o registro de quanto se paga a alguém; sumir junto com o nó
   /// apagaria a razão de um pagamento passado.
   ///
-  /// Nullable NESTA PR por convivência com `tipoProduto`. Vira obrigatório
-  /// quando a coluna antiga sair.
-  empresaId String?
-  empresa   Empresa? @relation("AcordoParceiroEmpresa", fields: [empresaId], references: [id], onDelete: Restrict)
+  /// OBRIGATÓRIO desde a remoção de `tipoProduto`: acordo sem destino não é
+  /// acordo, é linha órfã que nenhum fechamento sabe onde aplicar.
+  empresaId String
+  empresa   Empresa @relation("AcordoParceiroEmpresa", fields: [empresaId], references: [id], onDelete: Restrict)
 
   /// O acordo deste nó vale também para os nós ABAIXO dele?
   ///
@@ -1684,13 +1673,14 @@ model AcordoComercialParceiro {
   /// AcordoComercial([pessoaId, dataInicio] / [pessoaId, dataFim]).
   @@index([parceiroId, dataInicio])
   @@index([parceiroId, dataFim])
-  /// "Quem tem acordo neste produto?" — a leitura que a régua de comissão faz
-  /// ao fechar um tipo de produto inteiro.
-  @@index([tipoProduto])
-  /// O mesmo, pelo caminho novo: "quem tem acordo NESTE nó?". Declarado aqui e
-  /// não só na migration — índice que existe no banco e não no schema é drift,
-  /// e a próxima `migrate dev` de qualquer sessão o emitiria como DROP INDEX.
-  /// É a mesma armadilha do índice FTS que `scripts/guarda-drift-fts.sh` tranca.
+  /// "Quem tem acordo NESTE nó?" — a leitura que a régua de comissão faz ao
+  /// fechar uma parte da casa inteira. Herdou o papel do antigo
+  /// `@@index([tipoProduto])`, que sai junto com a coluna nesta PR.
+  ///
+  /// Declarado aqui e não só na migration: índice que existe no banco e não no
+  /// schema é drift, e a próxima `migrate dev` de qualquer sessão o emitiria
+  /// como DROP INDEX. Mesma armadilha do índice FTS que
+  /// `scripts/guarda-drift-fts.sh` tranca.
   @@index([empresaId])
 }
 

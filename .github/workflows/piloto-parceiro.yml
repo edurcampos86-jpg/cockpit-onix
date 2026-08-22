@@ -39,9 +39,9 @@ on:
         required: true
         default: 'socio'
       acordos:
-        description: 'produto:percentual, separados por vírgula. 0% É acordo — registra o produto decidido como fora'
+        description: 'no:percentual, separados por vírgula. O nó é o id da hierarquia (corretora, investimentos, imobiliaria…). 0% É acordo — registra o nó decidido como fora'
         required: true
-        default: 'assessoria:20,seguro_resgatavel:20,seguro_risco:20,previdencia:20,consorcio:20,imobiliaria:0'
+        default: 'corretora:20,investimentos:20,imobiliaria:0'
       data_inicio:
         description: 'Início da vigência, AAAA-MM-DD. Vazio = agora'
         required: false

@@ -109,7 +109,6 @@ export async function obterParceiro(id: string) {
         ],
         select: {
           id: true,
-          tipoProduto: true,
           percentual: true,
           dataInicio: true,
           dataFim: true,
