@@ -682,6 +682,29 @@ Aquele é da `Pessoa` do time, tem `pessoaId` NOT NULL, **não tem campo de
 percentual**, e `atualizarAcordo` faz `UPDATE` no lugar — o que violaria a regra
 de que alterar percentual FECHA e ABRE.
 
+🔴 **BACKLOG — RISCO DE PAGAMENTO DUPLO.** Com `Parceiro.pessoaId` (ponte com o
+cadastro do Time), o mesmo humano pode ter **`AcordoComercial`** (o do time:
+`pro_labore`, `split`, `comissao`) e **`AcordoComercialParceiro`** vigentes ao
+mesmo tempo. **As duas tabelas não se enxergam** — não há FK, índice, CHECK nem
+leitura que cruze as duas.
+
+O caso já está na mesa: o Renan é sócio da Onix Imobiliária *e* parceiro
+comercial. Hoje a única defesa contra pagar duas vezes pelo mesmo negócio é
+**gravar 0% no nó onde ele já é remunerado** — o que é **convenção, não trava**.
+Ninguém é impedido de gravar 20% ali, e o erro só apareceria no fechamento, como
+comissão dobrada.
+
+O que ainda não existe, e é o que a guarda precisaria decidir:
+
+- a regra vale por PESSOA ou por NÓ da hierarquia? (o sócio da Imobiliária pode
+  legitimamente receber como parceiro em Investimentos)
+- a guarda AVISA na tela ou BLOQUEIA a escrita?
+- quem arbitra quando os dois acordos existem: o do time ou o de parceiro?
+
+**Não implementar por conta própria**: a resposta é do Financeiro, e depende da
+mesma decisão que falta para a base do percentual ("20% de quê"). Registrado
+aqui para não virar descoberta de fechamento.
+
 **Piloto: `scripts/seed-parceiro-piloto.ts` (#330, #360, #362).** Dry-run por
 padrão; escreve só com `--aplicar`, em UMA transação, tudo-ou-nada. Existe para
 provar que a modelagem serve ao caso real antes de haver UI. **Não contém
