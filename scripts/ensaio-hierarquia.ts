@@ -199,7 +199,7 @@ async function main(): Promise<void> {
   );
 
   const planoParcial = planejarSeedFilhas(await prisma.empresa.findMany({
-    select: { id: true, nome: true, tipo: true, transversal: true, parentId: true },
+    select: { id: true, nome: true, tipo: true, transversal: true, consolida: true, parentId: true },
   }));
   conferir(
     [...planoParcial.criar.map((e) => e.id)].sort().join(",") === [...apagadas].sort().join(","),
@@ -230,7 +230,7 @@ async function main(): Promise<void> {
   console.log("\n4. seed-filhas repetido (idempotência)");
   for (let volta = 1; volta <= 10; volta++) {
     const plano = planejarSeedFilhas(
-      await prisma.empresa.findMany({ select: { id: true, nome: true, tipo: true, transversal: true, parentId: true } }),
+      await prisma.empresa.findMany({ select: { id: true, nome: true, tipo: true, transversal: true, consolida: true, parentId: true } }),
     );
     const r = await semearFilhas(prisma, plano);
     if (r.inseridas !== 0 || r.totalDepois !== ESPERADO_TOTAL) {
@@ -255,7 +255,7 @@ async function main(): Promise<void> {
   await prisma.empresa.update({ where: { id: "tech" }, data: { parentId: null } });
 
   const planoDivergente = planejarSeedFilhas(
-    await prisma.empresa.findMany({ select: { id: true, nome: true, tipo: true, transversal: true, parentId: true } }),
+    await prisma.empresa.findMany({ select: { id: true, nome: true, tipo: true, transversal: true, consolida: true, parentId: true } }),
   );
   conferir(
     planoDivergente.divergencias.length === 1 && planoDivergente.divergencias[0].id === "tech",

@@ -24,7 +24,7 @@ import type { EmpresaSemente, NoArvore } from "./seed-hierarquia";
 
 export type Divergencia = {
   id: string;
-  campo: "nome" | "parentId" | "tipo" | "transversal";
+  campo: "nome" | "parentId" | "tipo" | "transversal" | "consolida";
   noBanco: string;
   noCatalogo: string;
 };
@@ -62,6 +62,7 @@ function comparar(no: NoArvore, semente: EmpresaSemente): Divergencia[] {
   par("parentId", no.parentId, semente.parentId);
   par("tipo", no.tipo, semente.tipo);
   par("transversal", no.transversal, semente.transversal);
+  par("consolida", no.consolida, semente.consolida);
   return out;
 }
 
