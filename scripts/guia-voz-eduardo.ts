@@ -27,6 +27,7 @@ import {
   type Turno,
 } from "../src/lib/voz/turnos";
 import { anonimizar, auditarVazamento } from "../src/lib/voz/anonimizar";
+import { reuniaoEhDaPessoa } from "../src/lib/reunioes/escopo-reuniao";
 import {
   calcularRitmo,
   extrairAnalogias,
@@ -42,6 +43,10 @@ import {
 
 const MODELO = process.env.CLAUDE_MODEL_VOZ ?? "claude-opus-5";
 const VENDEDOR = "Eduardo Campos";
+/** Como o `Meeting.vendedor` pode se referir a ele. Mesma ideia dos
+ *  `nomesDaPessoa` de `escopo-reuniao-sessao.ts`: o cadastro traz o nome
+ *  completo, o campo traz o canônico, e igualdade exata falharia entre os dois. */
+const NOMES_EDUARDO = ["Eduardo Campos", "Eduardo Rodrigues Campos"];
 const LIMITE_LOTE = 80; // acima disso, processa por trimestre
 const MAX_CHARS_POR_LOTE = 120_000;
 
@@ -66,6 +71,25 @@ interface ReuniaoCrua {
 /** Sem `vendedor` preenchido, só entra se a transcrição mostrar que é ele. */
 const ASSINA_EDUARDO = /(^|\n)\s*(eduardo[\w .'-]*)\s*:/i;
 
+/**
+ * Contagem do acervo, antes de qualquer filtro de conteúdo.
+ *
+ * Serve para responder, sem abrir o guia: quanto existe, quanto é dele, como se
+ * distribui no tempo, e quanto está órfão. O último número não é curiosidade —
+ * `Meeting.vendedor` é a ÚNICA titularidade que o registro carrega (ver
+ * `src/lib/reunioes/escopo-reuniao.ts`), então reunião sem vendedor é reunião
+ * que ninguém com escopo restrito consegue ler. Órfã aqui = invisível lá.
+ */
+export interface Censo {
+  transcricoes: { meeting: number; reuniaoEstruturada: number; total: number };
+  doEduardo: { porTitular: number; porAssinaturaNaTranscricao: number; total: number };
+  porTrimestre: Array<{ trimestre: string; reunioes: number }>;
+  semTitular: { total: number; comAssinaturaDele: number };
+}
+
+let censo: Censo | null = null;
+export const censoColetado = () => censo;
+
 async function coletar(desde?: Date): Promise<ReuniaoCrua[]> {
   const meetings = await prisma.meeting.findMany({
     where: {
@@ -79,11 +103,20 @@ async function coletar(desde?: Date): Promise<ReuniaoCrua[]> {
     orderBy: { date: "asc" },
   });
 
-  const doEduardo = meetings.filter((m) => {
-    if (m.vendedor === VENDEDOR) return true;
-    if (m.vendedor) return false; // atribuída a outra pessoa do time
-    return ASSINA_EDUARDO.test(m.transcription ?? "");
-  });
+  // A régua de titularidade é a MESMA que a rota /api/meetings usa desde o #363
+  // — `reuniaoEhDaPessoa`, contenção de tokens. Reimplementar com `===` aqui
+  // criaria uma segunda definição de "reunião do Eduardo", e a que divergir
+  // primeiro é sempre a que ninguém olha.
+  const comTitular = meetings.filter((m) => reuniaoEhDaPessoa(m.vendedor, NOMES_EDUARDO));
+
+  // Sem vendedor declarado o #363 não libera para quem tem escopo restrito, e
+  // com razão. Aqui o extrator roda como o próprio Eduardo sobre a voz dele, e
+  // exige evidência no texto: o nome dele como rótulo de falante. Entram, mas
+  // contadas à parte — dentro da reunião, `atribuirEduardo` ainda só aceita
+  // turno rotulado com o nome dele.
+  const orfas = meetings.filter((m) => !m.vendedor?.trim());
+  const orfasAssinadas = orfas.filter((m) => ASSINA_EDUARDO.test(m.transcription ?? ""));
+  const doEduardo = [...comTitular, ...orfasAssinadas];
 
   const estruturadas = await prisma.reuniaoEstruturada.findMany({
     where: {
@@ -121,7 +154,32 @@ async function coletar(desde?: Date): Promise<ReuniaoCrua[]> {
     });
   }
 
-  return out.sort((a, b) => a.data.getTime() - b.data.getTime());
+  const ordenadas = out.sort((a, b) => a.data.getTime() - b.data.getTime());
+
+  const trimestres = new Map<string, number>();
+  for (const r of ordenadas) {
+    const k = trimestre(r.data);
+    trimestres.set(k, (trimestres.get(k) ?? 0) + 1);
+  }
+
+  censo = {
+    transcricoes: {
+      meeting: meetings.length,
+      reuniaoEstruturada: estruturadas.length,
+      total: meetings.length + estruturadas.length,
+    },
+    doEduardo: {
+      porTitular: comTitular.length,
+      porAssinaturaNaTranscricao: ordenadas.length - comTitular.length,
+      total: ordenadas.length,
+    },
+    porTrimestre: [...trimestres.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([trimestre, reunioes]) => ({ trimestre, reunioes })),
+    semTitular: { total: orfas.length, comAssinaturaDele: orfasAssinadas.length },
+  };
+
+  return ordenadas;
 }
 
 /** Denylist a partir do banco: é a defesa forte da anonimização. */
@@ -446,12 +504,34 @@ async function gravar(destino: string, markdown: string, denylist: string[]) {
 
 // ── Main ────────────────────────────────────────────────────────────────────
 
+/** Os quatro números do acervo. Nenhum dado de cliente sai daqui — só contagens. */
+function imprimirCenso(desde?: Date) {
+  if (!censo) return;
+  const c = censo;
+  const janela = desde ? ` (desde ${desde.toISOString().slice(0, 10)})` : "";
+  console.log(`
+══ Censo do acervo${janela} ══
+1. Transcrições no banco ......... ${c.transcricoes.total}
+     Meeting ..................... ${c.transcricoes.meeting}
+     ReuniaoEstruturada .......... ${c.transcricoes.reuniaoEstruturada}
+2. Conduzidas por ${VENDEDOR} ... ${c.doEduardo.total}
+     com titular no campo vendedor ${c.doEduardo.porTitular}
+     só por assinatura no texto .. ${c.doEduardo.porAssinaturaNaTranscricao}
+3. Distribuição por trimestre:${
+    c.porTrimestre.length
+      ? "\n" + c.porTrimestre.map((t) => `     ${t.trimestre} ${"█".repeat(Math.min(40, t.reunioes))} ${t.reunioes}`).join("\n")
+      : " (nenhuma)"
+  }
+4. Sem titular identificado ...... ${c.semTitular.total}
+     destas, com o nome dele no texto ${c.semTitular.comAssinaturaDele}`);
+}
+
 async function main() {
   const desde = ESPELHO ? new Date(Date.now() - 30 * 86_400_000) : undefined;
   const [reunioes, denylist] = await Promise.all([coletar(desde), montarDenylist()]);
 
-  console.log(`Reuniões do Eduardo: ${reunioes.length}${desde ? " (últimos 30 dias)" : ""}`);
-  console.log(`Denylist de nomes vinda do banco: ${denylist.length}`);
+  imprimirCenso(desde);
+  console.log(`Denylist de nomes vinda do banco: ${denylist.length} (nunca impressa)`);
   if (!reunioes.length) {
     console.error("Nenhuma reunião encontrada. Nada a fazer.");
     process.exitCode = 1;

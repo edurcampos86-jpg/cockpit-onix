@@ -13,6 +13,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { reuniaoEhDaPessoa } from "../reunioes/escopo-reuniao";
 
 const SCRIPT = path.join(process.cwd(), "scripts", "guia-voz-eduardo.ts");
 
@@ -72,4 +73,53 @@ test("toda anonimização passa pelo módulo — o script não redige na mão", 
   const iAuditoria = fonte.indexOf("auditarVazamento");
   const iWrite = fonte.indexOf("await writeFile(destino");
   assert.ok(iAuditoria > 0 && iWrite > iAuditoria, "writeFile do guia antes da auditoria");
+});
+
+/**
+ * O extrator não pode ter a PRÓPRIA definição de "reunião do Eduardo".
+ *
+ * Desde o #363 a régua de titularidade de `Meeting` mora em
+ * `src/lib/reunioes/escopo-reuniao.ts` e é a que a rota /api/meetings aplica.
+ * Se o extrator voltar a comparar `vendedor` com `===`, passa a existir uma
+ * segunda definição — e a que divergir primeiro é a que ninguém olha.
+ *
+ * O script chama `main()` no topo do módulo, então importá-lo aqui abriria
+ * conexão com o banco. Por isso a inspeção é do FONTE, como nas guardas acima.
+ */
+test("a titularidade da reunião vem do gate canônico, não de `===`", () => {
+  const fonte = readFileSync(SCRIPT, "utf8");
+
+  assert.match(
+    fonte,
+    /import \{ reuniaoEhDaPessoa \} from "\.\.\/src\/lib\/reunioes\/escopo-reuniao"/,
+    "o extrator deve reusar reuniaoEhDaPessoa",
+  );
+  assert.ok(
+    !/m\.vendedor\s*===/.test(fonte),
+    "comparação direta de `vendedor` com === reintroduz a régua duplicada",
+  );
+
+  // A lista de nomes declarada no script tem de casar com o gate de verdade.
+  const bloco = fonte.match(/const NOMES_EDUARDO = \[([^\]]+)\]/);
+  assert.ok(bloco, "NOMES_EDUARDO não encontrado no extrator");
+  const nomes = [...bloco![1]!.matchAll(/"([^"]+)"/g)].map((m) => m[1]!);
+  assert.ok(nomes.length >= 1);
+
+  assert.equal(reuniaoEhDaPessoa("Eduardo Campos", nomes), true);
+  for (const outro of ["Thiago Vergal", "Rose Oliveira", "Adriely", ""]) {
+    assert.equal(
+      reuniaoEhDaPessoa(outro, nomes),
+      false,
+      `${outro || "(vazio)"} não pode contar como reunião do Eduardo`,
+    );
+  }
+});
+
+test("reunião órfã entra contada à parte, nunca somada ao titular", () => {
+  const fonte = readFileSync(SCRIPT, "utf8");
+  // Sem vendedor, o #363 não libera para escopo restrito. O extrator só admite
+  // com evidência no texto — e precisa reportar quantas foram.
+  assert.match(fonte, /const orfas = meetings\.filter/);
+  assert.match(fonte, /ASSINA_EDUARDO\.test/);
+  assert.match(fonte, /semTitular:\s*\{\s*total:/);
 });
