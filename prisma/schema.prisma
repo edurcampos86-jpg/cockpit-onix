@@ -1377,6 +1377,27 @@ model Parceiro {
   clienteBackofficeId String?            @unique
   clienteBackoffice   ClienteBackoffice? @relation("ParceiroIdentidadeCliente", fields: [clienteBackofficeId], references: [id], onDelete: SetNull)
 
+  /// A PESSOA DO TIME que este parceiro é, quando ele também é do time.
+  ///
+  /// Gêmeo exato de `clienteBackofficeId` acima, e pelo mesmo motivo: parceiro
+  /// PODE ser do time e não precisa ser. O contador que indica clientes não
+  /// tem crachá; o sócio da Onix Imobiliária tem.
+  ///
+  /// @unique: uma pessoa do time representa no máximo um parceiro. Sem isso,
+  /// dois cadastros de parceiro poderiam reivindicar a mesma pessoa e nenhuma
+  /// leitura futura saberia qual vale — mesma razão do campo de cliente.
+  ///
+  /// onDelete: SetNull — arquivar a pessoa não pode apagar o parceiro. Ele
+  /// segue existindo como quem indica; só perde o elo com o cadastro do time.
+  ///
+  /// ⚠️ RISCO QUE ESTE CAMPO TORNA VISÍVEL, e não cria: com a pessoa ligada,
+  /// fica evidente que o mesmo humano pode ter `AcordoComercial` (o do time)
+  /// e `AcordoComercialParceiro` vigentes ao mesmo tempo. As duas tabelas não
+  /// se enxergam. Registrado em docs/onix-co-estado.md como pendência de
+  /// guarda — ver "RISCO DE PAGAMENTO DUPLO".
+  pessoaId String? @unique
+  pessoa   Pessoa? @relation("ParceiroPessoaTime", fields: [pessoaId], references: [id], onDelete: SetNull)
+
   /// NULL = sem contrato assinado. Será PRÉ-REQUISITO de ativação de acesso na
   /// Fase 3 — o parceiro só ganha login depois que isto tem data. Guardado
   /// como data (e não boolean) porque "desde quando" é a pergunta que aparece
@@ -2169,6 +2190,10 @@ model Pessoa {
   departamento   Departamento @relation(fields: [departamentoId], references: [id])
   equipeId       String?
   equipe         Equipe?      @relation(fields: [equipeId], references: [id])
+
+  /// Lado inverso de `Parceiro.pessoaId`. Null é o caso comum: a maioria do
+  /// time não é parceiro comercial.
+  parceiro Parceiro? @relation("ParceiroPessoaTime")
 
   // A quem se reporta (self-relation)
   lideradoPorId String?

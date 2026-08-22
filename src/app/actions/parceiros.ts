@@ -44,9 +44,30 @@ export type ResultadoAcao =
 export async function criarParceiro(formData: FormData): Promise<ResultadoAcao> {
   const ctx = await requireAdmin();
 
-  const nome = texto(formData.get("nome"));
+  const pessoaId = texto(formData.get("pessoaId"));
   const tipoBruto = texto(formData.get("tipo"));
   const contratoAssinadoEm = dataOuNula(formData.get("contratoAssinadoEm"));
+
+  // ── Herança: quando o parceiro é do time, o nome vem de lá ─────────────
+  //
+  // Não é conveniência de formulário, é o ponto do elo: digitar o nome de novo
+  // produz a segunda grafia do mesmo humano — uma na ficha do cliente, outra na
+  // do time. Com pessoa escolhida, o campo de nome nem é pedido na tela.
+  let nome = texto(formData.get("nome"));
+  if (pessoaId) {
+    const pessoa = await prisma.pessoa.findUnique({
+      where: { id: pessoaId },
+      select: { nomeCompleto: true, apelido: true, parceiro: { select: { nome: true } } },
+    });
+    if (!pessoa) return { ok: false, erro: "Pessoa do time não encontrada." };
+    if (pessoa.parceiro) {
+      return {
+        ok: false,
+        erro: `Essa pessoa já está ligada ao parceiro "${pessoa.parceiro.nome}". Uma pessoa do time representa um parceiro só.`,
+      };
+    }
+    nome = pessoa.apelido?.trim() || pessoa.nomeCompleto;
+  }
 
   if (nome.length < 2) {
     return { ok: false, erro: "Informe o nome do parceiro." };
@@ -81,6 +102,7 @@ export async function criarParceiro(formData: FormData): Promise<ResultadoAcao> 
       nome,
       tipo,
       contratoAssinadoEm,
+      pessoaId: pessoaId || null,
       criadoPor: ctx.userId,
     },
     select: { id: true },
@@ -340,4 +362,55 @@ export async function desvincularClienteForm(formData: FormData): Promise<void> 
   revalidatePath("/time/parceiros");
   if (clienteId) revalidatePath(`/empresas/investimentos/clientes/${clienteId}`);
   redirect(`/time/parceiros/${parceiroId}?vinculo=encerrado`);
+}
+
+
+/* ──────────────────────────────────────────────────────────────
+ * LIGAR / DESLIGAR a pessoa do time.
+ *
+ * Separado do cadastro porque a descoberta costuma vir depois: o parceiro é
+ * criado quando aparece a primeira indicação, e só semanas mais tarde alguém
+ * percebe que ele já tinha crachá.
+ * ────────────────────────────────────────────────────────────── */
+
+export async function ligarPessoaForm(formData: FormData): Promise<void> {
+  const ctx = await requireAdmin();
+  const parceiroId = texto(formData.get("parceiroId"));
+  const pessoaId = texto(formData.get("pessoaId"));
+  if (!parceiroId) return;
+
+  const volta = (chave: string, valor: string) =>
+    redirect(`/time/parceiros/${parceiroId}?${chave}=${encodeURIComponent(valor)}`);
+
+  // Desligar é o caso de pessoaId vazio — sem confirmação extra aqui porque a
+  // tela já pede a confirmação antes de chamar (ver ConfirmarAcao na ficha).
+  if (!pessoaId) {
+    await prisma.parceiro.updateMany({
+      where: { id: parceiroId },
+      data: { pessoaId: null, atualizadoPor: ctx.userId },
+    });
+    revalidatePath(`/time/parceiros/${parceiroId}`);
+    volta("pessoa", "desligada");
+    return;
+  }
+
+  const dona = await prisma.parceiro.findUnique({
+    where: { pessoaId },
+    select: { id: true, nome: true },
+  });
+  if (dona && dona.id !== parceiroId) {
+    volta(
+      "erroPessoa",
+      `Essa pessoa já está ligada ao parceiro "${dona.nome}". Desfaça lá antes de ligar aqui.`,
+    );
+  }
+
+  await prisma.parceiro.updateMany({
+    where: { id: parceiroId },
+    data: { pessoaId, atualizadoPor: ctx.userId },
+  });
+
+  revalidatePath(`/time/parceiros/${parceiroId}`);
+  revalidatePath("/time/parceiros");
+  volta("pessoa", "ligada");
 }
