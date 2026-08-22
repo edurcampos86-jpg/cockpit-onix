@@ -1,13 +1,107 @@
 "use client";
 
-import { useEffect, useState, useActionState } from "react";
+import { useEffect, useRef, useState, useActionState } from "react";
 import { usePathname } from "next/navigation";
-import { Lightbulb, X, HelpCircle, Cog, Target, CheckCircle2 } from "lucide-react";
+import Link from "next/link";
+import {
+  Lightbulb,
+  X,
+  HelpCircle,
+  Cog,
+  Target,
+  CheckCircle2,
+  Copy,
+  ArrowRight,
+} from "lucide-react";
 import { criarImplementacao, type CriarState } from "@/app/actions/implementacao";
 import { EMPRESAS_IMPLEMENTACOES } from "@/lib/empresas-config";
 import { AnexosInput } from "@/components/implementacoes/anexos-input";
 
 const initial: CriarState = { ok: false };
+
+/**
+ * Espera antes de perguntar ao servidor por ideias parecidas.
+ *
+ * 400 ms, e não os 600 do autosave da tela: aqui não se grava nada, então a
+ * conta é outra — o custo de disparar cedo demais é uma consulta a mais, não um
+ * dado errado no banco. E o aviso só serve se chegar enquanto a pessoa ainda
+ * está escrevendo a frase; depois que ela terminou, já não muda o que vai enviar.
+ */
+const DEBOUNCE_SIMILARES_MS = 400;
+
+type Similar = { id: string; oQue: string; status: string };
+
+/**
+ * Avisa que já existe ideia parecida na fila, enquanto a pessoa digita "O quê?".
+ *
+ * SÓ LEITURA e SEM TRAVA: mostra até 3 e sai da frente. O objetivo não é impedir
+ * o envio — é dar à pessoa a chance de abrir a que já existe e reforçar aquela em
+ * vez de abrir a quarta redação do mesmo pedido, que é o que acontece hoje porque
+ * ninguém rola uma fila de 300 linhas antes de sugerir.
+ */
+function DuplicatasProvaveis({
+  texto,
+  empresaId,
+}: {
+  texto: string;
+  empresaId: string;
+}) {
+  const [similares, setSimilares] = useState<Similar[]>([]);
+  const ultimaBusca = useRef(0);
+
+  const termo = texto.trim();
+  // Texto curto demais não é consultado NEM exibido. Derivado no render em vez
+  // de zerado por efeito: o estado não precisa acompanhar isto, a renderização
+  // já sabe responder a partir do próprio texto.
+  const curto = termo.length < 8;
+
+  useEffect(() => {
+    if (curto) return;
+
+    const t = setTimeout(async () => {
+      // Carimbo por disparo: respostas podem voltar fora de ordem, e uma
+      // resposta antiga sobrescrevendo a nova mostraria "parecidas" de uma frase
+      // que a pessoa já apagou.
+      const meu = ++ultimaBusca.current;
+      try {
+        const res = await fetch(
+          `/api/implementacoes/similares?q=${encodeURIComponent(termo)}` +
+            `&empresa=${encodeURIComponent(empresaId)}`,
+        );
+        if (!res.ok) return;
+        const d = await res.json();
+        if (meu === ultimaBusca.current) setSimilares(d.similares ?? []);
+      } catch {
+        // Silencioso de propósito: isto é um auxílio. Falhar a busca não pode
+        // virar mensagem de erro num formulário que está funcionando.
+      }
+    }, DEBOUNCE_SIMILARES_MS);
+
+    return () => clearTimeout(t);
+  }, [termo, curto, empresaId]);
+
+  if (curto || similares.length === 0) return null;
+
+  return (
+    <div className="rounded-lg border border-border bg-muted/40 px-3 py-2.5">
+      <p className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+        <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+        Já tem coisa parecida na fila
+      </p>
+      <ul className="mt-1.5 space-y-1">
+        {similares.map((s) => (
+          <li key={s.id} className="text-xs text-muted-foreground">
+            <span className="line-clamp-1">{s.oQue}</span>
+            <span className="text-[10px] uppercase tracking-wide">{s.status}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-1.5 text-[11px] text-muted-foreground">
+        Pode enviar assim mesmo — isto é só um aviso.
+      </p>
+    </div>
+  );
+}
 
 // Vocabulário do FAB sobre os mesmos valores do modelo (melhoria|erro|ideia).
 const TIPOS = [
@@ -25,13 +119,22 @@ function SugestaoForm({
   pathname,
   onDone,
   onPendingChange,
+  v2 = false,
 }: {
   pathname: string;
   onDone: () => void;
   onPendingChange: (pending: boolean) => void;
+  /** IMPLEMENTACOES_V2: liga duplicatas, link na confirmação e a microcópia nova. */
+  v2?: boolean;
 }) {
   const [state, formAction, pending] = useActionState(criarImplementacao, initial);
   const [outraPagina, setOutraPagina] = useState(false);
+  // Espelho do "O quê?" só para a busca de parecidas. O campo segue não
+  // controlado (o form manda pelo `name`), então isto não muda o envio em nada.
+  const [oQueTexto, setOQueTexto] = useState("");
+  // A empresa escolhida no seletor acima recorta a busca de parecidas — o
+  // endpoint não responde sem ela, de propósito.
+  const [empresaSel, setEmpresaSel] = useState(EMPRESAS_IMPLEMENTACOES[0].id);
 
   // Reporta o envio pro pai bloquear o fechamento enquanto a action roda — evita
   // desmontar o form em voo, perder a confirmação e o usuário reenviar (duplicata).
@@ -47,14 +150,29 @@ function SugestaoForm({
         </div>
         <p className="text-sm font-semibold text-foreground">Sugestão enviada!</p>
         <p className="mt-1 text-xs text-muted-foreground">
-          Obrigado — sua ideia entrou na triagem.
+          Obrigado — sua ideia entrou na fila.
         </p>
-        <button
-          onClick={onDone}
-          className="mt-4 inline-flex items-center rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
-        >
-          Fechar
-        </button>
+        <div className="mt-4 flex flex-col items-center gap-2">
+          <button
+            onClick={onDone}
+            className="inline-flex items-center rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
+          >
+            Fechar
+          </button>
+          {/* Só para quem consegue abrir a triagem — o servidor é que diz. Sem
+            * isto, a confirmação ofereceria a metade dos usuários um link que os
+            * joga num redirect. */}
+          {v2 && state.id && state.podeVerNaTriagem && (
+            <Link
+              href={`/configuracoes/implementacoes#impl-${state.id}`}
+              onClick={onDone}
+              className="inline-flex items-center gap-1 text-xs font-medium text-foreground/80 underline-offset-2 hover:underline"
+            >
+              Ver na fila
+              <ArrowRight className="h-3 w-3" aria-hidden="true" />
+            </Link>
+          )}
+        </div>
       </div>
     );
   }
@@ -68,6 +186,7 @@ function SugestaoForm({
         <select
           name="empresaId"
           defaultValue={EMPRESAS_IMPLEMENTACOES[0].id}
+          onChange={v2 ? (e) => setEmpresaSel(e.target.value) : undefined}
           className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
         >
           {EMPRESAS_IMPLEMENTACOES.map((e) => (
@@ -102,9 +221,15 @@ function SugestaoForm({
           name="oQue"
           required
           rows={2}
+          onChange={v2 ? (e) => setOQueTexto(e.target.value) : undefined}
           className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none"
           placeholder="O pedido concreto, em uma frase."
         />
+        {v2 && (
+          <div className="mt-2">
+            <DuplicatasProvaveis texto={oQueTexto} empresaId={empresaSel} />
+          </div>
+        )}
       </div>
 
       <div>
@@ -130,7 +255,11 @@ function SugestaoForm({
           required
           rows={2}
           className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none"
-          placeholder="O problema / a motivação por trás do pedido."
+          placeholder={
+            v2
+              ? "O que dói hoje, e o que muda se isso for feito."
+              : "O problema / a motivação por trás do pedido."
+          }
         />
       </div>
 
@@ -201,12 +330,17 @@ function SugestaoForm({
 
 /**
  * FAB global de sugestão de implementação (todo usuário logado), atrás da flag
- * Config DB IMPLEMENTACOES_INLINE. Botão no canto inferior ESQUERDO (não colide
- * com o FloatingChat, à direita). Montado no AppShell ao lado do FloatingChat.
+ * Config DB IMPLEMENTACOES_INLINE. Montado no AppShell ao lado do FloatingChat.
+ *
+ * Canto inferior DIREITO, empilhado ACIMA do FloatingChat (bottom-24 contra o
+ * bottom-6 dele) — os dois dividem a mesma coluna. O comentário anterior dizia
+ * "canto inferior esquerdo"; nunca foi verdade, e quem fosse mexer no
+ * posicionamento confiando nele erraria o lado.
  */
 export function FloatingImplementacoes() {
   const pathname = usePathname();
   const [enabled, setEnabled] = useState(false);
+  const [v2, setV2] = useState(false);
   const [open, setOpen] = useState(false);
   const [formKey, setFormKey] = useState(0);
   const [submitting, setSubmitting] = useState(false);
@@ -216,7 +350,9 @@ export function FloatingImplementacoes() {
     fetch("/api/implementacoes/flag")
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
-        if (!cancelled && d?.enabled) setEnabled(true);
+        if (cancelled) return;
+        if (d?.enabled) setEnabled(true);
+        if (d?.v2) setV2(true);
       })
       .catch(() => {});
     return () => {
@@ -241,6 +377,7 @@ export function FloatingImplementacoes() {
       <button
         onClick={abrir}
         aria-label="Sugerir uma implementação"
+        title="Sugerir uma implementação"
         className="fixed bottom-24 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-primary shadow-lg transition-all hover:bg-primary/90"
         style={{ boxShadow: "0 4px 24px 0 rgba(0,0,0,0.25)" }}
       >
@@ -267,7 +404,7 @@ export function FloatingImplementacoes() {
                   Sugerir uma implementação
                 </p>
                 <p className="text-[11px] leading-tight text-muted-foreground">
-                  Golden Circle · entra na triagem
+                  conte o que precisa e por que importa
                 </p>
               </div>
               <button
@@ -283,6 +420,7 @@ export function FloatingImplementacoes() {
               pathname={pathname}
               onDone={fechar}
               onPendingChange={setSubmitting}
+              v2={v2}
             />
           </div>
         </div>

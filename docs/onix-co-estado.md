@@ -483,6 +483,37 @@ Eduardo.
   começar por um `SELECT` de diagnóstico e decidir o que fazer com as
   duplicatas — decisão de negócio, não de código. PR própria, tier 🔴 RED.
 
+### Empréstimo de campo — a terceira ocorrência
+
+`ContratoCorretora.importadoEm` foi **reaproveitado**: era o relógio da máquina
+(quando a linha foi escrita), passou a significar a **competência do relatório**
+(de que mês é o arquivo). A mudança entrou com a regra 5 do motor de importação
+(#369), que precisava de algo capaz de ordenar dois arquivos entre si para
+recusar que um relatório antigo reprocessado sobrescrevesse valor mais recente.
+
+**Defensável**, e o argumento é curto: `createdAt`/`updatedAt` já davam o momento
+do import, então o campo guardava informação duplicada. Trocar duplicata por
+informação nova custa zero coluna — o diff de `schema.prisma` foi só comentário
+`///`, sem uma linha de DDL.
+
+**Mas é a terceira ocorrência de empréstimo de campo no projeto.** As outras
+duas, com endereço — porque afirmação de contagem sem endereço é a própria
+dívida que esta seção denuncia:
+
+1. `EmpresaBootstrapLog.empresaId` — `onix-co-estado.md:55`, "o ponto menos
+   elegante do desenho atual". O campo carrega o **alvo da operação**, não
+   necessariamente uma empresa.
+2. `ImportJob.erros` — `onix-contador-import.md:98`, "essa coluna já está
+   emprestada pelo webhook e tem plano próprio".
+3. `ContratoCorretora.importadoEm` — este.
+
+Um empréstimo é economia; três viram padrão, e padrão não declarado é o que faz
+a próxima pessoa ler o schema e entender outra coisa.
+
+**O gatilho para desfazer**: se um dia as duas informações precisarem coexistir
+— competência do relatório E instante do processamento, na mesma linha, para a
+mesma pergunta —, exigirá coluna nova. Não antes.
+
 ### Conferências humanas pendentes
 
 - 📋 ~331 pares CPF↔CNPJ por sinal fraco — fila de revisão, sem união automática.
@@ -523,6 +554,232 @@ registrados como backlog, não como trabalho pendente de revisão:
 - merge de leading zeros órfão
 - guard de `DATABASE_URL`
 - SHA do build no `/api/health`
+
+### Deploy — migrations rodam no `startCommand`
+
+**Estado atual:** `package.json` → `"start": "prisma migrate deploy && next start"`,
+e `railway.toml` **não tem** `preDeployCommand`.
+
+🔎 **A #317 tentou tirar as migrations do start** e pô-las como
+`preDeployCommand`, por um motivo correto: dentro do `start`, o `&&` amarra
+migrar e subir ao mesmo destino, e migration que falha derruba o serviço em
+loop de restart — falha de DADO vira INDISPONIBILIDADE.
+
+**O Railway nunca leu a chave.** Conferido no painel: o deploy mostrava
+Initialization / Build / Deploy / Post-deploy, **sem estágio Pre-deploy**. A
+causa é de tipo — a chave espera **array** (`preDeployCommand = ["npm run
+db:migrate"]`) e a #317 escreveu string.
+
+O efeito era **pior** que o problema original: com o `start` reduzido a `next
+start`, migration pendente **não aplicava**, o app subia saudável, healthcheck
+e smoke passavam, e o schema ficava atrás do código em silêncio. Divergência
+silenciosa não avisa; indisponibilidade avisa.
+
+**Revertido pela #335.** Nenhuma migration entrou entre a #317 e o revert, então
+o estrago ficou em zero — por sorte de calendário, não por desenho.
+
+✅ **EXERCITADO E PROVADO em 15/08/2026** pela #355 (`DeployProbe`), a primeira
+migration a entrar depois do revert. Até ali o smoke provava apenas **ausência
+de divergência**; a #355 criou o caso que faltava — um schema que o banco
+PRECISAVA mudar.
+
+O que se observou, no smoke das 22:45 UTC sobre `b0ebafb`:
+
+| sinal | resultado |
+|---|---|
+| `Convergiu: b0ebafb está no ar` | o código no ar É o commit da migration |
+| `migrations.pendentes` | **vazio** |
+| `migrations.falhas` | vazio (não vazio reprova o step) |
+
+Como `pendentes` é a diferença entre as pastas de `prisma/migrations/` **na
+imagem no ar** e as linhas de `_prisma_migrations` com `finished_at`
+preenchido e `rolled_back_at` nulo (`src/lib/migrations-aplicadas.ts`),
+`pendentes` vazio significa que `20260815152536_deploy_probe` **entrou no
+banco com `finished_at` gravado**. O `startCommand` aplicou.
+
+⚠️ Registro honesto do método: os dois sinais vêm da **mesma fonte** (o
+`/api/health` lendo `_prisma_migrations`). Nem `psql` contra produção nem o
+`workflow_dispatch` de `estado-do-banco.yml` estavam disponíveis à sessão
+(rede bloqueada e 403 de permissão). A leitura independente por SQL continua
+pendente — e a PR que remover a `DeployProbe` é a segunda prova, desta vez de
+um `DROP`.
+
+A tabela `DeployProbe` **fica no ar como marco** até o Eduardo confirmar a
+remoção.
+
+**Para retomar o `preDeployCommand`** (não fazer sem isto):
+1. Sintaxe em **array**, confirmada em documentação.
+2. ⚠️ **O builder é `DOCKERFILE`** (`railway.toml`, `builder = "DOCKERFILE"`,
+   com `Dockerfile` no repo — o comentário lá diz "NÃO usar Nixpacks"). Sob
+   Dockerfile o pré-deploy pode precisar de shell explícito
+   (`["/bin/sh", "-c", "..."]`), porque `&&` é sintaxe de shell. Quem assumir
+   Railpack vai depurar o sintoma errado.
+3. Provar com migration real e inofensiva, conferindo **os dois** sinais: o
+   estágio Pre-deploy no painel **e** o nome da migration no `/api/health`.
+
+### Detecção de schema pendente — entregue pela #323
+
+`/api/health` (bloco autenticado) expõe `migrations`, com `pendentes`, ao lado
+de `versao` e `flags`. O `post-deploy-smoke.yml` **reprova em vermelho** quando
+há pendente, e também quando há migration **começada e não concluída** — que é
+um modo de falha distinto, com conserto distinto (`prisma migrate resolve`).
+
+É a rede que faltava no episódio acima: a partir dela, schema atrás do código
+para de ser silencioso. Lógica pura em `src/lib/migrations-aplicadas.ts`, com
+teste sem banco.
+
+> ⚠️ O gate de divergência do mesmo workflow chegou a **reprovar o caminho
+> feliz** (`escrever_estado` terminava em `[ -n "$x" ] && echo`, que sob
+> `set -e` devolve 1 quando o teste é falso — e é chamada com argumentos
+> vazios justamente quando o deploy CONVERGE). Corrigido pela #350. Enquanto
+> durou, abriu issue de incidente a cada ciclo com produção sadia.
+
+### Parceiros — Fase 1 completa em produção
+
+Cinco tabelas no ar, **todas vazias** — e desde a #362 a ficha do cliente
+**lê** `ParceiroCliente` (primeira leitura da Fase 1 no produto: o cabeçalho
+mostra `· Parceiro X` quando existe vínculo vigente).
+
+| tabela / campo | PR | o que garante |
+|---|---|---|
+| `Parceiro` | #306 | entidade própria; `clienteBackofficeId` é FK **opcional** — parceiro PODE ser cliente, não precisa ser |
+| `Indicacao.parceiroId` | #306 | anda ao lado de `indicadorId` (#302), que não foi tocado |
+| `ParceiroCliente` | #307 | vínculo **datado** (`dataFim` null = vigente) |
+| índice `..._cliente_vigente_key` | #310 | **um cliente tem no máximo UM parceiro vigente** — a comissão do parceiro sai da do assessor, e dois retirariam da mesma base duas vezes |
+| `Parceiro.indicadoPorParceiroId` + trigger | #308 | árvore com guarda anti-ciclo **no banco**, não no TS |
+| `AcordoComercialParceiro` | #318 | comissão datada por `tipoProduto`; `DECIMAL(7,4)`, 2 CHECKs, um vigente por (parceiro, produto) |
+
+Apoio sem banco: `src/lib/parceiros/parceiro-core.ts` (#312, travessia da
+árvore, teto próprio de 64 níveis) e `vocabulario.ts` (#329, normalização —
+sem ela `"assessoria"` e `"Assessoria"` passam os dois pelo índice parcial e
+criam **dois acordos vigentes no mesmo produto** sem violar constraint).
+
+**`AcordoComercialParceiro` é tabela IRMÃ de `AcordoComercial`, não extensão.**
+Aquele é da `Pessoa` do time, tem `pessoaId` NOT NULL, **não tem campo de
+percentual**, e `atualizarAcordo` faz `UPDATE` no lugar — o que violaria a regra
+de que alterar percentual FECHA e ABRE.
+
+**Piloto: `scripts/seed-parceiro-piloto.ts` (#330, #360, #362).** Dry-run por
+padrão; escreve só com `--aplicar`, em UMA transação, tudo-ou-nada. Existe para
+provar que a modelagem serve ao caso real antes de haver UI. **Não contém
+migration** — merge dele não aplica nada; a escrita é ato separado.
+
+⚠️ **O piloto do Renan ainda NÃO foi executado em produção**, e a razão é
+estrutural, não de agenda: **uma sessão de agente não alcança produção**. O
+`DATABASE_URL` de produção é secret do repositório e a rede da sessão é
+bloqueada (`CONNECT 403` até o próprio domínio do app). O único lugar deste
+projeto que tem o segredo E a rota é o **GitHub Actions** — daí
+`.github/workflows/piloto-parceiro.yml` (dispatch manual, `aplicar` nascendo
+em `nao`, com checagem de `numeroConta` duplicado ANTES de qualquer escrita).
+
+Combinado com o Eduardo para o acordo do Renan (sócio da Onix Imobiliária):
+**20% em todos os produtos, EXCETO imobiliária**, gravado como **seis linhas** —
+cinco a 20% e `imobiliaria` a **0% explícito**. O 0% é o ponto: linha com zero
+É acordo, registra que o produto foi decidido como fora; ausência de linha é
+indistinguível de "ainda não cadastrei". Ele já recebe como sócio na Imob, e
+uma sexta linha a 20% ali pagaria duas vezes.
+
+🔴 **Pendência do Financeiro — o campo guarda o percentual, não a BASE.**
+`AcordoComercialParceiro.percentual` diz *20%*, e **em lugar nenhum do banco
+está escrito 20% DE QUÊ**. O acordo real é sobre a **receita líquida**, e isso
+existe hoje só na cabeça de quem combinou. Duas leituras futuras (uma sobre
+receita bruta, outra sobre líquida) devolveriam números diferentes com a mesma
+linha e ambas pareceriam certas. Resolver isso é decisão do Financeiro antes de
+qualquer cálculo de comissão automático — não de código.
+
+### 🚨 INCIDENTE Saldo D0 — o cron sobrescreve o import todo dia
+
+🔎 Medido em produção em 2026-08-15 22:48 UTC (`estado-do-banco.yml`, run 31913069806).
+
+O Eduardo confirmou que baixa e importa o Saldo D0 **à mão, todo dia**. O arquivo
+de hoje traz 1.188 contas com saldo. O banco tem **um** carimbo `saldo_em_cc`, de
+30/07.
+
+**O fato que reorganiza o problema:** `saldoConta` tem DOIS escritores
+(`field-source-policy.ts:119` → `["saldo_em_cc", "api"]`), e o segundo roda todo dia.
+
+| `BtgSyncLog` tipo `balances` | valor |
+|---|---|
+| execuções | **1 por dia, 20/20 dias, sem falha** |
+| clientes reescritos por execução | **~2.650** (hoje: 2.654) |
+| última | 15/08 09:28 UTC |
+
+| idade do `saldoConta` (2.681 com carimbo) | |
+|---|---|
+| escritos nas últimas 24 h | **2.654** |
+| com mais de 15 dias | **24** |
+| escrita mais recente, de qualquer fonte | **15/08 09:29 UTC** |
+
+Duas leituras saem daí, e as duas importam:
+
+1. **O `saldoConta` NÃO está defasado** — 2.654 de 2.681 têm menos de 24 h. Só que
+   o valor na tela é o `availableBalance` da Partner API
+   (`btg-api-sync.ts:139-147`), não o do Saldo D0 que o Eduardo subiu.
+2. **Nada escreveu `saldoConta` depois das 09:29 UTC de hoje** (06:29 BRT). Se a
+   importação de hoje aconteceu depois desse horário, ela **não gravou**.
+
+**A prioridade declarada na policy é ficção.** `field-source-policy.ts:16-18` diz
+que a lista é "ORDENADA pela prioridade — primeiro = mais autoritativo", e
+`saldo_em_cc` vem primeiro. Mas `upsertPorPolitica` (`upsert-cliente.ts:54-74`) só
+confere **pertinência** à lista, nunca prioridade. Última escrita vence — e a
+última é sempre o cron das 09h UTC, porque roda antes do expediente.
+
+*É deixar uma ordem no book e a mesa reprocessar por cima toda manhã, com o preço
+de outra fonte. A posição existe; só não é a que você montou.*
+
+**O que NÃO deu para determinar, e por quê.** A etapa exata onde a importação
+morre continua indeterminada — o POST `/api/backoffice/clientes` **não grava linha
+de log nenhuma** (único dos ~19 tipos de job que não grava; só `console.log` em
+`route.ts:895-905`). Sem esse rastro, "tentou e falhou" e "não tentou" são
+indistinguíveis retroativamente. Desenho do contador em
+`docs/onix-contador-import.md`.
+
+Descartado por leitura de código, nesta rodada:
+
+- headers `Conta`/`Nome`/`Saldo` são reconhecidos (`xlsx-mapping.ts:41`, `:24`,
+  `:56`), e o "Saldo"→`saldoConta` é compensado pelo swap em `route.ts:541-548`;
+- a policy **não** bloqueia `saldoConta` para `saldo_em_cc`;
+- `BTG_FRESHNESS_INPROCESS` e `DATACRAZY_POLL_INPROCESS` (`instrumentation.ts:69`
+  e `:40`) não tocam o caminho; `RBAC_ENFORCEMENT` só afeta o **GET**
+  (`route.ts:322`);
+- `assessorCge` **não** é filtro de escrita — é filtro de leitura (RBAC). Zero das
+  1.190 linhas seria descartada por ele.
+
+Restam três candidatos, todos com a mesma aparência na tela (`200 OK`):
+`sem numeroConta` (`route.ts:863-871`), `órfão sem cliente`
+(`route.ts:550-557`) e `noop` — este último não aparece em lugar nenhum, nem na
+resposta. **O discriminador já está na tela do Eduardo**: a mensagem
+`Relatório: Saldo em CC · N novos · M atualizados · K órfãos`
+(`route.ts:790-800`) separa os três. Ela não é guardada em lugar nenhum.
+
+### Base BTG × Informações — os conjuntos divergem, e ninguém supõe o contrário
+
+🔎 Conferido em 2026-08-15. Os dois exports têm 2.661 contas, mas os conjuntos não
+são idênticos. **Não é bug**: nenhum ponto do código supõe que sejam iguais.
+
+- `field-source-policy.ts` atribui cada campo a fontes específicas; conta ausente
+  numa fonte só deixa aqueles campos intocados;
+- `btg-freshness.ts:41-64` trata as três fontes de forma independente, cada uma
+  com a própria janela;
+- `import-sanity.ts:17-21` **removeu** de propósito o gate por "base-ratio",
+  registrando que o relatório é por natureza um subconjunto;
+- `reconciliacao-btg.ts` compara conjuntos — mas API BTG × banco, não export ×
+  export, e não é acionado pelo import.
+
+Nenhuma reconciliação, contagem cruzada ou gate compara os dois exports.
+
+### ✅ ENCERRADO — nenhum export BTG fornece `nomeCompleto`
+
+📋 Conferido pelo Eduardo em 2026-08-15 contra **2.660 nomes**: Base BTG,
+Informações e Saldo D0 têm **0% de sobrenome**. Os três trazem só o primeiro nome.
+
+O item de backlog "identificar o export BTG que fornece nome completo" fica
+**fechado por evidência**, não por desistência: os três candidatos foram medidos e
+os três falharam. Não há um quarto export em uso.
+
+Consequência para quem chegar depois: `nomeCompleto` **não vem de planilha BTG**.
+Quem precisar dele terá de buscar outra origem (cadastro, contrato, Partner API) —
+e não vale reabrir a busca nos exports, que é onde ela já morreu uma vez.
 
 ### Infra de CI observada
 
