@@ -147,7 +147,9 @@ export type EstadoVazio = { readonly titulo: string; readonly corpo: string };
 export function nenhumaLinhaAproveitada(linhasLidas: number): EstadoVazio {
   return {
     titulo: "Nenhuma linha aproveitada.",
-    corpo: `As ${linhasLidas.toLocaleString("pt-BR")} linhas foram lidas e nenhuma passou. Veja os motivos abaixo — costuma ser a mesma palavra se repetindo.`,
+    corpo:
+      `${linhasLidas === 1 ? "A 1 linha foi lida" : `As ${linhasLidas.toLocaleString("pt-BR")} linhas foram lidas`} ` +
+      "e nenhuma passou. Veja os motivos abaixo — costuma ser a mesma palavra se repetindo.",
   };
 }
 
@@ -193,7 +195,10 @@ export function estadoVazioDoEnsaio(r: {
   if (r.rejeitadas > 0) {
     return {
       titulo: "Nada seria gravado.",
-      corpo: `${r.rejeitadas.toLocaleString("pt-BR")} das ${r.linhasLidas.toLocaleString("pt-BR")} linhas foram recusadas e o resto já está na base como está. Veja os motivos antes de concluir que o mês está em dia.`,
+      // "o resto já está na base como está" seria impreciso: parte do resto
+      // pode ter sido barrada por contrato encerrado ou por antiguidade, casos
+      // em que a base diverge do relatório de propósito.
+      corpo: `${r.rejeitadas.toLocaleString("pt-BR")} das ${r.linhasLidas.toLocaleString("pt-BR")} linhas foram recusadas, e nenhuma das demais mudaria nada — ou o contrato já está encerrado, ou o relatório é mais antigo do que o gravado. Veja os motivos antes de concluir que o mês está em dia.`,
     };
   }
 

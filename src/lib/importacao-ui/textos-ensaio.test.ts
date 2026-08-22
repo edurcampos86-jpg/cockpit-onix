@@ -78,39 +78,52 @@ test("zero linha lida é estado vazio de leitura, não de conteúdo", () => {
   assert.equal(estadoVazioDoEnsaio(VAZIO)?.titulo, "Nenhuma linha encontrada.");
 });
 
-test('"nada a fazer" só aparece quando não há nada a criar nem atualizar', () => {
-  const nada = estadoVazioDoEnsaio({
-    linhasLidas: 312,
-    contratosACriar: 0,
-    contratosAAtualizar: 0,
-    pessoasACriar: 0,
-  });
-  assert.equal(nada?.titulo, "Nada a fazer.");
+test("\"nada a fazer\" exige que NADA tenha sido recusado", () => {
+  assert.equal(estadoVazioDoEnsaio({ ...VAZIO, linhasLidas: 312 })?.titulo, "Nada a fazer.");
 
   // Um único cliente novo já é trabalho: não é estado vazio.
-  const algo = estadoVazioDoEnsaio({
-    linhasLidas: 312,
-    contratosACriar: 0,
-    contratosAAtualizar: 0,
-    pessoasACriar: 1,
-  });
-  assert.equal(algo, null);
+  assert.equal(estadoVazioDoEnsaio({ ...VAZIO, linhasLidas: 312, pessoasACriar: 1 }), null);
+  assert.equal(estadoVazioDoEnsaio({ ...VAZIO, linhasLidas: 312, contratosAAtualizar: 1 }), null);
+});
 
+test("tudo recusado NAO e 'nada a fazer' — e perfil quebrado", () => {
+  // Os dois cenarios tem exatamente os mesmos contadores em zero e pedem acao
+  // oposta: um manda fechar a tela, o outro manda consertar o perfil. Dizer
+  // "todas cairam em contrato encerrado" aqui e dar a causa errada, e o
+  // operador fecha a tela achando a base em dia com 312 linhas de fora.
+  const v = estadoVazioDoEnsaio({ ...VAZIO, linhasLidas: 312, rejeitadas: 312 });
+  assert.equal(v?.titulo, "Nenhuma linha aproveitada.");
+  assert.ok(!/contrato ja encerrado|contrato já encerrado/.test(v?.corpo ?? ""));
+});
+
+test("recusa maior que o lido continua sendo 'nenhuma aproveitada'", () => {
+  // Nao deveria acontecer; se acontecer, o texto degrada para o lado seguro —
+  // nunca para "esta tudo em dia".
+  const v = estadoVazioDoEnsaio({ ...VAZIO, linhasLidas: 10, rejeitadas: 12 });
+  assert.equal(v?.titulo, "Nenhuma linha aproveitada.");
+});
+
+test("recusa parcial com o resto sem novidade nao e 'nada a fazer'", () => {
+  const v = estadoVazioDoEnsaio({ ...VAZIO, linhasLidas: 312, rejeitadas: 40 });
+  assert.equal(v?.titulo, "Nada seria gravado.");
+  assert.ok(v?.corpo.includes("40"));
+  assert.ok(v?.corpo.includes("312"));
+});
+
+test("recusa parcial COM algo a criar nao e estado vazio nenhum", () => {
   assert.equal(
-    estadoVazioDoEnsaio({
-      linhasLidas: 312,
-      contratosACriar: 0,
-      contratosAAtualizar: 1,
-      pessoasACriar: 0,
-    }),
+    estadoVazioDoEnsaio({ ...VAZIO, linhasLidas: 312, rejeitadas: 40, contratosACriar: 5 }),
     null,
   );
 });
 
-test("nenhuma linha aproveitada é resposta, não falha", () => {
+test("nenhuma linha aproveitada é resposta, não falha — e sabe o singular", () => {
   const v = nenhumaLinhaAproveitada(312);
   assert.ok(v.corpo.includes("312"));
   assert.ok(!/erro|falha/i.test(v.titulo + v.corpo));
+  // `avisoDeAntiguidade` já trata singular; "As 1 linhas" ao lado dela seria
+  // incoerência entre dois textos que aparecem na mesma tela.
+  assert.ok(nenhumaLinhaAproveitada(1).corpo.startsWith("A 1 linha foi lida"));
 });
 
 test("a confirmação soma o que vai gravar e não promete desfazer", () => {

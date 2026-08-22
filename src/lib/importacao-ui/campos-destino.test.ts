@@ -24,6 +24,7 @@ import { FORMATOS_VALOR } from "@/lib/importacao/perfil";
 // O motor é importado só aqui, no teste: o módulo de UI continua sem depender
 // dele. Chamar `montarRegistro` é o que torna o guarda dos obrigatórios real.
 import { montarRegistro } from "@/lib/corretora/importar-contratos";
+import type { LinhaAplicada } from "@/lib/importacao/aplicar-perfil";
 
 function fonteDoMotor(): string {
   return readFileSync(join(process.cwd(), "src/lib/corretora/importar-contratos.ts"), "utf8");
@@ -107,13 +108,7 @@ test("os obrigatórios são os que montarRegistro recusa quando faltam", () => {
 });
 
 /** Uma linha aplicada válida, no formato que `montarRegistro` espera. */
-function linhaCompleta(): {
-  numero: number;
-  origem: "deterministica";
-  campos: Record<string, unknown>;
-  pendentes: Record<string, string>;
-  erros: string[];
-} {
+function linhaCompleta(): LinhaAplicada & { campos: Record<string, unknown> } {
   return {
     numero: 7,
     origem: "deterministica",
