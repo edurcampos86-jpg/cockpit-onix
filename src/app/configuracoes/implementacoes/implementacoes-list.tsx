@@ -704,7 +704,7 @@ function PrCell({
         <button
           type="button"
           onClick={onDesvincular}
-          aria-label="Desvincular PR"
+          aria-label="Desvincular entrega"
           className="text-muted-foreground hover:text-destructive"
         >
           <X className="h-3 w-3" />
