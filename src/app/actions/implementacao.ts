@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { getAuthContext, isAdmin } from "@/lib/auth-helpers";
 import { uploadContrato, deleteContrato } from "@/lib/b2/upload";
 import { b2ContratosConfigurado } from "@/lib/b2/client";
+import { empresaAceitaImplementacao } from "@/lib/empresas-config";
 import { calcRiceScore, validarRice, type RiceEixo } from "@/lib/rice";
 import { implementacoesV2Habilitado } from "@/lib/implementacoes/v2-flag";
 import {
@@ -68,8 +69,36 @@ export async function criarImplementacao(
   let tipo = s(formData.get("tipo"));
   if (!TIPOS.includes(tipo)) tipo = "melhoria";
 
-  if (!porQue || !oQue || !empresaId) {
-    return { ok: false, error: "Preencha Por quê, O quê e a empresa." };
+  // A mensagem nomeia só o que faltou de verdade. A anterior citava os três
+  // sempre, então quem esquecia só a empresa era mandado revisar dois campos
+  // que já estavam preenchidos.
+  const faltando = [
+    !oQue && "O quê (o pedido)",
+    !porQue && "Por quê (o motivo)",
+    !empresaId && "a empresa",
+  ].filter(Boolean);
+  if (faltando.length > 0) {
+    return { ok: false, error: `Faltou preencher: ${faltando.join(", ")}.` };
+  }
+
+  // A empresa precisa EXISTIR, não só estar preenchida.
+  //
+  // `empresaAceitaImplementacao` já existia (`lib/empresas-config.ts`) e já
+  // estava testada — só não era chamada aqui. As duas telas restringem o valor
+  // (a de `/nova` valida o `?empresa=` e manda num hidden; o FAB usa um
+  // `<select>`), mas nenhuma das duas é a fonte da verdade: quem grava é esta
+  // action, e ela aceitava qualquer texto não vazio.
+  //
+  // O estrago não é a linha errada, é o filtro: `opcoesFiltroEmpresa`
+  // (`empresas-config.ts`) monta as opções a partir dos `empresaId` GRAVADOS.
+  // Um "investimento" sem "s" viraria uma empresa nova no dropdown, com uma
+  // sugestão presa dentro que ninguém procura ali — e sem nada na tela dizendo
+  // que aquilo é um engano de digitação e não uma empresa do grupo.
+  if (!empresaAceitaImplementacao(empresaId)) {
+    return {
+      ok: false,
+      error: `"${empresaId}" não é uma empresa que aceita sugestão nesta fase. Recarregue a página e escolha uma da lista.`,
+    };
   }
 
   // Anexos: lê o conjunto (name="anexos"), descartando entradas vazias.
@@ -79,13 +108,16 @@ export async function criarImplementacao(
 
   // Validação server-side (fonte da verdade). Falha aqui = nada sobe pro B2.
   if (arquivos.length > MAX_ANEXOS) {
-    return { ok: false, error: `No máximo ${MAX_ANEXOS} anexos por sugestão.` };
+    return {
+      ok: false,
+      error: `Dá para anexar até ${MAX_ANEXOS} arquivos por sugestão. Remova os que sobram e envie de novo.`,
+    };
   }
   for (const f of arquivos) {
     if (!tipoAnexoPermitido(f.type)) {
       return {
         ok: false,
-        error: `"${f.name || "arquivo"}" não é imagem nem PDF.`,
+        error: `"${f.name || "arquivo"}" não pode ser anexado. Aceitamos imagem (print, foto) ou PDF.`,
       };
     }
     if (f.size > MAX_ANEXO_BYTES) {
@@ -100,7 +132,7 @@ export async function criarImplementacao(
     return {
       ok: false,
       error:
-        "Não foi possível salvar os anexos: o armazenamento de arquivos não está configurado no servidor (falta a chave B2 de contratos). Avise o administrador — a sugestão sem anexo funciona normalmente.",
+        "Os anexos não puderam ser salvos — é uma configuração pendente aqui do nosso lado, não é você. Avise o administrador (falta a chave B2 de contratos). A sugestão sem anexo funciona normalmente.",
     };
   }
 
