@@ -1097,13 +1097,49 @@ export function ImplementacoesList({
     };
   }
 
+  /**
+   * Muda o status. Otimista na tela, mas com RECIBO.
+   *
+   * O `antes` é capturado desta linha, e não de `antesDoAutosave` — aquele é do
+   * RICE e tem ciclo de vida próprio (o debounce do autosave). Misturar os dois
+   * faria o desfazer do status restaurar valores de eixo.
+   */
   function commitStatus(id: string, status: string) {
+    const antes = rowsRef.current.find((r) => r.id === id);
     const next = rowsRef.current.map((r) =>
       r.id === id ? { ...r, status } : r,
     );
     rowsRef.current = next; // mantém o ref autoritativo entre commits do mesmo tick
     setRows(next);
-    startTransition(() => atualizarStatus(id, status));
+    startTransition(async () => {
+      try {
+        const res = await atualizarStatus(id, status);
+        if (res?.ok) return;
+        reverterLinha(id, antes, res?.erro ?? "Não deu para mudar o status.");
+      } catch {
+        reverterLinha(id, antes, "Sem conexão com o servidor.");
+      }
+    });
+  }
+
+  /**
+   * Devolve a linha ao estado anterior e diz por quê.
+   *
+   * Existe porque status e PR eram os dois únicos caminhos de gravação da tela
+   * SEM desfazer: mudavam na tela, podiam não mudar no banco, e só a próxima
+   * carga revelava. O RICE já tinha esta rede desde o autosave.
+   */
+  function reverterLinha(
+    id: string,
+    antes: ImplementacaoDTO | undefined,
+    motivo: string,
+  ) {
+    if (antes) {
+      const volta = rowsRef.current.map((r) => (r.id === id ? antes : r));
+      rowsRef.current = volta;
+      setRows(volta);
+    }
+    setErroSalvar((m) => ({ ...m, [id]: { mensagem: motivo, eixos: [] } }));
   }
 
   /**
@@ -1116,6 +1152,7 @@ export function ImplementacoesList({
     url: string | null,
     status: string,
   ) {
+    const antes = rowsRef.current.find((r) => r.id === id);
     const next = rowsRef.current.map((r) =>
       r.id === id
         ? {
@@ -1132,11 +1169,20 @@ export function ImplementacoesList({
     setRows(next);
     const row = next.find((r) => r.id === id)!;
     startTransition(async () => {
-      await vincularPr(id, {
-        numero,
-        url: row.prUrl,
-        status,
-      });
+      try {
+        // `vincularPr` já devolvia `{ok, error}` — ninguém lia. As recusas são
+        // reais: "Número de PR inválido", "Status de PR inválido",
+        // "Não encontrado" e a falta de permissão.
+        const res = await vincularPr(id, {
+          numero,
+          url: row.prUrl,
+          status,
+        });
+        if (res?.ok) return;
+        reverterLinha(id, antes, res?.error ?? "Não deu para vincular a entrega.");
+      } catch {
+        reverterLinha(id, antes, "Sem conexão com o servidor.");
+      }
     });
   }
 
