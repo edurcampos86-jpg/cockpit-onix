@@ -203,6 +203,16 @@ export async function criarImplementacao(
   if (inline) {
     return { ok: true, id: criadaId, podeVerNaTriagem: isAdmin(ctx) };
   }
+  // Quem NÃO é admin não pode ir para a central: `page.tsx` a redireciona para
+  // "/". O efeito era cruel — a pessoa preenchia o formulário inteiro, clicava
+  // em Salvar e caía na home sem mensagem nenhuma. Salvou, mas parece que
+  // perdeu, e a próxima reação é mandar de novo.
+  //
+  // O caminho existe de verdade: a aba "Melhorias" de TODAS as empresas
+  // (`lib/empresas-config.ts`) manda qualquer usuário logado para cá.
+  if (!isAdmin(ctx)) {
+    return { ok: true, id: criadaId, podeVerNaTriagem: false };
+  }
   redirect("/configuracoes/implementacoes");
 }
 
@@ -306,17 +316,34 @@ export async function atualizarRice(
   return { ok: true };
 }
 
-/** Atualiza o status (triagem|aprovada|em-andamento|concluida|recusada). */
-export async function atualizarStatus(id: string, status: string): Promise<void> {
+export type AtualizarStatusState = { ok: boolean; erro?: string };
+
+/**
+ * Atualiza o status (triagem|aprovada|em-andamento|concluida|recusada).
+ *
+ * DEVOLVE resultado, e isso é o ponto. Antes era `Promise<void>` e saía calada
+ * nos dois caminhos de recusa abaixo — a tela, que é otimista, ficava mostrando
+ * um status que o banco não tinha, até alguém recarregar. E é sobre essa fila
+ * que a decisão de prioridade é tomada.
+ *
+ * Mesma correção que `atualizarRice` já tinha recebido; o status ficou para
+ * trás porque ninguém lia o retorno dele.
+ */
+export async function atualizarStatus(
+  id: string,
+  status: string,
+): Promise<AtualizarStatusState> {
   const ctx = await getAuthContext();
-  if (!isAdmin(ctx)) return; // central é admin-only — defesa em profundidade
-  if (!STATUSES.includes(status)) return;
+  // Central é admin-only — defesa em profundidade.
+  if (!isAdmin(ctx)) return { ok: false, erro: "Sem permissão para mudar o status." };
+  if (!STATUSES.includes(status)) return { ok: false, erro: "Status inválido." };
 
   await prisma.implementacao.update({
     where: { id },
     data: { status },
   });
   revalidatePath("/configuracoes/implementacoes");
+  return { ok: true };
 }
 
 /** Estados do PR que uma sugestão originou. */
