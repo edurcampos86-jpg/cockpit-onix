@@ -11,19 +11,24 @@
  * clico em aplicar lendo os números do ensaio ANTERIOR. A tela mostraria a
  * conferência de um plano que não é o que vai rodar.
  *
- * A assinatura (`assinaturaDoPlano`) é o que amarra os dois. Ela cobre o que
- * de fato chega ao motor: o arquivo, o PERFIL (por conteúdo, não só por id), a
- * competência e o parceiro padrão.
+ * A assinatura (`assinaturaDoPlano`) é o que amarra os dois: arquivo, PERFIL
+ * (por conteúdo, não só por id), competência, mapeamento e parceiro padrão.
  *
  * Cobrir o perfil por CONTEÚDO é o ponto fino. Quem monta o plano é a rota, e
- * a rota lê `mapeamentoColunas`, `formatosValor` e `dicionarios` do banco — não
- * do que está na tela. Então editar o dicionário do perfil entre o ensaio e o
- * gravar mudaria o plano sem mudar o `perfilId`, e uma assinatura que olhasse
- * só o id daria o ensaio por válido. `impressaoDoPerfil` fecha isso.
+ * a rota lê o perfil do BANCO — não o que está na tela. Editar o perfil entre
+ * o ensaio e o gravar mudaria o plano sem mudar o `perfilId`, e uma assinatura
+ * que olhasse só o id daria o ensaio por válido. `impressaoDoPerfil` cobre os
+ * SEIS campos que a rota usa para montar o plano: `formato`, `extracao`,
+ * `mapeamentoColunas`, `formatosValor`, `dicionarios` e `fonte`. Faltar um só
+ * já reabre o buraco — trocar a aba da planilha ou a linha do cabeçalho muda o
+ * plano inteiro e não muda mais nada que a assinatura veja.
  *
- * `mapeamento` entra na assinatura porque a tela o envia como override; se um
- * dia deixar de enviar, ele sai da assinatura junto — assinar o que não viaja
- * é pior do que não assinar: dá a sensação de proteção sem a proteção.
+ * ── POR QUE `mapeamento` E `parceiroPadrao` TAMBÉM ENTRAM ───────────────
+ * Os dois são estado de TELA, e só chegam ao motor se quem chama a rota os
+ * enviar. Um chamador que não os envie paga, no pior caso, um ensaio a mais —
+ * a assinatura muda sem o plano mudar. Assinar demais custa uma reexecução;
+ * assinar de menos custa gravar plano diferente do conferido. Entre os dois
+ * erros, este módulo escolhe o barato.
  *
  * ── COMPETÊNCIA ─────────────────────────────────────────────────────────
  * O caminho normal é a coluna do arquivo. `manual` existe, é exceção, e a
@@ -218,6 +223,10 @@ export function etapaAtual(e: EstadoImportacao): Etapa {
  * `Json` e ordem diferente não é perfil diferente.
  */
 export function impressaoDoPerfil(perfil: {
+  formato?: string;
+  /** `extracao` diz a aba, a linha do cabeçalho, o delimitador, os padrões. */
+  extracao?: unknown;
+  fonte?: string;
   mapeamentoColunas?: Readonly<Record<string, string>>;
   formatosValor?: Readonly<Record<string, string>>;
   dicionarios?: Readonly<Record<string, Readonly<Record<string, string>>>>;
@@ -225,6 +234,11 @@ export function impressaoDoPerfil(perfil: {
   const ordenar = (o: Readonly<Record<string, unknown>> | undefined) =>
     Object.entries(o ?? {}).sort(([a], [b]) => (a < b ? -1 : 1));
   return JSON.stringify([
+    perfil.formato ?? "",
+    // `extracao` é `Json` de forma variável por formato: ordenar as chaves do
+    // primeiro nível basta para a ordem do Postgres não gerar falso positivo.
+    ordenar(perfil.extracao as Readonly<Record<string, unknown>> | undefined),
+    perfil.fonte ?? "",
     ordenar(perfil.mapeamentoColunas),
     ordenar(perfil.formatosValor),
     ordenar(perfil.dicionarios).map(([campo, tabela]) => [

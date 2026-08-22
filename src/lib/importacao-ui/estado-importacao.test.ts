@@ -152,14 +152,44 @@ test("o perfil mudar no banco invalida o ensaio, mesmo com o id igual", () => {
   assert.equal(podeAplicar(perfilEditado), false);
 });
 
+test("impressaoDoPerfil vê aba, cabeçalho e fonte — não só o mapeamento", () => {
+  // A rota monta o plano com seis campos do perfil. Trocar a aba da planilha
+  // muda o plano inteiro; se a impressão não enxergar isso, o botão de gravar
+  // continua ligado com um ensaio de outro arquivo.
+  const base = { formato: "xlsx", mapeamentoColunas: MAPA_COMPLETO, fonte: "Porto" };
+  const abaA = impressaoDoPerfil({ ...base, extracao: { tipo: "xlsx", aba: "Apólices" } });
+  const abaB = impressaoDoPerfil({ ...base, extracao: { tipo: "xlsx", aba: "Sinistros" } });
+  assert.notEqual(abaA, abaB, "trocar a aba tem de mudar a impressão");
+
+  const cabecalho = impressaoDoPerfil({
+    ...base,
+    extracao: { tipo: "xlsx", aba: "Apólices", linhaCabecalho: 3 },
+  });
+  assert.notEqual(cabecalho, abaA, "trocar a linha do cabeçalho tem de mudar a impressão");
+
+  const outraFonte = impressaoDoPerfil({
+    ...base,
+    fonte: "Bradesco",
+    extracao: { tipo: "xlsx", aba: "Apólices" },
+  });
+  assert.notEqual(outraFonte, abaA, "a fonte é o parceiro padrão que a rota usa");
+
+  const csv = impressaoDoPerfil({ ...base, formato: "csv", extracao: { tipo: "xlsx", aba: "Apólices" } });
+  assert.notEqual(csv, abaA, "trocar o formato tem de mudar a impressão");
+});
+
 test("impressaoDoPerfil não muda com a ordem das chaves", () => {
   const a = impressaoDoPerfil({
+    formato: "xlsx",
+    extracao: { tipo: "xlsx", aba: "A", linhaCabecalho: 1 },
     mapeamentoColunas: { A: "cpfCnpj", B: "status" },
     dicionarios: { status: { X: "1", Y: "2" } },
   });
   const b = impressaoDoPerfil({
     dicionarios: { status: { Y: "2", X: "1" } },
     mapeamentoColunas: { B: "status", A: "cpfCnpj" },
+    extracao: { linhaCabecalho: 1, aba: "A", tipo: "xlsx" },
+    formato: "xlsx",
   });
   assert.equal(a, b);
 });

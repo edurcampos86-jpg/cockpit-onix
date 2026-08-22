@@ -78,10 +78,12 @@ test("dataReferencia é competência, não campo de contrato", () => {
   assert.ok(!CAMPOS_OBRIGATORIOS.includes("dataReferencia"));
 });
 
-test("o Set ainda é USADO pelo motor, não só declarado", () => {
-  // Sem isto o guarda vigia uma constante morta: renomear o Set ou trocá-lo no
-  // filtro de `dadosProduto` passaria liso, e a paridade viraria enfeite.
-  assert.match(fonteDoMotor(), /CAMPOS_COM_COLUNA\.has\(/);
+test("o Set ainda filtra dadosProduto do jeito certo", () => {
+  // Casar só `CAMPOS_COM_COLUNA.has(` provaria uso, não SENTIDO: inverter o
+  // filtro para `if (!CAMPOS_COM_COLUNA.has(campo)) continue;` manteria o
+  // teste verde e mandaria para `dadosProduto` exatamente os campos que o Set
+  // existe para manter fora. A linha inteira é o que vale vigiar.
+  assert.match(fonteDoMotor(), /if \(CAMPOS_COM_COLUNA\.has\(campo\)\) continue;/);
 });
 
 test("os obrigatórios são os que montarRegistro recusa quando faltam", () => {
