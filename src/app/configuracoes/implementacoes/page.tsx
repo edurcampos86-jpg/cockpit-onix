@@ -35,8 +35,12 @@ export default async function ImplementacoesPage() {
   // ligada. O que pesa no RSC é o que atravessa a fronteira servidor→cliente,
   // não o que o Postgres devolveu — então com a flag OFF o payload continua
   // idêntico ao de antes desta entrega.
-  const [total, itens, paraMetrica] = await Promise.all([
+  const [total, semRiceTotal, itens, paraMetrica] = await Promise.all([
     prisma.implementacao.count(),
+    // Quantas NUNCA foram pontuadas, na fila inteira. O recorte abaixo é
+    // `score desc nulls last`: são exatamente estas que o teto corta primeiro,
+    // e o banner precisa dizer isso em número, não em silêncio.
+    prisma.implementacao.count({ where: { score: null } }),
     prisma.implementacao.findMany({
       orderBy: [{ score: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
       take: MAX_LINHAS,
@@ -45,6 +49,11 @@ export default async function ImplementacoesPage() {
         empresaId: true,
         tipo: true,
         porQue: true,
+        // De QUAL TELA a pessoa estava reclamando quando abriu o botão
+        // flutuante. Era gravado desde sempre e não era lido por arquivo
+        // nenhum — a resposta para "qual página mais gera queixa" existia no
+        // banco e nunca chegou a ninguém.
+        pagina: true,
         oQue: true,
         printUrl: true,
         reach: true,
@@ -93,11 +102,21 @@ export default async function ImplementacoesPage() {
   // assim nenhuma linha visível na tabela fica sem opção correspondente no filtro.
   const empresas = opcoesFiltroEmpresa(itens.map((i) => i.empresaId));
 
+  // Só as sem RICE que ficaram DE FORA: o total global menos as que vieram na
+  // página. Com a fila abaixo do teto os dois termos se igualam e dá zero, como
+  // `ocultadas`. O piso existe porque as duas queries correm em `Promise.all`,
+  // não em transação — uma sugestão criada entre elas daria número negativo.
+  const ocultadasSemRice = Math.max(
+    0,
+    semRiceTotal - itens.filter((i) => i.score == null).length,
+  );
+
   return (
     <ImplementacoesList
       itens={dto}
       empresas={empresas}
       ocultadas={Math.max(0, total - itens.length)}
+      ocultadasSemRice={ocultadasSemRice}
       metricas={metricas}
       v2={v2}
     />

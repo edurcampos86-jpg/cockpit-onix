@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
-import { validateWebhookSecret } from "@/lib/integrations/zapier";
+import { avaliarAcessoWebhook } from "@/lib/integrations/zapier";
 import { generateScriptForPost } from "@/lib/integrations/claude-ai";
 
 /**
@@ -34,10 +34,17 @@ import { generateScriptForPost } from "@/lib/integrations/claude-ai";
  * }
  */
 export async function POST(request: NextRequest) {
-  // Validar webhook secret
-  const secret = request.headers.get("x-webhook-secret") || "";
-  const isValid = await validateWebhookSecret(secret);
-  if (!isValid) {
+  // Mesma regra do webhook. Esta rota NÃO está na allowlist do proxy (exige
+  // sessão), então o risco era menor — mas o segredo é o mesmo, e deixar duas
+  // respostas diferentes para a mesma pergunta é como a primeira envelhece.
+  const acesso = await avaliarAcessoWebhook(request.headers.get("x-webhook-secret") || "");
+  if (acesso === "sem-segredo") {
+    return NextResponse.json(
+      { error: "Integração desativada (ZAPIER_WEBHOOK_SECRET não configurado)" },
+      { status: 503 },
+    );
+  }
+  if (acesso === "invalido") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
