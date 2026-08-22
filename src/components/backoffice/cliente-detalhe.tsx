@@ -136,6 +136,10 @@ type Tab = "descoberta" | "cadastro" | "plano" | "checklist" | "metas" | "evento
 const TABS_VALIDAS = new Set<Tab>([
   "descoberta", "cadastro", "plano", "checklist", "metas",
   "eventos", "perfil", "rca", "cockpit-reuniao", "fatos",
+  // Aba nova precisa entrar AQUI também, não só em `TABS`. Esquecer não dá
+  // erro: `?aba=preparar-reuniao` cai em Descoberta em silêncio, e quem mandou
+  // o link acha que ele está quebrado sem nada indicar o motivo.
+  "preparar-reuniao",
 ]);
 
 const TABS: { id: Tab; label: string; icon: typeof Heart }[] = [
@@ -312,7 +316,13 @@ export function ClienteDetalhe({
         />
       )}
       {tab === "fatos" && <ClienteFatosTab fatos={clienteFatos} />}
-      {tab === "preparar-reuniao" && <PrepararReuniaoTab clienteId={cliente.id} />}
+      {/* Travado pela flag, não só pela lista de botões. A aba inicial pode vir
+          da URL (`?aba=`), então sem esta guarda `?aba=preparar-reuniao` com a
+          flag OFF renderizaria a aba que a flag existe para esconder — a rota
+          responderia 404 e a tela mostraria erro no lugar de nada. */}
+      {registroRico && tab === "preparar-reuniao" && (
+        <PrepararReuniaoTab clienteId={cliente.id} />
+      )}
       {tab === "cockpit-reuniao" && (
         <CockpitReuniaoTab
           clienteId={cliente.id}
