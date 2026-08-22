@@ -147,21 +147,41 @@ test("uma pulada não impede as demais de serem movidas", () => {
 
 // ── A régua de 2 níveis ────────────────────────────────────────────────────
 
-test("empresa que JÁ TEM FILHAS é recusada: pendurá-la criaria o 3º nível", () => {
-  // O caso que a régua existe para impedir, e o único jeito de ele aparecer
-  // aqui: `planejarReparent` só mexe em raiz solta, então a profundidade só
-  // estoura por baixo — a empresa solta que carrega uma sub-empresa junto.
-  const comNeta: NoEmpresa[] = [
+test("empresa com UMA camada de filhas agora CABE sob a holding", () => {
+  // Mudou com os 3 níveis, e é a mudança de régua inteira num caso só. Com 2
+  // níveis a pergunta era "o nó tem filhos?" e esta árvore era recusada; com 3
+  // a pergunta é `nível(pai) + altura(nó) ≤ 3`, e 1 + 2 = 3 cabe.
+  const comFilha: NoEmpresa[] = [
     { id: "onix-co", parentId: null },
     { id: "investimentos", parentId: null },
     { id: "sub-investimentos", parentId: "investimentos" },
   ];
-  const p = planejarReparent(comNeta, ["investimentos"]);
+  const p = planejarReparent(comFilha, ["investimentos"]);
+  const m = mov(p, "investimentos");
+  assert.equal(m.situacao, "mover");
+  assert.equal(m.para, RAIZ_DO_GRUPO);
+  assert.equal(p.totais.mover, 1);
+  assert.equal(p.totais.recusadas, 0);
+  // E a árvore resultante segue dentro do teto: a neta cai no nível 3.
+  assert.deepEqual(p.problemas, []);
+});
+
+test("empresa que carrega DUAS camadas é recusada: o mais fundo cairia no 4º nível", () => {
+  // O caso que a régua ainda existe para impedir. `planejarReparent` só mexe em
+  // raiz solta, então a profundidade só estoura por baixo — a empresa solta que
+  // carrega uma subárvore alta demais junto.
+  const comBisneta: NoEmpresa[] = [
+    { id: "onix-co", parentId: null },
+    { id: "investimentos", parentId: null },
+    { id: "sub-investimentos", parentId: "investimentos" },
+    { id: "sub-sub-investimentos", parentId: "sub-investimentos" },
+  ];
+  const p = planejarReparent(comBisneta, ["investimentos"]);
   const m = mov(p, "investimentos");
   assert.equal(m.situacao, "recusada");
   assert.equal(m.para, null);
   assert.match(m.motivo ?? "", /no_tem_filhos/);
-  assert.match(m.motivo ?? "", /terceiro nível/);
+  assert.match(m.motivo ?? "", /Mova os filhos antes/);
   assert.equal(p.totais.recusadas, 1);
   assert.equal(p.totais.mover, 0);
 });
@@ -169,12 +189,13 @@ test("empresa que JÁ TEM FILHAS é recusada: pendurá-la criaria o 3º nível",
 test("a recusada fica INTACTA na árvore resultante", () => {
   // Recusar e mover mesmo assim seria o pior desfecho: o plano diria uma coisa
   // e o `aplicarPlano` faria outra.
-  const comNeta: NoEmpresa[] = [
+  const comBisneta: NoEmpresa[] = [
     { id: "onix-co", parentId: null },
     { id: "investimentos", parentId: null },
     { id: "sub-investimentos", parentId: "investimentos" },
+    { id: "sub-sub-investimentos", parentId: "sub-investimentos" },
   ];
-  const p = planejarReparent(comNeta, ["investimentos"]);
+  const p = planejarReparent(comBisneta, ["investimentos"]);
   assert.equal(
     p.arvoreResultante.find((e) => e.id === "investimentos")?.parentId,
     null,
@@ -188,6 +209,7 @@ test("uma recusa não aborta as demais", () => {
     { id: "onix-co", parentId: null },
     { id: "investimentos", parentId: null },
     { id: "sub-investimentos", parentId: "investimentos" },
+    { id: "sub-sub-investimentos", parentId: "sub-investimentos" },
     { id: "corretora", parentId: null },
   ];
   const p = planejarReparent(misto, FILHAS);
@@ -200,9 +222,9 @@ test("uma recusa não aborta as demais", () => {
   );
 });
 
-test("a régua validada é a de PROFUNDIDADE_MAXIMA, não um 2 digitado aqui", () => {
+test("a régua validada é a de PROFUNDIDADE_MAXIMA, não um número digitado aqui", () => {
   // Se o teto mudar em hierarquia.ts, este teste tem de acompanhar sozinho.
-  assert.equal(PROFUNDIDADE_MAXIMA, 2);
+  assert.equal(PROFUNDIDADE_MAXIMA, 3);
 });
 
 // ── Coerência interna do plano ─────────────────────────────────────────────

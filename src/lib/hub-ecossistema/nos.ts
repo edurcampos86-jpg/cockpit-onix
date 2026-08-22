@@ -82,11 +82,13 @@ export const NOS_ECOSSISTEMA: readonly NoEcossistema[] = [
   { id: "corporate", nome: "Onix Corporate", href: "/empresas/corporate", icon: "Building2", maturidade: "shell" },
   { id: "imobiliaria", nome: "Onix Imob", href: "/empresas/imobiliaria", icon: "Home", maturidade: "shell" },
   { id: "tech", nome: "Onix Tech", href: "/empresas/tech", icon: "Cpu", maturidade: "shell" },
-  /* Id `educacao` para casar com `empresas-config.ts`; o rótulo aqui é
-   * "Onix Educacional" (protótipo aprovado do hub) enquanto a Central de
-   * Implementações ainda chama de "Onix Educação". Divergência consciente:
-   * unificar o nome é decisão de produto, não de layout. */
-  { id: "educacao", nome: "Onix Educacional", href: "/empresas/educacao", icon: "GraduationCap", maturidade: "sem-rota" },
+  /* Id `educacao` para casar com `empresas-config.ts`. O rótulo era "Onix
+   * Educacional" (o protótipo aprovado do hub) enquanto a Central de
+   * Implementações chamava de "Onix Educação" — divergência que ficou
+   * declarada como consciente até alguém decidir. O Eduardo decidiu: é "Onix
+   * Educação", e este era o ÚNICO lugar do sistema que ainda dizia o
+   * contrário. */
+  { id: "educacao", nome: "Onix Educação", href: "/empresas/educacao", icon: "GraduationCap", maturidade: "sem-rota" },
   { id: "contabil", nome: "Onix Contábil", href: "/empresas/contabil", icon: "Calculator", maturidade: "sem-rota" },
 ] as const;
 
