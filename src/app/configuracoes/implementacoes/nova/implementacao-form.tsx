@@ -29,6 +29,32 @@ export function ImplementacaoForm({
     initial,
   );
 
+  // Confirmação para quem NÃO é admin. A action deixou de redirecionar essa
+  // pessoa para a central (que a devolveria para "/" sem dizer nada) e passou a
+  // devolver `{ok:true}`. Sem esta tela, o formulário simplesmente se limparia
+  // e ela não saberia se salvou.
+  if (state.ok) {
+    return (
+      <div className="mx-auto max-w-2xl p-6">
+        <div className="rounded-lg border border-border bg-card p-8 text-center">
+          <h1 className="text-xl font-bold text-foreground">Sugestão registrada</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Ela entrou na fila de {empresaNome}. Quem cuida da triagem vai ler —
+            você não precisa fazer mais nada.
+          </p>
+          {state.podeVerNaTriagem && (
+            <Link
+              href="/configuracoes/implementacoes"
+              className="mt-4 inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+            >
+              Ver na fila
+            </Link>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-2xl p-6">
       <Link
