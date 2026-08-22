@@ -103,6 +103,19 @@ export type NoDoGrupo = {
    */
   transversal?: boolean;
   /**
+   * Departamento da HOLDING que consolida o trabalho das ocorrências
+   * transversais das empresas.
+   *
+   * "ADM/Financeiro" existe sete vezes no grupo: uma em cada empresa, fazendo
+   * o trabalho, e uma na holding, somando o das seis. Mesmo rótulo, papel
+   * diferente — e a diferença precisa estar NO DADO, não na cabeça de quem lê
+   * a tela, senão conceder acesso ao "Jurídico" vira escolha no escuro entre
+   * sete nós de mesmo nome.
+   *
+   * `transversal` e `consolida` são excludentes: um FAZ, o outro SOMA.
+   */
+  consolida?: boolean;
+  /**
    * Aparece como nó orbital no hub "Ecossistema Onix".
    *
    * Consequência de estar `false`: some da tela inicial. Quem chega pelo hub
@@ -160,6 +173,57 @@ export const CATALOGO_EMPRESAS: readonly NoDoGrupo[] = [
       "na navegação — este nó é o lugar delas no organograma.",
   },
 
+
+  /* ── Consolidadores da holding ─────────────────────────────────────────
+   * Mesmo rótulo das ocorrências nas empresas, papel diferente: aqui se SOMA
+   * o que lá se FAZ. É para isso que `consolida` existe como campo. */
+  {
+    id: "onix-co-adm",
+    nome: "ADM/Financeiro",
+    tipo: "departamento",
+    parentId: RAIZ_DO_GRUPO,
+    consolida: true,
+    noHub: false,
+    nota:
+      "Consolida o ADM/Financeiro das seis empresas: é o número do grupo, "
+      + "não o de uma casa.",
+  },
+  {
+    id: "onix-co-juridico",
+    nome: "Jurídico",
+    tipo: "departamento",
+    parentId: RAIZ_DO_GRUPO,
+    consolida: true,
+    noHub: false,
+    nota:
+      "Consolida o Jurídico das seis. O cofre de contratos "
+      + "(`/juridico/contratos`) já é do grupo inteiro — este é o nó dele.",
+  },
+  {
+    id: "onix-co-compliance",
+    nome: "Compliance",
+    tipo: "departamento",
+    parentId: RAIZ_DO_GRUPO,
+    consolida: true,
+    noHub: false,
+    nota:
+      "Consolida o Compliance das seis. Regulatório de corretora e de "
+      + "gestora não se misturam na execução, mas se somam no risco do grupo.",
+  },
+  {
+    id: "onix-co-clientes",
+    nome: "Clientes do Grupo",
+    tipo: "departamento",
+    parentId: RAIZ_DO_GRUPO,
+    consolida: true,
+    noHub: false,
+    nota:
+      "Base ÚNICA de pessoas do grupo, sem duplicidade entre empresas. NÃO "
+      + "cria identidade nova: lê o `PessoaGrupo` que já está em produção "
+      + "(2.476 pessoas, 2.613 vínculos). O nó existe para o RBAC ter onde "
+      + "conceder acesso à base consolidada.",
+  },
+
   /* ── Onix Capital ─────────────────────────────────────────────────────── */
   { id: "investimentos", nome: "Onix Capital", tipo: "empresa", parentId: RAIZ_DO_GRUPO, noHub: true },
   {
@@ -197,6 +261,11 @@ export const CATALOGO_EMPRESAS: readonly NoDoGrupo[] = [
       "parecidos — intencional.",
   },
 
+  { id: "investimentos-adm", nome: "ADM/Financeiro", tipo: "departamento", parentId: "investimentos", transversal: true, noHub: false },
+  { id: "investimentos-juridico", nome: "Jurídico", tipo: "departamento", parentId: "investimentos", transversal: true, noHub: false },
+  { id: "investimentos-compliance", nome: "Compliance", tipo: "departamento", parentId: "investimentos", transversal: true, noHub: false },
+  { id: "investimentos-backoffice", nome: "Backoffice", tipo: "departamento", parentId: "investimentos", transversal: true, noHub: false },
+
   /* ── Onix Educação ────────────────────────────────────────────────────── */
   {
     id: "educacao",
@@ -218,6 +287,11 @@ export const CATALOGO_EMPRESAS: readonly NoDoGrupo[] = [
     transversal: true,
     noHub: false,
   },
+
+  { id: "educacao-adm", nome: "ADM/Financeiro", tipo: "departamento", parentId: "educacao", transversal: true, noHub: false },
+  { id: "educacao-juridico", nome: "Jurídico", tipo: "departamento", parentId: "educacao", transversal: true, noHub: false },
+  { id: "educacao-compliance", nome: "Compliance", tipo: "departamento", parentId: "educacao", transversal: true, noHub: false },
+  { id: "educacao-backoffice", nome: "Backoffice", tipo: "departamento", parentId: "educacao", transversal: true, noHub: false },
 
   /* ── Onix Corretora ───────────────────────────────────────────────────── */
   { id: "corretora", nome: "Onix Corretora", tipo: "empresa", parentId: RAIZ_DO_GRUPO, noHub: true },
@@ -265,6 +339,11 @@ export const CATALOGO_EMPRESAS: readonly NoDoGrupo[] = [
     noHub: false,
   },
 
+  { id: "corretora-adm", nome: "ADM/Financeiro", tipo: "departamento", parentId: "corretora", transversal: true, noHub: false },
+  { id: "corretora-juridico", nome: "Jurídico", tipo: "departamento", parentId: "corretora", transversal: true, noHub: false },
+  { id: "corretora-compliance", nome: "Compliance", tipo: "departamento", parentId: "corretora", transversal: true, noHub: false },
+  { id: "corretora-backoffice", nome: "Backoffice", tipo: "departamento", parentId: "corretora", transversal: true, noHub: false },
+
   /* ── Onix Imob ────────────────────────────────────────────────────────── */
   {
     id: "imobiliaria",
@@ -286,6 +365,11 @@ export const CATALOGO_EMPRESAS: readonly NoDoGrupo[] = [
     transversal: true,
     noHub: false,
   },
+
+  { id: "imobiliaria-adm", nome: "ADM/Financeiro", tipo: "departamento", parentId: "imobiliaria", transversal: true, noHub: false },
+  { id: "imobiliaria-juridico", nome: "Jurídico", tipo: "departamento", parentId: "imobiliaria", transversal: true, noHub: false },
+  { id: "imobiliaria-compliance", nome: "Compliance", tipo: "departamento", parentId: "imobiliaria", transversal: true, noHub: false },
+  { id: "imobiliaria-backoffice", nome: "Backoffice", tipo: "departamento", parentId: "imobiliaria", transversal: true, noHub: false },
 
   /* ── Onix Contábil ────────────────────────────────────────────────────── */
   {
@@ -309,6 +393,11 @@ export const CATALOGO_EMPRESAS: readonly NoDoGrupo[] = [
     noHub: false,
   },
 
+  { id: "contabil-adm", nome: "ADM/Financeiro", tipo: "departamento", parentId: "contabil", transversal: true, noHub: false },
+  { id: "contabil-juridico", nome: "Jurídico", tipo: "departamento", parentId: "contabil", transversal: true, noHub: false },
+  { id: "contabil-compliance", nome: "Compliance", tipo: "departamento", parentId: "contabil", transversal: true, noHub: false },
+  { id: "contabil-backoffice", nome: "Backoffice", tipo: "departamento", parentId: "contabil", transversal: true, noHub: false },
+
   /* ── Onix Tech ────────────────────────────────────────────────────────── */
   { id: "tech", nome: "Onix Tech", tipo: "empresa", parentId: RAIZ_DO_GRUPO, noHub: true },
   {
@@ -319,6 +408,10 @@ export const CATALOGO_EMPRESAS: readonly NoDoGrupo[] = [
     transversal: true,
     noHub: false,
   },
+  { id: "tech-adm", nome: "ADM/Financeiro", tipo: "departamento", parentId: "tech", transversal: true, noHub: false },
+  { id: "tech-juridico", nome: "Jurídico", tipo: "departamento", parentId: "tech", transversal: true, noHub: false },
+  { id: "tech-compliance", nome: "Compliance", tipo: "departamento", parentId: "tech", transversal: true, noHub: false },
+  { id: "tech-backoffice", nome: "Backoffice", tipo: "departamento", parentId: "tech", transversal: true, noHub: false },
 ] as const;
 
 /**

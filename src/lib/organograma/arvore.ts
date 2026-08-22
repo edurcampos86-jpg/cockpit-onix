@@ -24,8 +24,16 @@ export type NoOrganograma = {
   id: string;
   nome: string;
   tipo: TipoNo;
-  /** Função que se repete no grupo (as 6 "Qualidade e Pós-venda"). */
+  /** Função que se repete no grupo — 5 por empresa, 30 no total. */
   transversal: boolean;
+  /**
+   * Departamento da holding que SOMA o que as transversais fazem.
+   *
+   * A tela precisa distinguir: "Jurídico" aparece sete vezes, e seis delas são
+   * o time de uma empresa. Sem a marca, o card da holding fica igual aos das
+   * empresas e o organograma passa a mostrar sete times jurídicos.
+   */
+  consolida: boolean;
   /**
    * VITRINE: `true` significa "você não tem acesso", não "isto é irrelevante".
    * O nó continua visível e legível — quem desenha põe cadeado, não remove.
@@ -43,6 +51,7 @@ export type NoDeclarado = {
   tipo: TipoNo;
   parentId: string | null;
   transversal?: boolean;
+  consolida?: boolean;
 };
 
 export type OpcoesOrganograma = {
@@ -89,6 +98,7 @@ export function montarOrganograma(
       nome: n.nome,
       tipo: n.tipo,
       transversal: n.transversal === true,
+      consolida: n.consolida === true,
       locked,
       // Nó travado não leva a lugar nenhum: o cadeado é o estado, e um link
       // que responde 403 é pior que a ausência dele.

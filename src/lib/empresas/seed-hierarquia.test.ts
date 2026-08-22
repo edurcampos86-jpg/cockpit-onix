@@ -54,9 +54,9 @@ const COMPLETA: NoArvore[] = CATALOGO_EMPRESAS.map((e) => linha(e.id));
 
 // ── A lista canônica ───────────────────────────────────────────────────────
 
-test("a lista canônica é a holding + exatamente 19 nós abaixo dela", () => {
-  assert.equal(NOS_ABAIXO_DA_HOLDING.length, 19);
-  assert.equal(TODAS_AS_EMPRESAS.length, 20);
+test("a lista canônica é a holding + exatamente 47 nós abaixo dela", () => {
+  assert.equal(NOS_ABAIXO_DA_HOLDING.length, 47);
+  assert.equal(TODAS_AS_EMPRESAS.length, 48);
 });
 
 test("a holding nasce sem pai; todo o resto nasce pendurado em alguém", () => {
@@ -70,12 +70,12 @@ test("a holding nasce sem pai; todo o resto nasce pendurado em alguém", () => {
   }
 });
 
-test("só 8 penduram DIRETO na holding — o resto pendura nas empresas", () => {
+test("12 penduram DIRETO na holding — o resto pendura nas empresas", () => {
   // A diferença que os 3 níveis introduzem: `NOS_ABAIXO_DA_HOLDING` (19) e
   // `idsFilhasDaRaiz()` (8) deixaram de ser a mesma lista. Confundir as duas
   // faria o reparenting arrastar as Qualidades para a raiz.
   const direto = NOS_ABAIXO_DA_HOLDING.filter((e) => e.parentId === RAIZ_DO_GRUPO);
-  assert.equal(direto.length, 8);
+  assert.equal(direto.length, 12);
   assert.deepEqual([...direto.map((e) => e.id)].sort(), [...idsFilhasDaRaiz()].sort());
 });
 
@@ -102,8 +102,8 @@ test("a semeadura completa sai em 3 lotes: holding, empresas, departamentos", ()
   assert.ok(lotes);
   assert.equal(lotes.length, 3);
   assert.deepEqual(lotes[0].map((e) => e.id), [RAIZ_DO_GRUPO]);
-  assert.equal(lotes[1].length, 8); // 6 empresas + os 2 departamentos da holding
-  assert.equal(lotes[2].length, 11); // os departamentos das empresas
+  assert.equal(lotes[1].length, 12); // 6 empresas + 2 deptos próprios + 4 consolidadores
+  assert.equal(lotes[2].length, 35); // os departamentos das empresas (5 extras + 30 transversais)
 });
 
 test("nenhum nó entra antes do pai", () => {
@@ -155,9 +155,9 @@ test("com só a holding no banco, planeja criar os 19 e nada mais", () => {
   assert.equal(p.raizPresente, true);
 });
 
-test("a árvore simulada tem os 20 e passa na régua", () => {
+test("a árvore simulada tem os 48 e passa na régua", () => {
   const p = planejarSeedFilhas(SO_A_RAIZ);
-  assert.equal(p.arvoreSimulada.length, 20);
+  assert.equal(p.arvoreSimulada.length, 48);
   assert.equal(validarArvoreCompleta(p.arvoreSimulada).ok, true);
 });
 
@@ -180,7 +180,7 @@ test("com a árvore já completa, não há nada a criar", () => {
   assert.deepEqual(p.divergencias, []);
 });
 
-test("dez execuções seguidas deixam as mesmas 20 linhas", () => {
+test("dez execuções seguidas deixam as mesmas 48 linhas", () => {
   // Simula o que o endpoint faz: planeja, aplica o `criar` sobre a árvore, e
   // repete. Se `planejarSeedFilhas` deixasse de reconhecer o que já existe, a
   // contagem cresceria a cada volta.
@@ -189,15 +189,15 @@ test("dez execuções seguidas deixam as mesmas 20 linhas", () => {
     const p = planejarSeedFilhas(arvore);
     arvore = p.arvoreSimulada;
   }
-  assert.equal(arvore.length, 20);
-  assert.equal(new Set(arvore.map((e) => e.id)).size, 20);
+  assert.equal(arvore.length, 48);
+  assert.equal(new Set(arvore.map((e) => e.id)).size, 48);
   assert.equal(validarArvoreCompleta(arvore).ok, true);
 });
 
 test("a partir da segunda passada não há mais escrita a fazer", () => {
   const primeira = planejarSeedFilhas(SO_A_RAIZ);
   const segunda = planejarSeedFilhas(primeira.arvoreSimulada);
-  assert.equal(primeira.criar.length, 19);
+  assert.equal(primeira.criar.length, 47);
   assert.equal(segunda.criar.length, 0);
 });
 
@@ -225,7 +225,7 @@ test("nó que ficou como raiz solta também é divergência", () => {
   const solta: NoArvore[] = [...SO_A_RAIZ, { ...linha("tech"), parentId: null }];
   const p = planejarSeedFilhas(solta);
   assert.deepEqual(p.divergencias, [{ id: "tech", esperado: "onix-co", atual: null }]);
-  assert.equal(p.criar.length, 18);
+  assert.equal(p.criar.length, 46);
 });
 
 test("divergência não impede os demais de serem criados", () => {
@@ -235,7 +235,7 @@ test("divergência não impede os demais de serem criados", () => {
     linha("tech"),
   ];
   const p = planejarSeedFilhas(misto);
-  assert.equal(p.criar.length, 17);
+  assert.equal(p.criar.length, 45);
   assert.deepEqual(p.jaExistiam, ["tech"]);
   assert.equal(p.divergencias.length, 1);
   assert.ok(!p.criar.some((e) => e.id === "corretora" || e.id === "tech"));
@@ -287,7 +287,7 @@ test("banco vazio: raizPresente é false e a rota tem como recusar", () => {
   // driver. O plano detecta ANTES para a resposta poder ser instrutiva.
   const p = planejarSeedFilhas([]);
   assert.equal(p.raizPresente, false);
-  assert.equal(p.criar.length, 19);
+  assert.equal(p.criar.length, 47);
 });
 
 test("árvore com nós mas sem holding também é recusável", () => {

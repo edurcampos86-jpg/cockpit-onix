@@ -44,7 +44,7 @@ export async function resolverOrganograma(): Promise<NoOrganograma[]> {
 /** Os nós como estão em `Empresa`, na ordem de exibição do grupo. */
 async function lerNos(): Promise<NoDeclarado[]> {
   return prisma.empresa.findMany({
-    select: { id: true, nome: true, tipo: true, parentId: true, transversal: true },
+    select: { id: true, nome: true, tipo: true, parentId: true, transversal: true, consolida: true },
     orderBy: [{ parentId: { sort: "asc", nulls: "first" } }, { nome: "asc" }],
   });
 }
