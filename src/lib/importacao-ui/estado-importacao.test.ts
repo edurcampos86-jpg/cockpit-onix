@@ -14,6 +14,7 @@ import {
   ensaioValeParaAgora,
   etapaAtual,
   impedimentosDoEnsaio,
+  impressaoDoPerfil,
   podeAplicar,
   reduzir,
   type AcaoImportacao,
@@ -41,7 +42,12 @@ function rodar(acoes: AcaoImportacao[], inicial = ESTADO_INICIAL): EstadoImporta
 
 const PRONTO = rodar([
   { tipo: "escolheu-arquivo", arquivo: ARQUIVO },
-  { tipo: "escolheu-perfil", perfilId: "p1", mapeamento: MAPA_COMPLETO },
+  {
+    tipo: "escolheu-perfil",
+    perfilId: "p1",
+    mapeamento: MAPA_COMPLETO,
+    impressaoDoPerfil: impressaoDoPerfil({ mapeamentoColunas: MAPA_COMPLETO }),
+  },
 ]);
 
 test("sem arquivo, sem mapeamento: a tela pede as duas coisas", () => {
@@ -118,10 +124,44 @@ test("aplicar consome o ensaio: não dá para clicar duas vezes", () => {
   assert.equal(podeAplicar(depois), false);
 });
 
-test("falha ao aplicar devolve o botão sem perder o ensaio", () => {
+test("falha ao aplicar EXIGE novo ensaio — parte pode ter entrado", () => {
+  // O gravar escreve em lotes e a rota devolve erro depois de parte já ter
+  // entrado. Religar o botão com os números de antes ofereceria um segundo
+  // clique em cima de base já mexida.
   const depois = rodar([{ tipo: "ensaiou" }, { tipo: "aplicando" }, { tipo: "falhou" }], PRONTO);
   assert.equal(depois.aplicando, false);
-  assert.equal(podeAplicar(depois), true);
+  assert.equal(podeAplicar(depois), false);
+  assert.equal(etapaAtual(depois), "ensaio");
+});
+
+test("o perfil mudar no banco invalida o ensaio, mesmo com o id igual", () => {
+  // Quem monta o plano é a rota, lendo mapeamento e dicionários do BANCO. Uma
+  // assinatura que olhasse só o `perfilId` daria por válido um ensaio feito
+  // com outro dicionário.
+  const ensaiado = reduzir(PRONTO, { tipo: "ensaiou" });
+  const perfilEditado = reduzir(ensaiado, {
+    tipo: "escolheu-perfil",
+    perfilId: "p1",
+    mapeamento: MAPA_COMPLETO,
+    impressaoDoPerfil: impressaoDoPerfil({
+      mapeamentoColunas: MAPA_COMPLETO,
+      dicionarios: { status: { ATIVO: "ativo" } },
+    }),
+  });
+  assert.notEqual(assinaturaDoPlano(perfilEditado), assinaturaDoPlano(ensaiado));
+  assert.equal(podeAplicar(perfilEditado), false);
+});
+
+test("impressaoDoPerfil não muda com a ordem das chaves", () => {
+  const a = impressaoDoPerfil({
+    mapeamentoColunas: { A: "cpfCnpj", B: "status" },
+    dicionarios: { status: { X: "1", Y: "2" } },
+  });
+  const b = impressaoDoPerfil({
+    dicionarios: { status: { Y: "2", X: "1" } },
+    mapeamentoColunas: { B: "status", A: "cpfCnpj" },
+  });
+  assert.equal(a, b);
 });
 
 test("enquanto aplica, o botão não aceita outro clique", () => {

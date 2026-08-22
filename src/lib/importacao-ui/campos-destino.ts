@@ -13,17 +13,40 @@
  * do motor e falha se as duas divergirem. Duplicata com guarda é dívida
  * declarada; duplicata sem guarda é a que apodrece.
  *
- * ── A ARMADILHA DO `dataReferencia` ─────────────────────────────────────
- * Ele está em `CAMPOS_COM_COLUNA` e NÃO é coluna de `ContratoCorretora`: está
- * lá para não vazar duplicado dentro de `dadosProduto`, e o valor acaba em
- * `importadoEm`. Na tela ele é a COMPETÊNCIA, não um campo do contrato — daí o
- * grupo próprio. Listá-lo junto dos outros ensinaria a coisa errada bem no
- * campo onde errar inverte a proteção de precedência.
+ * ── DOIS CAMPOS DE `CAMPOS_COM_COLUNA` NÃO VIRAM COLUNA ─────────────────
+ * Estar no Set significa apenas "não vaze duplicado para `dadosProduto`" —
+ * não significa que exista coluna para receber. Dois casos, e os dois enganam:
+ *
+ * `dataReferencia` é a COMPETÊNCIA. O valor acaba em `importadoEm`, e é ele
+ * que impede um relatório antigo de sobrescrever dado mais novo. Listá-lo
+ * junto dos campos do contrato ensinaria errado bem onde errar inverte a
+ * proteção de precedência.
+ *
+ * `nome` NÃO É GRAVADO EM LUGAR NENHUM. `PessoaGrupo` não tem coluna de nome
+ * (`prisma/schema.prisma`, e o `createMany` de `executar-importacao.ts` grava
+ * só `cpfCnpj` e `tipoDocumento`); `ContratoCorretora` também não. Como o
+ * campo está em `CAMPOS_COM_COLUNA`, o valor nem cai em `dadosProduto`: é
+ * lido e jogado fora. Oferecê-lo como destino sem dizer isso faria a pessoa
+ * mapear uma coluna, conferir o ensaio e o banco ficar sem nome — por isso ele
+ * aparece marcado como descartado, e não some da lista (sumir quebraria a
+ * paridade com o motor, que é a guarda deste arquivo).
+ *
+ * É `destino` que separa os três casos, e é nele que `CAMPOS_DO_CONTRATO`
+ * filtra — não no grupo, que é só arrumação visual.
  * ────────────────────────────────────────────────────────────── */
 
 import type { FormatoValor } from "@/lib/importacao/perfil";
 
 export type GrupoDestino = "identificacao" | "contrato" | "valores" | "pessoas" | "competencia";
+
+/**
+ * Onde o valor mapeado termina de verdade.
+ *
+ * `contrato` → vira coluna de `ContratoCorretora`.
+ * `competencia` → vira `importadoEm`, a precedência do lote.
+ * `descartado` → o motor lê e joga fora. Hoje só `nome`.
+ */
+export type DestinoFinal = "contrato" | "competencia" | "descartado";
 
 export type CampoDestino = {
   /** A chave que vai para `mapeamentoColunas`. */
@@ -31,6 +54,7 @@ export type CampoDestino = {
   /** O que a pessoa lê. Sem jargão de banco. */
   readonly rotulo: string;
   readonly grupo: GrupoDestino;
+  readonly destino: DestinoFinal;
   /** O formato que o perfil deve declarar. `null` = texto, o padrão. */
   readonly formatoSugerido: FormatoValor | null;
   /** Sem ele a linha é rejeitada. */
@@ -44,22 +68,26 @@ export const CAMPOS_DESTINO: readonly CampoDestino[] = [
     campo: "cpfCnpj",
     rotulo: "CPF ou CNPJ",
     grupo: "identificacao",
+    destino: "contrato",
     formatoSugerido: "documento_digitos",
     obrigatorio: true,
     ajuda: "É o único campo que liga a linha a uma pessoa. Nome e e-mail não servem.",
   },
   {
     campo: "nome",
-    rotulo: "Nome do cliente",
+    rotulo: "Nome do cliente (descartado hoje)",
     grupo: "identificacao",
+    destino: "descartado",
     formatoSugerido: null,
     obrigatorio: false,
-    ajuda: "Só é usado ao cadastrar cliente novo. Nunca para casar com quem já existe.",
+    ajuda:
+      "Não existe onde guardar: o cadastro de cliente só tem o documento. Mapear esta coluna não faz nada — o valor é lido e jogado fora.",
   },
   {
     campo: "tipoProduto",
     rotulo: "Produto",
     grupo: "contrato",
+    destino: "contrato",
     formatoSugerido: null,
     obrigatorio: true,
     ajuda: "Precisa de dicionário: cada palavra do relatório vira um produto conhecido.",
@@ -68,6 +96,7 @@ export const CAMPOS_DESTINO: readonly CampoDestino[] = [
     campo: "parceiro",
     rotulo: "Parceiro (seguradora)",
     grupo: "contrato",
+    destino: "contrato",
     formatoSugerido: null,
     obrigatorio: false,
     ajuda: "Se mapeado, vence a fonte linha a linha. A fonte só preenche onde a célula vier vazia.",
@@ -76,6 +105,7 @@ export const CAMPOS_DESTINO: readonly CampoDestino[] = [
     campo: "numeroContrato",
     rotulo: "Número da apólice",
     grupo: "contrato",
+    destino: "contrato",
     formatoSugerido: null,
     obrigatorio: true,
     ajuda: "Junto com parceiro e produto, é o que diz se o contrato já existe.",
@@ -84,6 +114,7 @@ export const CAMPOS_DESTINO: readonly CampoDestino[] = [
     campo: "status",
     rotulo: "Situação",
     grupo: "contrato",
+    destino: "contrato",
     formatoSugerido: null,
     obrigatorio: true,
     ajuda: "Precisa de dicionário. Cancelado, encerrado e recusado não voltam atrás.",
@@ -92,6 +123,7 @@ export const CAMPOS_DESTINO: readonly CampoDestino[] = [
     campo: "inicioVigencia",
     rotulo: "Início da vigência",
     grupo: "contrato",
+    destino: "contrato",
     formatoSugerido: "data_ddmmaaaa",
     obrigatorio: true,
   },
@@ -99,6 +131,7 @@ export const CAMPOS_DESTINO: readonly CampoDestino[] = [
     campo: "fimVigencia",
     rotulo: "Fim da vigência",
     grupo: "contrato",
+    destino: "contrato",
     formatoSugerido: "data_ddmmaaaa",
     obrigatorio: false,
     ajuda: "Vazio no relatório apaga o que está gravado.",
@@ -107,6 +140,7 @@ export const CAMPOS_DESTINO: readonly CampoDestino[] = [
     campo: "premio",
     rotulo: "Prêmio",
     grupo: "valores",
+    destino: "contrato",
     formatoSugerido: "decimal_ptbr",
     obrigatorio: false,
     ajuda: "Vazio no relatório apaga o valor gravado.",
@@ -115,6 +149,7 @@ export const CAMPOS_DESTINO: readonly CampoDestino[] = [
     campo: "comissao",
     rotulo: "Comissão",
     grupo: "valores",
+    destino: "contrato",
     formatoSugerido: "decimal_ptbr",
     obrigatorio: false,
     ajuda: "Vazio no relatório apaga o valor gravado.",
@@ -123,6 +158,7 @@ export const CAMPOS_DESTINO: readonly CampoDestino[] = [
     campo: "atendenteCorretora",
     rotulo: "Atendente da Corretora",
     grupo: "pessoas",
+    destino: "contrato",
     formatoSugerido: null,
     obrigatorio: false,
   },
@@ -130,6 +166,7 @@ export const CAMPOS_DESTINO: readonly CampoDestino[] = [
     campo: "assessorCge",
     rotulo: "CGE do assessor",
     grupo: "pessoas",
+    destino: "contrato",
     formatoSugerido: null,
     obrigatorio: false,
     ajuda: "Preenchido significa que a pessoa é cliente das duas casas.",
@@ -138,6 +175,7 @@ export const CAMPOS_DESTINO: readonly CampoDestino[] = [
     campo: "dataReferencia",
     rotulo: "Competência (mês do relatório)",
     grupo: "competencia",
+    destino: "competencia",
     formatoSugerido: "data_ddmmaaaa",
     obrigatorio: false,
     ajuda:
@@ -145,9 +183,9 @@ export const CAMPOS_DESTINO: readonly CampoDestino[] = [
   },
 ];
 
-/** Só o que vira coluna de contrato. `dataReferencia` fica de fora de propósito. */
+/** Só o que vira coluna de contrato — sem a competência e sem o descartado. */
 export const CAMPOS_DO_CONTRATO: readonly CampoDestino[] = CAMPOS_DESTINO.filter(
-  (c) => c.grupo !== "competencia",
+  (c) => c.destino === "contrato",
 );
 
 export const CAMPOS_OBRIGATORIOS: readonly string[] = CAMPOS_DESTINO.filter(

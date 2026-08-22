@@ -17,6 +17,21 @@
  * Rótulo mapeado para string vazia é DESCARTADO, não gravado. Vazio no
  * dicionário viraria uma tradução para nada — a linha passaria na validação e
  * gravaria lixo. Pendente é um estado honesto; traduzido-para-vazio não é.
+ *
+ * ── POR QUE `Object.create(null)` E UMA LISTA DE CHAVES RECUSADAS ───────
+ * `dicionarios` vem de `Json` do Postgres, então as chaves são texto que
+ * alguém escreveu. Com objeto literal, três coisas acontecem em silêncio:
+ *
+ *   - campo chamado `__proto__` some do resultado sem entrar em `descartados`
+ *     (`resultado[campo] = {...}` não cria propriedade própria) — o perfil
+ *     esquece um campo inteiro e nada avisa;
+ *   - campo `constructor` faz `resultado[campo] ??= {}` não atribuir, e a
+ *     gravação seguinte escreve na função `Object` global;
+ *   - rótulo `__proto__` vindo de `JSON.parse` grava em `Object.prototype`.
+ *
+ * Hoje nenhuma rota alimenta isto com JSON de fora, então é dívida latente e
+ * não incidente. Mas "latente" é o estado de toda poluição de protótipo até a
+ * primeira rota — e o custo de fechar agora é uma linha.
  * ────────────────────────────────────────────────────────────── */
 
 import type { PerfilImportacaoConfig } from "@/lib/importacao/perfil";
@@ -32,8 +47,10 @@ export type ResultadoMerge = {
   readonly adicionados: { campo: string; rotulo: string; valor: string }[];
   /** Rótulos que já existiam e mudaram de valor — é aqui que se perde dado. */
   readonly redefinidos: { campo: string; rotulo: string; de: string; para: string }[];
-  /** Rótulos ignorados por virem sem valor. */
+  /** Rótulos ignorados por virem sem valor, ou por usarem chave recusada. */
   readonly descartados: { campo: string; rotulo: string }[];
+  /** Campos inteiros recusados por usarem chave perigosa. */
+  readonly camposRecusados: string[];
 };
 
 /**
@@ -42,28 +59,53 @@ export type ResultadoMerge = {
  * A lista de `redefinidos` não é enfeite: é o único aviso de que ensinar uma
  * palavra desaprendeu outra. A tela mostra isso antes de gravar.
  */
+/** Chaves que JavaScript trata de forma especial em objeto literal. */
+const CHAVES_RECUSADAS = new Set(["__proto__", "constructor", "prototype"]);
+
+function tabelaVazia(): Record<string, string> {
+  return Object.create(null) as Record<string, string>;
+}
+
 export function mesclarDicionarios(
   atual: Dicionarios,
   aprendizado: Aprendizado,
 ): ResultadoMerge {
-  const resultado: Record<string, Record<string, string>> = {};
+  const resultado: Record<string, Record<string, string>> = Object.create(null);
+  const camposRecusados: string[] = [];
+  const descartados: ResultadoMerge["descartados"] = [];
+
   for (const [campo, tabela] of Object.entries(atual)) {
-    resultado[campo] = { ...tabela };
+    if (CHAVES_RECUSADAS.has(campo)) {
+      camposRecusados.push(campo);
+      continue;
+    }
+    const copia = tabelaVazia();
+    for (const [rotulo, valor] of Object.entries(tabela)) {
+      if (CHAVES_RECUSADAS.has(rotulo)) {
+        descartados.push({ campo, rotulo });
+        continue;
+      }
+      copia[rotulo] = valor;
+    }
+    resultado[campo] = copia;
   }
 
   const adicionados: ResultadoMerge["adicionados"] = [];
   const redefinidos: ResultadoMerge["redefinidos"] = [];
-  const descartados: ResultadoMerge["descartados"] = [];
 
   for (const [campo, tabela] of Object.entries(aprendizado)) {
+    if (CHAVES_RECUSADAS.has(campo)) {
+      camposRecusados.push(campo);
+      continue;
+    }
     for (const [rotuloCru, valorCru] of Object.entries(tabela)) {
       const rotulo = rotuloCru.trim();
       const valor = valorCru.trim();
-      if (rotulo === "" || valor === "") {
+      if (rotulo === "" || valor === "" || CHAVES_RECUSADAS.has(rotulo)) {
         descartados.push({ campo, rotulo: rotuloCru });
         continue;
       }
-      const destino = (resultado[campo] ??= {});
+      const destino = (resultado[campo] ??= tabelaVazia());
       const anterior = destino[rotulo];
       if (anterior === undefined) {
         adicionados.push({ campo, rotulo, valor });
@@ -74,7 +116,7 @@ export function mesclarDicionarios(
     }
   }
 
-  return { dicionarios: resultado, adicionados, redefinidos, descartados };
+  return { dicionarios: resultado, adicionados, redefinidos, descartados, camposRecusados };
 }
 
 /** Quantos rótulos o perfil conhece, somando todos os campos. */

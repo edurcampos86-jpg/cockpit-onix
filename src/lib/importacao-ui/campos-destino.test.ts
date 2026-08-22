@@ -22,15 +22,23 @@ import {
 } from "./campos-destino.ts";
 import { FORMATOS_VALOR } from "@/lib/importacao/perfil";
 
-/** Extrai as chaves de `CAMPOS_COM_COLUNA` direto do fonte do motor. */
+function fonteDoMotor(): string {
+  return readFileSync(join(process.cwd(), "src/lib/corretora/importar-contratos.ts"), "utf8");
+}
+
+/**
+ * Extrai as chaves de `CAMPOS_COM_COLUNA` direto do fonte do motor.
+ *
+ * Tira os comentários ANTES de casar as aspas: o Set tem comentário dentro, e
+ * sem isto bastaria remover um campo e citá-lo entre aspas num comentário ali
+ * para o guarda continuar verde — cego exatamente no caso que ele existe para
+ * pegar.
+ */
 function camposDoMotor(): string[] {
-  const fonte = readFileSync(
-    join(process.cwd(), "src/lib/corretora/importar-contratos.ts"),
-    "utf8",
-  );
-  const bloco = /const CAMPOS_COM_COLUNA = new Set\(\[([\s\S]*?)\]\)/.exec(fonte);
+  const bloco = /const CAMPOS_COM_COLUNA = new Set\(\[([\s\S]*?)\]\)/.exec(fonteDoMotor());
   assert.ok(bloco, "não achei CAMPOS_COM_COLUNA no motor — o teste-guarda ficou cego");
-  return [...bloco[1].matchAll(/"([A-Za-z]+)"/g)].map((m) => m[1]);
+  const semComentarios = bloco[1].replace(/\/\/[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
+  return [...semComentarios.matchAll(/"([A-Za-z]+)"/g)].map((m) => m[1]);
 }
 
 test("a lista da tela não diverge de CAMPOS_COM_COLUNA no motor", () => {
@@ -43,17 +51,53 @@ test("a lista da tela não diverge de CAMPOS_COM_COLUNA no motor", () => {
   );
 });
 
+test("nome está na lista, mas marcado como descartado", () => {
+  // Ele está em CAMPOS_COM_COLUNA e não é gravado em lugar nenhum: PessoaGrupo
+  // não tem coluna de nome e ContratoCorretora também não. Some da lista →
+  // quebra a paridade com o motor; entra sem marca → a pessoa mapeia uma
+  // coluna, confere o ensaio, e o banco fica sem nome.
+  const nome = CAMPOS_DESTINO.find((c) => c.campo === "nome");
+  assert.equal(nome?.destino, "descartado");
+  assert.ok(nome?.rotulo.includes("descartado"), "o rótulo precisa avisar na própria lista");
+  assert.ok(!CAMPOS_DO_CONTRATO.some((c) => c.campo === "nome"));
+});
+
+test("todo campo de CAMPOS_DO_CONTRATO tem destino de contrato", () => {
+  assert.ok(CAMPOS_DO_CONTRATO.every((c) => c.destino === "contrato"));
+  assert.equal(CAMPOS_DO_CONTRATO.length, CAMPOS_DESTINO.length - 2);
+});
+
 test("dataReferencia é competência, não campo de contrato", () => {
   // Está em CAMPOS_COM_COLUNA, mas não é coluna de ContratoCorretora: vai para
   // `importadoEm`. Se ele vazar para CAMPOS_DO_CONTRATO, a tela ensina errado
   // exatamente onde errar inverte a proteção de precedência.
   const referencia = CAMPOS_DESTINO.find((c) => c.campo === "dataReferencia");
   assert.equal(referencia?.grupo, "competencia");
+  assert.equal(referencia?.destino, "competencia");
   assert.ok(!CAMPOS_DO_CONTRATO.some((c) => c.campo === "dataReferencia"));
   assert.ok(!CAMPOS_OBRIGATORIOS.includes("dataReferencia"));
 });
 
-test("os obrigatórios são os cinco que o motor recusa quando faltam", () => {
+test("o Set ainda é USADO pelo motor, não só declarado", () => {
+  // Sem isto o guarda vigia uma constante morta: renomear o Set ou trocá-lo no
+  // filtro de `dadosProduto` passaria liso, e a paridade viraria enfeite.
+  assert.match(fonteDoMotor(), /CAMPOS_COM_COLUNA\.has\(/);
+});
+
+test("os obrigatórios são os que montarRegistro recusa quando faltam", () => {
+  // Lê o fonte em vez de comparar com uma lista escrita neste mesmo PR — que
+  // seria tautologia, não guarda.
+  const fonte = fonteDoMotor();
+  const corpo = /export function montarRegistro\(([\s\S]*?)\n}/.exec(fonte);
+  assert.ok(corpo, "não achei montarRegistro — o teste-guarda ficou cego");
+
+  for (const campo of CAMPOS_OBRIGATORIOS) {
+    assert.match(
+      corpo[1],
+      new RegExp(`(sem ${campo}|${campo} sem mapeamento)`),
+      `a tela exige ${campo}, mas montarRegistro não recusa a linha sem ele`,
+    );
+  }
   assert.deepEqual([...CAMPOS_OBRIGATORIOS].sort(), [
     "cpfCnpj",
     "inicioVigencia",
@@ -61,6 +105,16 @@ test("os obrigatórios são os cinco que o motor recusa quando faltam", () => {
     "status",
     "tipoProduto",
   ]);
+});
+
+test("parceiro e dataReferencia não são obrigatórios na tela, e há motivo", () => {
+  // `montarRegistro` também recusa por eles, mas os dois têm fallback fora da
+  // planilha: `parceiroPadrao` e a competência do lote. Marcá-los obrigatórios
+  // aqui obrigaria a mapear coluna que o arquivo pode não ter.
+  assert.ok(!CAMPOS_OBRIGATORIOS.includes("parceiro"));
+  assert.ok(!CAMPOS_OBRIGATORIOS.includes("dataReferencia"));
+  assert.match(fonteDoMotor(), /texto\(c\.parceiro\) \?\? parceiroPadrao/);
+  assert.match(fonteDoMotor(), /data\(c\.dataReferencia\) \?\? dataReferenciaDoLote/);
 });
 
 test("todo formato sugerido é um FormatoValor de verdade", () => {

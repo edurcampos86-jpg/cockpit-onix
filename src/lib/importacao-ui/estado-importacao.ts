@@ -11,9 +11,19 @@
  * clico em aplicar lendo os números do ensaio ANTERIOR. A tela mostraria a
  * conferência de um plano que não é o que vai rodar.
  *
- * A assinatura (`assinaturaDoPlano`) é o que amarra os dois. Ela cobre tudo
- * que muda o plano: arquivo, mapeamento, formatos, dicionários, competência e
- * parceiro padrão.
+ * A assinatura (`assinaturaDoPlano`) é o que amarra os dois. Ela cobre o que
+ * de fato chega ao motor: o arquivo, o PERFIL (por conteúdo, não só por id), a
+ * competência e o parceiro padrão.
+ *
+ * Cobrir o perfil por CONTEÚDO é o ponto fino. Quem monta o plano é a rota, e
+ * a rota lê `mapeamentoColunas`, `formatosValor` e `dicionarios` do banco — não
+ * do que está na tela. Então editar o dicionário do perfil entre o ensaio e o
+ * gravar mudaria o plano sem mudar o `perfilId`, e uma assinatura que olhasse
+ * só o id daria o ensaio por válido. `impressaoDoPerfil` fecha isso.
+ *
+ * `mapeamento` entra na assinatura porque a tela o envia como override; se um
+ * dia deixar de enviar, ele sai da assinatura junto — assinar o que não viaja
+ * é pior do que não assinar: dá a sensação de proteção sem a proteção.
  *
  * ── COMPETÊNCIA ─────────────────────────────────────────────────────────
  * O caminho normal é a coluna do arquivo. `manual` existe, é exceção, e a
@@ -39,6 +49,11 @@ export type Competencia =
 export type EstadoImportacao = {
   readonly arquivo: ArquivoEscolhido | null;
   readonly perfilId: string | null;
+  /**
+   * Impressão do CONTEÚDO do perfil quando ele foi carregado — mapeamento,
+   * formatos e dicionários. Muda quando o perfil muda no banco.
+   */
+  readonly impressaoDoPerfil: string;
   readonly parceiroPadrao: string;
   /** rótulo do arquivo → campo de destino. */
   readonly mapeamento: Readonly<Record<string, string>>;
@@ -51,6 +66,7 @@ export type EstadoImportacao = {
 export const ESTADO_INICIAL: EstadoImportacao = {
   arquivo: null,
   perfilId: null,
+  impressaoDoPerfil: "",
   parceiroPadrao: "",
   mapeamento: {},
   competencia: { origem: "coluna" },
@@ -60,7 +76,12 @@ export const ESTADO_INICIAL: EstadoImportacao = {
 
 export type AcaoImportacao =
   | { tipo: "escolheu-arquivo"; arquivo: ArquivoEscolhido }
-  | { tipo: "escolheu-perfil"; perfilId: string; mapeamento: Readonly<Record<string, string>> }
+  | {
+      tipo: "escolheu-perfil";
+      perfilId: string;
+      mapeamento: Readonly<Record<string, string>>;
+      impressaoDoPerfil: string;
+    }
   | { tipo: "mapeou"; rotulo: string; campo: string | null }
   | { tipo: "definiu-parceiro-padrao"; valor: string }
   | { tipo: "competencia-da-coluna" }
@@ -83,6 +104,7 @@ export function assinaturaDoPlano(e: EstadoImportacao): string {
   return JSON.stringify({
     arquivo: e.arquivo ? [e.arquivo.nome, e.arquivo.tamanhoBytes] : null,
     perfilId: e.perfilId,
+    impressaoDoPerfil: e.impressaoDoPerfil,
     parceiroPadrao: e.parceiroPadrao.trim(),
     mapeamento,
     competencia: e.competencia,
@@ -96,7 +118,13 @@ export function reduzir(e: EstadoImportacao, acao: AcaoImportacao): EstadoImport
       // aproveitá-los mapearia colunas que talvez nem existam neste arquivo.
       return { ...e, arquivo: acao.arquivo, mapeamento: {}, ensaioDe: null };
     case "escolheu-perfil":
-      return { ...e, perfilId: acao.perfilId, mapeamento: acao.mapeamento, ensaioDe: null };
+      return {
+        ...e,
+        perfilId: acao.perfilId,
+        impressaoDoPerfil: acao.impressaoDoPerfil,
+        mapeamento: acao.mapeamento,
+        ensaioDe: null,
+      };
     case "mapeou": {
       const mapeamento = { ...e.mapeamento };
       if (acao.campo === null || acao.campo === "") delete mapeamento[acao.rotulo];
@@ -118,7 +146,12 @@ export function reduzir(e: EstadoImportacao, acao: AcaoImportacao): EstadoImport
       // descrevia "o que vai acontecer" agora descreve o que já aconteceu.
       return { ...e, aplicando: false, ensaioDe: null };
     case "falhou":
-      return { ...e, aplicando: false };
+      // ZERA o ensaio, e isto NÃO é excesso de zelo: o gravar escreve em lotes
+      // (`executar-importacao.ts`) e a rota devolve erro depois de parte já ter
+      // entrado. Depois de uma falha, o banco não é mais o banco que o ensaio
+      // descreveu — religar o botão com os números de antes é oferecer um
+      // segundo clique em cima de base já mexida.
+      return { ...e, aplicando: false, ensaioDe: null };
   }
 }
 
@@ -177,4 +210,26 @@ export function etapaAtual(e: EstadoImportacao): Etapa {
   if (impedimentosDoEnsaio(e).length > 0) return "mapeamento";
   if (!ensaioValeParaAgora(e)) return "ensaio";
   return "aplicar";
+}
+
+/**
+ * A impressão do conteúdo do perfil, para a assinatura enxergar edição feita
+ * fora desta tela. Ordena as chaves porque o Postgres não garante ordem de
+ * `Json` e ordem diferente não é perfil diferente.
+ */
+export function impressaoDoPerfil(perfil: {
+  mapeamentoColunas?: Readonly<Record<string, string>>;
+  formatosValor?: Readonly<Record<string, string>>;
+  dicionarios?: Readonly<Record<string, Readonly<Record<string, string>>>>;
+}): string {
+  const ordenar = (o: Readonly<Record<string, unknown>> | undefined) =>
+    Object.entries(o ?? {}).sort(([a], [b]) => (a < b ? -1 : 1));
+  return JSON.stringify([
+    ordenar(perfil.mapeamentoColunas),
+    ordenar(perfil.formatosValor),
+    ordenar(perfil.dicionarios).map(([campo, tabela]) => [
+      campo,
+      ordenar(tabela as Readonly<Record<string, string>>),
+    ]),
+  ]);
 }
