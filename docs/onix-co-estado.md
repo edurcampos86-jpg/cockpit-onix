@@ -496,10 +496,19 @@ do import, então o campo guardava informação duplicada. Trocar duplicata por
 informação nova custa zero coluna — o diff de `schema.prisma` foi só comentário
 `///`, sem uma linha de DDL.
 
-**Mas é a terceira ocorrência de empréstimo de campo no projeto**, depois de
-`EmpresaBootstrapLog.empresaId` (registrado acima, "o ponto menos elegante do
-desenho atual"). Um empréstimo é economia; três viram padrão, e padrão não
-declarado é o que faz a próxima pessoa ler o schema e entender outra coisa.
+**Mas é a terceira ocorrência de empréstimo de campo no projeto.** As outras
+duas, com endereço — porque afirmação de contagem sem endereço é a própria
+dívida que esta seção denuncia:
+
+1. `EmpresaBootstrapLog.empresaId` — `onix-co-estado.md:55`, "o ponto menos
+   elegante do desenho atual". O campo carrega o **alvo da operação**, não
+   necessariamente uma empresa.
+2. `ImportJob.erros` — `onix-contador-import.md:98`, "essa coluna já está
+   emprestada pelo webhook e tem plano próprio".
+3. `ContratoCorretora.importadoEm` — este.
+
+Um empréstimo é economia; três viram padrão, e padrão não declarado é o que faz
+a próxima pessoa ler o schema e entender outra coisa.
 
 **O gatilho para desfazer**: se um dia as duas informações precisarem coexistir
 — competência do relatório E instante do processamento, na mesma linha, para a
