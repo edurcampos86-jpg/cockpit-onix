@@ -144,6 +144,18 @@ const STATUS_STYLE: Record<string, string> = {
   recusada: "bg-destructive/15 text-destructive",
 };
 
+/* Rótulo de exibição do status. O `value` do <option> continua sendo o id
+ * gravado — `commitStatus`/`atualizarStatus` recebem exatamente o mesmo valor.
+ * O que muda é só o que a pessoa lê: "em-andamento" com hífen e "concluida"
+ * sem acento são identificadores, não português. */
+const STATUS_LABEL: Record<string, string> = {
+  triagem: "Em análise",
+  aprovada: "Aprovada",
+  "em-andamento": "Em andamento",
+  concluida: "Concluída",
+  recusada: "Recusada",
+};
+
 const TIPO_LABEL: Record<string, string> = {
   melhoria: "Melhoria",
   erro: "Erro",
@@ -172,6 +184,23 @@ function normalizarBusca(t: string): string {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .trim();
+}
+
+/**
+ * Score como número de LEITURA, não como número de cálculo.
+ *
+ * O score guarda 4 casas de propósito: é isso que impede a régua nova de criar
+ * empate onde a antiga distinguia (ver `lib/rice.ts`). Mas essa precisão existe
+ * para ORDENAR, não para ser lida — e ela vazou para a tela: numa fila em que
+ * quase todo score é redondo, um "266,6667" ao lado de um "300" parece defeito,
+ * e obriga a pessoa a contar casas decimais para comparar duas linhas.
+ *
+ * Uma casa basta para distinguir prioridades nesta grandeza. E arredondar aqui
+ * não mexe em ordenação nem em ranking: a posição continua sendo calculada sobre
+ * o valor cheio — o que muda é só o que se lê.
+ */
+function formatarScore(score: number): string {
+  return score.toLocaleString("pt-BR", { maximumFractionDigits: 1 });
 }
 
 /**
@@ -411,8 +440,11 @@ function ScoreCell({
             "font-bold tabular-nums",
             rascunho ? "text-[#9a6a00] dark:text-[#FFB114]" : "text-foreground",
           )}
+          // Valor cheio no title: quem precisar conferir a conta acha, sem que
+          // a tabela inteira pague o preço de exibir 4 casas em toda linha.
+          title={`Score exato: ${score}`}
         >
-          {score}
+          {formatarScore(score)}
         </span>
       </div>
       <div
@@ -525,9 +557,17 @@ function MetricasBacklogBloco({ m }: { m: MetricasBacklog }) {
     {
       valor:
         m.leadTimeMedianoDias == null ? "—" : `${m.leadTimeMedianoDias}d`,
-      label: "lead time mediano",
+      label: "tempo típico da ideia até o ar",
     },
-    { valor: String(m.comPr - m.entregues), label: "PRs em aberto" },
+    {
+      valor: String(m.comPr - m.entregues),
+      // O rótulo diz exatamente o que a conta faz: `comPr − entregues`
+      // (`metricas.ts:46,53`) é toda linha com entrega VINCULADA e sem data de
+      // merge — o que inclui a descartada. "começadas" seria específico e
+      // falso: uma entrega descartada não está a caminho do ar. E não é o mesmo
+      // conjunto do status "Em andamento", que é digitado à mão.
+      label: "entregas vinculadas, ainda não no ar",
+    },
   ];
 
   return (
@@ -595,7 +635,7 @@ function PrCell({
           onClick={() => setEditando(true)}
           className="text-xs font-medium text-muted-foreground hover:text-primary"
         >
-          + PR
+          + entrega
         </button>
       );
     }
@@ -617,7 +657,7 @@ function PrCell({
               setEditando(false);
             }
           }}
-          placeholder="#123 ou URL"
+          placeholder="#123 ou link"
           className={cn(
             "w-28 rounded-md border bg-background px-1.5 py-1 text-xs focus:outline-none",
             erro ? "border-destructive" : "border-border focus:border-primary",
@@ -625,7 +665,7 @@ function PrCell({
         />
         {erro && (
           <p className="mt-0.5 text-[10px] text-destructive">
-            Use #123 ou a URL do PR.
+            Cole o número da entrega (ex.: #123) ou o link dela.
           </p>
         )}
       </div>
@@ -655,14 +695,16 @@ function PrCell({
             PR_STATUS_STYLE[status ?? "aberta"] ?? "bg-muted text-muted-foreground",
           )}
         >
-          <option value="aberta">aberta</option>
-          <option value="merged">merged</option>
-          <option value="fechada">fechada</option>
+          {/* `value` intacto: `PR_STATUSES` (actions/implementacao.ts) segue
+              validando os mesmos três. Só o rótulo sai do jargão. */}
+          <option value="aberta">em construção</option>
+          <option value="merged">no ar</option>
+          <option value="fechada">descartada</option>
         </select>
         <button
           type="button"
           onClick={onDesvincular}
-          aria-label="Desvincular PR"
+          aria-label="Desvincular entrega"
           className="text-muted-foreground hover:text-destructive"
         >
           <X className="h-3 w-3" />
@@ -676,6 +718,7 @@ export function ImplementacoesList({
   itens,
   empresas,
   ocultadas = 0,
+  ocultadasSemRice = 0,
   metricas,
   v2 = false,
 }: {
@@ -683,6 +726,8 @@ export function ImplementacoesList({
   empresas: { id: string; nome: string }[];
   /** Linhas que existem no banco mas não vieram por causa do teto da página. */
   ocultadas?: number;
+  /** Quantas das ocultas nunca foram pontuadas. Ver o banner abaixo. */
+  ocultadasSemRice?: number;
   /** ROI de backlog — calculado sobre a fila INTEIRA, não sobre o recorte. */
   metricas: MetricasBacklog;
   /** IMPLEMENTACOES_V2. OFF (default) = a tela de antes desta entrega, sem desvio. */
@@ -961,15 +1006,25 @@ export function ImplementacoesList({
     if (!aGravar) return;
     gravando.current[id] = true;
     startTransition(async () => {
-      const res = await atualizarRice(id, aGravar);
-      delete gravando.current[id];
-      if (res?.ok) {
-        // Só limpa o "antes" se nada novo entrou na fila enquanto isto voava —
-        // senão o desfazer da próxima recusa perderia o alvo.
-        if (!timers.current[id]) delete antesDoAutosave.current[id];
-        return;
+      // `try/finally`: o `delete` PRECISA rodar mesmo se a promise rejeitar
+      // (queda de rede, Server Action fora do ar). Sem ele a marca fica presa,
+      // e `commitRice` só recaptura `antesDoAutosave` quando a linha NÃO está
+      // gravando — ou seja, o desfazer seguinte restauraria um estado de vários
+      // minutos antes. É a rede de segurança do autosave apodrecendo calada.
+      try {
+        const res = await atualizarRice(id, aGravar);
+        if (res?.ok) {
+          // Só limpa o "antes" se nada novo entrou na fila enquanto isto voava —
+          // senão o desfazer da próxima recusa perderia o alvo.
+          if (!timers.current[id]) delete antesDoAutosave.current[id];
+          return;
+        }
+        desfazer(id, res?.erro ?? "Não deu para salvar. O valor voltou ao anterior.");
+      } catch {
+        desfazer(id, "Sem conexão com o servidor. O valor voltou ao anterior.");
+      } finally {
+        delete gravando.current[id];
       }
-      desfazer(id, res?.erro ?? "Não deu para salvar. O valor voltou ao anterior.");
     });
   }
 
@@ -1184,7 +1239,7 @@ export function ImplementacoesList({
     // Confirmação com a CONTA na frente. O gesto é 1 clique e o custo não é
     // óbvio pelo botão; confirmar é o único ponto em que dá para desistir.
     const aviso = [
-      `Sugerir RICE para ${alvos.length} ${alvos.length === 1 ? "sugestão" : "sugestões"}?`,
+      `Estimar a prioridade de ${alvos.length} ${alvos.length === 1 ? "sugestão" : "sugestões"} com IA?`,
       "",
       "Cada uma é uma chamada à IA que lê o conteúdo e os anexos — leva até ~1 min por item, em sequência.",
       sobra > 0
@@ -1285,7 +1340,7 @@ export function ImplementacoesList({
         <div>
           <h1 className="text-xl font-bold text-foreground">Implementações</h1>
           <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
-            Central Golden Circle · priorização RICE
+            Fila de melhorias · ordenada por prioridade
             <RiceHelp v2={v2} />
           </p>
         </div>
@@ -1331,6 +1386,7 @@ export function ImplementacoesList({
           </>
         )}
         <select
+          aria-label="Filtrar por empresa"
           value={fEmpresa}
           onChange={(e) => setFEmpresa(e.target.value)}
           className="rounded-md border border-border bg-background px-3 py-1.5 text-sm"
@@ -1343,6 +1399,7 @@ export function ImplementacoesList({
           ))}
         </select>
         <select
+          aria-label="Filtrar por status"
           value={fStatus}
           onChange={(e) => setFStatus(e.target.value)}
           className="rounded-md border border-border bg-background px-3 py-1.5 text-sm"
@@ -1350,7 +1407,7 @@ export function ImplementacoesList({
           <option value="todos">Todos os status</option>
           {STATUSES.map((st) => (
             <option key={st} value={st}>
-              {st}
+              {STATUS_LABEL[st] ?? st}
             </option>
           ))}
         </select>
@@ -1372,7 +1429,7 @@ export function ImplementacoesList({
             )}
           >
             <Sparkles className="h-3.5 w-3.5 text-[#FFB114]" />
-            {semRice} sem RICE
+            {semRice} ainda sem prioridade
             {soSemRice && <X className="h-3.5 w-3.5" />}
           </button>
         )}
@@ -1395,7 +1452,7 @@ export function ImplementacoesList({
             ) : (
               <>
                 <Sparkles className="h-3.5 w-3.5" />
-                Sugerir RICE para{" "}
+                Estimar prioridade de{" "}
                 {aPontuarNoRecorte > MAX_LOTE
                   ? `${MAX_LOTE} de ${aPontuarNoRecorte}`
                   : `as ${aPontuarNoRecorte}`}
@@ -1409,10 +1466,22 @@ export function ImplementacoesList({
         <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>
+            {/* O texto dizia "mais antigas", e estava errado: o recorte é
+                `score desc nulls last`, então quem cai fora é quem tem MENOS
+                score — e, antes de todos, quem não tem score nenhum. A ideia
+                recém-enviada pelo FAB é a primeira a sumir, e o atalho "ainda
+                sem prioridade" não a alcança porque filtra só o carregado. */}
             <strong>{ocultadas}</strong>{" "}
-            {ocultadas === 1 ? "sugestão mais antiga não está" : "sugestões mais antigas não estão"}{" "}
-            nesta tela — a página traz as {rows.length} de maior score. Os filtros
-            abaixo só enxergam o que está carregado.
+            {ocultadas === 1 ? "sugestão está fora" : "sugestões estão fora"} desta
+            tela — a página traz as {rows.length} de maior prioridade.
+            {ocultadasSemRice > 0 && (
+              <>
+                {" "}
+                <strong>{ocultadasSemRice}</strong>{" "}
+                {ocultadasSemRice === 1 ? "delas ainda não foi pontuada" : "delas ainda não foram pontuadas"}.
+              </>
+            )}{" "}
+            Os filtros abaixo só enxergam o que está carregado.
           </span>
         </div>
       )}
@@ -1425,7 +1494,8 @@ export function ImplementacoesList({
         <div className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
           {rows.length === 0 ? (
             <>
-              Nenhuma implementação ainda. Clique em <strong>Nova</strong> para começar.
+              Nenhuma sugestão na fila. Clique em <strong>Nova</strong> e conte o que
+              precisa melhorar.
             </>
           ) : (
             <>
@@ -1487,7 +1557,7 @@ export function ImplementacoesList({
                   </>
                 )}
                 <th className="px-3 py-2 font-semibold">Status</th>
-                <th className="px-3 py-2 font-semibold" title="PR que esta sugestao originou">PR</th>
+                <th className="px-3 py-2 font-semibold" title="A entrega que nasceu desta sugestão">Entrega</th>
               </tr>
             </thead>
             <tbody>
@@ -1660,7 +1730,7 @@ export function ImplementacoesList({
                                 ) : (
                                   <>
                                     <Sparkles className="h-3 w-3" />
-                                    Sugerir RICE com IA
+                                    Estimar prioridade com IA
                                   </>
                                 )}
                               </button>
@@ -1789,6 +1859,7 @@ export function ImplementacoesList({
                     )}
                     <td className="px-3 py-2">
                       <select
+                        aria-label={`Status de ${r.oQue}`}
                         value={r.status}
                         onChange={(e) => commitStatus(r.id, e.target.value)}
                         className={cn(
@@ -1798,7 +1869,7 @@ export function ImplementacoesList({
                       >
                         {STATUSES.map((st) => (
                           <option key={st} value={st}>
-                            {st}
+                            {STATUS_LABEL[st] ?? st}
                           </option>
                         ))}
                       </select>

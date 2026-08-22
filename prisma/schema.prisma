@@ -3200,6 +3200,17 @@ model ContratoCorretora {
   /// Linha do arquivo. Com `arquivoOrigem`, aponta a célula que originou o
   /// registro quando alguém contestar um número.
   linhaOrigem Int?
+
+  /// COMPETÊNCIA do relatório que originou a linha — de que mês é o arquivo —,
+  /// e NÃO o instante em que ele foi processado. Esse instante já está em
+  /// `createdAt`/`updatedAt`; duplicá-lo aqui custaria a única coluna capaz de
+  /// ordenar dois arquivos entre si.
+  ///
+  /// É o que `src/lib/corretora/importar-contratos.ts` (regra 5) compara para
+  /// recusar que um relatório antigo reprocessado sobrescreva valor de um mais
+  /// recente. `null` = contrato cadastrado à mão ou importado antes da regra —
+  /// e `null` não bloqueia nada: sem referência gravada não há como afirmar
+  /// que a do arquivo é mais velha.
   importadoEm DateTime?
 
   createdAt DateTime @default(now())
