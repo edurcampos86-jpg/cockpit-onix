@@ -7,7 +7,6 @@ import { Prisma } from "@/generated/prisma/client";
 import { requireAdmin } from "@/lib/auth-helpers";
 import {
   normalizarTipoParceiro,
-  normalizarTipoProduto,
   ehTipoParceiroConhecido,
 } from "@/lib/parceiros/vocabulario";
 import { parceiroPorNome } from "@/lib/parceiros/consultas";
@@ -188,17 +187,24 @@ export async function criarAcordoForm(formData: FormData): Promise<void> {
   const ctx = await requireAdmin();
 
   const parceiroId = texto(formData.get("parceiroId"));
-  const produtoBruto = texto(formData.get("tipoProduto"));
+  const empresaId = texto(formData.get("empresaId"));
   const percentualBruto = texto(formData.get("percentual")).replace(",", ".");
+  const incluiDescendentes = texto(formData.get("incluiDescendentes")) === "1";
   const dataInicio = dataOuNula(formData.get("dataInicio")) ?? new Date();
 
   const volta = (erro: string) =>
     redirect(`/time/parceiros/${parceiroId}?erroAcordo=${encodeURIComponent(erro)}`);
 
   if (!parceiroId) return;
+  if (!empresaId) volta("Escolha a empresa ou o departamento do acordo.");
 
-  const produto = normalizarTipoProduto(produtoBruto);
-  if (!produto) volta("Escolha o produto do acordo.");
+  // FK existe no banco e barraria de qualquer jeito — a leitura aqui é para a
+  // mensagem sair com o NOME do nó em vez de um erro de constraint.
+  const no = await prisma.empresa.findUnique({
+    where: { id: empresaId },
+    select: { id: true, nome: true },
+  });
+  if (!no) volta("Essa empresa não existe mais na hierarquia.");
 
   // Decimal e não Number: `percentual` é DECIMAL(7,4) e a aritmética de float
   // erra somas de taxa (0.1 + 0.2 !== 0.3). Converter aqui derrotaria a escolha
@@ -216,35 +222,36 @@ export async function criarAcordoForm(formData: FormData): Promise<void> {
 
   // ── Retroatividade que quebraria a linha anterior ──────────────────────
   //
-  // Fechar o vigente grava `dataFim = dataInicio` do novo. Se alguém informar
-  // uma data ANTERIOR ao início do acordo que está valendo, a linha antiga
-  // ficaria com `dataFim < dataInicio` — o que o CHECK `vigencia_coerente` da
-  // #318 recusa, e o usuário veria um erro de constraint no lugar de uma
-  // frase. Pior: um acordo que termina antes de começar some de toda consulta
-  // por data, sem ninguém saber por quê.
+  // Fechar o vigente grava `dataFim = dataInicio` do novo. Data anterior ao
+  // início do que está valendo deixaria a linha antiga com
+  // `dataFim < dataInicio` — o CHECK `vigencia_coerente` da #318 recusa, e o
+  // usuário veria erro de constraint no lugar de uma frase.
   const vigenteAtual = await prisma.acordoComercialParceiro.findFirst({
-    where: { parceiroId, tipoProduto: produto!, dataFim: null },
+    where: { parceiroId, empresaId, dataFim: null },
     select: { dataInicio: true },
   });
   if (vigenteAtual && dataInicio < vigenteAtual.dataInicio) {
     volta(
-      `O acordo que vale hoje nesse produto começou em ${vigenteAtual.dataInicio.toLocaleDateString("pt-BR", { timeZone: "UTC" })}. ` +
+      `O acordo que vale hoje em ${no!.nome} começou em ${vigenteAtual.dataInicio.toLocaleDateString("pt-BR", { timeZone: "UTC" })}. ` +
         "A nova data precisa ser igual ou posterior — para corrigir o passado, encerre e registre de novo.",
     );
   }
 
   await prisma.$transaction(async (tx) => {
-    // Fecha o vigente DESTE produto — e só dele. Os outros produtos seguem
-    // vigentes: é o ponto da modelagem por `tipoProduto`.
+    // Fecha o vigente DESTE nó — e só dele. Os outros nós seguem vigentes: é o
+    // ponto da modelagem por hierarquia.
     await tx.acordoComercialParceiro.updateMany({
-      where: { parceiroId, tipoProduto: produto!, dataFim: null },
+      where: { parceiroId, empresaId, dataFim: null },
       data: { dataFim: dataInicio, encerradoPor: ctx.userId },
     });
 
     await tx.acordoComercialParceiro.create({
       data: {
         parceiroId,
-        tipoProduto: produto!,
+        empresaId,
+        incluiDescendentes,
+        // `tipoProduto` fica NULL: linha nova nasce no caminho novo. A coluna
+        // segue existindo para as linhas antigas até a PR de remoção.
         percentual,
         dataInicio,
         criadoPor: ctx.userId,
