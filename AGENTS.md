@@ -142,3 +142,33 @@ vira só a chamada e o link.
 
 O que NÃO muda: continuam sendo três, continuam nascendo do que foi visto
 naquela tarefa, e continuam cabendo em três linhas cada.
+
+## Faixa verde nasce com a auditoria já agendada
+
+A política de faixa verde sempre previu auditor em sessão separada. Na prática
+ninguém aciona esse passo: a PR fica pronta, verde, e parada — a #334 ficou
+dias assim. Regra escrita não executada é regra que não existe.
+
+Então o agendamento deixa de depender de alguém lembrar: **ao terminar de
+implementar uma PR de faixa verde, dispare o subagente auditor na mesma
+execução, sem esperar pedido.**
+
+O auditor recebe apenas o número da PR, o diff e os critérios. **Não** recebe o
+raciocínio de quem implementou, nem a descrição da PR como verdade — o valor
+dele está justamente em não herdar as premissas de quem escreveu o código.
+
+Critérios de faixa verde, todos obrigatórios:
+
+- nenhuma migration, nenhuma alteração em `prisma/schema.prisma`
+- nenhuma escrita de dado (`create`/`update`/`upsert`/`delete`/`executeRaw`)
+- nenhuma mudança em RBAC ou regra de permissão
+- nenhum segredo novo ou exposto
+- nenhuma rota existente alterada
+- somente leitura: nenhuma ação de conceder ou revogar
+- lint e build passando
+
+Aprovou: tira do draft e faz squash merge, lendo `mergeable_state` antes.
+Escalou: não mergeia, registra o motivo na PR e reporta.
+
+**Faixa amarela e vermelha continuam parando para o Eduardo.** Só a verde é
+auto-auditada — é o que a torna verde.

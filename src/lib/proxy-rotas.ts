@@ -14,22 +14,27 @@ export const ROTAS_PUBLICAS = [
   "/onboarding/", // Onboarding por token (Fase 2C — gestão do time)
   "/api/cron/", // Crons do Painel do Dia — Bearer CRON_SECRET
   "/api/health", // Health check do smoke pós-deploy — sem dados sensíveis
-  "/api/integracoes/zapier/webhook", // x-webhook-secret (ver nota abaixo)
+  "/api/integracoes/zapier/webhook", // x-webhook-secret (timing-safe; ausente = 503)
   "/api/onix-corretora/ingest",
   "/api/webhooks/btg", // Webhook BTG — x-webhook-secret se configurado
   "/api/integracoes/meta/ingest", // Bearer META_INGEST_TOKEN (timing-safe; ausente = 503)
 ] as const;
 
 /**
- * NOTA DE SEGURANÇA (fora do escopo desta correção, registrada aqui para não
- * se perder): `/api/integracoes/zapier/webhook` autentica por
- * `validateWebhookSecret`, que FALHA ABERTA — `src/lib/integrations/zapier.ts`
- * retorna `true` quando `ZAPIER_WEBHOOK_SECRET` não está configurado. Como o
- * segredo é gravado pela UI no `.integrations.json` (efêmero no Railway), ele
- * pode sumir num redeploy e reabrir a rota para a internet sem nenhum sinal.
- * O padrão correto está em `meta/ingest`, que responde 503 quando o token não
- * existe. Trocar para falha fechada exige confirmar antes que o segredo está
- * como env var no Railway — senão a integração do Zapier para de funcionar.
+ * NOTA DE SEGURANÇA — o `zapier/webhook` FOI CORRIGIDO; o `webhooks/btg` NÃO.
+ *
+ * O `zapier/webhook` falhava aberta: `validateWebhookSecret` devolvia `true`
+ * quando `ZAPIER_WEBHOOK_SECRET` não estava configurado. Como o segredo pode
+ * ser gravado pela UI no `.integrations.json` (efêmero no Railway), um redeploy
+ * o apagava e a rota reabria para a internet sem nenhum sinal. Agora responde
+ * 503 quando não há segredo — ver `src/lib/integrations/zapier-acesso.ts`.
+ *
+ * `/api/webhooks/btg` continua com o padrão antigo: sem `BTG_WEBHOOK_SECRET`
+ * ele registra um `console.warn` e ACEITA a requisição
+ * (`src/app/api/webhooks/btg/route.ts`). Segredo vem só do env, então não some
+ * em redeploy como o do Zapier — mas nunca configurá-lo deixa a rota aberta do
+ * mesmo jeito. Correção fora do escopo daquela PR, registrada aqui para não se
+ * perder.
  */
 
 export function ehRotaPublica(path: string): boolean {

@@ -878,6 +878,15 @@ model ClienteBackoffice {
   pats                 Pat[]
   fatos                ClienteFato[]
 
+  // ── Registro rico do cliente (flag CLIENTES_REGISTRO_RICO) ──
+  // Todas as cinco são LISTAS e nascem vazias: nenhuma linha existente de
+  // ClienteBackoffice muda ao aplicar a migration.
+  gruposMembro     ClienteGrupoMembro[]
+  contatoHistorico RegistroContatoHistorico[]
+  sugestoes        SugestaoExtraida[]
+  tarefas          TarefaCliente[]
+  proveniencias    CampoProveniencia[]
+
   @@index([numeroConta])
   @@index([classificacao])
   @@index([proximoContatoAt])
@@ -1088,6 +1097,11 @@ model ReuniaoEstruturada {
   imports    ReuniaoImport[]
   fatos      ClienteFato[]
 
+  // ── Registro rico (flag CLIENTES_REGISTRO_RICO) ──
+  sugestoes     SugestaoExtraida[]
+  tarefas       TarefaCliente[]
+  proveniencias CampoProveniencia[]
+
   @@index([clienteId, data])
   @@index([data])
 }
@@ -1114,6 +1128,10 @@ model ReuniaoImport {
 
   importadoPor String? // userId de quem importou (sessão)
   importadoEm  DateTime @default(now())
+
+  /// Lado inverso de `SugestaoExtraida.importacao`. Campo de RELAÇÃO: não vira
+  /// coluna nem altera a tabela `ReuniaoImport` no SQL.
+  sugestoes SugestaoExtraida[]
 
   @@index([clienteId, importadoEm])
 }
@@ -1376,6 +1394,27 @@ model Parceiro {
   /// segue existindo como quem indica; só perde a identidade de cliente.
   clienteBackofficeId String?            @unique
   clienteBackoffice   ClienteBackoffice? @relation("ParceiroIdentidadeCliente", fields: [clienteBackofficeId], references: [id], onDelete: SetNull)
+
+  /// A PESSOA DO TIME que este parceiro é, quando ele também é do time.
+  ///
+  /// Gêmeo exato de `clienteBackofficeId` acima, e pelo mesmo motivo: parceiro
+  /// PODE ser do time e não precisa ser. O contador que indica clientes não
+  /// tem crachá; o sócio da Onix Imobiliária tem.
+  ///
+  /// @unique: uma pessoa do time representa no máximo um parceiro. Sem isso,
+  /// dois cadastros de parceiro poderiam reivindicar a mesma pessoa e nenhuma
+  /// leitura futura saberia qual vale — mesma razão do campo de cliente.
+  ///
+  /// onDelete: SetNull — arquivar a pessoa não pode apagar o parceiro. Ele
+  /// segue existindo como quem indica; só perde o elo com o cadastro do time.
+  ///
+  /// ⚠️ RISCO QUE ESTE CAMPO TORNA VISÍVEL, e não cria: com a pessoa ligada,
+  /// fica evidente que o mesmo humano pode ter `AcordoComercial` (o do time)
+  /// e `AcordoComercialParceiro` vigentes ao mesmo tempo. As duas tabelas não
+  /// se enxergam. Registrado em docs/onix-co-estado.md como pendência de
+  /// guarda — ver "RISCO DE PAGAMENTO DUPLO".
+  pessoaId String? @unique
+  pessoa   Pessoa? @relation("ParceiroPessoaTime", fields: [pessoaId], references: [id], onDelete: SetNull)
 
   /// NULL = sem contrato assinado. Será PRÉ-REQUISITO de ativação de acesso na
   /// Fase 3 — o parceiro só ganha login depois que isto tem data. Guardado
@@ -2182,6 +2221,10 @@ model Pessoa {
   equipeId       String?
   equipe         Equipe?      @relation(fields: [equipeId], references: [id])
 
+  /// Lado inverso de `Parceiro.pessoaId`. Null é o caso comum: a maioria do
+  /// time não é parceiro comercial.
+  parceiro Parceiro? @relation("ParceiroPessoaTime")
+
   // A quem se reporta (self-relation)
   lideradoPorId String?
   lideradoPor   Pessoa?  @relation("HierarquiaPessoa", fields: [lideradoPorId], references: [id])
@@ -2212,6 +2255,7 @@ model Pessoa {
   // Fase 0 — Cockpit de Reunião (quem conduziu)
   reunioesEstruturadasConduzidas ReuniaoEstruturada[]
   interacoesConduzidas           InteracaoCliente[]
+  tarefasCliente                 TarefaCliente[]
 
   // RBAC — Fase 1 (fundação; aditivo, sem enforcement ainda). papelId NULLABLE:
   // Pessoas existentes ficam sem papel até o seed de uma fase futura.
@@ -3347,4 +3391,270 @@ model PerfilImportacao {
   @@unique([empresaId, nome])
   /// Lista de perfis da empresa, filtrando os desligados. Cobre a FK.
   @@index([empresaId, ativo])
+}
+
+// ============================================
+// REGISTRO RICO DO CLIENTE — flag CLIENTES_REGISTRO_RICO (default OFF)
+// ============================================
+// Seis tabelas NOVAS, todas nascendo VAZIAS. Nenhuma coluna de tabela
+// existente é alterada, renomeada ou removida por esta migration — o único
+// efeito no schema atual são campos de RELAÇÃO (lados inversos), que o Prisma
+// resolve no client e não emitem SQL.
+//
+// O que NÃO nasce aqui, de propósito, porque já existe e seria duplicata:
+//   • "RegistroContato" → é `InteracaoCliente` (tipo ligacao/reuniao/revisao/
+//     email/whatsapp/evento, com canal, duração e rcaNotas). As rotas novas
+//     de registro de ligação e de reunião escrevem NELA.
+//   • "RegistroReuniao"  → é `ReuniaoEstruturada` (pauta, pendências por lado,
+//     próximos passos, dataRetorno, textoBruto), já com UI e flag própria.
+// Criar tabelas paralelas para as duas partiria o histórico do cliente em
+// dois lugares e quebraria o Cockpit de Reunião, que já está em produção.
+
+/// Grupo de contas que se atendem juntas (uma família, um casal, um grupo
+/// empresarial visto pela ótica do atendimento).
+///
+/// DISTINTO das três agregações que já existem, e por isso não reusa nenhuma:
+///   • `PessoaGrupo`  agrupa por DOCUMENTO (mesmo CPF/CNPJ = mesma pessoa);
+///   • `GrupoCliente` é o grupo de WhatsApp da Datacrazy;
+///   • `Empresa`      é a hierarquia societária do grupo Onix.
+/// Este agrupa por DECISÃO DE ATENDIMENTO — contas sem documento em comum e
+/// sem grupo de WhatsApp podem ser atendidas juntas, e é isso que a
+/// propagação de contato precisa saber.
+model ClienteGrupo {
+  id        String  @id @default(cuid())
+  nome      String
+  descricao String? @db.Text
+
+  criadoPor    String? // userId da sessão que criou
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  membros ClienteGrupoMembro[]
+
+  @@index([nome])
+}
+
+/// Vínculo conta↔grupo. `viaGrupo` é a regra inteira da propagação:
+///
+///   contato registrado NO GRUPO      → propaga para os membros com viaGrupo=true
+///   contato registrado NO INDIVÍDUO  → NUNCA propaga, nem para o grupo
+///
+/// O default é `true` porque quem cria um grupo de atendimento está dizendo
+/// que falar com um é falar com todos; `false` é a exceção declarada (o filho
+/// que exige contato próprio, o sócio que não participa das conversas).
+model ClienteGrupoMembro {
+  id String @id @default(cuid())
+
+  grupoId String
+  grupo   ClienteGrupo @relation(fields: [grupoId], references: [id], onDelete: Cascade)
+
+  clienteId String
+  cliente   ClienteBackoffice @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  /// Recebe a propagação de contato do grupo?
+  viaGrupo Boolean @default(true)
+
+  adicionadoPor String?
+  adicionadoEm  DateTime @default(now())
+
+  /// A mesma conta não entra duas vezes no mesmo grupo. Sem isto, uma segunda
+  /// inclusão faria a propagação escrever o mesmo contato N vezes no histórico.
+  @@unique([grupoId, clienteId])
+  @@index([clienteId])
+}
+
+/// Extrato APPEND-ONLY de toda mudança em `ultimoContatoAt` / `proximoContatoAt`.
+///
+/// Existe porque hoje esses dois campos são sobrescritos por quatro caminhos
+/// diferentes (import, poll Datacrazy, registro manual, recompute) e o valor
+/// de "hoje" não diz por qual deles passou. Com a propagação por grupo isso
+/// deixa de ser curiosidade: um contato registrado na mãe move a data de três
+/// filhos, e sem esta tabela ninguém consegue responder "por que a data do
+/// João mudou se eu não falei com ele?".
+///
+/// Nada aqui é atualizado ou apagado — mesmo contrato de `ContratoAcessoLog`.
+model RegistroContatoHistorico {
+  id String @id @default(cuid())
+
+  clienteId String
+  cliente   ClienteBackoffice @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  /// "ultimoContatoAt" | "proximoContatoAt"
+  campo         String
+  valorAnterior DateTime?
+  valorNovo     DateTime?
+
+  /// "manual" | "ligacao" | "reuniao" | "grupo"
+  /// "grupo" = esta linha é EFEITO de um contato registrado no grupo, não um
+  /// contato próprio. É o que separa "falei com ele" de "falei com a família".
+  origem String
+
+  /// Preenchido só quando origem = "grupo": qual grupo propagou.
+  grupoId String?
+
+  /// A interação que originou (quando houve uma). Sem FK de propósito: o
+  /// histórico é imutável e precisa sobreviver à remoção da interação.
+  interacaoId String?
+
+  motivo      String? @db.Text
+  autorUserId String?
+  criadoEm    DateTime @default(now())
+
+  @@index([clienteId, criadoEm])
+  @@index([grupoId])
+}
+
+/// Fila de revisão da transcrição: o que a extração ACHOU, ainda não aplicado.
+///
+/// A regra que justifica a tabela: importar transcrição NÃO escreve em campo
+/// de cliente. Cada achado vira uma linha `pendente` aqui e só chega à ficha
+/// quando alguém aceita (ou edita e aceita) uma por uma.
+///
+/// DISTINTA de `ClienteFato`, e por isso não reusa: `ClienteFato` é o ledger
+/// append-only do que JÁ VALE (tem `fonte`, `valorAnterior`, alimenta a aba
+/// Perfil). Esta é a antessala — texto que ainda pode ser descartado sem
+/// deixar rastro no perfil do cliente. Misturar as duas obrigaria a filtrar
+/// "não confirmado" em toda leitura de perfil, e um esquecimento colocaria
+/// palpite de IA na ficha como se fosse fato conferido.
+model SugestaoExtraida {
+  id String @id @default(cuid())
+
+  clienteId String
+  cliente   ClienteBackoffice @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  /// Cascade (e não SetNull): sugestão pendente sem a reunião de origem é
+  /// texto órfão que ninguém consegue julgar — o revisor precisa do contexto.
+  reuniaoId String
+  reuniao   ReuniaoEstruturada @relation(fields: [reuniaoId], references: [id], onDelete: Cascade)
+
+  /// Qual importação a produziu. SetNull: a sugestão sobrevive à limpeza do
+  /// histórico de importações.
+  importacaoId String?
+  importacao   ReuniaoImport? @relation(fields: [importacaoId], references: [id], onDelete: SetNull)
+
+  /// Onde ela cai se for aceita:
+  /// "perfilEmocional" | "observacoes" | "descoberta" | "meta" | "eventoVida" | "tarefa"
+  destino String
+  /// Campo exato dentro do destino (ex.: "medos", "sonhos", "titulo").
+  campo   String
+  /// Como aparece na tela de revisão (ex.: "Medos financeiros").
+  rotulo  String
+
+  valorSugerido String  @db.Text
+  /// Preenchido quando o revisor EDITA antes de aceitar. Null em aceite direto
+  /// — o valor que valeu é o sugerido. Guardar os dois é o que permite medir
+  /// depois quanto a extração acerta sem revisão.
+  valorEditado  String? @db.Text
+
+  /// Trecho da transcrição que embasou o achado. É o que torna a revisão
+  /// possível sem reler a reunião inteira.
+  trecho    String? @db.Text
+  confianca Float?
+
+  /// "pendente" | "aceita" | "descartada"
+  /// Não existe status "editada": editar e aceitar é ACEITAR — o que mudou
+  /// fica em `valorEditado`. Um quarto status faria toda contagem de
+  /// "quantas aceitei" ter que somar duas colunas.
+  status      String    @default("pendente")
+  decididoPor String?
+  decididoEm  DateTime?
+
+  criadoEm DateTime @default(now())
+
+  @@index([clienteId, status])
+  @@index([reuniaoId])
+}
+
+/// Tarefa nascida do atendimento a UM cliente, com lado responsável declarado.
+///
+/// DISTINTA de `Task`, e por isso não reusa: `Task` exige `assigneeId` de
+/// `User` (só quem tem login) e não conhece cliente. Metade das pendências de
+/// reunião são do CLIENTE ("mandar o extrato do INSS") — em `Task` elas não
+/// teriam a quem ser atribuídas, e é justamente essa metade que o briefing de
+/// preparação precisa cobrar.
+model TarefaCliente {
+  id String @id @default(cuid())
+
+  clienteId String
+  cliente   ClienteBackoffice @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  /// Reunião que gerou. SetNull: a tarefa sobrevive à reunião.
+  reuniaoId String?
+  reuniao   ReuniaoEstruturada? @relation(fields: [reuniaoId], references: [id], onDelete: SetNull)
+
+  /// Sugestão de transcrição aceita que virou esta tarefa. UNIQUE: aceitar a
+  /// mesma sugestão duas vezes não pode gerar duas tarefas.
+  sugestaoId String? @unique
+
+  titulo    String
+  descricao String? @db.Text
+
+  /// "assessor" | "cliente" — o LADO. É o eixo do briefing ("o que eu devo" x
+  /// "o que ele deve") e existe independente de haver pessoa nomeada.
+  responsavel String
+
+  /// Quem do time, quando o lado é "assessor" e há dono. SetNull preserva a
+  /// tarefa se a Pessoa sair.
+  responsavelPessoaId String?
+  responsavelPessoa   Pessoa? @relation(fields: [responsavelPessoaId], references: [id], onDelete: SetNull)
+
+  prazo       DateTime?
+  /// "aberta" | "concluida" | "cancelada"
+  status      String    @default("aberta")
+  concluidaEm DateTime?
+
+  criadoPor    String?
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  @@index([clienteId, status])
+  @@index([prazo])
+}
+
+/// De onde veio o valor que está HOJE em cada campo editável da ficha.
+///
+/// Uma linha viva por (cliente, campo) — UPSERT, não append. O extrato
+/// histórico já existe em `ClienteFato` e em `RegistroContatoHistorico`; esta
+/// tabela responde a pergunta da TELA, que é outra: "este texto de 'medos' foi
+/// você que escreveu, veio da reunião de março ou foi a IA que sugeriu?".
+///
+/// Sem ela o selo de origem teria que ser inferido no render, e campos que não
+/// passam por `ClienteFato` (perfilEmocional, metas, eventos, descoberta)
+/// simplesmente não teriam resposta.
+model CampoProveniencia {
+  id String @id @default(cuid())
+
+  clienteId String
+  cliente   ClienteBackoffice @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  /// Endereço do campo, estável e legível:
+  ///   "perfilEmocional" · "observacoes"
+  ///   "descoberta.medos" · "descoberta.sonhos" · …
+  ///   "meta:<id>" · "eventoVida:<id>"
+  campo String
+
+  /// "manual" | "reuniao" | "ia" | "base_btg" | "informacoes" | "api"
+  /// Mesmo vocabulário de `ClienteFato.fonte` de propósito: dois vocabulários
+  /// para "de onde veio" acabariam divergindo, e a ficha mostraria rótulos
+  /// diferentes para a mesma origem em duas abas.
+  origem String
+
+  /// Primeiros caracteres do valor gravado — só para a tela conseguir dizer
+  /// "mudou desde então" sem carregar o texto inteiro.
+  valorResumo String?
+
+  /// Reunião de origem, quando origem = "reuniao" ou "ia".
+  reuniaoId String?
+  reuniao   ReuniaoEstruturada? @relation(fields: [reuniaoId], references: [id], onDelete: SetNull)
+
+  /// Sugestão aceita que produziu este valor. Sem FK: a proveniência é o
+  /// estado atual do campo e não pode ser apagada junto com a fila de revisão.
+  sugestaoId String?
+
+  autorUserId  String?
+  registradoEm DateTime @default(now())
+
+  /// Uma linha por campo: o selo mostra a ÚLTIMA origem, não a lista.
+  @@unique([clienteId, campo])
+  @@index([clienteId])
 }
