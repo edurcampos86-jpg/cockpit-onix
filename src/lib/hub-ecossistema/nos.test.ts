@@ -17,7 +17,7 @@ test("o hub tem exatamente as 8 empresas do ecossistema, na ordem do protótipo"
       "Onix Corporate",
       "Onix Imob",
       "Onix Tech",
-      "Onix Educacional",
+      "Onix Educação",
       "Onix Contábil",
     ],
   );
