@@ -2055,6 +2055,18 @@ model Empresa {
   /// a separação por empresa.
   transversal Boolean @default(false)
 
+  /// Departamento da HOLDING que consolida o trabalho das ocorrências
+  /// transversais das empresas.
+  ///
+  /// "ADM/Financeiro" existe sete vezes no grupo: uma em cada empresa, fazendo
+  /// o trabalho, e uma na holding, somando o das seis. Mesmo rótulo, papel
+  /// diferente. Sem esta coluna, conceder acesso ao "Jurídico" seria escolher
+  /// no escuro entre sete linhas de mesmo nome — e o RBAC concede por id.
+  ///
+  /// Excludente com `transversal`: um FAZ, o outro SOMA. O default `false`
+  /// vale para as 20 linhas que já existem: nenhuma delas consolida nada.
+  consolida Boolean @default(false)
+
   /// NULL = raiz. Só a holding "Onix Co" é raiz; empresas penduram nela e
   /// departamentos penduram na holding ou numa empresa.
   parentId String?
