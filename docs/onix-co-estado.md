@@ -517,10 +517,16 @@ mesma pergunta —, exigirá coluna nova. Não antes.
 ### `/integracoes` sem gate de papel — decidido, não pendente
 
 `/integracoes` é visível a qualquer usuário logado. **Deliberado**, não falta de
-gate: `projetarConfig` (`lib/integrations/config-acesso.ts`) ramifica por admin e
-nunca devolve a máscara da chave para quem não é; os campos vêm desabilitados; e
-a tela declara isso por escrito. Pôr gate de papel apagaria capacidade real de
-leitura.
+gate: `projetarConfig` (`src/lib/integrations/config-acesso.ts`) ramifica por
+admin e nunca devolve a máscara da chave para quem não é; os **botões de
+gravação** vêm desabilitados (`src/app/integracoes/page.tsx:920`, `:949`) e o
+servidor recusa com 403; e a tela declara isso por escrito. Pôr gate de papel
+apagaria capacidade real de leitura.
+
+Duas ressalvas que valem mais que a tese, porque é nelas que a próxima auditoria
+tropeça: os `input` de chave **não** têm `disabled` (dá para digitar, não dá para
+salvar — a defesa é o servidor), e os botões de OAuth do Google e da Microsoft
+(`:703-733`, `:784-813`) não olham `ehAdmin`, porque o vínculo é por usuário.
 
 **Situação em ago/2026: apenas o Eduardo usa a tela.** A capacidade de leitura
 para não-admin existe e está sem uso — mantida por decisão, para não reabrir a
