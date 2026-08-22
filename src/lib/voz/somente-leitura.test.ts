@@ -14,6 +14,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { reuniaoEhDaPessoa } from "../reunioes/escopo-reuniao";
+import { segmentarTurnos, atribuirEduardo, falasDoEduardo } from "./turnos";
 
 const SCRIPT = path.join(process.cwd(), "scripts", "guia-voz-eduardo.ts");
 
@@ -122,4 +123,49 @@ test("reunião órfã entra contada à parte, nunca somada ao titular", () => {
   assert.match(fonte, /const orfas = meetings\.filter/);
   assert.match(fonte, /ASSINA_EDUARDO\.test/);
   assert.match(fonte, /semTitular:\s*\{\s*total:/);
+});
+
+/**
+ * Resumo do Plaud NÃO é fala.
+ *
+ * `ReuniaoEstruturada.textoBruto` é o "resumo original colado (Plaud)"
+ * (`prisma/schema.prisma:1090`) — escrito pelo resumidor, não dito pelo
+ * Eduardo. `docs/plaud-caminhos-de-entrada.md` registra que o import manual,
+ * que é "o caminho que entrega mais", grava exatamente aí.
+ *
+ * Se esse texto entrar no corpus, o guia descreve a voz do resumidor e sai
+ * plausível — o modo de falha mais caro que existe aqui.
+ */
+test("resumo sem rótulo de falante não produz nenhuma fala atribuída", () => {
+  const resumo =
+    "Reuniao com o cliente para revisar a carteira. Foram discutidos os objetivos " +
+    "de longo prazo e ficou acordado um novo aporte mensal. Eduardo apresentou as " +
+    "opcoes de protecao e o cliente pediu tempo para pensar.";
+
+  const seg = segmentarTurnos(resumo);
+  assert.equal(seg.semDiarizacao, true, "resumo não tem rótulo de falante");
+
+  const atribuido = atribuirEduardo(seg, { vendedorEhEduardo: true, participantes: [] });
+  assert.deepEqual(
+    falasDoEduardo(atribuido),
+    [],
+    "resumo jamais pode virar fala do Eduardo, nem citando o nome dele",
+  );
+});
+
+test("o extrator descarta material sem fala e diz onde a fala entra", () => {
+  const fonte = readFileSync(SCRIPT, "utf8");
+
+  // Corpus e lotes só com o que tem fala.
+  assert.match(fonte, /const comFala = reunioes\.filter\(\(r\) => r\.diarizada\)/);
+  assert.match(fonte, /montarCorpus\(comFala, denylist\)/);
+  assert.match(fonte, /lotear\(comFala\)/);
+  assert.ok(
+    !/montarCorpus\(reunioes,/.test(fonte),
+    "o corpus não pode ser montado sobre o acervo inteiro",
+  );
+
+  // Falha alto, e aponta o caminho certo em vez de gerar arquivo vazio.
+  assert.match(fonte, /Nenhuma reunião com FALA diarizada/);
+  assert.match(fonte, /plaud-caminhos-de-entrada\.md/);
 });

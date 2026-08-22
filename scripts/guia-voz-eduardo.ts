@@ -66,6 +66,8 @@ interface ReuniaoCrua {
   texto: string;
   vendedorEhEduardo: boolean;
   participantes: string[];
+  /** Tem rótulo de falante? Só texto diarizado é FALA; resumo não é voz. */
+  diarizada: boolean;
 }
 
 /** Sem `vendedor` preenchido, só entra se a transcrição mostrar que é ele. */
@@ -85,6 +87,19 @@ export interface Censo {
   doEduardo: { porTitular: number; porAssinaturaNaTranscricao: number; total: number };
   porTrimestre: Array<{ trimestre: string; reunioes: number }>;
   semTitular: { total: number; comAssinaturaDele: number };
+  /**
+   * A divisão que decide se o guia é possível.
+   *
+   * `Meeting` guarda transcrição diarizada ("Fulano: ..."), que é FALA.
+   * `ReuniaoEstruturada.textoBruto` guarda o "resumo original colado (Plaud)"
+   * (`prisma/schema.prisma:1090`) — texto escrito pelo resumidor do Plaud, não
+   * dito pelo Eduardo. Um guia de voz alimentado com resumo descreveria a voz
+   * do resumidor, e o texto sairia plausível: exatamente o modo de falha que a
+   * atribuição de turnos existe para evitar.
+   *
+   * Por isso material sem diarização é CONTADO e DESCARTADO, nunca somado.
+   */
+  material: { comFala: number; soResumo: number };
 }
 
 let censo: Censo | null = null;
@@ -137,6 +152,7 @@ async function coletar(desde?: Date): Promise<ReuniaoCrua[]> {
     texto: m.transcription!,
     vendedorEhEduardo: true,
     participantes: (m.participants ?? "").split(",").map((s) => s.trim()).filter(Boolean),
+    diarizada: !segmentarTurnos(m.transcription!).semDiarizacao,
   }));
 
   for (const r of estruturadas) {
@@ -151,6 +167,7 @@ async function coletar(desde?: Date): Promise<ReuniaoCrua[]> {
       texto: r.textoBruto!,
       vendedorEhEduardo: true,
       participantes: [],
+      diarizada: !segmentarTurnos(r.textoBruto!).semDiarizacao,
     });
   }
 
@@ -177,6 +194,10 @@ async function coletar(desde?: Date): Promise<ReuniaoCrua[]> {
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([trimestre, reunioes]) => ({ trimestre, reunioes })),
     semTitular: { total: orfas.length, comAssinaturaDele: orfasAssinadas.length },
+    material: {
+      comFala: ordenadas.filter((r) => r.diarizada).length,
+      soResumo: ordenadas.filter((r) => !r.diarizada).length,
+    },
   };
 
   return ordenadas;
@@ -523,7 +544,10 @@ function imprimirCenso(desde?: Date) {
       : " (nenhuma)"
   }
 4. Sem titular identificado ...... ${c.semTitular.total}
-     destas, com o nome dele no texto ${c.semTitular.comAssinaturaDele}`);
+     destas, com o nome dele no texto ${c.semTitular.comAssinaturaDele}
+5. Serve para guia de VOZ? ....... ${c.material.comFala} de ${c.doEduardo.total}
+     com fala diarizada (usável) . ${c.material.comFala}
+     só resumo, sem quem falou ... ${c.material.soResumo}  ← descartado`);
 }
 
 async function main() {
@@ -538,18 +562,39 @@ async function main() {
     return;
   }
 
+  // Só texto diarizado é fala. Ver `Censo.material` para o porquê — resumo do
+  // Plaud alimentando um guia de voz descreveria a voz do resumidor.
+  const comFala = reunioes.filter((r) => r.diarizada);
+
+  if (!comFala.length) {
+    console.error(`
+Nenhuma reunião com FALA diarizada. O guia de voz não é possível com este acervo.
+
+Há ${reunioes.length} registro(s) do Eduardo, mas todos são resumo — texto escrito
+pelo resumidor do Plaud, não dito por ele. Gerar o guia a partir daí produziria um
+arquivo plausível descrevendo a voz errada, que é pior que não gerar.
+
+Onde a fala diarizada entra (docs/plaud-caminhos-de-entrada.md):
+  - Zapier    POST /api/integracoes/zapier/webhook  -> Meeting.transcription
+  - Drive     POST /api/meetings/sync-drive         -> Meeting.transcription
+O import manual do Cockpit de Reunião grava resumo em ReuniaoEstruturada.textoBruto
+e NÃO serve para este fim.`);
+    process.exitCode = 1;
+    return;
+  }
+
   if (ESPELHO) {
-    const md = await espelho(reunioes, denylist);
+    const md = await espelho(comFala, denylist);
     const d = new Date();
     const nome = `espelho-reuniao-${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}.md`;
     await gravar(path.join("docs", nome), md, denylist);
     return;
   }
 
-  const lotes = lotear(reunioes);
+  const lotes = lotear(comFala);
   console.log(`Lotes: ${lotes.length}${lotes.length > 1 ? " (por trimestre)" : ""}`);
 
-  const corpusTotal = montarCorpus(reunioes, denylist);
+  const corpusTotal = montarCorpus(comFala, denylist);
   const metricasTotais = calcularTudo(corpusTotal);
 
   console.log("\n── Cobertura ──");
