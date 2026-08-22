@@ -10,7 +10,8 @@ import { ClienteBtgSection } from "@/components/backoffice/cliente-btg-section";
 import { cockpitReuniaoHabilitado } from "@/lib/cockpit-reuniao/flag";
 import { perfilFatoLeituraHabilitado } from "@/lib/cockpit-reuniao/perfil-leitura-flag";
 import { rbacEnforcementHabilitado, clienteVisivelPorAssessorCge } from "@/lib/rbac";
-import { getAuthContext } from "@/lib/auth-helpers";
+import { getAuthContext, isLideranca } from "@/lib/auth-helpers";
+import { OrigemParceiroCard } from "@/components/backoffice/origem-parceiro-card";
 
 export default async function ClienteDetalhePage({
   params,
@@ -59,7 +60,10 @@ export default async function ClienteDetalhePage({
     // componentes abaixo.
     prisma.parceiroCliente.findFirst({
       where: { clienteId: id, dataFim: null },
-      select: { parceiro: { select: { nome: true } } },
+      select: {
+        dataInicio: true,
+        parceiro: { select: { id: true, nome: true, tipo: true, ativo: true } },
+      },
     }),
   ]);
 
@@ -70,12 +74,21 @@ export default async function ClienteDetalhePage({
   // vira notFound() (MESMO 404 do "não existe" acima — não vaza a existência).
   // Reusa o assessorCge que a page já carregou (findUnique com include) — sem
   // segunda query.
+  // Uma leitura de sessão só, reusada pelos dois usos abaixo: `getAuthContext`
+  // vai ao banco atrás de Pessoa e papéis, e chamá-lo duas vezes no mesmo render
+  // dobra isso sem motivo.
+  const ctx = await getAuthContext();
+
   if (await rbacEnforcementHabilitado()) {
-    const ctx = await getAuthContext();
     if (!(await clienteVisivelPorAssessorCge(cliente.assessorCge, ctx))) {
       notFound();
     }
   }
+
+  // O link para a ficha do parceiro só aparece para quem alcança /time/parceiros
+  // (requireLideranca lá). Para os demais, o card mostra o nome sem o botão —
+  // link que redireciona no clique é pior que link nenhum.
+  const podeAbrirFichaParceiro = isLideranca(ctx);
 
   const cockpitReuniao = await cockpitReuniaoHabilitado();
   const perfilLeitura = await perfilFatoLeituraHabilitado();
@@ -114,6 +127,14 @@ export default async function ClienteDetalhePage({
         >
           <ArrowLeft className="h-4 w-4" /> Voltar para lista de clientes
         </Link>
+        {vinculoParceiro && (
+          <OrigemParceiroCard
+            parceiro={vinculoParceiro.parceiro}
+            desde={vinculoParceiro.dataInicio}
+            podeAbrirFicha={podeAbrirFichaParceiro}
+          />
+        )}
+
         <ClienteBtgSection
           cliente={JSON.parse(JSON.stringify(cliente))}
           movimentacoes={JSON.parse(JSON.stringify(movimentacoes))}

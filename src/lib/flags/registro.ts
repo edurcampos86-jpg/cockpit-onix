@@ -222,6 +222,14 @@ export const FLAGS_REGISTRADAS: readonly FlagRegistrada[] = [
     impacto: "normal",
   },
   {
+    key: "IMPLEMENTACOES_V2",
+    rotulo: "Refino da tela de Implementações (busca, ordenação, autor, unidades)",
+    onde: "src/lib/implementacoes/v2-flag.ts",
+    tipo: "booleana",
+    dialeto: "amplo",
+    impacto: "normal",
+  },
+  {
     /* O nome sugere um número, mas é booleana: liga/desliga a 2ª linha
      * "parado há Xd" na coluna Saldo Conta. Registrado assim de propósito —
      * é justamente o tipo de chave que alguém tentaria preencher com "30". */

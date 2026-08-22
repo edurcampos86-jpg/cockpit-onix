@@ -88,6 +88,22 @@
   --sidebar-accent-foreground: #141413;
   --sidebar-border: rgba(164, 120, 0, 0.14);
   --sidebar-ring: #FFB114;
+
+  /* ── Acento das telas de Parceiros ──────────────────────────────────────
+     Identidade própria pedida para o módulo (ouro #A87A2E, azul #0D1B2A,
+     off-white). NÃO substitui os tokens acima: a estrutura das telas segue
+     usando --background/--foreground/--card, que já resolvem claro e escuro.
+     Trocar os tokens globais repintaria o sistema inteiro por causa de duas
+     telas.
+
+     Contraste medido em src/lib/parceiros/paleta.ts (teste no CI):
+     ouro sobre creme = 3.7:1 → AA para TÍTULO, ícone e borda; nunca texto
+     corrido. O texto corrido continua saindo em --foreground.            */
+  --parceiro-ouro: #A87A2E;
+  --parceiro-azul: #0D1B2A;
+  --parceiro-superficie: #FFFFFF;
+  --parceiro-faixa: rgba(168, 122, 46, 0.10);
+  --parceiro-borda: rgba(168, 122, 46, 0.28);
 }
 
 /* =============================================
@@ -125,6 +141,15 @@
   --sidebar-accent-foreground: #FFFAF0;
   --sidebar-border: rgba(255, 177, 20, 0.08);
   --sidebar-ring: #FFB114;
+
+  /* Mesmas variáveis, papéis do tema escuro. O azul deixa de ser tinta e
+     vira SUPERFÍCIE — sobre o quase-preto ele não tem contraste de texto
+     (travado em paleta.test.ts). O ouro, sobre o azul, passa AA de texto. */
+  --parceiro-ouro: #A87A2E;
+  --parceiro-azul: #0D1B2A;
+  --parceiro-superficie: #0D1B2A;
+  --parceiro-faixa: rgba(168, 122, 46, 0.14);
+  --parceiro-borda: rgba(168, 122, 46, 0.34);
 }
 
 @layer base {

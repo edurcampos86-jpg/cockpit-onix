@@ -78,7 +78,7 @@ const TERMOS: Termo[] = [
     termo: "Plaud.ai",
     area: "Corretora",
     definicao:
-      "Gravador de bolso usado para capturar reuniões. As transcrições alimentam o pipeline de análise comercial.",
+      "Gravador de bolso usado para capturar reuniões. As transcrições entram por três caminhos: Zapier (automático), Google Drive e import manual na ficha do cliente. O Plaud não tem API pública nem manda transcrição por e-mail — ver docs/plaud-caminhos-de-entrada.md.",
   },
   {
     termo: "Negócio Adormecido",

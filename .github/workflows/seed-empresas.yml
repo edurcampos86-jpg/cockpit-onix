@@ -1,0 +1,124 @@
+name: seed-empresas
+
+# Semeia os 20 nós da árvore do grupo em PRODUÇÃO.
+#
+# ── POR QUE UM WORKFLOW, E NÃO "roda aí no terminal" ─────────────────────
+# As sessões de agente não alcançam o banco de produção (`CONNECT 403`), e o
+# `railway run` depende de alguém com a CLI logada. Sem este botão, a única
+# forma de aplicar o seed era o Eduardo abrir um terminal — e o passo que
+# ninguém consegue executar é o passo que fica para depois.
+#
+# ── ESCRITA, E POR ISSO COM TRAVA ────────────────────────────────────────
+# Diferente do `estado-do-banco`, este workflow ESCREVE. Três travas, nesta
+# ordem:
+#
+#   1. só `workflow_dispatch` — nunca em push, nunca em PR;
+#   2. `confirmar` tem de ser exatamente `aplicar` — digitar é a assinatura,
+#      e um clique errado no menu não aplica nada;
+#   3. o DRY-RUN roda primeiro, SEMPRE, e o resultado fica no resumo do job
+#      antes de qualquer INSERT. Com `confirmar` diferente de `aplicar`, o
+#      job termina aí — é o modo "só me mostre o que faria".
+#
+# ── O QUE O SEED FAZ, E O QUE NÃO FAZ ────────────────────────────────────
+# Só INSERT de linha que não existe (`skipDuplicates`). Nenhum UPDATE, nenhum
+# DELETE. Linha existente NUNCA é tocada — nem para consertar nome ou pai; o
+# dry-run lista essas divergências justamente porque o seed as ignora.
+#
+# Rodar duas vezes é seguro: a segunda insere 0.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmar:
+        description: 'Digite "aplicar" para gravar. Qualquer outra coisa = só dry-run.'
+        type: string
+        required: true
+        default: 'dry-run'
+
+permissions:
+  contents: read
+
+concurrency:
+  # Duas execuções simultâneas disputariam o mesmo INSERT. A FK e o
+  # skipDuplicates protegem o dado, mas o relatório sairia confuso.
+  group: seed-empresas
+  cancel-in-progress: false
+
+jobs:
+  semear:
+    name: Seed das empresas
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # O cliente Prisma é gerado do schema da branch. Sem isto, `Empresa.tipo`
+      # não existe no cliente e o seed falha com erro de tipo, não de banco.
+      - run: npx prisma generate
+
+      - name: Dry-run (sempre)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          npx tsx scripts/seed-empresas.ts --dry-run | tee "${RUNNER_TEMP}/plano.txt"
+          {
+            echo '## Plano — nada foi escrito ainda'
+            echo
+            echo '```'
+            cat "${RUNNER_TEMP}/plano.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Aplicar
+        if: inputs.confirmar == 'aplicar'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          npx tsx scripts/seed-empresas.ts | tee "${RUNNER_TEMP}/seed.txt"
+          {
+            echo
+            echo '## Aplicado'
+            echo
+            echo '```'
+            cat "${RUNNER_TEMP}/seed.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Confere o resultado com a MESMA função do dry-run. Depois de aplicar,
+      # "CRIAR" tem de estar vazio — se não estiver, algum INSERT não passou e
+      # o job não pode terminar verde.
+      - name: Conferir depois
+        if: inputs.confirmar == 'aplicar'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          npx tsx scripts/seed-empresas.ts --dry-run | tee "${RUNNER_TEMP}/depois.txt"
+          {
+            echo
+            echo '## Conferência pós-seed'
+            echo
+            echo '```'
+            cat "${RUNNER_TEMP}/depois.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if ! grep -q '^CRIAR (0):' "${RUNNER_TEMP}/depois.txt"; then
+            echo "::error::Depois do seed ainda há nós a criar — algum INSERT não passou. Veja o plano acima."
+            exit 1
+          fi
+          echo "Árvore completa: nada mais a criar."
+
+      - name: Só dry-run
+        if: inputs.confirmar != 'aplicar'
+        run: |
+          echo "::notice::Nada foi gravado. Para aplicar, rode de novo com confirmar=aplicar."
