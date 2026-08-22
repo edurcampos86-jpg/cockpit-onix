@@ -50,6 +50,8 @@ on:
       # respondida na mesma PR.
       - 'scripts/quem-le-reuniao.ts'
       - '.github/workflows/estado-do-banco.yml'
+      # Mesmo motivo, para o script de inventário.
+      - 'scripts/inventario-reunioes.ts'
 
 permissions:
   contents: read
@@ -445,6 +447,45 @@ jobs:
           cat "${RUNNER_TEMP}/reuniao.txt"
           # Consulta informativa: não reprova a execução. Código 2 é "não
           # consegui perguntar", e isso já sai escrito no texto acima.
+          echo "código: $CODIGO"
+
+      # Onde as reuniões do Plaud realmente estão, e como a `Empresa` está hoje.
+      - name: Inventário de reuniões e estado da Empresa
+        if: >-
+          (github.event_name == 'workflow_dispatch' && inputs.consultas == 'completo') ||
+          github.event_name == 'pull_request'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          # Numa PR, só roda se a PR mexeu no script. O gatilho por `paths` traz
+          # também toda PR de migration, e a resposta deste inventário não muda
+          # com migration nenhuma — rodar sempre seria ruído que se aprende a
+          # pular, que é o oposto do que este workflow existe para fazer.
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            if ! git diff --name-only "$BASE_SHA" "$HEAD_SHA" \
+                 | grep -q '^scripts/inventario-reunioes\.ts$'; then
+              echo "PR não mexeu no script — pulando o inventário."
+              exit 0
+            fi
+          fi
+
+          set +e
+          npx tsx scripts/inventario-reunioes.ts > "${RUNNER_TEMP}/inventario.txt" 2>&1
+          CODIGO=$?
+          set -e
+          {
+            echo
+            echo '## Inventário de reuniões e estado da Empresa'
+            echo
+            echo '```'
+            cat "${RUNNER_TEMP}/inventario.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "${RUNNER_TEMP}/inventario.txt"
           echo "código: $CODIGO"
 
       # Só no disparo manual com `completo`. São as consultas da auditoria BTG:
