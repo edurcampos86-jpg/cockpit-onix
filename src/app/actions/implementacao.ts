@@ -6,7 +6,9 @@ import { prisma } from "@/lib/prisma";
 import { getAuthContext, isAdmin } from "@/lib/auth-helpers";
 import { uploadContrato, deleteContrato } from "@/lib/b2/upload";
 import { b2ContratosConfigurado } from "@/lib/b2/client";
-import { calcRiceScore } from "@/lib/rice";
+import { empresaAceitaImplementacao } from "@/lib/empresas-config";
+import { calcRiceScore, validarRice, type RiceEixo } from "@/lib/rice";
+import { implementacoesV2Habilitado } from "@/lib/implementacoes/v2-flag";
 import {
   MAX_ANEXOS,
   MAX_ANEXO_BYTES,
@@ -31,7 +33,19 @@ function intOrNull(v: number | null | undefined): number | null {
   return Math.trunc(v);
 }
 
-export type CriarState = { ok: boolean; error?: string };
+export type CriarState = {
+  ok: boolean;
+  error?: string;
+  /** Id da sugestão criada — só no caminho do FAB, para o modal linkar até ela. */
+  id?: string;
+  /**
+   * Se quem enviou consegue ABRIR a triagem. O FAB é de todo usuário logado, mas
+   * /configuracoes/implementacoes é admin-only: oferecer o link a quem não é
+   * admin manda a pessoa para um redirect e faz a confirmação parecer quebrada.
+   * Quem decide é o servidor, que sabe o papel; o modal só renderiza se vier.
+   */
+  podeVerNaTriagem?: boolean;
+};
 
 /**
  * Cria uma Implementação (Golden Circle). Obrigatórios: porQue, oQue, empresaId.
@@ -55,8 +69,36 @@ export async function criarImplementacao(
   let tipo = s(formData.get("tipo"));
   if (!TIPOS.includes(tipo)) tipo = "melhoria";
 
-  if (!porQue || !oQue || !empresaId) {
-    return { ok: false, error: "Preencha Por quê, O quê e a empresa." };
+  // A mensagem nomeia só o que faltou de verdade. A anterior citava os três
+  // sempre, então quem esquecia só a empresa era mandado revisar dois campos
+  // que já estavam preenchidos.
+  const faltando = [
+    !oQue && "O quê (o pedido)",
+    !porQue && "Por quê (o motivo)",
+    !empresaId && "a empresa",
+  ].filter(Boolean);
+  if (faltando.length > 0) {
+    return { ok: false, error: `Faltou preencher: ${faltando.join(", ")}.` };
+  }
+
+  // A empresa precisa EXISTIR, não só estar preenchida.
+  //
+  // `empresaAceitaImplementacao` já existia (`lib/empresas-config.ts`) e já
+  // estava testada — só não era chamada aqui. As duas telas restringem o valor
+  // (a de `/nova` valida o `?empresa=` e manda num hidden; o FAB usa um
+  // `<select>`), mas nenhuma das duas é a fonte da verdade: quem grava é esta
+  // action, e ela aceitava qualquer texto não vazio.
+  //
+  // O estrago não é a linha errada, é o filtro: `opcoesFiltroEmpresa`
+  // (`empresas-config.ts`) monta as opções a partir dos `empresaId` GRAVADOS.
+  // Um "investimento" sem "s" viraria uma empresa nova no dropdown, com uma
+  // sugestão presa dentro que ninguém procura ali — e sem nada na tela dizendo
+  // que aquilo é um engano de digitação e não uma empresa do grupo.
+  if (!empresaAceitaImplementacao(empresaId)) {
+    return {
+      ok: false,
+      error: `"${empresaId}" não é uma empresa que aceita sugestão nesta fase. Recarregue a página e escolha uma da lista.`,
+    };
   }
 
   // Anexos: lê o conjunto (name="anexos"), descartando entradas vazias.
@@ -66,13 +108,16 @@ export async function criarImplementacao(
 
   // Validação server-side (fonte da verdade). Falha aqui = nada sobe pro B2.
   if (arquivos.length > MAX_ANEXOS) {
-    return { ok: false, error: `No máximo ${MAX_ANEXOS} anexos por sugestão.` };
+    return {
+      ok: false,
+      error: `Dá para anexar até ${MAX_ANEXOS} arquivos por sugestão. Remova os que sobram e envie de novo.`,
+    };
   }
   for (const f of arquivos) {
     if (!tipoAnexoPermitido(f.type)) {
       return {
         ok: false,
-        error: `"${f.name || "arquivo"}" não é imagem nem PDF.`,
+        error: `"${f.name || "arquivo"}" não pode ser anexado. Aceitamos imagem (print, foto) ou PDF.`,
       };
     }
     if (f.size > MAX_ANEXO_BYTES) {
@@ -87,13 +132,16 @@ export async function criarImplementacao(
     return {
       ok: false,
       error:
-        "Não foi possível salvar os anexos: o armazenamento de arquivos não está configurado no servidor (falta a chave B2 de contratos). Avise o administrador — a sugestão sem anexo funciona normalmente.",
+        "Os anexos não puderam ser salvos — é uma configuração pendente aqui do nosso lado, não é você. Avise o administrador (falta a chave B2 de contratos). A sugestão sem anexo funciona normalmente.",
     };
   }
 
   // Sobe tudo pro B2 ANTES de criar a sugestão. Se algum upload falhar, limpa o
   // que já subiu e aborta — não deixa órfão no bucket nem sugestão sem anexo.
   const uploadedKeys: string[] = [];
+  // Declarado FORA do try: o `catch` abaixo faz limpeza e sai, e o retorno de
+  // sucesso está depois do bloco — o id precisa sobreviver ao escopo.
+  let criadaId: string | undefined;
   const anexosData: {
     b2Key: string;
     nomeArquivo: string;
@@ -119,7 +167,7 @@ export async function criarImplementacao(
     }
 
     // create + anexos numa única operação (nested create é atômico no Prisma).
-    await prisma.implementacao.create({
+    const criada = await prisma.implementacao.create({
       data: {
         userId: ctx.userId,
         empresaId,
@@ -131,7 +179,9 @@ export async function criarImplementacao(
         pagina,
         anexos: anexosData.length ? { create: anexosData } : undefined,
       },
+      select: { id: true },
     });
+    criadaId = criada.id;
   } catch (err) {
     // Loga a causa REAL no servidor (antes o catch engolia tudo → o erro ficava
     // invisível em produção e o bug parecia um fantasma).
@@ -151,7 +201,7 @@ export async function criarImplementacao(
   // FAB (origem=fab): fica na página atual e o modal mostra sucesso.
   // Form da página /nova: mantém o redirect pra central (comportamento original).
   if (inline) {
-    return { ok: true };
+    return { ok: true, id: criadaId, podeVerNaTriagem: isAdmin(ctx) };
   }
   redirect("/configuracoes/implementacoes");
 }
@@ -184,7 +234,21 @@ export async function removerAnexo(
   return { ok: true };
 }
 
-/** Atualiza os 4 fatores RICE e recalcula o score. Cliente envia o conjunto completo. */
+export type AtualizarRiceState = { ok: boolean; erro?: string };
+
+/**
+ * Atualiza os 4 fatores RICE e recalcula o score. Cliente envia o conjunto completo.
+ *
+ * Passou a DEVOLVER resultado (antes era `void`) para que a tela consiga desfazer
+ * a atualização otimista quando o servidor recusa. Acrescentar retorno é
+ * compatível: quem já chamava e ignorava continua funcionando igual.
+ *
+ * A validação de escala só entra com IMPLEMENTACOES_V2 ligada. Com a flag OFF o
+ * caminho é byte a byte o de antes — inclusive aceitar um valor fora de régua,
+ * que é o comportamento atual. Ligar a flag é que aperta o parafuso; e ele
+ * aperta AQUI, no servidor, porque o cliente não é autoridade sobre o que entra
+ * no banco (a mesma checagem roda lá só para avisar antes).
+ */
 export async function atualizarRice(
   id: string,
   vals: {
@@ -193,14 +257,45 @@ export async function atualizarRice(
     confidence?: number | null;
     effort?: number | null;
   },
-): Promise<void> {
+): Promise<AtualizarRiceState> {
   const ctx = await getAuthContext();
-  if (!isAdmin(ctx)) return; // central é admin-only — defesa em profundidade
+  if (!isAdmin(ctx)) return { ok: false, erro: "Sem permissão." }; // central é admin-only
 
   const reach = intOrNull(vals.reach);
   const impact = intOrNull(vals.impact);
   const confidence = intOrNull(vals.confidence);
   const effort = intOrNull(vals.effort);
+
+  if (await implementacoesV2Habilitado()) {
+    // Valida só os eixos que MUDARAM em relação ao que está gravado.
+    //
+    // O cliente manda sempre os quatro, então validar o conjunto reprovaria uma
+    // edição legítima por causa de um valor herdado — e existem linhas assim: o
+    // texto de ajuda antigo ensinava "0,5 baixo", o servidor truncava para 0 e
+    // gravava. Quem tentasse corrigir o Alcance de uma delas receberia um erro
+    // sobre o Impacto e não conseguiria salvar campo nenhum, para sempre.
+    //
+    // Uma leitura a mais por gravação é o preço; o autosave já é debounced, então
+    // isso não vira uma leitura por tecla.
+    const atual = await prisma.implementacao.findUnique({
+      where: { id },
+      select: { reach: true, impact: true, confidence: true, effort: true },
+    });
+    if (!atual) return { ok: false, erro: "Sugestão não encontrada." };
+
+    const novos = { reach, impact, confidence, effort };
+    const mudaram = (Object.keys(novos) as RiceEixo[]).filter(
+      (e) => novos[e] !== atual[e],
+    );
+
+    // Validado sobre os valores JÁ truncados: é o que de fato iria para o banco.
+    // Checar o número cru deixaria passar 0,5 no impacto — que vira 0 e some.
+    const erros = validarRice(novos, mudaram);
+    if (erros.length > 0) {
+      return { ok: false, erro: erros.map((e) => e.mensagem).join(" ") };
+    }
+  }
+
   const score = calcRiceScore(reach, impact, confidence, effort);
 
   await prisma.implementacao.update({
@@ -208,6 +303,7 @@ export async function atualizarRice(
     data: { reach, impact, confidence, effort, score },
   });
   revalidatePath("/configuracoes/implementacoes");
+  return { ok: true };
 }
 
 /** Atualiza o status (triagem|aprovada|em-andamento|concluida|recusada). */

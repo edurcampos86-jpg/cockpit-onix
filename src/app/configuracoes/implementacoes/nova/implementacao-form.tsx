@@ -42,7 +42,7 @@ export function ImplementacaoForm({
       <div className="mb-6">
         <h1 className="text-xl font-bold text-foreground">Nova implementação</h1>
         <p className="text-sm text-muted-foreground">
-          {empresaNome} · conte no formato <strong>Golden Circle</strong>
+          {empresaNome} · conte o que precisa, como imagina e por que importa
         </p>
       </div>
 

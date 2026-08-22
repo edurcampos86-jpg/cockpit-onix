@@ -21,6 +21,8 @@ export async function GET() {
     btgId,
     btgSecret,
     metaAdAccount,
+    githubToken,
+    githubRepo,
   ] = await Promise.all([
     isConfigured("MANYCHAT_API_TOKEN"),
     isConfigured("ANTHROPIC_API_KEY"),
@@ -33,6 +35,8 @@ export async function GET() {
     isConfigured("BTG_CLIENT_ID"),
     isConfigured("BTG_CLIENT_SECRET"),
     isConfigured("META_AD_ACCOUNT_ID"),
+    isConfigured("GITHUB_TOKEN"),
+    isConfigured("GITHUB_REPO"),
   ]);
 
   const session = await getSession();
@@ -144,6 +148,25 @@ export async function GET() {
     manus: {
       configured: false,
       status: "coming_soon",
+    },
+    /* O card do GitHub existe na tela desde sempre (`app/integracoes/page.tsx`)
+     * e NUNCA esteve neste payload — então `statusMap["github"]` era sempre
+     * `undefined`, o `liveStatus` caía no estático `"disconnected"`, e o selo
+     * dizia "Não conectado" mesmo com as duas chaves gravadas. Era o único
+     * card que se contradizia sozinho: selo vermelho no topo, "Chave
+     * configurada" três linhas abaixo.
+     *
+     * Dói mais aqui do que nos outros porque é esta integração que fecha o
+     * loop da Central de Implementações — o cron que vira `aberta → merged`
+     * depende dela, e a métrica de lead time depende do cron.
+     *
+     * `GITHUB_REPO` tem padrão no código (`lib/implementacoes/pr-sync.ts`),
+     * então o token sozinho já põe a sincronia de pé; o repo explícito só
+     * aponta para outro alvo. Por isso `configured` olha o token. */
+    github: {
+      configured: githubToken,
+      repoDeclarado: githubRepo,
+      status: githubToken ? "connected" : "disconnected",
     },
     /* Fora do mapa de integrações de propósito: não é uma integração, é a
      * configuração do próprio app. Fica no topo do payload como número solto
