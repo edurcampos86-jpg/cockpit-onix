@@ -5,7 +5,11 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, CheckCircle2, FileSignature, Archive, RotateCcw } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { requireLideranca, canManageTeam } from "@/lib/auth-helpers";
-import { obterParceiro, listarPessoasParaVinculo } from "@/lib/parceiros/consultas";
+import {
+  obterParceiro,
+  listarPessoasParaVinculo,
+  listarNosHierarquia,
+} from "@/lib/parceiros/consultas";
 import { alternarAtivoForm, salvarContratoForm } from "@/app/actions/parceiros";
 import { ConfirmarAcao } from "../_components/confirmar-acao";
 import { AcordosSection } from "../_components/acordos-section";
@@ -64,6 +68,10 @@ export default async function ParceiroPage({
   // precisa do seletor, e quem não gerencia não vê o formulário.
   const candidatosPessoa =
     podeGerenciar && !parceiro.pessoa ? await listarPessoasParaVinculo() : [];
+
+  // A hierarquia só é carregada para quem pode gravar acordo — quem lê a ficha
+  // não precisa da lista de nós.
+  const nosHierarquia = podeGerenciar ? await listarNosHierarquia() : [];
 
   const clientesVigentes = parceiro.clientes.filter((c) => c.dataFim === null);
   const acordosVigentes = parceiro.acordos.filter((a) => a.dataFim === null);
@@ -175,6 +183,7 @@ export default async function ParceiroPage({
           parceiroId={parceiro.id}
           parceiroNome={parceiro.nome}
           acordos={parceiro.acordos}
+          nos={nosHierarquia}
           podeGerenciar={podeGerenciar}
         />
 

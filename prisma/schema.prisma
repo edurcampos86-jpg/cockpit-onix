@@ -1599,7 +1599,46 @@ model AcordoComercialParceiro {
   /// "seguro_resgatavel" | "assessoria" | … TEXTO LIVRE por ora, mesmo
   /// critério de `Parceiro.tipo`: a lista de produtos ainda muda, e um enum
   /// obrigaria migration a cada produto novo. Vira enum quando parar de mudar.
-  tipoProduto String
+  /// ⚠️ EM MIGRAÇÃO para `empresaId` — ver o campo abaixo. Continua aqui, e
+  /// agora NULLABLE, porque a troca é em duas PRs: esta acrescenta o caminho
+  /// novo, e uma futura remove a coluna. Linha antiga mantém o texto; linha
+  /// nova nasce com `empresaId` e este campo em NULL.
+  ///
+  /// NÃO confundir com `ContratoCorretora.tipoProduto`: aquele é o produto
+  /// VENDIDO pela corretora, tem catálogo próprio em
+  /// `src/lib/corretora/catalogo-produtos.ts` e alimenta a importação. Nome
+  /// igual, coisa diferente, e ele não é tocado.
+  tipoProduto String?
+
+  /// O NÓ da hierarquia Onix Co sobre o qual o acordo incide — "Onix
+  /// Corretora", "Planejamento Patrimonial", "Onix Imobiliária".
+  ///
+  /// Substitui o texto livre porque a pergunta real do negócio não é "qual
+  /// produto?", é "qual parte da casa?". `Empresa` já modela isso: nós tipados
+  /// (holding/empresa/departamento) com `parentId`.
+  ///
+  /// FK de verdade em vez de string: typo aqui viraria acordo pendurado num nó
+  /// fantasma, e o fechamento não teria como saber que ele existe.
+  ///
+  /// `onDelete: Restrict` — apagar um nó com acordo pendurado tem de doer. O
+  /// acordo é o registro de quanto se paga a alguém; sumir junto com o nó
+  /// apagaria a razão de um pagamento passado.
+  ///
+  /// Nullable NESTA PR por convivência com `tipoProduto`. Vira obrigatório
+  /// quando a coluna antiga sair.
+  empresaId String?
+  empresa   Empresa? @relation("AcordoParceiroEmpresa", fields: [empresaId], references: [id], onDelete: Restrict)
+
+  /// O acordo deste nó vale também para os nós ABAIXO dele?
+  ///
+  /// Cópia deliberada de `PessoaEmpresa.incluiDescendentes`, que resolve
+  /// exatamente a mesma pergunta no RBAC: quem concede escolhe se a concessão
+  /// desce. Aqui, quem combina escolhe se a comissão desce.
+  ///
+  /// `false` por padrão, ao contrário do RBAC (que usa `true`): dinheiro é o
+  /// caso em que o silêncio precisa significar o MENOS abrangente. Marcar é
+  /// decisão explícita de quem fecha o acordo.
+  incluiDescendentes Boolean @default(false)
 
   /// Percentual da comissão líquida que vai para o parceiro. Guardado como
   /// 0–100 (40.0000 = 40%), não como fração.
@@ -1644,6 +1683,11 @@ model AcordoComercialParceiro {
   /// "Quem tem acordo neste produto?" — a leitura que a régua de comissão faz
   /// ao fechar um tipo de produto inteiro.
   @@index([tipoProduto])
+  /// O mesmo, pelo caminho novo: "quem tem acordo NESTE nó?". Declarado aqui e
+  /// não só na migration — índice que existe no banco e não no schema é drift,
+  /// e a próxima `migrate dev` de qualquer sessão o emitiria como DROP INDEX.
+  /// É a mesma armadilha do índice FTS que `scripts/guarda-drift-fts.sh` tranca.
+  @@index([empresaId])
 }
 
 // ============================================
@@ -2055,6 +2099,18 @@ model Empresa {
   /// a separação por empresa.
   transversal Boolean @default(false)
 
+  /// Departamento da HOLDING que consolida o trabalho das ocorrências
+  /// transversais das empresas.
+  ///
+  /// "ADM/Financeiro" existe sete vezes no grupo: uma em cada empresa, fazendo
+  /// o trabalho, e uma na holding, somando o das seis. Mesmo rótulo, papel
+  /// diferente. Sem esta coluna, conceder acesso ao "Jurídico" seria escolher
+  /// no escuro entre sete linhas de mesmo nome — e o RBAC concede por id.
+  ///
+  /// Excludente com `transversal`: um FAZ, o outro SOMA. O default `false`
+  /// vale para as 20 linhas que já existem: nenhuma delas consolida nada.
+  consolida Boolean @default(false)
+
   /// NULL = raiz. Só a holding "Onix Co" é raiz; empresas penduram nela e
   /// departamentos penduram na holding ou numa empresa.
   parentId String?
@@ -2068,6 +2124,9 @@ model Empresa {
   /// Lados inversos das FKs novas. Campos de RELAÇÃO: nenhum SQL na
   /// tabela `Empresa`.
   contratosCorretora ContratoCorretora[]
+  /// Acordos de parceiro que incidem sobre este nó (lado inverso de
+  /// `AcordoComercialParceiro.empresaId`).
+  acordosParceiro AcordoComercialParceiro[] @relation("AcordoParceiroEmpresa")
   perfisImportacao   PerfilImportacao[]
 
   @@index([parentId])

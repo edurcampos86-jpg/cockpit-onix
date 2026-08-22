@@ -56,8 +56,10 @@ export type EmpresaSemente = {
   nome: string;
   /** holding | empresa | departamento. Vem do catálogo, nunca é deduzido. */
   tipo: TipoNo;
-  /** Função que se repete no grupo (as 6 "Qualidade e Pós-venda"). */
+  /** Função que se repete no grupo (5 por empresa, 30 no total). */
   transversal: boolean;
+  /** Departamento da holding que SOMA o que as transversais fazem. */
+  consolida: boolean;
   /**
    * Pai com que a linha NASCE. `null` = raiz.
    *
@@ -100,6 +102,7 @@ const semear = (e: (typeof CATALOGO_EMPRESAS)[number]): EmpresaSemente => ({
   nome: e.nome,
   tipo: e.tipo,
   transversal: e.transversal === true,
+  consolida: e.consolida === true,
   parentId: e.parentId,
 });
 
@@ -149,6 +152,7 @@ export type NoArvore = {
   nome: string;
   tipo: TipoNo;
   transversal: boolean;
+  consolida: boolean;
   parentId: string | null;
 };
 
@@ -172,7 +176,7 @@ export type ResultadoSemeadura = {
 /** Árvore inteira, ordenada — raízes primeiro, depois por id. */
 export async function lerArvore(db: ClienteEmpresa): Promise<NoArvore[]> {
   return db.empresa.findMany({
-    select: { id: true, nome: true, tipo: true, transversal: true, parentId: true },
+    select: { id: true, nome: true, tipo: true, transversal: true, consolida: true, parentId: true },
     orderBy: [{ parentId: { sort: "asc", nulls: "first" } }, { id: "asc" }],
   });
 }
@@ -227,6 +231,7 @@ function paraCreate(sementes: readonly EmpresaSemente[]) {
     nome: e.nome,
     tipo: e.tipo,
     transversal: e.transversal,
+    consolida: e.consolida,
     parentId: e.parentId,
   }));
 }
@@ -395,6 +400,7 @@ export function planejarSeedFilhas(
       nome: e.nome,
       tipo: e.tipo,
       transversal: e.transversal,
+      consolida: e.consolida,
       parentId: e.parentId,
     })),
   ];

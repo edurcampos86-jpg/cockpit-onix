@@ -1,6 +1,6 @@
 import { Percent, History, Plus, XCircle, Info } from "lucide-react";
 import { criarAcordoForm, encerrarAcordoForm } from "@/app/actions/parceiros";
-import { TIPOS_PRODUTO } from "@/lib/parceiros/vocabulario";
+import type { NoHierarquia } from "@/lib/parceiros/consultas";
 import { ConfirmarAcao } from "./confirmar-acao";
 
 /* ──────────────────────────────────────────────────────────────
@@ -14,7 +14,10 @@ import { ConfirmarAcao } from "./confirmar-acao";
 
 type Acordo = {
   id: string;
-  tipoProduto: string;
+  /** Caminho antigo — linha gravada antes da troca por nó da hierarquia. */
+  tipoProduto: string | null;
+  empresa: { id: string; nome: string; tipo: string; parentId: string | null } | null;
+  incluiDescendentes: boolean;
   percentual: { toString(): string };
   dataInicio: Date;
   dataFim: Date | null;
@@ -33,6 +36,17 @@ function nomeProduto(chave: string): string {
   return NOME_PRODUTO[chave] ?? chave.replace(/_/g, " ");
 }
 
+/**
+ * Como o acordo se chama na tela. Linha nova tem nó; linha antiga só tem o
+ * texto de produto, e continua legível até a migração do dado.
+ */
+function rotuloAcordo(a: Acordo): string {
+  if (a.empresa) return a.empresa.nome;
+  if (a.tipoProduto) return nomeProduto(a.tipoProduto);
+  return "Sem destino definido";
+}
+
+
 function dataBr(d: Date): string {
   return d.toLocaleDateString("pt-BR", { timeZone: "UTC" });
 }
@@ -47,17 +61,19 @@ export function AcordosSection({
   parceiroId,
   parceiroNome,
   acordos,
+  nos,
   podeGerenciar,
 }: {
   parceiroId: string;
   parceiroNome: string;
   acordos: Acordo[];
+  nos: NoHierarquia[];
   podeGerenciar: boolean;
 }) {
   const vigentes = acordos.filter((a) => a.dataFim === null);
   const historico = acordos.filter((a) => a.dataFim !== null);
   const zerados = vigentes.filter((a) => Number(a.percentual.toString()) === 0);
-  const produtosVigentes = new Set(vigentes.map((a) => a.tipoProduto));
+  const nosVigentes = new Set(vigentes.map((a) => a.empresa?.id).filter(Boolean));
 
   return (
     <section className="rounded-xl border border-[var(--parceiro-borda)] bg-[var(--parceiro-superficie)] p-6">
@@ -66,8 +82,8 @@ export function AcordosSection({
         <h2 className="text-sm font-semibold text-foreground">Acordo por produto</h2>
       </header>
       <p className="mb-4 text-xs text-muted-foreground">
-        Cada produto tem a sua própria combinação, com a data em que passou a
-        valer. Mudar um percentual não apaga o anterior: encerra o que valia e
+        Cada empresa ou departamento tem a sua própria combinação, com a data em
+        que passou a valer. Mudar um percentual não apaga o anterior: encerra o que valia e
         abre o novo, para o que já foi pago continuar batendo com o que estava
         combinado na época.
       </p>
@@ -93,8 +109,18 @@ export function AcordosSection({
                 className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3"
               >
                 <div className="min-w-0">
-                  <p className="flex items-center gap-2 text-sm font-medium text-foreground">
-                    {nomeProduto(a.tipoProduto)}
+                  <p className="flex flex-wrap items-center gap-2 text-sm font-medium text-foreground">
+                    {rotuloAcordo(a)}
+                    {a.incluiDescendentes && (
+                      <span className="rounded border border-[var(--parceiro-borda)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-foreground">
+                        + o que está abaixo
+                      </span>
+                    )}
+                    {!a.empresa && a.tipoProduto && (
+                      <span className="rounded border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                        cadastro antigo
+                      </span>
+                    )}
                     {zero && (
                       <span className="rounded border border-[var(--parceiro-borda)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-foreground">
                         Sem repasse
@@ -111,8 +137,8 @@ export function AcordosSection({
                   </span>
                   {podeGerenciar && (
                     <ConfirmarAcao
-                      titulo={`Encerrar o acordo de ${nomeProduto(a.tipoProduto).toLowerCase()}?`}
-                      consequencia={`${parceiroNome} deixa de ter combinação vigente nesse produto. O histórico continua guardado, e o que já foi apurado no período não muda. Para registrar que o produto não remunera, o certo é 0% — não encerrar.`}
+                      titulo={`Encerrar o acordo de ${rotuloAcordo(a)}?`}
+                      consequencia={`${parceiroNome} deixa de ter combinação vigente nesse ponto da casa. O histórico continua guardado, e o que já foi apurado no período não muda. Para registrar que ali não há repasse, o certo é 0% — não encerrar.`}
                       rotuloGatilho="Encerrar"
                       rotuloConfirmar="Encerrar acordo"
                       action={encerrarAcordoForm}
@@ -138,14 +164,14 @@ export function AcordosSection({
           <p className="text-xs text-foreground">
             <strong>
               {zerados.length === 1
-                ? `${nomeProduto(zerados[0].tipoProduto)} está em 0% de propósito.`
-                : "Os produtos em 0% estão assim de propósito."}
+                ? `${rotuloAcordo(zerados[0])} está em 0% de propósito.`
+                : "Os nós em 0% estão assim de propósito."}
             </strong>{" "}
             {parceiroNome} não recebe repasse{" "}
-            {zerados.length === 1 ? "nesse produto" : "nesses produtos"} porque já
+            {zerados.length === 1 ? "nesse ponto da casa" : "nesses pontos da casa"} porque já
             é remunerado por outro caminho — quem é sócio da empresa que vende já
             ganha ali, e um repasse aqui pagaria duas vezes pelo mesmo negócio.
-            Deixar o produto fora da lista, em vez de gravar 0%, faria parecer que
+            Deixar o nó fora da lista, em vez de gravar 0%, faria parecer que
             ninguém decidiu ainda.
           </p>
         </div>
@@ -164,19 +190,24 @@ export function AcordosSection({
             <input type="hidden" name="parceiroId" value={parceiroId} />
 
             <div className="space-y-1.5">
-              <label htmlFor="tipoProduto" className="block text-xs font-medium text-muted-foreground">
-                Produto
+              <label htmlFor="empresaId" className="block text-xs font-medium text-muted-foreground">
+                Empresa ou departamento
               </label>
               <select
-                id="tipoProduto"
-                name="tipoProduto"
+                id="empresaId"
+                name="empresaId"
                 required
-                className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--parceiro-ouro)]"
+                defaultValue=""
+                className="max-w-xs rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--parceiro-ouro)]"
               >
-                {TIPOS_PRODUTO.map((p) => (
-                  <option key={p} value={p}>
-                    {nomeProduto(p)}
-                    {produtosVigentes.has(p) ? " (já tem acordo vigente)" : ""}
+                <option value="" disabled>
+                  Escolher…
+                </option>
+                {nos.map((n) => (
+                  <option key={n.id} value={n.id}>
+                    {"\u00A0".repeat(n.nivel * 4)}
+                    {n.nome}
+                    {nosVigentes.has(n.id) ? " (já tem acordo vigente)" : ""}
                   </option>
                 ))}
               </select>
@@ -208,6 +239,29 @@ export function AcordosSection({
               />
             </div>
 
+            {/* A escolha é POR ACORDO, e nasce desmarcada: em dinheiro, o
+                silêncio precisa significar o menos abrangente. Mesmo botão do
+                RBAC (`PessoaEmpresa.incluiDescendentes`), decisão invertida no
+                padrão de propósito. */}
+            <label className="flex w-full cursor-pointer items-start gap-2 rounded-lg border border-border bg-background p-3">
+              <input
+                type="checkbox"
+                name="incluiDescendentes"
+                value="1"
+                className="mt-0.5 size-4 accent-[var(--parceiro-ouro)]"
+              />
+              <span>
+                <span className="block text-sm text-foreground">
+                  Vale também para o que está abaixo desse nó
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  Marque quando a combinação for guarda-chuva — “Onix Corretora e
+                  tudo dentro dela”. Desmarcado, o acordo vale só nesse nó, e os
+                  departamentos precisam de linha própria.
+                </span>
+              </span>
+            </label>
+
             <button
               type="submit"
               className="rounded-lg border border-[var(--parceiro-borda)] bg-[var(--parceiro-faixa)] px-4 py-2 text-sm font-semibold text-foreground hover:bg-[var(--parceiro-borda)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--parceiro-ouro)]"
@@ -216,10 +270,9 @@ export function AcordosSection({
             </button>
 
             <p className="w-full text-xs text-muted-foreground">
-              Escolher um produto que já tem acordo vigente <strong>encerra o
-              anterior na data informada</strong> e abre o novo. Em branco, a data
-              é hoje. Para registrar que o produto não remunera, grave{" "}
-              <strong>0</strong>.
+              Escolher um nó que já tem acordo vigente <strong>encerra o anterior
+              na data informada</strong> e abre o novo. Em branco, a data é hoje.
+              Para registrar que ali não há repasse, grave <strong>0</strong>.
             </p>
           </form>
         </details>
@@ -238,7 +291,7 @@ export function AcordosSection({
                 className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-background/40 px-4 py-2.5 text-sm"
               >
                 <span className="text-muted-foreground">
-                  {nomeProduto(a.tipoProduto)} · {dataBr(a.dataInicio)} a{" "}
+                  {rotuloAcordo(a)} · {dataBr(a.dataInicio)} a{" "}
                   {a.dataFim ? dataBr(a.dataFim) : "—"}
                 </span>
                 <span className="tabular-nums text-muted-foreground">

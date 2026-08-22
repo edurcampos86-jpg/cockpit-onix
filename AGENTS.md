@@ -172,3 +172,39 @@ Escalou: não mergeia, registra o motivo na PR e reporta.
 
 **Faixa amarela e vermelha continuam parando para o Eduardo.** Só a verde é
 auto-auditada — é o que a torna verde.
+
+## `/integracoes` é visível a todo logado, e isso é decisão
+
+Toda auditoria que olha essa tela levanta a mesma bandeira: `/integracoes` não
+tem gate de papel, enquanto as seis páginas de `empresas/*` têm. Parece
+descuido. **Não é.**
+
+- `projetarConfig` (`src/lib/integrations/config-acesso.ts`) ramifica por
+  `admin`: quem não é admin recebe `configurada: true/false` e **nunca** a
+  máscara da chave;
+- os **botões de gravação** vêm desabilitados para não-admin
+  (`src/app/integracoes/page.tsx:920` e `:949`) e o servidor recusa com 403
+  (`decidirEscritaConfig`). Atenção ao que isto NÃO diz: os `input` em si não
+  têm `disabled` — o não-admin consegue digitar e só o salvar é barrado. A
+  defesa real é o servidor, não a tela;
+- e a tela declara a intenção por escrito: *"Só administradores alteram chaves
+  de integração. Você vê quais estão configuradas, não os valores."*
+
+**Uma exceção que a frase acima não cobre:** os botões Conectar/Reconectar/
+Desconectar do Google e da Microsoft (`src/app/integracoes/page.tsx:703-733` e
+`:784-813`) não olham `ehAdmin`. É OAuth **por usuário** — cada pessoa conecta a
+própria conta —, então "só admin mexe" vale para as chaves compartilhadas, não
+para o vínculo pessoal.
+
+Alguém desenhou "todo mundo vê o status, só admin mexe", e escreveu isso em
+três lugares. Pôr um gate de papel agora **apagaria capacidade real de
+leitura** — o atendente que quer saber se o WhatsApp caiu sem poder tocar em
+nada.
+
+**Situação em ago/2026: só o Eduardo usa a tela.** A capacidade de leitura para
+não-admin existe e está sem uso. Fica mantida por decisão, não por inércia — e
+está registrada aqui justamente para a próxima auditoria não reabrir a
+discussão do zero.
+
+Quem for propor o gate: o ônus é mostrar o que mudou desde esta linha, não
+repetir a observação que a gerou.
