@@ -197,30 +197,35 @@ const INTEGRATIONS: IntegrationConfig[] = [
   },
 ];
 
+/* As cores do selo tinham só a variante escura (`text-emerald-400` etc.), o que
+ * no tema claro dava texto claro sobre fundo quase branco — justamente no
+ * elemento que responde a única pergunta da página. `coming_soon` fica como
+ * está: já usa token de tema (`text-primary`), e acrescentar `dark:` a um token
+ * quebraria o único selo que estava certo. */
 const STATUS_BADGE: Record<string, { label: string; class: string; icon: React.ReactNode }> = {
   connected: {
     label: "Conectado",
-    class: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+    class: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20",
     icon: <CheckCircle2 className="h-3.5 w-3.5" />,
   },
   needs_reconnect: {
     label: "Reconectar",
-    class: "bg-red-500/10 text-red-400 border-red-500/30",
+    class: "bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/30",
     icon: <AlertCircle className="h-3.5 w-3.5" />,
   },
   unstable: {
     label: "Instável",
-    class: "bg-amber-500/10 text-amber-400 border-amber-500/20",
+    class: "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20",
     icon: <AlertCircle className="h-3.5 w-3.5" />,
   },
   pending_auth: {
     label: "Aguardando autorização",
-    class: "bg-amber-500/10 text-amber-400 border-amber-500/20",
+    class: "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20",
     icon: <Key className="h-3.5 w-3.5" />,
   },
   disconnected: {
     label: "Não conectado",
-    class: "bg-zinc-500/10 text-zinc-400 border-zinc-500/20",
+    class: "bg-zinc-500/10 text-zinc-600 dark:text-zinc-400 border-zinc-500/20",
     icon: <AlertCircle className="h-3.5 w-3.5" />,
   },
   coming_soon: {
@@ -620,11 +625,35 @@ export default function IntegracoesPage() {
                   </div>
                   <p className="text-sm text-muted-foreground mt-0.5">{integration.description}</p>
                 </div>
-                <Settings className={`h-4 w-4 text-muted-foreground transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+                {/* O cabeçalho inteiro segue clicável pelo mouse (o `onClick` da
+                    div acima). Este botão existe para o TECLADO: sem ele não há
+                    nada focável aqui, e quem navega por Tab não conseguia abrir
+                    card nenhum — ou seja, não chegava aos campos de
+                    GITHUB_TOKEN e ANTHROPIC_API_KEY, as duas chaves de que a
+                    Central de Implementações depende.
+
+                    Sem `onClick` próprio DE PROPÓSITO: Enter/Espaço num
+                    <button> geram um evento de clique que borbulha até a div e
+                    aciona o toggle uma vez. Um handler aqui alternaria duas
+                    vezes e o card nunca abriria.
+
+                    Não envolvemos o cabeçalho todo num <button> porque ele
+                    contém <h3> e <p> — conteúdo de fluxo dentro de conteúdo de
+                    frase é HTML inválido, e o nome acessível viraria duas
+                    frases lidas de uma vez. */}
+                <button
+                  type="button"
+                  aria-expanded={isExpanded}
+                  aria-controls={`painel-${integration.id}`}
+                  aria-label={`Configuração de ${integration.name}`}
+                  className="shrink-0 rounded-md p-1 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <Settings className={`h-4 w-4 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+                </button>
               </div>
 
               {isExpanded && (
-                <div className="border-t border-border p-5 bg-accent/10">
+                <div id={`painel-${integration.id}`} className="border-t border-border p-5 bg-accent/10">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {/* Funcionalidades */}
                     <div>
@@ -818,8 +847,8 @@ export default function IntegracoesPage() {
                               tela quebrada, e a pessoa tenta de novo. */}
                           {!ehAdmin && (
                             <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-amber-500/5 border border-amber-500/20">
-                              <AlertCircle className="h-3.5 w-3.5 text-amber-400 shrink-0 mt-0.5" />
-                              <span className="text-xs text-amber-400">
+                              <AlertCircle className="h-3.5 w-3.5 text-amber-700 dark:text-amber-400 shrink-0 mt-0.5" />
+                              <span className="text-xs text-amber-700 dark:text-amber-400">
                                 Só administradores alteram chaves de integração. Você
                                 vê quais estão configuradas, não os valores.
                               </span>
@@ -828,8 +857,8 @@ export default function IntegracoesPage() {
                           {/* Indicador de chave já configurada */}
                           {chaves[integration.envKey]?.configurada && (
                             <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/5 border border-emerald-500/15">
-                              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
-                              <span className="text-xs text-emerald-400 font-medium">
+                              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-700 dark:text-emerald-400 shrink-0" />
+                              <span className="text-xs text-emerald-700 dark:text-emerald-400 font-medium">
                                 Chave configurada
                                 {chaves[integration.envKey]?.mascara
                                   ? `: ${chaves[integration.envKey]!.mascara}`
@@ -909,7 +938,7 @@ export default function IntegracoesPage() {
                               placeholder={
                                 chaves[integration.envKey]?.configurada
                                   ? "Substituir chave existente..."
-                                  : "Cole sua API key aqui..."
+                                  : "Cole aqui a chave que a ferramenta forneceu"
                               }
                               className="w-full px-3 py-2 bg-background border border-input rounded-lg text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
                             />
