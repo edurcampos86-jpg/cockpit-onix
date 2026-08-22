@@ -5,7 +5,12 @@ export async function GET() {
   try {
     const indicacoes = await prisma.indicacao.findMany({
       orderBy: { criadoEm: "desc" },
-      include: { indicador: { select: { id: true, nome: true, classificacao: true } } },
+      include: {
+        indicador: { select: { id: true, nome: true, classificacao: true } },
+        // A origem pode ser parceiro em vez de cliente desde a #306; até aqui
+        // nenhuma leitura trazia o campo.
+        parceiro: { select: { id: true, nome: true } },
+      },
     });
     return NextResponse.json({ indicacoes });
   } catch (error) {
@@ -23,6 +28,8 @@ export async function POST(req: NextRequest) {
     const indicacao = await prisma.indicacao.create({
       data: {
         indicadorId: body.indicadorId || null,
+        // FK barra id inválido de qualquer jeito; aqui só normalizamos "" -> null.
+        parceiroId: body.parceiroId || null,
         nomeIndicado: String(body.nomeIndicado),
         emailIndicado: body.emailIndicado || null,
         telefoneIndicado: body.telefoneIndicado || null,

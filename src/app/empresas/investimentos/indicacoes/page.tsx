@@ -30,15 +30,20 @@ export default async function IndicacoesPage() {
     notas: string | null;
     criadoEm: string;
     indicador: { id: string; nome: string; classificacao: string } | null;
+    parceiro: { id: string; nome: string } | null;
   };
 
   let indicacoes: IndicacaoView[] = [];
   let clientes: Array<{ id: string; nome: string; classificacao: string }> = [];
+  let parceiros: Array<{ id: string; nome: string }> = [];
 
   try {
     const raw = await prisma.indicacao.findMany({
       orderBy: { criadoEm: "desc" },
-      include: { indicador: { select: { id: true, nome: true, classificacao: true } } },
+      include: {
+        indicador: { select: { id: true, nome: true, classificacao: true } },
+        parceiro: { select: { id: true, nome: true } },
+      },
     });
     indicacoes = raw.map((i) => ({
       id: i.id,
@@ -51,6 +56,7 @@ export default async function IndicacoesPage() {
       notas: i.notas,
       criadoEm: i.criadoEm.toISOString(),
       indicador: i.indicador,
+      parceiro: i.parceiro,
     }));
     // RBAC — Camada 1 (escopo). Flag RBAC_ENFORCEMENT (default OFF) => where vazio
     // (comportamento atual). cges null (admin/sem papel/"todas"/0 CGEs) => sem filtro.
@@ -63,6 +69,13 @@ export default async function IndicacoesPage() {
       const cges = await resolverCgesVisiveis(ctx);
       if (cges) where.assessorCge = { in: cges };
     }
+    // Só os ativos: parceiro arquivado não deve aparecer como origem de uma
+    // indicação NOVA — o histórico dele continua nos cards já criados.
+    parceiros = await prisma.parceiro.findMany({
+      where: { ativo: true },
+      orderBy: { nome: "asc" },
+      select: { id: true, nome: true },
+    });
     clientes = await prisma.clienteBackoffice.findMany({
       where,
       orderBy: { nome: "asc" },
@@ -88,7 +101,7 @@ export default async function IndicacoesPage() {
           referencias={REF_INDICACOES}
           titulo="Por que indicações são a alavanca de crescimento"
         />
-        <IndicacoesBoard indicacoes={indicacoes} clientes={clientes} />
+        <IndicacoesBoard indicacoes={indicacoes} clientes={clientes} parceiros={parceiros} />
       </div>
     </div>
   );
