@@ -11,6 +11,14 @@
  * clico em aplicar lendo os números do ensaio ANTERIOR. A tela mostraria a
  * conferência de um plano que não é o que vai rodar.
  *
+ * ── O LIMITE, QUE VALE DIZER ANTES DA GARANTIA ──────────────────────────
+ * Isto vale para `xlsx` e `csv`, cuja leitura é determinística. Em `pdf` e
+ * `docx` a rota RE-EXTRAI o arquivo por IA a cada chamada
+ * (`src/lib/importacao/extracao-ia.ts`), sem cache das linhas do ensaio: mesma
+ * assinatura pode produzir plano diferente. Nenhuma assinatura resolve isso
+ * daqui — é a leitura que não é reprodutível —, e afirmar a garantia sem a
+ * ressalva seria vender proteção que o formato não tem.
+ *
  * A assinatura (`assinaturaDoPlano`) é o que amarra os dois: arquivo, PERFIL
  * (por conteúdo, não só por id), competência, mapeamento e parceiro padrão.
  *

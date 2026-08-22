@@ -72,14 +72,10 @@ test("o aviso de antiguidade diz que o que falta continua sendo criado", () => {
   assert.ok(avisoDeAntiguidade(1).startsWith("1 linha é"), "singular");
 });
 
+const VAZIO = { linhasLidas: 0, contratosACriar: 0, contratosAAtualizar: 0, pessoasACriar: 0, rejeitadas: 0 };
+
 test("zero linha lida é estado vazio de leitura, não de conteúdo", () => {
-  const v = estadoVazioDoEnsaio({
-    linhasLidas: 0,
-    contratosACriar: 0,
-    contratosAAtualizar: 0,
-    pessoasACriar: 0,
-  });
-  assert.equal(v?.titulo, "Nenhuma linha encontrada.");
+  assert.equal(estadoVazioDoEnsaio(VAZIO)?.titulo, "Nenhuma linha encontrada.");
 });
 
 test('"nada a fazer" só aparece quando não há nada a criar nem atualizar', () => {
@@ -134,7 +130,10 @@ test("a confirmação soma o que vai gravar e não promete desfazer", () => {
 
 test("os erros de perfil batem com os três casos que o servidor recusa", () => {
   assert.ok(ERROS.perfilDeOutraEmpresa("Imobiliária").includes("Imobiliária"));
-  assert.ok(ERROS.perfilInativo.includes("Reative"));
+  // NÃO pode mandar para tela de configuração de perfis: ela não existe em
+  // `src/app/**`. Endereço inventado é da mesma família do número inventado.
+  assert.ok(!/Configura(ç|c)ões/.test(ERROS.perfilInativo));
+  assert.ok(ERROS.perfilInativo.includes("Escolha outro"));
   assert.ok(ERROS.arquivoGrande(20, 31).includes("20 MB"));
   assert.ok(ERROS.conexaoPerdida.includes("não será duplicado") === false);
   assert.ok(ERROS.conexaoPerdida.includes("nada será duplicado"));

@@ -21,6 +21,9 @@ import {
   rotuloDoCampo,
 } from "./campos-destino.ts";
 import { FORMATOS_VALOR } from "@/lib/importacao/perfil";
+// O motor é importado só aqui, no teste: o módulo de UI continua sem depender
+// dele. Chamar `montarRegistro` é o que torna o guarda dos obrigatórios real.
+import { montarRegistro } from "@/lib/corretora/importar-contratos";
 
 function fonteDoMotor(): string {
   return readFileSync(join(process.cwd(), "src/lib/corretora/importar-contratos.ts"), "utf8");
@@ -87,27 +90,44 @@ test("o Set ainda filtra dadosProduto do jeito certo", () => {
 });
 
 test("os obrigatórios são os que montarRegistro recusa quando faltam", () => {
-  // Lê o fonte em vez de comparar com uma lista escrita neste mesmo PR — que
-  // seria tautologia, não guarda.
-  const fonte = fonteDoMotor();
-  const corpo = /export function montarRegistro\(([\s\S]*?)\n}/.exec(fonte);
-  assert.ok(corpo, "não achei montarRegistro — o teste-guarda ficou cego");
-
+  // CHAMA o motor em vez de procurar a frase no fonte. Grep passaria verde se
+  // alguém tirasse a recusa e deixasse a mensagem viva num comentário — guarda
+  // que só lê texto dá a sensação de proteção sem a proteção.
   for (const campo of CAMPOS_OBRIGATORIOS) {
-    assert.match(
-      corpo[1],
-      new RegExp(`(sem ${campo}|${campo} sem mapeamento)`),
-      `a tela exige ${campo}, mas montarRegistro não recusa a linha sem ele`,
-    );
+    const semEle = linhaCompleta();
+    delete semEle.campos[campo];
+    const r = montarRegistro(semEle, "Porto Seguro", undefined, new Date("2026-08-01"));
+    assert.equal(r.ok, false, `montarRegistro aceitou linha sem ${campo}`);
   }
-  assert.deepEqual([...CAMPOS_OBRIGATORIOS].sort(), [
-    "cpfCnpj",
-    "inicioVigencia",
-    "numeroContrato",
-    "status",
-    "tipoProduto",
-  ]);
+
+  // E o contrário: com todos presentes, a linha passa. Sem isto o teste acima
+  // passaria mesmo se `montarRegistro` recusasse tudo.
+  const completa = montarRegistro(linhaCompleta(), "Porto Seguro", undefined, new Date("2026-08-01"));
+  assert.equal(completa.ok, true, `a linha completa devia passar`);
 });
+
+/** Uma linha aplicada válida, no formato que `montarRegistro` espera. */
+function linhaCompleta(): {
+  numero: number;
+  origem: "deterministica";
+  campos: Record<string, unknown>;
+  pendentes: Record<string, string>;
+  erros: string[];
+} {
+  return {
+    numero: 7,
+    origem: "deterministica",
+    campos: {
+      cpfCnpj: "12345678901",
+      tipoProduto: "vida",
+      numeroContrato: "AP-1",
+      status: "ativo",
+      inicioVigencia: new Date("2026-01-10"),
+    },
+    pendentes: {},
+    erros: [],
+  };
+}
 
 test("parceiro e dataReferencia não são obrigatórios na tela, e há motivo", () => {
   // `montarRegistro` também recusa por eles, mas os dois têm fallback fora da

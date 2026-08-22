@@ -128,8 +128,12 @@ export const ERROS = {
   // exibe a do servidor, não um texto fixo.
   perfilDeOutraEmpresa: (empresa: string) =>
     `Este perfil é da ${empresa}. Ler a base da Corretora com ele faria as colunas caírem no lugar errado por coincidência de nome.`,
+  // NÃO mandar para "Configurações › Perfis de importação": essa tela não
+  // existe. Não há UI nem rota de CRUD para `PerfilImportacao` em `src/app/**`
+  // — o modelo só aparece na rota de import. Endereço inventado é da mesma
+  // família do número inventado: auditável, e falso.
   perfilInativo:
-    "Este perfil está desativado. Reative-o em Configurações › Perfis de importação ou escolha outro.",
+    "Este perfil está desativado e não dá para usá-lo. Escolha outro na lista — reativar depende de quem administra os perfis.",
   arquivoGrande: (limiteMb: number, tamanhoMb: number) =>
     `O limite é ${limiteMb} MB e este arquivo tem ${tamanhoMb} MB. Em Excel, salvar só a aba do relatório costuma resolver; se não, divida em dois envios.`,
   conexaoPerdida:
@@ -140,18 +144,38 @@ export const ERROS = {
 
 export type EstadoVazio = { readonly titulo: string; readonly corpo: string };
 
+export function nenhumaLinhaAproveitada(linhasLidas: number): EstadoVazio {
+  return {
+    titulo: "Nenhuma linha aproveitada.",
+    corpo: `As ${linhasLidas.toLocaleString("pt-BR")} linhas foram lidas e nenhuma passou. Veja os motivos abaixo — costuma ser a mesma palavra se repetindo.`,
+  };
+}
+
 /**
  * Qual estado vazio mostrar, ou `null` quando há trabalho a fazer.
  *
  * A separação entre "erro" e "estado vazio" é o que impede a tela de contar
  * duas verdades: um ensaio que leu 312 linhas e aproveitou zero NÃO falhou —
  * ele respondeu, e a resposta é que o perfil está errado.
+ *
+ * ── POR QUE `rejeitadas` PRECISA ENTRAR AQUI ────────────────────────────
+ * Sem ele os dois cenários são o MESMO conjunto de números: tudo zero. E os
+ * dois pedem ação oposta.
+ *
+ *   nada mudou     → o relatório já está na base, pode fechar a tela;
+ *   nada passou    → o dicionário do perfil está quebrado, o mês NÃO entrou.
+ *
+ * A versão anterior chamava os dois de "Nada a fazer" e ainda dava a causa
+ * errada ("todas caíram em contrato encerrado"). O operador fecharia a tela
+ * achando a base em dia com 312 linhas recusadas atrás dele.
  */
 export function estadoVazioDoEnsaio(r: {
   linhasLidas: number;
   contratosACriar: number;
   contratosAAtualizar: number;
   pessoasACriar: number;
+  /** Quantas linhas o motor recusou. É o que distingue os dois vazios. */
+  rejeitadas: number;
 }): EstadoVazio | null {
   if (r.linhasLidas === 0) {
     return {
@@ -163,17 +187,20 @@ export function estadoVazioDoEnsaio(r: {
   const nadaAFazer =
     r.contratosACriar === 0 && r.contratosAAtualizar === 0 && r.pessoasACriar === 0;
   if (!nadaAFazer) return null;
+
+  if (r.rejeitadas >= r.linhasLidas) return nenhumaLinhaAproveitada(r.linhasLidas);
+
+  if (r.rejeitadas > 0) {
+    return {
+      titulo: "Nada seria gravado.",
+      corpo: `${r.rejeitadas.toLocaleString("pt-BR")} das ${r.linhasLidas.toLocaleString("pt-BR")} linhas foram recusadas e o resto já está na base como está. Veja os motivos antes de concluir que o mês está em dia.`,
+    };
+  }
+
   return {
     titulo: "Nada a fazer.",
     corpo:
       "Todas as linhas caíram em contrato já encerrado ou em relatório mais antigo do que o gravado. Nada seria criado nem alterado.",
-  };
-}
-
-export function nenhumaLinhaAproveitada(linhasLidas: number): EstadoVazio {
-  return {
-    titulo: "Nenhuma linha aproveitada.",
-    corpo: `As ${linhasLidas.toLocaleString("pt-BR")} linhas foram lidas e nenhuma passou. Veja os motivos abaixo — costuma ser a mesma palavra se repetindo.`,
   };
 }
 
