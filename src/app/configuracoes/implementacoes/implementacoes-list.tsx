@@ -51,6 +51,8 @@ export type ImplementacaoDTO = {
   empresaId: string;
   tipo: string;
   porQue: string;
+  /** Rota de onde a sugestão foi aberta pelo botão flutuante. `null` = veio do formulário. */
+  pagina?: string | null;
   oQue: string;
   printUrl: string | null;
   // `como` e `createdAt` existem no modelo mas NÃO entram aqui: nenhuma célula
@@ -1681,6 +1683,14 @@ export function ImplementacoesList({
                   >
                     <td className="max-w-xs px-3 py-2">
                       <p className="font-medium text-foreground">{r.oQue}</p>
+                      {/* A tela de onde a queixa veio. Gravada desde sempre pelo
+                          botão flutuante e nunca exibida — sem isto, "qual
+                          página mais incomoda" só se responde no SQL. */}
+                      {r.pagina && (
+                        <p className="truncate font-mono text-[11px] text-muted-foreground/80">
+                          aberta em {r.pagina}
+                        </p>
+                      )}
                       {v2 ? (
                         <PorQueExpansivel texto={r.porQue} />
                       ) : (
