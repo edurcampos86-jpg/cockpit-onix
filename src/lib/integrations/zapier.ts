@@ -4,16 +4,23 @@
  */
 
 import { getIntegrationConfig } from "./config";
+import { decidirAcessoWebhook, type AcessoWebhook } from "./zapier-acesso";
+
+export type { AcessoWebhook };
 
 /**
- * Valida o webhook secret para autenticar requests do Zapier
+ * Casca de IO: lê o segredo da config e delega a decisão ao módulo puro
+ * `zapier-acesso.ts` — onde ela está testada, e onde está escrito por que
+ * segredo ausente virou 503 em vez de porta aberta.
+ *
+ * A config mescla env do Railway + `.integrations.json` + Config DB, e continua
+ * assim de propósito: restringir a leitura só ao env desligaria a integração
+ * de quem tem o segredo apenas no arquivo. O que mudou é o que acontece quando
+ * NÃO há segredo em lugar nenhum.
  */
-export async function validateWebhookSecret(secret: string): Promise<boolean> {
+export async function avaliarAcessoWebhook(secret: string): Promise<AcessoWebhook> {
   const config = await getIntegrationConfig();
-  const expectedSecret = config.ZAPIER_WEBHOOK_SECRET;
-  // Se não configurou secret, aceita qualquer request (dev mode)
-  if (!expectedSecret) return true;
-  return secret === expectedSecret;
+  return decidirAcessoWebhook(config.ZAPIER_WEBHOOK_SECRET, secret);
 }
 
 /**
