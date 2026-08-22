@@ -18,8 +18,18 @@ import {
   IdCard,
   Presentation,
   UserRound,
+  NotebookPen,
+  CalendarCheck,
 } from "lucide-react";
 import { ClienteFatosTab } from "./cliente-fatos-tab";
+import {
+  SeloOrigem,
+  indexarProveniencias,
+  type ProvenienciaView,
+} from "./registro-rico/selo-origem";
+import { PrepararReuniaoTab } from "./registro-rico/preparar-reuniao-tab";
+import { RegistroDrawer } from "./registro-rico/registro-drawer";
+import { campoDe } from "@/lib/clientes-registro/proveniencia";
 import type { FatoView } from "@/lib/cockpit-reuniao/fatos-leitura";
 import { ReferenciaLivro } from "./referencia-livro";
 import { ComoFunciona } from "./como-funciona";
@@ -118,7 +128,7 @@ interface Cliente {
   codigoEscritorio: string | null;
 }
 
-type Tab = "descoberta" | "cadastro" | "plano" | "checklist" | "metas" | "eventos" | "perfil" | "rca" | "cockpit-reuniao" | "fatos";
+type Tab = "descoberta" | "cadastro" | "plano" | "checklist" | "metas" | "eventos" | "perfil" | "rca" | "cockpit-reuniao" | "fatos" | "preparar-reuniao";
 
 /* Aba vinda da URL é entrada externa: só vale se for uma das que existem.
  * Sem esta trava, `?aba=qualquer-coisa` deixaria a ficha sem nenhuma aba
@@ -126,6 +136,10 @@ type Tab = "descoberta" | "cadastro" | "plano" | "checklist" | "metas" | "evento
 const TABS_VALIDAS = new Set<Tab>([
   "descoberta", "cadastro", "plano", "checklist", "metas",
   "eventos", "perfil", "rca", "cockpit-reuniao", "fatos",
+  // Aba nova precisa entrar AQUI também, não só em `TABS`. Esquecer não dá
+  // erro: `?aba=preparar-reuniao` cai em Descoberta em silêncio, e quem mandou
+  // o link acha que ele está quebrado sem nada indicar o motivo.
+  "preparar-reuniao",
 ]);
 
 const TABS: { id: Tab; label: string; icon: typeof Heart }[] = [
@@ -143,6 +157,9 @@ export function ClienteDetalhe({
   cliente: inicial,
   cockpitReuniao = false,
   perfilLeitura = false,
+  registroRico = false,
+  proveniencias = [],
+  gruposDoCliente = [],
   reunioesEstruturadas = [],
   clienteFatos = [],
   pessoas = [],
@@ -151,6 +168,12 @@ export function ClienteDetalhe({
   cliente: Cliente;
   cockpitReuniao?: boolean;
   perfilLeitura?: boolean;
+  /** Flag CLIENTES_REGISTRO_RICO. OFF → a ficha fica idêntica à de antes. */
+  registroRico?: boolean;
+  /** Selo de origem por campo. Vazio com a flag OFF — a page nem consulta. */
+  proveniencias?: ProvenienciaView[];
+  /** TODOS os grupos de atendimento da conta — uma conta pode estar em vários. */
+  gruposDoCliente?: { id: string; nome: string; membrosQueRecebem: number }[];
   reunioesEstruturadas?: ReuniaoEstruturadaView[];
   clienteFatos?: FatoView[];
   pessoas?: { id: string; nome: string }[];
@@ -167,15 +190,53 @@ export function ClienteDetalhe({
     TABS_VALIDAS.has(abaDaUrl as Tab) ? (abaDaUrl as Tab) : "descoberta",
   );
   const [cliente, setCliente] = useState(inicial);
+  const [drawerAberto, setDrawerAberto] = useState(false);
+
+  // Index por endereço de campo: cada campo busca o próprio selo em O(1) em vez
+  // de varrer a lista uma vez por campo renderizado.
+  const selos = indexarProveniencias(proveniencias);
 
   // Cada flag OFF → aba correspondente some (tela byte-idêntica à de hoje).
   const tabs = [...TABS];
   if (perfilLeitura) tabs.push({ id: "fatos" as Tab, label: "Perfil", icon: UserRound });
   if (cockpitReuniao)
     tabs.push({ id: "cockpit-reuniao" as Tab, label: "Cockpit de Reunião", icon: Presentation });
+  if (registroRico)
+    tabs.push({ id: "preparar-reuniao" as Tab, label: "Preparar reunião", icon: CalendarCheck });
 
   return (
     <div className="space-y-4">
+      {/* Registrar: fica ACIMA das abas de propósito. Registrar uma ligação não
+          é "uma aba a mais" — é a ação que se faz assim que se desliga o
+          telefone, e enterrá-la dentro de RCA é o motivo de ela não acontecer. */}
+      {registroRico && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => setDrawerAberto(true)}
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground"
+          >
+            <NotebookPen className="h-4 w-4" aria-hidden />
+            Registrar contato
+          </button>
+        </div>
+      )}
+
+      {registroRico && (
+        <RegistroDrawer
+          clienteId={cliente.id}
+          clienteNome={cliente.nome}
+          aberto={drawerAberto}
+          grupos={gruposDoCliente}
+          pessoas={pessoas}
+          onFechar={() => setDrawerAberto(false)}
+          // A ficha é server-rendered: depois de gravar, recarregar é o único
+          // jeito honesto de a tela refletir contato, cadência e histórico —
+          // remendar o estado local mostraria três números desatualizados.
+          onRegistrado={() => window.location.reload()}
+        />
+      )}
+
       {/* Tabs */}
       <div className="flex gap-2 border-b border-border overflow-x-auto">
         {tabs.map((t) => {
@@ -200,6 +261,7 @@ export function ClienteDetalhe({
       {tab === "descoberta" && (
         <DescobertaTab
           clienteId={cliente.id}
+          selos={selos}
           inicial={cliente.perfilDescoberta}
           onSave={(p) => setCliente({ ...cliente, perfilDescoberta: p })}
         />
@@ -222,6 +284,7 @@ export function ClienteDetalhe({
       {tab === "metas" && (
         <MetasTab
           clienteId={cliente.id}
+          selos={selos}
           metas={cliente.metas}
           onChange={(metas) => setCliente({ ...cliente, metas })}
         />
@@ -229,6 +292,7 @@ export function ClienteDetalhe({
       {tab === "eventos" && (
         <EventosTab
           clienteId={cliente.id}
+          selos={selos}
           eventos={cliente.eventosVida}
           onChange={(ev) => setCliente({ ...cliente, eventosVida: ev })}
         />
@@ -236,6 +300,7 @@ export function ClienteDetalhe({
       {tab === "perfil" && (
         <PerfilEmocionalTab
           clienteId={cliente.id}
+          selos={selos}
           perfilEmocional={cliente.perfilEmocional}
           observacoes={cliente.observacoes}
           onSave={(p, o) =>
@@ -251,6 +316,13 @@ export function ClienteDetalhe({
         />
       )}
       {tab === "fatos" && <ClienteFatosTab fatos={clienteFatos} />}
+      {/* Travado pela flag, não só pela lista de botões. A aba inicial pode vir
+          da URL (`?aba=`), então sem esta guarda `?aba=preparar-reuniao` com a
+          flag OFF renderizaria a aba que a flag existe para esconder — a rota
+          responderia 404 e a tela mostraria erro no lugar de nada. */}
+      {registroRico && tab === "preparar-reuniao" && (
+        <PrepararReuniaoTab clienteId={cliente.id} />
+      )}
       {tab === "cockpit-reuniao" && (
         <CockpitReuniaoTab
           clienteId={cliente.id}
@@ -464,10 +536,13 @@ const PERGUNTAS_DESCOBERTA: { campo: string; pergunta: string; placeholder: stri
 
 function DescobertaTab({
   clienteId,
+  selos,
   inicial,
   onSave,
 }: {
   clienteId: string;
+  /** Selo de origem por endereço de campo. Vazio com a flag OFF. */
+  selos: Map<string, ProvenienciaView>;
   inicial: Cliente["perfilDescoberta"];
   onSave: (p: Cliente["perfilDescoberta"]) => void;
 }) {
@@ -521,7 +596,10 @@ function DescobertaTab({
 
         {PERGUNTAS_DESCOBERTA.map((p) => (
           <div key={p.campo}>
-            <label className="text-sm font-medium block mb-1.5">{p.pergunta}</label>
+            <div className="flex items-baseline justify-between gap-3 mb-1.5">
+              <label className="text-sm font-medium">{p.pergunta}</label>
+              <SeloOrigem proveniencia={selos.get(campoDe.descoberta(p.campo))} />
+            </div>
             <textarea
               value={form[p.campo] ?? ""}
               onChange={(e) => setForm({ ...form, [p.campo]: e.target.value })}
@@ -533,7 +611,10 @@ function DescobertaTab({
         ))}
 
         <div>
-          <label className="text-sm font-medium block mb-1.5">Linguagem preferida</label>
+          <div className="flex items-baseline justify-between gap-3 mb-1.5">
+            <label className="text-sm font-medium">Linguagem preferida</label>
+            <SeloOrigem proveniencia={selos.get(campoDe.descoberta("linguagemPref"))} />
+          </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
             {[
               { id: "tecnica", label: "Técnica" },
@@ -748,10 +829,23 @@ function Bloco({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  children,
+  selo,
+}: {
+  label: string;
+  children: React.ReactNode;
+  /** Selo de origem, quando o campo tem proveniência. Opcional: as demais
+   *  chamadas de `Field` continuam sem passar nada e renderizam como antes. */
+  selo?: React.ReactNode;
+}) {
   return (
     <div>
-      <label className="text-xs font-medium text-muted-foreground mb-1 block">{label}</label>
+      <div className="flex items-baseline justify-between gap-3 mb-1">
+        <label className="text-xs font-medium text-muted-foreground block">{label}</label>
+        {selo}
+      </div>
       {children}
     </div>
   );
@@ -903,10 +997,12 @@ function ChecklistTab({
 // ============ METAS ============
 function MetasTab({
   clienteId,
+  selos,
   metas: iniciais,
   onChange,
 }: {
   clienteId: string;
+  selos: Map<string, ProvenienciaView>;
   metas: Meta[];
   onChange: (m: Meta[]) => void;
 }) {
@@ -1076,6 +1172,10 @@ function MetasTab({
                   <div className="flex-1">
                     <p className={`font-semibold ${atingida ? "line-through" : ""}`}>{m.titulo}</p>
                     {m.descricao && <p className="text-xs mt-1 opacity-80">{m.descricao}</p>}
+                    {/* Meta aceita de uma transcrição fica marcada. Sem isto, o
+                        que a máquina ouviu de brincadeira vira meta de vida com
+                        a mesma cara de meta acordada na reunião. */}
+                    <SeloOrigem proveniencia={selos.get(campoDe.meta(m.id))} />
                   </div>
                   <button
                     onClick={() => remover(m.id)}
@@ -1128,10 +1228,12 @@ const TIPOS_EVENTO: { id: string; label: string }[] = [
 
 function EventosTab({
   clienteId,
+  selos,
   eventos: iniciais,
   onChange,
 }: {
   clienteId: string;
+  selos: Map<string, ProvenienciaView>;
   eventos: EventoVida[];
   onChange: (e: EventoVida[]) => void;
 }) {
@@ -1270,7 +1372,10 @@ function EventosTab({
                 <Cake className="h-5 w-5 text-pink-600 dark:text-pink-400" />
               </div>
               <div className="flex-1">
-                <p className="text-sm font-semibold">{e.titulo}</p>
+                <div className="flex items-baseline justify-between gap-3">
+                  <p className="text-sm font-semibold">{e.titulo}</p>
+                  <SeloOrigem proveniencia={selos.get(campoDe.eventoVida(e.id))} />
+                </div>
                 <p className="text-xs text-muted-foreground">
                   {new Date(e.data).toLocaleDateString("pt-BR")} ·{" "}
                   {TIPOS_EVENTO.find((t) => t.id === e.tipo)?.label ?? e.tipo}
@@ -1297,11 +1402,13 @@ function EventosTab({
 // ============ PERFIL EMOCIONAL ============
 function PerfilEmocionalTab({
   clienteId,
+  selos,
   perfilEmocional: pInicial,
   observacoes: oInicial,
   onSave,
 }: {
   clienteId: string;
+  selos: Map<string, ProvenienciaView>;
   perfilEmocional: string | null;
   observacoes: string | null;
   onSave: (p: string | null, o: string | null) => void;
@@ -1348,7 +1455,10 @@ function PerfilEmocionalTab({
       </div>
 
       <div className="rounded-xl border bg-card p-6 space-y-4">
-        <Field label="Perfil emocional / linguagem do cliente">
+        <Field
+          label="Perfil emocional / linguagem do cliente"
+          selo={<SeloOrigem proveniencia={selos.get(campoDe.cliente("perfilEmocional"))} />}
+        >
           <textarea
             rows={5}
             value={perfil}
@@ -1357,7 +1467,10 @@ function PerfilEmocionalTab({
             className="w-full px-3 py-2 rounded-lg border bg-background text-sm"
           />
         </Field>
-        <Field label="Observações gerais">
+        <Field
+          label="Observações gerais"
+          selo={<SeloOrigem proveniencia={selos.get(campoDe.cliente("observacoes"))} />}
+        >
           <textarea
             rows={4}
             value={obs}
