@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { CalendarClock, Loader2, Users } from "lucide-react";
+import type { Grupo } from "./registro-drawer";
 
 /**
  * Ajuste manual da data de contato, na própria linha do cliente.
@@ -13,34 +14,38 @@ import { CalendarClock, Loader2, Users } from "lucide-react";
  * sabe que já foi falado.
  *
  * O seletor de escopo é a decisão importante da tela, e por isso é explícito:
- * "só esta conta" é o default e "todo o grupo" avisa quantas contas serão
- * movidas ANTES do clique. Propagação silenciosa seria a pior forma de acertar.
+ * "só esta conta" é o default e cada grupo avisa quantas contas serão movidas
+ * ANTES do clique. Propagação silenciosa seria a pior forma de acertar.
+ *
+ * Uma conta pode estar em VÁRIOS grupos ao mesmo tempo — cada um vira um radio
+ * próprio, e com mais de um nenhum vem pré-marcado.
+ *
+ * Ajustar a data aqui NÃO quita a cadência 12-4-2: registra que houve contato e
+ * deixa `proximoContatoAt` onde está. Só reunião completa quita.
  */
-
-export type GrupoDoCliente = {
-  id: string;
-  nome: string;
-  /** Quantos membros recebem propagação (viaGrupo=true) — o número que a tela mostra. */
-  membrosQueRecebem: number;
-};
 
 export function ContatoEditPopover({
   clienteId,
   ultimoContatoAt,
-  grupo,
+  grupos = [],
   onSalvo,
 }: {
   clienteId: string;
   ultimoContatoAt: string | null;
-  grupo?: GrupoDoCliente | null;
+  /** Todos os grupos de atendimento da conta. */
+  grupos?: readonly Grupo[];
   onSalvo?: (r: { atualizados: string[]; naoRegrediram: string[] }) => void;
 }) {
   const [aberto, setAberto] = useState(false);
   const [data, setData] = useState(() => paraInputDate(ultimoContatoAt));
   const [motivo, setMotivo] = useState("");
   const [escopo, setEscopo] = useState<"individual" | "grupo">("individual");
+  const [grupoId, setGrupoId] = useState<string>(() => (grupos.length === 1 ? grupos[0]!.id : ""));
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+
+  const grupoEscolhido = grupos.find((g) => g.id === grupoId) ?? null;
+  const faltaEscolherGrupo = escopo === "grupo" && !grupoEscolhido;
 
   async function salvar() {
     setSalvando(true);
@@ -53,7 +58,7 @@ export function ContatoEditPopover({
           ultimoContatoAt: data ? new Date(`${data}T12:00:00`).toISOString() : null,
           motivo: motivo.trim() || undefined,
           escopo,
-          grupoId: escopo === "grupo" ? grupo?.id : undefined,
+          grupoId: escopo === "grupo" ? grupoEscolhido?.id : undefined,
         }),
       });
       const json = await res.json();
@@ -120,7 +125,7 @@ export function ContatoEditPopover({
         />
       </div>
 
-      {grupo && (
+      {grupos.length > 0 && (
         <fieldset className="space-y-1">
           <legend className="text-xs font-medium text-muted-foreground">Aplicar em</legend>
           <label className="flex items-center gap-2 text-xs">
@@ -132,17 +137,26 @@ export function ContatoEditPopover({
             />
             Só esta conta
           </label>
-          <label className="flex items-center gap-2 text-xs">
-            <input
-              type="radio"
-              name="escopo"
-              checked={escopo === "grupo"}
-              onChange={() => setEscopo("grupo")}
-            />
-            <Users className="h-3 w-3" aria-hidden />
-            {grupo.nome} — {grupo.membrosQueRecebem}{" "}
-            {grupo.membrosQueRecebem === 1 ? "conta" : "contas"}
-          </label>
+          {grupos.map((g) => (
+            <label key={g.id} className="flex items-center gap-2 text-xs">
+              <input
+                type="radio"
+                name="escopo"
+                checked={escopo === "grupo" && grupoId === g.id}
+                onChange={() => {
+                  setEscopo("grupo");
+                  setGrupoId(g.id);
+                }}
+              />
+              <Users className="h-3 w-3" aria-hidden />
+              {g.nome} — {g.membrosQueRecebem} {g.membrosQueRecebem === 1 ? "conta" : "contas"}
+            </label>
+          ))}
+          {grupos.length > 1 && (
+            <p className="pt-0.5 text-[11px] text-muted-foreground">
+              Esta conta está em {grupos.length} grupos. Escolha um.
+            </p>
+          )}
         </fieldset>
       )}
 
@@ -152,7 +166,7 @@ export function ContatoEditPopover({
         <button
           type="button"
           onClick={salvar}
-          disabled={salvando}
+          disabled={salvando || faltaEscolherGrupo}
           className="inline-flex items-center gap-1 rounded bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50"
         >
           {salvando && <Loader2 className="h-3 w-3 animate-spin" aria-hidden />}

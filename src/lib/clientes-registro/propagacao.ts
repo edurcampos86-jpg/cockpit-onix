@@ -89,3 +89,32 @@ export function avancaUltimoContato(
   if (!atual) return true;
   return novo.getTime() > atual.getTime();
 }
+
+/* ──────────────────────────────────────────────────────────────
+ * QUITAÇÃO DA CADÊNCIA 12-4-2
+ * ────────────────────────────────────────────────────────────── */
+
+/**
+ * Que tipo de registro QUITA a cadência 12-4-2 — decisão do Eduardo, 22/08/2026.
+ *
+ *   ligação de 5 min  → registra o contato, NÃO quita
+ *   reunião completa  → quita
+ *
+ * Antes desta regra o sistema tratava os dois igual: qualquer `InteracaoCliente`
+ * empurrava `proximoContatoAt` pela régua da classe, então uma ligação curta
+ * tirava o cliente da fila de acompanhamento exatamente como uma reunião de uma
+ * hora. O efeito não aparecia como erro — aparecia como um livro de clientes
+ * mais saudável do que ele é.
+ *
+ * O repositório carregava DUAS definições de "12-4-2" que se contradiziam:
+ *   • `cadencia-core.ts:8`  — toques/ano por CLASSE (A=12, B=4, C=2)
+ *   • `schema.prisma:1225`  — para clientes A: 12 ligações, 4 reuniões, 2 revisões
+ * A segunda é a do método Supernova e é a que esta regra segue.
+ *
+ * O que esta função NÃO decide: `ultimoContatoAt`, que continua andando com
+ * qualquer canal — ligação É contato e precisa aparecer como tal na ficha. O
+ * que ela decide é `proximoContatoAt`, o relógio da cadência.
+ */
+export function quitaCadencia(tipo: string): boolean {
+  return tipo === "reuniao";
+}

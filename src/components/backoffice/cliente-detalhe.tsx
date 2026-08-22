@@ -146,7 +146,7 @@ export function ClienteDetalhe({
   perfilLeitura = false,
   registroRico = false,
   proveniencias = [],
-  grupoDoCliente = null,
+  gruposDoCliente = [],
   reunioesEstruturadas = [],
   clienteFatos = [],
   pessoas = [],
@@ -159,7 +159,8 @@ export function ClienteDetalhe({
   registroRico?: boolean;
   /** Selo de origem por campo. Vazio com a flag OFF — a page nem consulta. */
   proveniencias?: ProvenienciaView[];
-  grupoDoCliente?: { id: string; nome: string; membrosQueRecebem: number } | null;
+  /** TODOS os grupos de atendimento da conta — uma conta pode estar em vários. */
+  gruposDoCliente?: { id: string; nome: string; membrosQueRecebem: number }[];
   reunioesEstruturadas?: ReuniaoEstruturadaView[];
   clienteFatos?: FatoView[];
   pessoas?: { id: string; nome: string }[];
@@ -204,7 +205,7 @@ export function ClienteDetalhe({
           clienteId={cliente.id}
           clienteNome={cliente.nome}
           aberto={drawerAberto}
-          grupo={grupoDoCliente}
+          grupos={gruposDoCliente}
           pessoas={pessoas}
           onFechar={() => setDrawerAberto(false)}
           // A ficha é server-rendered: depois de gravar, recarregar é o único

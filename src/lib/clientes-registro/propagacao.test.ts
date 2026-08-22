@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { avancaUltimoContato, destinosDoContato } from "./propagacao.ts";
+import { avancaUltimoContato, destinosDoContato, quitaCadencia } from "./propagacao.ts";
 
 // ── A metade da regra que é fácil implementar errado: individual NÃO propaga,
 // nem quando a conta pertence a um grupo. O teste existe porque "ele está no
@@ -73,4 +73,24 @@ test("mesma data não conta como avanço", () => {
 test("cliente sem contato nenhum aceita qualquer data", () => {
   assert.equal(avancaUltimoContato(null, new Date("2020-01-01T00:00:00Z")), true);
   assert.equal(avancaUltimoContato(undefined, new Date("2020-01-01T00:00:00Z")), true);
+});
+
+// ── Quitação da cadência 12-4-2 (decisão do Eduardo, 22/08/2026).
+// Antes desta regra qualquer interação empurrava `proximoContatoAt`, e uma
+// ligação de 5 min tirava o cliente da fila igual a uma reunião de uma hora.
+
+test("só reunião quita a cadência 12-4-2", () => {
+  assert.equal(quitaCadencia("reuniao"), true);
+});
+
+test("ligação, whatsapp e e-mail registram contato mas não quitam", () => {
+  assert.equal(quitaCadencia("ligacao"), false);
+  assert.equal(quitaCadencia("whatsapp"), false);
+  assert.equal(quitaCadencia("email"), false);
+});
+
+test("tipo desconhecido não quita — o default é não dar o cliente por servido", () => {
+  assert.equal(quitaCadencia(""), false);
+  assert.equal(quitaCadencia("evento"), false);
+  assert.equal(quitaCadencia("REUNIAO"), false);
 });

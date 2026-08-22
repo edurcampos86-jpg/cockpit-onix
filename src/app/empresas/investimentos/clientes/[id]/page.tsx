@@ -98,7 +98,7 @@ export default async function ClienteDetalhePage({
   // Duas queries a mais SÓ com a flag ligada. Com ela desligada a page faz
   // exatamente as mesmas consultas de antes — o custo da feature nasce zero
   // para quem não a ligou, que é o que "flag OFF = tela idêntica" exige.
-  const [proveniencias, membroDeGrupo] = registroRico
+  const [proveniencias, membrosDeGrupo] = registroRico
     ? await Promise.all([
         prisma.campoProveniencia.findMany({
           where: { clienteId: id },
@@ -109,11 +109,13 @@ export default async function ClienteDetalhePage({
             reuniao: { select: { data: true } },
           },
         }),
-        // `findFirst` e não `findMany`: uma conta pode estar em vários grupos,
-        // mas o drawer propaga para UM. Enquanto não houver tela para escolher,
-        // mostrar o primeiro e propagar para ele é honesto; mostrar vários e
-        // propagar para um seria mentira de interface.
-        prisma.clienteGrupoMembro.findFirst({
+        // TODOS os grupos da conta, não o primeiro. Confirmado com o Eduardo
+        // em 22/08/2026: uma conta pertence a mais de um grupo ao mesmo tempo
+        // — o cônjuge que também é sócio PJ de outra família é o caso real.
+        // `ClienteGrupoMembro` é tabela de junção (unique no PAR grupo+conta),
+        // então o banco sempre permitiu; era a tela que escolhia um sozinha e
+        // propagava para ele sem dizer que havia outros.
+        prisma.clienteGrupoMembro.findMany({
           where: { clienteId: id },
           orderBy: { adicionadoEm: "asc" },
           select: {
@@ -127,15 +129,13 @@ export default async function ClienteDetalhePage({
           },
         }),
       ])
-    : [[], null];
+    : [[], []];
 
-  const grupoDoCliente = membroDeGrupo?.grupo
-    ? {
-        id: membroDeGrupo.grupo.id,
-        nome: membroDeGrupo.grupo.nome,
-        membrosQueRecebem: membroDeGrupo.grupo.membros.length,
-      }
-    : null;
+  const gruposDoCliente = membrosDeGrupo.map((m) => ({
+    id: m.grupo.id,
+    nome: m.grupo.nome,
+    membrosQueRecebem: m.grupo.membros.length,
+  }));
 
   // Time ativo (só quando a aba está ligada). Uma query, duas listas:
   //  - `pessoas`            → "quem conduziu" no form (todas as ativas)
@@ -194,7 +194,7 @@ export default async function ClienteDetalhePage({
             registradoEm: p.registradoEm.toISOString(),
             reuniaoData: p.reuniao?.data.toISOString() ?? null,
           }))}
-          grupoDoCliente={grupoDoCliente}
+          gruposDoCliente={gruposDoCliente}
           reunioesEstruturadas={JSON.parse(
             JSON.stringify(cliente.reunioesEstruturadas),
           )}

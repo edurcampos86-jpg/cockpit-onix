@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { proximoContatoPor } from "@/lib/cadencia";
 import { guardaRegistroRico } from "@/lib/clientes-registro/guarda";
 import { avancaUltimoContato, destinosDoContato } from "@/lib/clientes-registro/propagacao";
 
@@ -19,6 +18,13 @@ import { avancaUltimoContato, destinosDoContato } from "@/lib/clientes-registro/
  * propaga é a DATA de contato: no escopo grupo, os membros com `viaGrupo=true`
  * recebem `ultimoContatoAt` e uma linha de histórico com `origem: "grupo"`,
  * sem ganharem uma interação fantasma que ninguém conduziu.
+ *
+ * ── Ligação NÃO quita a cadência 12-4-2 (decisão do Eduardo, 22/08/2026) ──
+ * Esta rota move `ultimoContatoAt` (ligação É contato e tem de aparecer na
+ * ficha) e NÃO move `proximoContatoAt`, o relógio da cadência. Só a rota de
+ * reunião quita. Ver `quitaCadencia` em lib/clientes-registro/propagacao.ts:
+ * antes desta regra uma ligação de 5 min tirava o cliente da fila de
+ * acompanhamento exatamente como uma reunião de uma hora.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -96,7 +102,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       for (const destino of destinos) {
         const atual = await tx.clienteBackoffice.findUnique({
           where: { id: destino.clienteId },
-          select: { ultimoContatoAt: true, classificacao: true },
+          select: { ultimoContatoAt: true },
         });
         if (!atual) continue;
 
@@ -117,12 +123,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
         if (!anda) continue;
 
+        // Só `ultimoContatoAt`. `proximoContatoAt` fica onde está: ligação
+        // registra o contato, não quita a cadência.
         await tx.clienteBackoffice.update({
           where: { id: destino.clienteId },
-          data: {
-            ultimoContatoAt: data,
-            proximoContatoAt: proximoContatoPor(atual.classificacao, data),
-          },
+          data: { ultimoContatoAt: data },
         });
         propagados.push(destino.clienteId);
       }
@@ -134,6 +139,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       {
         interacao: resultado.interacao,
         contasComContatoAtualizado: resultado.propagados,
+        // Explícito na resposta: a tela não precisa deduzir por que a data de
+        // próximo contato não mudou.
+        cadenciaQuitada: false,
       },
       { status: 201 },
     );

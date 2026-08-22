@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { proximoContatoPor } from "@/lib/cadencia";
 import { guardaRegistroRico } from "@/lib/clientes-registro/guarda";
 import { avancaUltimoContato, destinosDoContato } from "@/lib/clientes-registro/propagacao";
 
@@ -19,6 +18,13 @@ import { avancaUltimoContato, destinosDoContato } from "@/lib/clientes-registro/
  * mesmo que ela pertença a um grupo. `escopo: "grupo"` escreve nos membros com
  * `viaGrupo=true`. A decisão inteira está em `destinosDoContato`, testada
  * isolada — aqui só há I/O.
+ *
+ * ── Ajuste manual não quita a cadência ──
+ * Mover `ultimoContatoAt` à mão registra que houve contato; NÃO empurra
+ * `proximoContatoAt` sozinho. Quem quiser mover o relógio da cadência manda
+ * `proximoContatoAt` explícito no corpo — e aí é uma decisão declarada, não um
+ * efeito colateral. Mesma régua da rota de ligação (Eduardo, 22/08/2026): só
+ * reunião completa quita.
  *
  * ── Por que não regride ──
  * `ultimoContatoAt` só anda para a frente. Lançar hoje uma conversa de duas
@@ -64,7 +70,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     const cliente = await prisma.clienteBackoffice.findUnique({
       where: { id },
-      select: { id: true, classificacao: true },
+      select: { id: true },
     });
     if (!cliente) return NextResponse.json({ error: "Cliente não encontrado" }, { status: 404 });
 
@@ -102,7 +108,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       for (const destino of destinos) {
         const atual = await tx.clienteBackoffice.findUnique({
           where: { id: destino.clienteId },
-          select: { ultimoContatoAt: true, proximoContatoAt: true, classificacao: true },
+          select: { ultimoContatoAt: true, proximoContatoAt: true },
         });
         if (!atual) continue;
 
@@ -113,9 +119,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
             dados.ultimoContatoAt = null;
           } else if (avancaUltimoContato(atual.ultimoContatoAt, novoUltimo)) {
             dados.ultimoContatoAt = novoUltimo;
-            // Data de contato nova reagenda o próximo pela régua da classe,
-            // a menos que o corpo já traga um próximo explícito.
-            if (!querProximo) dados.proximoContatoAt = proximoContatoPor(atual.classificacao);
           } else {
             naoRegrediram.push(destino.clienteId);
           }
@@ -154,6 +157,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       atualizados,
       naoRegrediram,
       total: destinos.length,
+      cadenciaQuitada: false,
     });
   } catch (error) {
     console.error("Erro ao ajustar contato do cliente:", error);

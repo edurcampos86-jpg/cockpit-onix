@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { proximoContatoPor } from "@/lib/cadencia";
 import { guardaRegistroRico } from "@/lib/clientes-registro/guarda";
-import { avancaUltimoContato } from "@/lib/clientes-registro/propagacao";
+import { avancaUltimoContato, quitaCadencia } from "@/lib/clientes-registro/propagacao";
 
 /**
  * POST /api/backoffice/clientes/[id]/registro-reuniao — a aba Reunião do drawer.
@@ -21,6 +21,10 @@ import { avancaUltimoContato } from "@/lib/clientes-registro/propagacao";
  *     contar no 12-4-2 sem a tela de cadência precisar saber que esta rota existe;
  *   • `ultimoContatoAt` / `ultimaReuniaoAt` (sem regredir) + histórico;
  *   • as `TarefaCliente` declaradas, com o lado responsável.
+ *
+ * ── Reunião é a ÚNICA que quita a cadência 12-4-2 ──
+ * Decisão do Eduardo, 22/08/2026: ligação registra o contato, reunião completa
+ * quita. Esta rota é a que empurra `proximoContatoAt` pela régua da classe.
  *
  * A reunião NÃO propaga para o grupo. Reunião é evento com participantes: quem
  * não estava na sala não teve reunião, e marcar que teve zeraria o alerta de
@@ -135,6 +139,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
       const andaContato = avancaUltimoContato(cliente.ultimoContatoAt, data);
       const andaReuniao = avancaUltimoContato(cliente.ultimaReuniaoAt, data);
+      // `quitaCadencia("reuniao")` é sempre true — a chamada está aqui para que
+      // a regra tenha UM dono. Se um dia a régua mudar, muda na função, não
+      // espalhada por três rotas.
+      const quita = quitaCadencia("reuniao") && andaContato;
 
       await tx.registroContatoHistorico.create({
         data: {
@@ -152,15 +160,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         await tx.clienteBackoffice.update({
           where: { id },
           data: {
-            ...(andaContato
-              ? { ultimoContatoAt: data, proximoContatoAt: proximoContatoPor(cliente.classificacao, data) }
-              : {}),
+            ...(andaContato ? { ultimoContatoAt: data } : {}),
+            ...(quita ? { proximoContatoAt: proximoContatoPor(cliente.classificacao, data) } : {}),
             ...(andaReuniao ? { ultimaReuniaoAt: data } : {}),
           },
         });
       }
 
-      return { reuniao, interacao, tarefas };
+      return { reuniao, interacao, tarefas, cadenciaQuitada: quita };
     });
 
     return NextResponse.json(resultado, { status: 201 });

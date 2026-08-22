@@ -15,15 +15,81 @@ import { Loader2, Phone, Presentation, X } from "lucide-react";
  * O escopo de grupo só aparece na aba Ligação. Reunião não propaga: quem não
  * estava na sala não teve reunião, e marcar que teve zeraria o alerta de quem
  * está justamente vencido.
+ *
+ * Uma conta pode pertencer a VÁRIOS grupos ao mesmo tempo (cônjuge que também é
+ * sócio PJ de outra família). Havendo mais de um, a tela obriga a escolher em
+ * vez de assumir o primeiro: propagar para o grupo errado move a data de
+ * contato de contas com quem ninguém falou, e isso não aparece como erro.
  */
 
 type Aba = "ligacao" | "reuniao";
+
+/** Um grupo de atendimento a que a conta pertence. */
+export type Grupo = { id: string; nome: string; membrosQueRecebem: number };
+
+/**
+ * Escolha do escopo: só esta conta, ou um grupo nomeado.
+ *
+ * Com vários grupos, cada um é um radio próprio — a lista some a chance de
+ * alguém marcar "o grupo" achando que é o outro. Com um só, o comportamento é
+ * o de antes: dois radios, sem passo extra.
+ */
+function EscopoGrupo({
+  nomeRadio,
+  grupos,
+  escopo,
+  grupoId,
+  onEscopo,
+  onGrupo,
+}: {
+  nomeRadio: string;
+  grupos: readonly Grupo[];
+  escopo: "individual" | "grupo";
+  grupoId: string;
+  onEscopo: (e: "individual" | "grupo") => void;
+  onGrupo: (id: string) => void;
+}) {
+  return (
+    <fieldset className="space-y-1">
+      <legend className="text-xs font-medium text-muted-foreground">Contar contato para</legend>
+      <label className="flex items-center gap-2 text-xs">
+        <input
+          type="radio"
+          name={nomeRadio}
+          checked={escopo === "individual"}
+          onChange={() => onEscopo("individual")}
+        />
+        Só esta conta
+      </label>
+      {grupos.map((g) => (
+        <label key={g.id} className="flex items-center gap-2 text-xs">
+          <input
+            type="radio"
+            name={nomeRadio}
+            checked={escopo === "grupo" && grupoId === g.id}
+            onChange={() => {
+              onEscopo("grupo");
+              onGrupo(g.id);
+            }}
+          />
+          {g.nome} — {g.membrosQueRecebem} {g.membrosQueRecebem === 1 ? "conta" : "contas"}
+        </label>
+      ))}
+      {grupos.length > 1 && (
+        <p className="pt-0.5 text-[11px] text-muted-foreground">
+          Esta conta está em {grupos.length} grupos. Escolha um — o contato vale só para o grupo
+          escolhido.
+        </p>
+      )}
+    </fieldset>
+  );
+}
 
 export function RegistroDrawer({
   clienteId,
   clienteNome,
   aberto,
-  grupo,
+  grupos = [],
   pessoas = [],
   onFechar,
   onRegistrado,
@@ -31,7 +97,8 @@ export function RegistroDrawer({
   clienteId: string;
   clienteNome: string;
   aberto: boolean;
-  grupo?: { id: string; nome: string; membrosQueRecebem: number } | null;
+  /** Todos os grupos de atendimento da conta. Vazio = conta sem grupo. */
+  grupos?: readonly Grupo[];
   pessoas?: readonly { id: string; nome: string }[];
   onFechar: () => void;
   onRegistrado?: () => void;
@@ -79,7 +146,7 @@ export function RegistroDrawer({
         {aba === "ligacao" ? (
           <FormLigacao
             clienteId={clienteId}
-            grupo={grupo}
+            grupos={grupos}
             onPronto={() => {
               onRegistrado?.();
               onFechar();
@@ -102,11 +169,11 @@ export function RegistroDrawer({
 
 function FormLigacao({
   clienteId,
-  grupo,
+  grupos,
   onPronto,
 }: {
   clienteId: string;
-  grupo?: { id: string; nome: string; membrosQueRecebem: number } | null;
+  grupos: readonly Grupo[];
   onPronto: () => void;
 }) {
   const [assunto, setAssunto] = useState("");
@@ -115,8 +182,17 @@ function FormLigacao({
   const [duracao, setDuracao] = useState("");
   const [data, setData] = useState(() => new Date().toISOString().slice(0, 10));
   const [escopo, setEscopo] = useState<"individual" | "grupo">("individual");
+  // Sem pré-seleção quando há mais de um grupo: o botão fica desabilitado até
+  // a escolha. Pré-selecionar o primeiro é o mesmo erro de antes, com um
+  // radio marcado por cima para parecer decisão de quem clicou.
+  const [grupoId, setGrupoId] = useState<string>(() =>
+    grupos.length === 1 ? grupos[0]!.id : "",
+  );
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+
+  const grupoEscolhido = grupos.find((g) => g.id === grupoId) ?? null;
+  const faltaEscolherGrupo = escopo === "grupo" && !grupoEscolhido;
 
   async function salvar() {
     setSalvando(true);
@@ -132,7 +208,7 @@ function FormLigacao({
           duracaoMin: duracao ? Number(duracao) : undefined,
           data: new Date(`${data}T12:00:00`).toISOString(),
           escopo,
-          grupoId: escopo === "grupo" ? grupo?.id : undefined,
+          grupoId: escopo === "grupo" ? grupoEscolhido?.id : undefined,
         }),
       });
       const json = await res.json();
@@ -207,37 +283,30 @@ function FormLigacao({
         />
       </Campo>
 
-      {grupo && (
-        <fieldset className="space-y-1">
-          <legend className="text-xs font-medium text-muted-foreground">Contar contato para</legend>
-          <label className="flex items-center gap-2 text-xs">
-            <input
-              type="radio"
-              name="escopo-lig"
-              checked={escopo === "individual"}
-              onChange={() => setEscopo("individual")}
-            />
-            Só esta conta
-          </label>
-          <label className="flex items-center gap-2 text-xs">
-            <input
-              type="radio"
-              name="escopo-lig"
-              checked={escopo === "grupo"}
-              onChange={() => setEscopo("grupo")}
-            />
-            {grupo.nome} — {grupo.membrosQueRecebem}{" "}
-            {grupo.membrosQueRecebem === 1 ? "conta" : "contas"}
-          </label>
-        </fieldset>
+      {grupos.length > 0 && (
+        <EscopoGrupo
+          nomeRadio="escopo-lig"
+          grupos={grupos}
+          escopo={escopo}
+          grupoId={grupoId}
+          onEscopo={setEscopo}
+          onGrupo={setGrupoId}
+        />
       )}
+
+      {/* A ligação registra o contato e NÃO quita a cadência 12-4-2 — só
+          reunião completa quita. Dito na tela para o operador não estranhar
+          a data de próximo contato ficar onde estava. */}
+      <p className="text-xs text-muted-foreground">
+        Registra o contato. A cadência 12-4-2 só é quitada por reunião.
+      </p>
 
       {erro && <p className="text-xs text-destructive">{erro}</p>}
 
       <button
         type="button"
         onClick={salvar}
-        disabled={salvando || !assunto.trim()}
+        disabled={salvando || !assunto.trim() || faltaEscolherGrupo}
         className="inline-flex items-center gap-1 rounded bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50"
       >
         {salvando && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />}
