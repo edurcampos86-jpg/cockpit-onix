@@ -9,6 +9,7 @@ import { ClienteDetalhe } from "@/components/backoffice/cliente-detalhe";
 import { ClienteBtgSection } from "@/components/backoffice/cliente-btg-section";
 import { cockpitReuniaoHabilitado } from "@/lib/cockpit-reuniao/flag";
 import { perfilFatoLeituraHabilitado } from "@/lib/cockpit-reuniao/perfil-leitura-flag";
+import { registroRicoHabilitado } from "@/lib/clientes-registro/flag";
 import { rbacEnforcementHabilitado, clienteVisivelPorAssessorCge } from "@/lib/rbac";
 import { getAuthContext, isLideranca } from "@/lib/auth-helpers";
 import { OrigemParceiroCard } from "@/components/backoffice/origem-parceiro-card";
@@ -92,6 +93,49 @@ export default async function ClienteDetalhePage({
 
   const cockpitReuniao = await cockpitReuniaoHabilitado();
   const perfilLeitura = await perfilFatoLeituraHabilitado();
+  const registroRico = await registroRicoHabilitado();
+
+  // Duas queries a mais SÓ com a flag ligada. Com ela desligada a page faz
+  // exatamente as mesmas consultas de antes — o custo da feature nasce zero
+  // para quem não a ligou, que é o que "flag OFF = tela idêntica" exige.
+  const [proveniencias, membroDeGrupo] = registroRico
+    ? await Promise.all([
+        prisma.campoProveniencia.findMany({
+          where: { clienteId: id },
+          select: {
+            campo: true,
+            origem: true,
+            registradoEm: true,
+            reuniao: { select: { data: true } },
+          },
+        }),
+        // `findFirst` e não `findMany`: uma conta pode estar em vários grupos,
+        // mas o drawer propaga para UM. Enquanto não houver tela para escolher,
+        // mostrar o primeiro e propagar para ele é honesto; mostrar vários e
+        // propagar para um seria mentira de interface.
+        prisma.clienteGrupoMembro.findFirst({
+          where: { clienteId: id },
+          orderBy: { adicionadoEm: "asc" },
+          select: {
+            grupo: {
+              select: {
+                id: true,
+                nome: true,
+                membros: { where: { viaGrupo: true }, select: { id: true } },
+              },
+            },
+          },
+        }),
+      ])
+    : [[], null];
+
+  const grupoDoCliente = membroDeGrupo?.grupo
+    ? {
+        id: membroDeGrupo.grupo.id,
+        nome: membroDeGrupo.grupo.nome,
+        membrosQueRecebem: membroDeGrupo.grupo.membros.length,
+      }
+    : null;
 
   // Time ativo (só quando a aba está ligada). Uma query, duas listas:
   //  - `pessoas`            → "quem conduziu" no form (todas as ativas)
@@ -143,6 +187,14 @@ export default async function ClienteDetalhePage({
           cliente={JSON.parse(JSON.stringify(cliente))}
           cockpitReuniao={cockpitReuniao}
           perfilLeitura={perfilLeitura}
+          registroRico={registroRico}
+          proveniencias={proveniencias.map((p) => ({
+            campo: p.campo,
+            origem: p.origem,
+            registradoEm: p.registradoEm.toISOString(),
+            reuniaoData: p.reuniao?.data.toISOString() ?? null,
+          }))}
+          grupoDoCliente={grupoDoCliente}
           reunioesEstruturadas={JSON.parse(
             JSON.stringify(cliente.reunioesEstruturadas),
           )}
