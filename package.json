@@ -12,7 +12,10 @@
     "postinstall": "prisma generate",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
-    "db:seed:time": "tsx prisma/seed-time.ts"
+    "db:seed:time": "tsx prisma/seed-time.ts",
+    "voz:metricas": "tsx scripts/guia-voz-eduardo.ts --dry-run",
+    "voz:guia": "tsx scripts/guia-voz-eduardo.ts",
+    "voz:espelho": "tsx scripts/guia-voz-eduardo.ts --espelho"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.100.1",

@@ -63,3 +63,6 @@ scripts/_btg-discovery-output.json
 
 # ZIPs gerados por scripts/exporta-skills.sh — artefato de upload, não fonte.
 dist/
+
+# artefato local do extrator de voz (trechos do corpus, ainda que anonimizados)
+docs/.voz-eduardo-metricas.json
