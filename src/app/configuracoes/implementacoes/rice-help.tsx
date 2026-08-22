@@ -27,7 +27,7 @@ export function RiceHelp({ v2 = false }: { v2?: boolean }) {
   return (
     <Popover>
       <PopoverTrigger
-        aria-label="Como funciona o RICE"
+        aria-label="Como a prioridade é calculada"
         className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <HelpCircle className="h-4 w-4" />
@@ -37,15 +37,17 @@ export function RiceHelp({ v2 = false }: { v2?: boolean }) {
         className="max-w-[calc(100vw-2rem)] gap-3 text-xs leading-relaxed"
       >
         <PopoverHeader>
-          <PopoverTitle className="text-sm">Como funciona o RICE</PopoverTitle>
+          <PopoverTitle className="text-sm">Como a prioridade é calculada</PopoverTitle>
         </PopoverHeader>
 
         <div className="space-y-2 text-muted-foreground">
           <p>O RICE prioriza ideias por retorno ajustado ao esforço.</p>
           <p className="rounded-md bg-muted px-2 py-1 font-mono text-[11px] text-foreground">
+            {/* Os dois ramos em português. O ramo v2=false ainda calcula sem
+                dividir a confiança por 100 — a fórmula muda, o idioma não. */}
             {v2
               ? "Score = Alcance × Impacto × (Confiança ÷ 100) ÷ Esforço"
-              : "Score = (Reach × Impact × Confidence) ÷ Effort"}
+              : "Score = (Alcance × Impacto × Confiança) ÷ Esforço"}
           </p>
 
           <ul className="space-y-1.5">

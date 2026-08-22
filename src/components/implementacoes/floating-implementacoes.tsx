@@ -150,7 +150,7 @@ function SugestaoForm({
         </div>
         <p className="text-sm font-semibold text-foreground">Sugestão enviada!</p>
         <p className="mt-1 text-xs text-muted-foreground">
-          Obrigado — sua ideia entrou na triagem.
+          Obrigado — sua ideia entrou na fila.
         </p>
         <div className="mt-4 flex flex-col items-center gap-2">
           <button
@@ -168,7 +168,7 @@ function SugestaoForm({
               onClick={onDone}
               className="inline-flex items-center gap-1 text-xs font-medium text-foreground/80 underline-offset-2 hover:underline"
             >
-              Ver na triagem
+              Ver na fila
               <ArrowRight className="h-3 w-3" aria-hidden="true" />
             </Link>
           )}
@@ -404,7 +404,7 @@ export function FloatingImplementacoes() {
                   Sugerir uma implementação
                 </p>
                 <p className="text-[11px] leading-tight text-muted-foreground">
-                  Golden Circle · entra na triagem
+                  conte o que precisa e por que importa
                 </p>
               </div>
               <button
