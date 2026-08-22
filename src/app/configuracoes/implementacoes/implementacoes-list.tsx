@@ -51,6 +51,8 @@ export type ImplementacaoDTO = {
   empresaId: string;
   tipo: string;
   porQue: string;
+  /** Rota de onde a sugestão foi aberta pelo botão flutuante. `null` = veio do formulário. */
+  pagina?: string | null;
   oQue: string;
   printUrl: string | null;
   // `como` e `createdAt` existem no modelo mas NÃO entram aqui: nenhuma célula
@@ -1097,13 +1099,49 @@ export function ImplementacoesList({
     };
   }
 
+  /**
+   * Muda o status. Otimista na tela, mas com RECIBO.
+   *
+   * O `antes` é capturado desta linha, e não de `antesDoAutosave` — aquele é do
+   * RICE e tem ciclo de vida próprio (o debounce do autosave). Misturar os dois
+   * faria o desfazer do status restaurar valores de eixo.
+   */
   function commitStatus(id: string, status: string) {
+    const antes = rowsRef.current.find((r) => r.id === id);
     const next = rowsRef.current.map((r) =>
       r.id === id ? { ...r, status } : r,
     );
     rowsRef.current = next; // mantém o ref autoritativo entre commits do mesmo tick
     setRows(next);
-    startTransition(() => atualizarStatus(id, status));
+    startTransition(async () => {
+      try {
+        const res = await atualizarStatus(id, status);
+        if (res?.ok) return;
+        reverterLinha(id, antes, res?.erro ?? "Não deu para mudar o status.");
+      } catch {
+        reverterLinha(id, antes, "Sem conexão com o servidor.");
+      }
+    });
+  }
+
+  /**
+   * Devolve a linha ao estado anterior e diz por quê.
+   *
+   * Existe porque status e PR eram os dois únicos caminhos de gravação da tela
+   * SEM desfazer: mudavam na tela, podiam não mudar no banco, e só a próxima
+   * carga revelava. O RICE já tinha esta rede desde o autosave.
+   */
+  function reverterLinha(
+    id: string,
+    antes: ImplementacaoDTO | undefined,
+    motivo: string,
+  ) {
+    if (antes) {
+      const volta = rowsRef.current.map((r) => (r.id === id ? antes : r));
+      rowsRef.current = volta;
+      setRows(volta);
+    }
+    setErroSalvar((m) => ({ ...m, [id]: { mensagem: motivo, eixos: [] } }));
   }
 
   /**
@@ -1116,6 +1154,7 @@ export function ImplementacoesList({
     url: string | null,
     status: string,
   ) {
+    const antes = rowsRef.current.find((r) => r.id === id);
     const next = rowsRef.current.map((r) =>
       r.id === id
         ? {
@@ -1132,11 +1171,20 @@ export function ImplementacoesList({
     setRows(next);
     const row = next.find((r) => r.id === id)!;
     startTransition(async () => {
-      await vincularPr(id, {
-        numero,
-        url: row.prUrl,
-        status,
-      });
+      try {
+        // `vincularPr` já devolvia `{ok, error}` — ninguém lia. As recusas são
+        // reais: "Número de PR inválido", "Status de PR inválido",
+        // "Não encontrado" e a falta de permissão.
+        const res = await vincularPr(id, {
+          numero,
+          url: row.prUrl,
+          status,
+        });
+        if (res?.ok) return;
+        reverterLinha(id, antes, res?.error ?? "Não deu para vincular a entrega.");
+      } catch {
+        reverterLinha(id, antes, "Sem conexão com o servidor.");
+      }
     });
   }
 
@@ -1635,6 +1683,14 @@ export function ImplementacoesList({
                   >
                     <td className="max-w-xs px-3 py-2">
                       <p className="font-medium text-foreground">{r.oQue}</p>
+                      {/* A tela de onde a queixa veio. Gravada desde sempre pelo
+                          botão flutuante e nunca exibida — sem isto, "qual
+                          página mais incomoda" só se responde no SQL. */}
+                      {r.pagina && (
+                        <p className="truncate font-mono text-[11px] text-muted-foreground/80">
+                          aberta em {r.pagina}
+                        </p>
+                      )}
                       {v2 ? (
                         <PorQueExpansivel texto={r.porQue} />
                       ) : (

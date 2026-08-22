@@ -49,6 +49,11 @@ export default async function ImplementacoesPage() {
         empresaId: true,
         tipo: true,
         porQue: true,
+        // De QUAL TELA a pessoa estava reclamando quando abriu o botão
+        // flutuante. Era gravado desde sempre e não era lido por arquivo
+        // nenhum — a resposta para "qual página mais gera queixa" existia no
+        // banco e nunca chegou a ninguém.
+        pagina: true,
         oQue: true,
         printUrl: true,
         reach: true,

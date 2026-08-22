@@ -85,6 +85,21 @@ export async function obterParceiro(id: string) {
       clienteBackoffice: {
         select: { id: true, nome: true, numeroConta: true },
       },
+      // A pessoa do time, quando o parceiro é do time. O que a ficha mostra
+      // daqui é HERDADO por leitura, nunca copiado para `Parceiro` — copiar
+      // criaria a segunda grafia que este elo existe para acabar.
+      pessoa: {
+        select: {
+          id: true,
+          nomeCompleto: true,
+          apelido: true,
+          email: true,
+          telefone: true,
+          cargoFamilia: true,
+          cargoTitulo: true,
+          status: true,
+        },
+      },
       // Vigentes primeiro (dataFim null), depois o histórico do mais recente
       // para o mais antigo. Mesma ordenação do acordo comercial da Pessoa.
       acordos: {
@@ -198,4 +213,41 @@ export async function parceiroVigenteDoCliente(clienteId: string) {
     },
   });
   return vinculo;
+}
+
+export type PessoaVinculavel = {
+  id: string;
+  nome: string;
+  cargo: string;
+  jaEhParceiro: boolean;
+};
+
+/**
+ * Pessoas do time que podem ser ligadas a um parceiro.
+ *
+ * Traz TAMBÉM as que já são parceiro, marcadas — some-las esconderia o motivo
+ * de a pessoa procurada não aparecer na lista, que é a pergunta seguinte de
+ * quem não a encontra. `@unique` no campo impede o vínculo duplo de qualquer
+ * jeito; aqui o trabalho é explicar, não bloquear.
+ */
+export async function listarPessoasParaVinculo(): Promise<PessoaVinculavel[]> {
+  const pessoas = await prisma.pessoa.findMany({
+    where: { status: "ativo" },
+    orderBy: { nomeCompleto: "asc" },
+    select: {
+      id: true,
+      nomeCompleto: true,
+      apelido: true,
+      cargoFamilia: true,
+      cargoTitulo: true,
+      parceiro: { select: { id: true } },
+    },
+  });
+
+  return pessoas.map((p) => ({
+    id: p.id,
+    nome: p.apelido?.trim() || p.nomeCompleto,
+    cargo: p.cargoTitulo?.trim() || p.cargoFamilia.replace(/_/g, " "),
+    jaEhParceiro: p.parceiro !== null,
+  }));
 }

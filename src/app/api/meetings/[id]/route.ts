@@ -1,6 +1,24 @@
 import { prisma } from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
 import { analyzeMeeting, suggestScriptFromMeeting } from "@/lib/integrations/claude-ai";
+import { getAuthContext } from "@/lib/auth-helpers";
+import { escopoDeReunioes } from "@/lib/reunioes/escopo-reuniao-sessao";
+import { reuniaoEhDaPessoa } from "@/lib/reunioes/escopo-reuniao";
+
+/**
+ * A reunião é legível por quem pediu?
+ *
+ * Fora de escopo responde 404, NUNCA 403 — mesma regra de produto da camada 2
+ * do RBAC (`src/lib/rbac.ts`): "acesso negado" confirma que aquela reunião
+ * existe, e a existência já é informação sobre o cliente.
+ */
+async function podeLer(vendedor: string | null): Promise<boolean> {
+  const ctx = await getAuthContext().catch(() => null);
+  if (!ctx) return false;
+  const escopo = await escopoDeReunioes(ctx);
+  if (escopo.tipo === "tudo") return true;
+  return reuniaoEhDaPessoa(vendedor, escopo.nomesDaPessoa);
+}
 
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -9,6 +27,9 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     include: { lead: true },
   });
   if (!meeting) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!(await podeLer(meeting.vendedor))) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
   return NextResponse.json(meeting);
 }
 
@@ -24,6 +45,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   const meeting = await prisma.meeting.findUnique({ where: { id } });
   if (!meeting) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  // Analisar e gerar roteiro LEEM a transcrição e a mandam para a IA. Se a
+  // leitura é gateada, estas também são.
+  if (!(await podeLer(meeting.vendedor))) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
 
   if (body.action === "analyze") {
     if (!meeting.transcription) {

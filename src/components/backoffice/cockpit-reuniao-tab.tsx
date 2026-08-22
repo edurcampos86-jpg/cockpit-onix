@@ -413,6 +413,7 @@ export function CockpitReuniaoTab({
   reunioesEstruturadas,
   pessoas,
   pessoasComLogin,
+  importarReuniaoId,
 }: {
   clienteId: string;
   cliente: ClienteContexto;
@@ -424,6 +425,9 @@ export function CockpitReuniaoTab({
   reunioesEstruturadas: ReuniaoEstruturadaView[];
   pessoas: { id: string; nome: string }[];
   pessoasComLogin: PessoaOpcao[];
+  /* Id de uma reunião do Plaud (`Meeting`) a pré-carregar no import. Chega pela
+   * URL, do link "Levar para a ficha" em /reunioes. */
+  importarReuniaoId?: string | null;
 }) {
   const nome = getNomeRelacionamento(cliente);
 
@@ -486,7 +490,11 @@ export function CockpitReuniaoTab({
             <span className="inline-flex items-center rounded-md border border-dashed border-border px-2.5 py-1 text-xs text-muted-foreground">
               Próxima reunião · em breve
             </span>
-            <ImportarReuniaoForm clienteId={clienteId} pessoas={pessoas} />
+            <ImportarReuniaoForm
+              clienteId={clienteId}
+              pessoas={pessoas}
+              importarReuniaoId={importarReuniaoId}
+            />
             <ReuniaoEstruturadaForm clienteId={clienteId} pessoas={pessoas} />
           </div>
         </div>
