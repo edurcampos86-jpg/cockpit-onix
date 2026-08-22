@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { PerfilAcesso } from "@/lib/rbac-papeis";
 import {
+  CHAVES_CONFIG_DB,
   CHAVES_GRAVAVEIS,
   decidirEscritaConfig,
   projetarConfig,
@@ -150,4 +151,25 @@ test("token curtíssimo não vira máscara que é o token inteiro", () => {
   // real, mas o custo de checar é zero e o custo de errar é vazar a chave.
   const visao = projetarConfig({ GITHUB_REPO: "ab" }, { admin: true });
   assert.equal(visao.GITHUB_REPO.mascara, "••••••ab");
+});
+
+/* ── Onde cada chave é GUARDADA ───────────────────────────────────────── */
+
+test("toda chave do Config DB é gravável pela tela", () => {
+  // Chave que o banco guarda mas o endpoint recusa gravar é config morta: o
+  // valor só entraria por env, e a tela ofereceria um campo que sempre falha.
+  for (const chave of CHAVES_CONFIG_DB) {
+    assert.equal(
+      CHAVES_GRAVAVEIS.has(chave),
+      true,
+      `${chave} está em CHAVES_CONFIG_DB mas não em CHAVES_GRAVAVEIS`,
+    );
+  }
+});
+
+test("o segredo do webhook do Zapier é guardado no banco, não no arquivo", () => {
+  // O `.integrations.json` some no redeploy do Railway. Este segredo é a
+  // credencial de uma rota PÚBLICA — some ele, some a autenticação dela.
+  // Tirar daqui reabre exatamente o buraco descrito em src/lib/proxy-rotas.ts.
+  assert.equal(CHAVES_CONFIG_DB.has("ZAPIER_WEBHOOK_SECRET"), true);
 });

@@ -1,26 +1,20 @@
 import fs from "fs";
 import path from "path";
 import { getConfig } from "@/lib/config-db";
+import { CHAVES_CONFIG_DB } from "./config-acesso";
 
 const CONFIG_PATH = path.resolve(process.cwd(), ".integrations.json");
 
 /**
- * Chaves cujo store canônico é o Config DB, não o `.integrations.json`.
+ * `CHAVES_CONFIG_DB` mudou de casa: agora mora em `config-acesso.ts`, ao lado
+ * de `CHAVES_GRAVAVEIS`. As duas listas descrevem a MESMA superfície de chaves
+ * — uma diz o que a tela pode gravar, a outra onde o valor fica — e separadas
+ * elas divergiam sem nada acusar. Juntas, num módulo puro, um teste garante que
+ * toda chave do Config DB é gravável pela tela.
  *
- * O arquivo é EFÊMERO no Railway (vive no filesystem do container e some no
- * redeploy). Chave gravada só nele volta a "não configurada" no próximo deploy,
- * em silêncio — e pior: quem a lê por `getConfig()` nunca a encontra, nem antes
- * do redeploy, porque `getConfig` consulta o banco e não o arquivo.
- *
- * Toda chave nova consumida via `getConfig()` PRECISA entrar aqui. As demais
- * seguem no arquivo por compatibilidade com o que já estava lá.
+ * Reexportado aqui porque o resto do código importa daqui desde antes.
  */
-export const CHAVES_CONFIG_DB = new Set([
-  "ANTHROPIC_API_KEY",
-  // Sincronia de status dos PRs da Central de Implementações (leitura apenas).
-  "GITHUB_TOKEN",
-  "GITHUB_REPO",
-]);
+export { CHAVES_CONFIG_DB };
 
 /**
  * Retorna config mesclando: variáveis de ambiente (Railway) + .integrations.json (local/UI)

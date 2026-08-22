@@ -1,8 +1,21 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useCallback, useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Shield, ShieldCheck, Check, Loader2, Wallet, UsersRound, Plus, Trash2, X } from "lucide-react";
+import {
+  Shield,
+  ShieldCheck,
+  Check,
+  Loader2,
+  Wallet,
+  UsersRound,
+  Plus,
+  Trash2,
+  X,
+  AlertTriangle,
+  Eye,
+  RefreshCw,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   salvarPapel,
@@ -73,6 +86,7 @@ const TABS = [
   { id: "carteiras", label: "Carteiras" },
   { id: "pessoas", label: "Pessoas & Acessos" },
   { id: "empresas", label: "Empresas" },
+  { id: "efeito", label: "Efeito" },
 ] as const;
 type TabId = (typeof TABS)[number]["id"];
 
@@ -1047,6 +1061,434 @@ function EmpresasTab({
   );
 }
 
+/* ──────────────────────────────────────────────────────────────
+ * Aba Efeito — o que cada pessoa ENXERGA, não o que foi concedido.
+ *
+ * ── POR QUE ELA EXISTE AGORA ─────────────────────────────────────────────
+ * As outras quatro abas mostram CONCESSÃO. Entre concessão e efeito há três
+ * regras que operam em silêncio (herança, `Pessoa` sem `User`, concessão
+ * órfã), e é por elas que um admin acredita ter restringido alguém sem ter
+ * restringido. Essa resposta já existe — `GET /api/configuracoes/permissoes/
+ * auditoria` — mas só em `curl`, o que a torna inútil no momento em que ela
+ * mais vale: conferir ANTES e DEPOIS de o RBAC passar a compor os dois eixos.
+ * Mesmo papel que o recon-identidade cumpriu no backfill: medir os dois lados
+ * com o mesmo instrumento.
+ *
+ * ── SÓ RENDERIZA, NÃO DECIDE ─────────────────────────────────────────────
+ * Nenhuma regra de acesso é recalculada aqui. Herança, alertas e o conjunto
+ * efetivo chegam prontos de `lib/empresas/auditoria-core.ts`, que é o MESMO
+ * módulo que o hub e o gate de página chamam. Uma tela que reimplementasse a
+ * regra poderia jurar que está tudo certo enquanto o runtime faz outra coisa —
+ * o pior defeito possível numa ferramenta cujo propósito é ser acreditada.
+ *
+ * Os únicos cálculos daqui são projeções do payload (filtrar, contar, juntar
+ * id com nome). Nenhum deles decide acesso.
+ *
+ * ── SOMENTE LEITURA, DE PROPÓSITO ────────────────────────────────────────
+ * Sem conceder, sem revogar, sem corrigir. `restricao_vazia` pode ser herança
+ * intencional (sócio que enxerga o grupo) ou engano de quem esqueceu de
+ * desligar `incluiDescendentes`, e as duas se parecem no dado — a própria rota
+ * declara isso e se recusa a adivinhar. Consertar é na aba Empresas, com a
+ * pessoa decidindo.
+ * ────────────────────────────────────────────────────────────── */
+
+/* Tipos do payload de `GET /api/configuracoes/permissoes/auditoria`. Espelham
+ * `lib/empresas/auditoria-core.ts` (`Auditoria`) + o bloco `cadastro` montado
+ * na própria rota. Declarados aqui, e não importados do módulo do servidor,
+ * porque este é um componente cliente: o import puxaria a cadeia de tipos do
+ * Prisma para o bundle. Se o formato mudar, o `catch` do parse abaixo mostra o
+ * erro em vez de renderizar tela vazia. */
+type AuditoriaLinha = {
+  pessoa: { id: string; nome: string; email: string; status: string; temUsuario: boolean };
+  concessoes: { empresaId: string; incluiDescendentes: boolean; existe: boolean }[];
+  /** `null` = sem filtro (vê todas). Não colapsar em "todas": ver auditoria-core. */
+  efetivas: string[] | null;
+  porHeranca: string[];
+  alertas: { codigo: string; mensagem: string; empresas?: string[] }[];
+};
+
+type AuditoriaPayload = {
+  resumo: {
+    pessoas: number;
+    comConcessao: number;
+    comFiltroEfetivo: number;
+    alertas: Record<string, number>;
+  };
+  linhas: AuditoriaLinha[];
+  cadastro: {
+    empresas: { id: string; nome: string; parentId: string | null }[];
+    faltandoSeed: string[];
+    anunciadasSemCadastro: string[];
+    foraDoHub: string[];
+    rbacInerte: boolean;
+  };
+  timestamp: string;
+};
+
+/**
+ * A empresa a que TODO `ClienteBackoffice` pertence hoje.
+ *
+ * Não é uma escolha desta tela: `prisma/schema.prisma:895-905` recusa
+ * `empresaId` dentro de `ClienteBackoffice` e registra que essa tabela É o
+ * relacionamento de Investimentos — as demais empresas ganham tabelas irmãs
+ * penduradas em `PessoaGrupo`. Enquanto isso valer, quem não enxerga
+ * `investimentos` não enxergaria cliente nenhum no dia em que o AND ligar.
+ *
+ * Está aqui como CONSTANTE VISÍVEL, e não escondida numa expressão, porque é
+ * a única premissa desta aba que vive fora do payload — e é a primeira coisa
+ * a revisitar quando a primeira tabela irmã nascer.
+ */
+const EMPRESA_DOS_CLIENTES = "investimentos";
+
+/** Rótulos curtos dos códigos de alerta. A frase longa vem da rota (`mensagem`). */
+const ALERTA_LABEL: Record<string, string> = {
+  concessao_orfa: "Concessão órfã",
+  restricao_anulada: "Restrição anulada",
+  restricao_vazia: "Restrição vazia",
+  sem_usuario: "Sem usuário",
+  arquivada_com_acesso: "Arquivada com acesso",
+  invisivel_no_hub: "Invisível no hub",
+};
+
+/** Alertas que significam "o filtro NÃO está fazendo o que parece". */
+const ALERTA_GRAVE = new Set(["concessao_orfa", "restricao_anulada", "restricao_vazia"]);
+
+function BadgeAlerta({ codigo, mensagem }: { codigo: string; mensagem: string }) {
+  const grave = ALERTA_GRAVE.has(codigo);
+  return (
+    <span
+      title={mensagem}
+      className={cn(
+        "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium",
+        grave
+          ? "bg-destructive/10 text-destructive"
+          : "bg-amber-500/10 text-amber-700 dark:text-amber-400",
+      )}
+    >
+      <AlertTriangle className="h-3 w-3 shrink-0" />
+      {ALERTA_LABEL[codigo] ?? codigo}
+    </span>
+  );
+}
+
+function EfeitoTab() {
+  const [dados, setDados] = useState<AuditoriaPayload | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
+  const [carregando, setCarregando] = useState(true);
+
+  const carregar = useCallback(async () => {
+    setCarregando(true);
+    setErro(null);
+    try {
+      const res = await fetch("/api/configuracoes/permissoes/auditoria", { cache: "no-store" });
+      if (!res.ok) {
+        // A rota é admin-only (`guardAdminApi`, falha fechada). Dizer QUAL foi o
+        // status evita que "sem permissão" e "rota fora do ar" virem a mesma
+        // tela em branco.
+        throw new Error(
+          res.status === 403 || res.status === 401
+            ? "Sem permissão para ler a auditoria (a rota é admin-only)."
+            : `A auditoria respondeu HTTP ${res.status}.`,
+        );
+      }
+      setDados((await res.json()) as AuditoriaPayload);
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "Falha ao carregar a auditoria.");
+    } finally {
+      setCarregando(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void carregar();
+  }, [carregar]);
+
+  if (carregando && !dados) {
+    return (
+      <div className="flex items-center gap-2 rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Resolvendo o efeito das concessões…
+      </div>
+    );
+  }
+
+  if (erro) {
+    return (
+      <div className="space-y-3 rounded-xl border border-destructive/40 bg-destructive/5 p-6">
+        <p className="text-sm font-medium text-destructive">{erro}</p>
+        <button
+          type="button"
+          onClick={() => void carregar()}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+          Tentar de novo
+        </button>
+      </div>
+    );
+  }
+
+  if (!dados) return null;
+
+  const { resumo, linhas, cadastro } = dados;
+  const nomeEmpresa = (id: string) => cadastro.empresas.find((e) => e.id === id)?.nome ?? id;
+
+  /* Projeção do payload, não regra nova: `efetivas === null` é o contrato
+   * "sem filtro" da própria auditoria — quem está nesse estado vê todas as
+   * empresas, portanto vê Investimentos. Só quem tem recorte E ficou de fora
+   * dele é candidato a perder cliente quando o AND ligar. */
+  const afetadosPeloAnd = linhas.filter(
+    (l) => l.efetivas !== null && !l.efetivas.includes(EMPRESA_DOS_CLIENTES),
+  );
+
+  const comAlerta = linhas.filter((l) => l.alertas.length > 0);
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="max-w-3xl space-y-1">
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+            <Eye className="h-4 w-4 text-muted-foreground" />
+            O que cada pessoa enxerga de verdade
+          </h3>
+          <p className="text-xs text-muted-foreground">
+            As outras abas mostram o que foi <strong>concedido</strong>. Esta mostra o{" "}
+            <strong>efeito</strong>, com a herança já resolvida e as concessões que não valem
+            nada apontadas pelo nome. Somente leitura — corrigir é na aba Empresas.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void carregar()}
+          disabled={carregando}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent disabled:opacity-50"
+        >
+          {carregando ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <RefreshCw className="h-3.5 w-3.5" />
+          )}
+          Recarregar
+        </button>
+      </div>
+
+      {/* Estado do CADASTRO. Vem antes de tudo porque, sem empresa semeada,
+          a tabela abaixo mostra "ninguém restrito" — que se lê como "está tudo
+          certo" quando o significado é "o RBAC de empresa está inerte". */}
+      {cadastro.rbacInerte && (
+        <p className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+          <strong>Nenhuma empresa cadastrada.</strong> Sem linhas em <code>Empresa</code>,
+          concessão nenhuma tem efeito e esta tela não tem o que auditar. Rode{" "}
+          <code>scripts/seed-empresas.ts</code>.
+        </p>
+      )}
+      {!cadastro.rbacInerte && cadastro.faltandoSeed.length > 0 && (
+        <p className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-4 py-3 text-xs text-amber-700 dark:text-amber-400">
+          Declaradas no catálogo e ausentes do banco:{" "}
+          <span className="font-mono">{cadastro.faltandoSeed.join(", ")}</span>. Não dá para
+          conceder acesso a elas até o seed rodar.
+        </p>
+      )}
+      {cadastro.anunciadasSemCadastro.length > 0 && (
+        <p className="rounded-lg border border-border bg-card px-4 py-3 text-xs text-muted-foreground">
+          Anunciadas no hub sem cadastro (não recebem concessão):{" "}
+          <span className="font-mono">{cadastro.anunciadasSemCadastro.join(", ")}</span>.
+        </p>
+      )}
+
+      {/* Resumo */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Cartao rotulo="Pessoas" valor={resumo.pessoas} />
+        <Cartao rotulo="Com concessão" valor={resumo.comConcessao} />
+        <Cartao
+          rotulo="Sob filtro efetivo"
+          valor={resumo.comFiltroEfetivo}
+          nota="as demais veem todas as empresas"
+        />
+        <Cartao
+          rotulo="Com algum sinal"
+          valor={comAlerta.length}
+          nota={comAlerta.length > 0 ? "ver coluna Sinais" : "nada a revisar"}
+          alerta={comAlerta.length > 0}
+        />
+      </div>
+
+      {/* Prévia do AND — o motivo de a aba existir agora. */}
+      <div
+        className={cn(
+          "rounded-xl border p-4",
+          afetadosPeloAnd.length > 0
+            ? "border-amber-500/40 bg-amber-500/5"
+            : "border-border bg-card",
+        )}
+      >
+        <p className="text-sm font-medium text-foreground">
+          Quando o RBAC compuser os dois eixos:{" "}
+          {afetadosPeloAnd.length === 0
+            ? "ninguém perde cliente por causa do eixo empresa."
+            : `${afetadosPeloAnd.length} pessoa(s) deixariam de ver QUALQUER cliente.`}
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Todo cliente de hoje é da <strong>{nomeEmpresa(EMPRESA_DOS_CLIENTES)}</strong> — quem
+          opera sob recorte de empresa e ficou sem <code>{EMPRESA_DOS_CLIENTES}</code> perde a
+          lista inteira, por mais CGEs que tenha.
+        </p>
+        {afetadosPeloAnd.length > 0 && (
+          <ul className="mt-2 flex flex-wrap gap-1.5">
+            {afetadosPeloAnd.map((l) => (
+              <li
+                key={l.pessoa.id}
+                className="rounded-md bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-400"
+              >
+                {l.pessoa.nome}
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          Leitura do eixo empresa apenas. Confirmar quem tem CGE depende de campo que a rota
+          ainda não devolve — ver a seção &quot;O que falta no payload&quot; da PR.
+        </p>
+      </div>
+
+      {/* Tabela por pessoa */}
+      <div className="overflow-x-auto rounded-xl border border-border">
+        <table className="w-full min-w-[820px] text-sm">
+          <thead className="bg-accent/50 text-xs uppercase tracking-wide text-muted-foreground">
+            <tr>
+              <th className="px-4 py-2 text-left">Pessoa</th>
+              <th className="px-4 py-2 text-left">Eixo empresa — o que enxerga</th>
+              <th className="px-4 py-2 text-left">Eixo CGE — clientes</th>
+              <th className="px-4 py-2 text-left">Sinais</th>
+            </tr>
+          </thead>
+          <tbody>
+            {linhas.length === 0 && (
+              <tr>
+                <td colSpan={4} className="px-4 py-6 text-center text-muted-foreground">
+                  Nenhuma pessoa cadastrada.
+                </td>
+              </tr>
+            )}
+            {linhas.map((l) => {
+              const semInvestimentos =
+                l.efetivas !== null && !l.efetivas.includes(EMPRESA_DOS_CLIENTES);
+              return (
+                <tr key={l.pessoa.id} className="border-b border-border last:border-0 align-top">
+                  <td className="px-4 py-3">
+                    <div className="font-medium text-foreground">{l.pessoa.nome}</div>
+                    <div className="text-xs text-muted-foreground">{l.pessoa.email}</div>
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {l.pessoa.status !== "ativo" && (
+                        <span className="rounded bg-accent px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                          {l.pessoa.status}
+                        </span>
+                      )}
+                      {!l.pessoa.temUsuario && (
+                        <span className="rounded bg-accent px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                          sem usuário
+                        </span>
+                      )}
+                    </div>
+                  </td>
+
+                  <td className="px-4 py-3">
+                    {l.efetivas === null ? (
+                      <span className="text-muted-foreground">
+                        Todas
+                        <span className="ml-1 text-xs">
+                          ({l.concessoes.length === 0 ? "sem concessão" : "nenhuma resolveu"})
+                        </span>
+                      </span>
+                    ) : (
+                      <div className="flex flex-wrap gap-1">
+                        {l.efetivas.map((id) => (
+                          <span
+                            key={id}
+                            title={
+                              l.porHeranca.includes(id)
+                                ? "entrou por herança, não por concessão direta"
+                                : "concessão direta"
+                            }
+                            className={cn(
+                              "rounded-md px-2 py-0.5 text-[11px] font-medium",
+                              l.porHeranca.includes(id)
+                                ? "bg-accent text-muted-foreground"
+                                : "bg-primary/10 text-foreground",
+                            )}
+                          >
+                            {nomeEmpresa(id)}
+                            {l.porHeranca.includes(id) && " ↓"}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {semInvestimentos && (
+                      <div className="mt-1 text-[11px] font-medium text-amber-700 dark:text-amber-400">
+                        sem {EMPRESA_DOS_CLIENTES} — perde os clientes quando o AND ligar
+                      </div>
+                    )}
+                  </td>
+
+                  <td className="px-4 py-3 text-xs text-muted-foreground">
+                    {/* Deliberadamente vazio: contar clientes por CGE exigiria refazer
+                        `resolverCgesVisiveis` no cliente — a regra que este arquivo se
+                        recusa a duplicar. A rota ainda não devolve esse eixo. */}
+                    <span className="italic">não disponível no payload</span>
+                  </td>
+
+                  <td className="px-4 py-3">
+                    {l.alertas.length === 0 ? (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    ) : (
+                      <div className="flex flex-wrap gap-1">
+                        {l.alertas.map((a) => (
+                          <BadgeAlerta key={a.codigo} codigo={a.codigo} mensagem={a.mensagem} />
+                        ))}
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <p className="text-[11px] text-muted-foreground">
+        ↓ = entrou por herança (<code>incluiDescendentes</code>), não por concessão direta.
+        Passe o mouse num sinal para ler o diagnóstico completo, que vem da rota. Dado de{" "}
+        {new Date(dados.timestamp).toLocaleString("pt-BR")}.
+      </p>
+    </div>
+  );
+}
+
+function Cartao({
+  rotulo,
+  valor,
+  nota,
+  alerta,
+}: {
+  rotulo: string;
+  valor: number;
+  nota?: string;
+  alerta?: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-xl border p-4",
+        alerta ? "border-amber-500/40 bg-amber-500/5" : "border-border bg-card",
+      )}
+    >
+      <div className="text-xs font-medium text-muted-foreground">{rotulo}</div>
+      <div className="mt-1 text-2xl font-semibold tabular-nums text-foreground">{valor}</div>
+      {nota && <div className="mt-0.5 text-[11px] text-muted-foreground">{nota}</div>}
+    </div>
+  );
+}
+
 export function PermissoesTabs({
   papeis,
   carteiras,
@@ -1093,6 +1535,10 @@ export function PermissoesTabs({
       {tab === "empresas" && (
         <EmpresasTab pessoas={pessoas} empresas={empresas} acessos={acessosEmpresa} />
       )}
+      {/* Sem props: a aba busca o efeito na rota de auditoria, que é quem resolve
+          a regra. Passar DTO daqui obrigaria a página a recalcular herança —
+          duas verdades para a mesma pergunta. */}
+      {tab === "efeito" && <EfeitoTab />}
     </div>
   );
 }

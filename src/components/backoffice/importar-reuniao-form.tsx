@@ -645,9 +645,14 @@ function EditorSucessao({
 export function ImportarReuniaoForm({
   clienteId,
   pessoas,
+  importarReuniaoId,
 }: {
   clienteId: string;
   pessoas: PessoaOpcao[];
+  /* Reunião do Plaud (`Meeting`) a pré-carregar. Chega pela URL, do link
+   * "Levar para a ficha" em /reunioes — ver src/lib/reunioes/casar-cliente.ts
+   * para como a reunião foi associada a este cliente. */
+  importarReuniaoId?: string | null;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -722,6 +727,41 @@ export function ImportarReuniaoForm({
     setSaude("");
     setSucessao([]);
   }
+
+  /* ── Pré-carga vinda de /reunioes ──────────────────────────────────────
+   *
+   * Abre o formulário já com a transcrição no campo de texto. NÃO extrai e NÃO
+   * salva sozinho: o preview editável continua sendo o portão humano — é o
+   * desenho do import desde sempre (`/api/cockpit-reuniao/extrair` não grava
+   * nada), e não é aqui que ele vai ser afrouxado. O que a ponte elimina é o
+   * copiar-e-colar, não a conferência.
+   */
+  const [preCarregado, setPreCarregado] = useState<string | null>(null);
+  useEffect(() => {
+    if (!importarReuniaoId || preCarregado === importarReuniaoId) return;
+    let cancelado = false;
+    setPreCarregado(importarReuniaoId);
+    (async () => {
+      try {
+        const res = await fetch(`/api/meetings/${importarReuniaoId}`);
+        if (!res.ok) return;
+        const m = (await res.json()) as { transcription?: string | null };
+        if (cancelado || !m?.transcription) return;
+        setModo("texto");
+        setTexto(m.transcription);
+        setOpen(true);
+        setAviso(
+          "Transcrição trazida da tela de Reuniões. Confira o texto e clique em extrair — nada foi gravado ainda.",
+        );
+      } catch {
+        /* Falha aqui não pode travar o formulário: ele continua utilizável
+         * com colagem manual, que é como funcionava antes da ponte. */
+      }
+    })();
+    return () => {
+      cancelado = true;
+    };
+  }, [importarReuniaoId, preCarregado]);
 
   const podeExtrair = modo === "pdf" ? !!arquivo : !!texto.trim();
 

@@ -46,20 +46,34 @@ let clienteAberto: { $disconnect: () => Promise<void> } | null = null;
 const RAIZ = RAIZ_DO_GRUPO;
 
 /**
- * Quem passa a pendurar na raiz. É a lista do catálogo MENOS a própria raiz —
- * repetida aqui de propósito em vez de só importada: este script move dado de
- * produção, e a lista do que vai ser movido tem de estar VISÍVEL no arquivo que
- * move, não a um import de distância. Ler o import não é ler a lista.
+ * Quem passa a pendurar na raiz: os 8 nós cujo `parentId` no catálogo é
+ * `onix-co` — as 6 empresas e os 2 departamentos da holding. Repetida aqui de
+ * propósito em vez de só importada: este script move dado de produção, e a
+ * lista do que vai ser movido tem de estar VISÍVEL no arquivo que move, não a
+ * um import de distância. Ler o import não é ler a lista.
  *
  * O que impede a cópia envelhecer é `conferirContraCatalogo`, que aborta antes
  * de qualquer UPDATE se as duas divergirem. Visibilidade e verdade única deixam
- * de ser escolha — dá para ter as duas.
+ * de ser escolha — dá para ter as duas. (E funcionou: a mudança para 3 níveis
+ * fez este script abortar no ensaio, com a lista das quatro que faltavam e da
+ * que sobrava, antes de qualquer escrita.)
+ *
+ * ── O QUE ESTA FERRAMENTA NÃO CONSERTA ───────────────────────────────────
+ * Só reparenting PARA A RAIZ. Um departamento pendurado na empresa errada —
+ * uma "Qualidade e Pós-venda" da Tech que amanheça sob a Contábil — não é
+ * movido por aqui, e mover para a raiz seria pior que deixar como está.
+ * Enquanto esse conserto não existir, o caminho é o dry-run de
+ * `POST /api/empresas/hierarquia` para VER a divergência (o seed a reporta) e
+ * um UPDATE conferido à mão.
  */
 const FILHAS = [
+  "onix-co-expansao",
+  "onix-co-marketing",
   "investimentos",
+  "educacao",
   "corretora",
-  "corporate",
   "imobiliaria",
+  "contabil",
   "tech",
 ] as const;
 

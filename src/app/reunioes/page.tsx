@@ -16,6 +16,8 @@ import {
   CheckSquare,
   Loader2,
   Plus,
+  UserCheck,
+  ArrowRight,
 } from "lucide-react";
 import { CATEGORY_LABELS, type PostCategory } from "@/lib/types";
 import { NewPostDialog } from "@/components/calendario/new-post-dialog";
@@ -32,6 +34,13 @@ interface MeetingData {
   actionItems: string | null;
   source: string;
   lead: { name: string; productInterest: string | null } | null;
+  /* Cliente da base que estava na sala, calculado na leitura pela API a partir
+   * dos participantes (`src/lib/reunioes/casar-cliente.ts`). É o que permite
+   * levar a transcrição para a ficha em vez de ela morrer nesta caixa. */
+  cliente: { id: string; nome: string } | null;
+  /* Preenchido quando DOIS clientes têm aquele nome. Diferente de `cliente:
+   * null`: aqui o cliente existe, só não dá para dizer qual. */
+  clienteAmbiguo: string | null;
 }
 
 export default function ReunioesPage() {
@@ -182,6 +191,17 @@ export default function ReunioesPage() {
                           Lead: {meeting.lead.name}
                         </span>
                       )}
+                      {meeting.cliente && (
+                        <span className="flex items-center gap-1 text-emerald-400 font-medium">
+                          <UserCheck className="h-3 w-3" />
+                          {meeting.cliente.nome}
+                        </span>
+                      )}
+                      {!meeting.cliente && meeting.clienteAmbiguo && (
+                        <span className="text-amber-400 font-medium">
+                          {meeting.clienteAmbiguo}: mais de um cliente com esse nome
+                        </span>
+                      )}
                     </div>
                   </div>
                   {isExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
@@ -226,6 +246,22 @@ export default function ReunioesPage() {
 
                     {/* Actions */}
                     <div className="flex flex-wrap gap-2 pt-2 border-t border-border">
+                      {/* A ponte para a ficha. Até aqui a transcrição servia só
+                       * para roteiro de conteúdo; pauta, pendências e próximos
+                       * passos do cliente ficavam de fora porque vivem em
+                       * ReuniaoEstruturada, alimentada só pelo import manual.
+                       * O link leva o texto até esse import — que segue com
+                       * preview e revisão, como já era: nada é gravado na ficha
+                       * sem alguém conferir. */}
+                      {meeting.cliente && meeting.transcription && (
+                        <a
+                          href={`/backoffice/clientes/${meeting.cliente.id}?aba=cockpit-reuniao&importarReuniao=${meeting.id}`}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                        >
+                          <ArrowRight className="h-3 w-3" />
+                          Levar para a ficha de {meeting.cliente.nome}
+                        </a>
+                      )}
                       {!meeting.insights && meeting.transcription && (
                         <button
                           onClick={() => handleAnalyze(meeting.id)}

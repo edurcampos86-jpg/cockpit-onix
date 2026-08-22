@@ -77,3 +77,42 @@ test("os extras vêm depois da fase inicial, em ordem estável", () => {
   const ids = opcoesFiltroEmpresa(["planejamento", "corporate"]).map((o) => o.id);
   assert.deepEqual(ids.slice(-2), ["corporate", "planejamento"]);
 });
+
+/* ──────────────────────────────────────────────────────────────
+ * A trava que faltava: a validação existia e não era chamada.
+ *
+ * `empresaAceitaImplementacao` já era testada isoladamente (acima), mas o
+ * gravador — `criarImplementacao` — só conferia se o texto era não vazio. Os
+ * casos abaixo fixam o contrato que a action passou a exigir, com os valores
+ * que de fato aparecem: o typo de uma letra, o id de empresa fora da fase, e o
+ * texto de outro campo colado no lugar errado.
+ *
+ * Por que isso importa mais do que parece: `opcoesFiltroEmpresa` deriva as
+ * opções do filtro dos `empresaId` GRAVADOS. Cada valor que passa aqui vira uma
+ * linha no dropdown da Central — uma empresa que não existe, com sugestão presa
+ * dentro, e nada na tela dizendo que foi engano de digitação.
+ * ────────────────────────────────────────────────────────────── */
+test("typo de uma letra NÃO passa como empresa", () => {
+  for (const typo of ["investimento", "Investimentos", "investimentos ", "invesitmentos"]) {
+    assert.equal(
+      empresaAceitaImplementacao(typo),
+      false,
+      `${JSON.stringify(typo)} deveria ser recusado`,
+    );
+  }
+});
+
+test("string vazia e lixo não passam", () => {
+  for (const lixo of ["", " ", "null", "undefined", "0", "[object Object]"]) {
+    assert.equal(empresaAceitaImplementacao(lixo), false, `${JSON.stringify(lixo)} passou`);
+  }
+});
+
+test("toda empresa oferecida na tela é aceita pelo gravador", () => {
+  // O contrário do teste acima: se a lista da tela e a régua do gravador
+  // divergirem, o formulário oferece uma opção que a action recusa — e o erro
+  // aparece só depois de a pessoa escrever a sugestão inteira.
+  for (const e of EMPRESAS_IMPLEMENTACOES) {
+    assert.equal(empresaAceitaImplementacao(e.id), true, `${e.id} está na tela e é recusado`);
+  }
+});
