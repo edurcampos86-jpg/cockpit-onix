@@ -72,7 +72,7 @@ const INTEGRATIONS: IntegrationConfig[] = [
   {
     id: "zapier_plaud",
     name: "Zapier + Plaud.ai",
-    description: "Receber transcrições de reuniões do Plaud e gerar roteiros personalizados com IA",
+    description: "Receber transcrições de reuniões do Plaud e gerar roteiros personalizados com IA. O Plaud não tem API pública — este é o único caminho automático hoje (ver docs/plaud-caminhos-de-entrada.md).",
     icon: <Zap className="h-6 w-6" />,
     status: "disconnected",
     envKey: "ZAPIER_WEBHOOK_SECRET",

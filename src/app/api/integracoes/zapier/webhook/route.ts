@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
-import { validateWebhookSecret, normalizePayload } from "@/lib/integrations/zapier";
+import { avaliarAcessoWebhook, normalizePayload } from "@/lib/integrations/zapier";
 import { analyzeMeeting } from "@/lib/integrations/claude-ai";
 
 /**
@@ -18,10 +18,20 @@ import { analyzeMeeting } from "@/lib/integrations/claude-ai";
  * 5. Body: enviar transcription, title, date, duration, participants
  */
 export async function POST(request: NextRequest) {
-  // Validar webhook secret
-  const secret = request.headers.get("x-webhook-secret") || "";
-  const isValid = await validateWebhookSecret(secret);
-  if (!isValid) {
+  // Rota PÚBLICA (allowlist do proxy): responde sem sessão. Segredo ausente
+  // desliga a rota — não a abre. Ver src/lib/integrations/zapier-acesso.ts.
+  const acesso = await avaliarAcessoWebhook(request.headers.get("x-webhook-secret") || "");
+  if (acesso === "sem-segredo") {
+    console.warn(
+      "[zapier-webhook] ZAPIER_WEBHOOK_SECRET não configurado — rota desativada (503). " +
+        "Configure a variável no Railway; gravá-la só pela UI não sobrevive a redeploy.",
+    );
+    return NextResponse.json(
+      { error: "Integração desativada (ZAPIER_WEBHOOK_SECRET não configurado)" },
+      { status: 503 },
+    );
+  }
+  if (acesso === "invalido") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
