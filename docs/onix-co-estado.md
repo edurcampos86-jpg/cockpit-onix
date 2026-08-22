@@ -483,6 +483,37 @@ Eduardo.
   começar por um `SELECT` de diagnóstico e decidir o que fazer com as
   duplicatas — decisão de negócio, não de código. PR própria, tier 🔴 RED.
 
+### Empréstimo de campo — a terceira ocorrência
+
+`ContratoCorretora.importadoEm` foi **reaproveitado**: era o relógio da máquina
+(quando a linha foi escrita), passou a significar a **competência do relatório**
+(de que mês é o arquivo). A mudança entrou com a regra 5 do motor de importação
+(#369), que precisava de algo capaz de ordenar dois arquivos entre si para
+recusar que um relatório antigo reprocessado sobrescrevesse valor mais recente.
+
+**Defensável**, e o argumento é curto: `createdAt`/`updatedAt` já davam o momento
+do import, então o campo guardava informação duplicada. Trocar duplicata por
+informação nova custa zero coluna — o diff de `schema.prisma` foi só comentário
+`///`, sem uma linha de DDL.
+
+**Mas é a terceira ocorrência de empréstimo de campo no projeto.** As outras
+duas, com endereço — porque afirmação de contagem sem endereço é a própria
+dívida que esta seção denuncia:
+
+1. `EmpresaBootstrapLog.empresaId` — `onix-co-estado.md:55`, "o ponto menos
+   elegante do desenho atual". O campo carrega o **alvo da operação**, não
+   necessariamente uma empresa.
+2. `ImportJob.erros` — `onix-contador-import.md:98`, "essa coluna já está
+   emprestada pelo webhook e tem plano próprio".
+3. `ContratoCorretora.importadoEm` — este.
+
+Um empréstimo é economia; três viram padrão, e padrão não declarado é o que faz
+a próxima pessoa ler o schema e entender outra coisa.
+
+**O gatilho para desfazer**: se um dia as duas informações precisarem coexistir
+— competência do relatório E instante do processamento, na mesma linha, para a
+mesma pergunta —, exigirá coluna nova. Não antes.
+
 ### Conferências humanas pendentes
 
 - 📋 ~331 pares CPF↔CNPJ por sinal fraco — fila de revisão, sem união automática.
