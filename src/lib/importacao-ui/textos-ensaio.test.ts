@@ -108,6 +108,21 @@ test("recusa parcial com o resto sem novidade nao e 'nada a fazer'", () => {
   assert.equal(v?.titulo, "Nada seria gravado.");
   assert.ok(v?.corpo.includes("40"));
   assert.ok(v?.corpo.includes("312"));
+  // Singular aqui também: o aviso de antiguidade, que já trata singular,
+  // aparece na MESMA tela que este texto.
+  const uma = estadoVazioDoEnsaio({ ...VAZIO, linhasLidas: 312, rejeitadas: 1 });
+  assert.ok(uma?.corpo.startsWith("1 das 312 linhas foi recusada"));
+});
+
+test("os vazios não fecham a lista de causas em duas", () => {
+  // Uma linha tem QUATRO sortes em `planejar`; repetida dentro do próprio
+  // arquivo é a que faltava. Enumerar duas e omitir a terceira atribui causa
+  // errada a um relatório todo de duplicatas.
+  const nada = estadoVazioDoEnsaio({ ...VAZIO, linhasLidas: 312 });
+  const parcial = estadoVazioDoEnsaio({ ...VAZIO, linhasLidas: 312, rejeitadas: 40 });
+  for (const texto of [nada?.corpo ?? "", parcial?.corpo ?? ""]) {
+    assert.match(texto, /repetida dentro do próprio arquivo/);
+  }
 });
 
 test("recusa parcial COM algo a criar nao e estado vazio nenhum", () => {

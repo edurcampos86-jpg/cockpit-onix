@@ -198,14 +198,23 @@ export function estadoVazioDoEnsaio(r: {
       // "o resto já está na base como está" seria impreciso: parte do resto
       // pode ter sido barrada por contrato encerrado ou por antiguidade, casos
       // em que a base diverge do relatório de propósito.
-      corpo: `${r.rejeitadas.toLocaleString("pt-BR")} das ${r.linhasLidas.toLocaleString("pt-BR")} linhas foram recusadas, e nenhuma das demais mudaria nada — ou o contrato já está encerrado, ou o relatório é mais antigo do que o gravado. Veja os motivos antes de concluir que o mês está em dia.`,
+      corpo:
+        `${r.rejeitadas === 1 ? "1 das" : `${r.rejeitadas.toLocaleString("pt-BR")} das`} ` +
+        `${r.linhasLidas.toLocaleString("pt-BR")} linhas ${r.rejeitadas === 1 ? "foi recusada" : "foram recusadas"}, ` +
+        "e nenhuma das demais mudaria nada — contrato já encerrado, relatório mais antigo do " +
+        "que o gravado ou linha repetida dentro do próprio arquivo. Veja os motivos antes de " +
+        "concluir que o mês está em dia.",
     };
   }
 
   return {
     titulo: "Nada a fazer.",
+    // A enumeração NÃO é fechada de propósito: além de contrato encerrado e
+    // relatório antigo, a linha pode ter sido repetida dentro do próprio
+    // arquivo (`duplicadasNoLote`). Listar duas causas e omitir a terceira
+    // atribuiria causa errada a um relatório todo de duplicatas.
     corpo:
-      "Todas as linhas caíram em contrato já encerrado ou em relatório mais antigo do que o gravado. Nada seria criado nem alterado.",
+      "Nenhuma linha mudaria nada: contrato já encerrado, relatório mais antigo do que o gravado ou linha repetida dentro do próprio arquivo. Nada seria criado nem alterado.",
   };
 }
 
