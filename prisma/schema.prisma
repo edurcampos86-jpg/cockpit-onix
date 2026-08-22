@@ -1683,6 +1683,11 @@ model AcordoComercialParceiro {
   /// "Quem tem acordo neste produto?" — a leitura que a régua de comissão faz
   /// ao fechar um tipo de produto inteiro.
   @@index([tipoProduto])
+  /// O mesmo, pelo caminho novo: "quem tem acordo NESTE nó?". Declarado aqui e
+  /// não só na migration — índice que existe no banco e não no schema é drift,
+  /// e a próxima `migrate dev` de qualquer sessão o emitiria como DROP INDEX.
+  /// É a mesma armadilha do índice FTS que `scripts/guarda-drift-fts.sh` tranca.
+  @@index([empresaId])
 }
 
 // ============================================
