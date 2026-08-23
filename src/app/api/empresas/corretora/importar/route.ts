@@ -5,6 +5,7 @@ import { guardAdminApi } from "@/lib/api-admin-guard";
 import { getAuthContext } from "@/lib/auth-helpers";
 import { getConfig } from "@/lib/config-db";
 import { executarImportacao, type ModoImportacao } from "@/lib/corretora/executar-importacao";
+import { CAMPOS_DESTINO } from "@/lib/importacao-ui/campos-destino";
 import { validarPerfil, type PerfilImportacaoConfig } from "@/lib/importacao/perfil";
 import { prisma } from "@/lib/prisma";
 
@@ -32,6 +33,14 @@ import { prisma } from "@/lib/prisma";
  *   confirmar (string)  "true" — obrigatório em "aplicar"
  *   competencia (string) "AAAA-MM" ou "AAAA-MM-DD" — de que mês é o relatório.
  *                        Obrigatória, exceto quando o perfil mapeia a coluna.
+ *   parceiroPadrao (string) opcional — de qual seguradora é o relatório. Vazio
+ *                        usa a `fonte` do perfil. Vale só nas linhas em que a
+ *                        coluna `parceiro` vier vazia.
+ *   mapeamentoColunas (string) opcional — JSON `{ "Coluna": "campo" }`. Quando
+ *                        vem, substitui o mapeamento gravado no perfil (e passa
+ *                        por `validarPerfil` igual). É o que faz a tela de
+ *                        mapeamento valer alguma coisa antes de o perfil ser
+ *                        salvo.
  *
  * Gate: `guardAdminApi`. Importar a base de uma empresa inteira é operação de
  * administrador, e o middleware só garante que existe sessão.
@@ -104,12 +113,78 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "perfil está inativo" }, { status: 400 });
   }
 
+  // MAPEAMENTO DA TELA — override opcional, e o motivo é que sem ele a tela de
+  // mapeamento seria decorativa: o plano sairia do perfil gravado, não do que a
+  // pessoa acabou de arrastar. Vem como JSON no mesmo multipart.
+  //
+  // Não é atalho para pular validação: o resultado passa por `validarPerfil`
+  // igual, logo abaixo. Um mapeamento torto é recusado antes de o arquivo ser
+  // lido, como sempre foi.
+  const mapeamentoCru = String(form.get("mapeamentoColunas") ?? "").trim();
+  let mapeamentoDaTela: Record<string, string> | null = null;
+  if (mapeamentoCru) {
+    try {
+      const parsed: unknown = JSON.parse(mapeamentoCru);
+      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error("não é um objeto");
+      }
+      mapeamentoDaTela = {};
+      for (const [origem, destino] of Object.entries(parsed as Record<string, unknown>)) {
+        // `__proto__` e companhia vêm de JSON.parse como chave própria; copiar
+        // para objeto literal escreveria no protótipo.
+        if (origem === "__proto__" || origem === "constructor" || origem === "prototype") continue;
+        if (typeof destino !== "string" || destino === "") continue;
+        mapeamentoDaTela[origem] = destino;
+      }
+    } catch {
+      return NextResponse.json(
+        { error: "mapeamentoColunas precisa ser um JSON de { coluna: campo }" },
+        { status: 400 },
+      );
+    }
+    if (Object.keys(mapeamentoDaTela).length === 0) {
+      return NextResponse.json(
+        { error: "mapeamentoColunas veio vazio — nenhuma coluna apontaria para campo nenhum" },
+        { status: 400 },
+      );
+    }
+  }
+
+  // Quando o mapeamento vem da tela, `formatosValor` e `dicionarios` do perfil
+  // precisam ser PODADOS: `validarPerfil` recusa formato ou dicionário
+  // declarado para campo que o mapeamento não produz (`perfil.ts`), e recusa
+  // com razão — é sintoma de rename esquecido de um lado só.
+  //
+  // Sem esta poda, "ignorar esta coluna" na tela vira 400 com jargão de
+  // servidor, num caminho que a tela oferece e não tem como consertar.
+  const destinosDaTela = mapeamentoDaTela ? new Set(Object.values(mapeamentoDaTela)) : null;
+  const podar = <T,>(objeto: unknown): Record<string, T> => {
+    const entrada = (objeto ?? {}) as Record<string, T>;
+    if (!destinosDaTela) return entrada;
+    return Object.fromEntries(
+      Object.entries(entrada).filter(([campo]) => destinosDaTela.has(campo)),
+    );
+  };
+
+  // E o inverso: campo mapeado na tela que o perfil não declara chegaria como
+  // TEXTO — data vira linha rejeitada, valor vira `null` gravado em silêncio.
+  // `formatoSugerido` de `campos-destino` preenche a lacuna; o que o perfil já
+  // declara continua vencendo, porque ele conhece o parceiro e a lista não.
+  const formatos = podar<string>(perfilLinha.formatosValor);
+  if (destinosDaTela) {
+    for (const campo of destinosDaTela) {
+      if (formatos[campo] !== undefined) continue;
+      const sugerido = CAMPOS_DESTINO.find((c) => c.campo === campo)?.formatoSugerido;
+      if (sugerido) formatos[campo] = sugerido;
+    }
+  }
+
   const perfil = {
     formato: perfilLinha.formato,
     extracao: perfilLinha.extracao,
-    mapeamentoColunas: perfilLinha.mapeamentoColunas,
-    formatosValor: perfilLinha.formatosValor,
-    dicionarios: perfilLinha.dicionarios,
+    mapeamentoColunas: mapeamentoDaTela ?? perfilLinha.mapeamentoColunas,
+    formatosValor: formatos,
+    dicionarios: podar<Record<string, string>>(perfilLinha.dicionarios),
   } as unknown as PerfilImportacaoConfig;
 
   const problemas = validarPerfil(perfil);
@@ -154,6 +229,15 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // PARCEIRO — de qual seguradora é este relatório.
+  //
+  // O padrão continua sendo a `fonte` do perfil. O campo existe porque um
+  // perfil serve N parceiros: o layout da planilha é o mesmo e só muda quem
+  // emitiu. Isto é FALLBACK por linha, não sobrescrita — quando o perfil mapeia
+  // a coluna `parceiro`, o motor usa o valor da linha e este valor só preenche
+  // as células vazias (`texto(c.parceiro) ?? parceiroPadrao`).
+  const parceiroPadrao = String(form.get("parceiroPadrao") ?? "").trim() || perfilLinha.fonte;
+
   const conteudo = Buffer.from(await arquivo.arrayBuffer());
 
   try {
@@ -165,7 +249,7 @@ export async function POST(req: NextRequest) {
         empresaId: EMPRESA,
         perfil,
         perfilImportacaoId: perfilLinha.id,
-        parceiroPadrao: perfilLinha.fonte,
+        parceiroPadrao,
         iniciadoPorId: ctx.userId,
         loteImportacao: randomUUID(),
         dataReferencia,
