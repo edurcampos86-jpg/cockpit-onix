@@ -31,6 +31,9 @@ import {
   revogarEmpresa,
   alternarHerancaEmpresa,
 } from "@/app/actions/permissoes";
+import { rotuloComCaminho } from "@/lib/empresas/catalogo";
+import { descendentesDe } from "@/lib/empresas/acesso-core";
+import type { TipoNo } from "@/lib/empresas/hierarquia";
 
 export type PapelDTO = {
   id: string;
@@ -844,7 +847,7 @@ function PessoasTab({
   );
 }
 
-export type EmpresaDTO = { id: string; nome: string; parentId: string | null };
+export type EmpresaDTO = { id: string; nome: string; parentId: string | null; tipo: TipoNo };
 export type AcessoEmpresaDTO = {
   id: string;
   pessoaId: string;
@@ -877,13 +880,49 @@ function EmpresasTab({
   const [erro, setErro] = useState<string | null>(null);
   const [pessoaId, setPessoaId] = useState<string>(pessoas[0]?.id ?? "");
   const [novaEmpresaId, setNovaEmpresaId] = useState<string>("");
-  const [novaHeranca, setNovaHeranca] = useState(true);
+  /* DESMARCADO por padrão. O default era `true` aqui e no banco; com o terceiro
+   * nível, herdar de uma empresa passou a arrastar os departamentos dela — a
+   * semântica é a mesma, o alcance dobrou. Herdar virou ato explícito. */
+  const [novaHeranca, setNovaHeranca] = useState(false);
 
   const doPessoa = acessos.filter((a) => a.pessoaId === pessoaId);
   const jaTem = new Set(doPessoa.map((a) => a.empresaId));
   const disponiveis = empresas.filter((e) => !jaTem.has(e.id));
+
+  /* O CAMINHO, não o rótulo. Há 6 nós chamados "Qualidade e Pós-venda" e 2
+   * chamados "Onix Corretora": num seletor, rótulo solto pede escolha no
+   * escuro, e a escolha errada concede acesso à empresa errada em silêncio.
+   * Montado sobre `empresas` (as linhas do banco) e não sobre o catálogo — é o
+   * banco que o RBAC consulta, e se os dois divergirem quem manda é ele. */
+  const caminho = (id: string) => rotuloComCaminho(id, empresas, { semRaiz: true });
   const nomeEmpresa = (id: string) => empresas.find((e) => e.id === id)?.nome ?? id;
+
+  /* O PAPEL, ao lado do caminho. O caminho diz ONDE o nó está; o tipo diz O QUE
+   * ele é — e as duas coisas não se deduzem uma da outra nesta árvore:
+   * "Expansão" e "Marketing" são departamentos pendurados direto na holding,
+   * no mesmo nível das empresas. Sem o papel à vista, conceder acesso a um
+   * departamento e a uma pessoa jurídica são cliques idênticos.
+   *
+   * Vem da COLUNA `Empresa.tipo`, nunca da profundidade. Deduzir por nível é
+   * exatamente o erro que a coluna existe para impedir — o `(holding)` que
+   * ficava aqui era derivado de `parentId === null` e teria mentido no dia em
+   * que a raiz mudasse. */
+  const tipoDe = (id: string): TipoNo | null => empresas.find((e) => e.id === id)?.tipo ?? null;
+
+  /* Os nós que a herança REALMENTE alcança, pela mesma função que
+   * `empresasVisiveis` usa para decidir acesso (`acesso-core.ts`) e sobre os
+   * mesmos dados. Uma prévia calculada de outro jeito poderia descrever uma
+   * árvore diferente da que enforça — que é pior que não ter prévia. */
+  const alcance = (id: string) => [...descendentesDe(id, empresas)];
   const temFilhas = (id: string) => empresas.some((e) => e.parentId === id);
+
+  const listarAlcance = (ids: string[], limite = 3) => {
+    const nomes = ids.map(nomeEmpresa);
+    if (nomes.length <= limite) return nomes.join(", ");
+    return `${nomes.slice(0, limite).join(", ")} e mais ${nomes.length - limite}`;
+  };
+
+  const alcanceDaNova = novaEmpresaId ? alcance(novaEmpresaId) : [];
 
   const rodar = (fn: () => Promise<{ ok: boolean; error?: string }>, queda: string) => {
     setErro(null);
@@ -907,6 +946,32 @@ function EmpresasTab({
           <strong>todas</strong> as empresas. A primeira concessão RESTRINGE a pessoa às empresas
           concedidas — conceder não só soma, também tira.
         </p>
+
+        {/* As DUAS contagens, lado a lado. Cadastro cheio com zero concessão é
+            o estado que mais engana: parece configurado e não restringe
+            ninguém. É o mesmo cálculo de `rbacInerte` em
+            /api/configuracoes/permissoes/auditoria. */}
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+          <span className="rounded-md border border-border px-2 py-1 text-muted-foreground">
+            <strong className="text-foreground">{empresas.length}</strong>{" "}
+            {empresas.length === 1 ? "nó cadastrado" : "nós cadastrados"}
+          </span>
+          <span className="rounded-md border border-border px-2 py-1 text-muted-foreground">
+            <strong className="text-foreground">{acessos.length}</strong>{" "}
+            {acessos.length === 1 ? "concessão" : "concessões"}
+          </span>
+          {empresas.length === 0 ? (
+            <span className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-amber-700 dark:text-amber-400">
+              Nada cadastrado — não dá nem para conceder. Rode{" "}
+              <code className="text-[11px]">scripts/seed-empresas.ts</code>.
+            </span>
+          ) : acessos.length === 0 ? (
+            <span className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-amber-700 dark:text-amber-400">
+              RBAC inerte: cadastro de pé, nenhuma concessão — <strong>ninguém</strong> está
+              restrito.
+            </span>
+          ) : null}
+        </div>
       </div>
 
       {erro && (
@@ -940,8 +1005,8 @@ function EmpresasTab({
             <table className="w-full text-sm">
               <thead className="bg-accent/50 text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>
-                  <th className="px-4 py-2 text-left">Empresa</th>
-                  <th className="px-4 py-2 text-left">Alcança as empresas abaixo</th>
+                  <th className="px-4 py-2 text-left">Nó concedido</th>
+                  <th className="px-4 py-2 text-left">Alcança os nós abaixo</th>
                   <th className="px-4 py-2" />
                 </tr>
               </thead>
@@ -949,41 +1014,53 @@ function EmpresasTab({
                 {doPessoa.length === 0 && (
                   <tr>
                     <td colSpan={3} className="px-4 py-6 text-center text-muted-foreground">
-                      Nenhuma concessão — esta pessoa vê todas as empresas.
+                      Nenhuma concessão — esta pessoa vê todos os nós.
                     </td>
                   </tr>
                 )}
                 {doPessoa.map((a) => (
                   <tr key={a.id} className="border-b border-border last:border-0">
                     <td className="px-4 py-3 font-medium text-foreground">
-                      {nomeEmpresa(a.empresaId)}
+                      {caminho(a.empresaId)}
+                      {tipoDe(a.empresaId) && (
+                        <span className="ml-2 rounded border border-border px-1.5 py-0.5 text-[11px] font-normal text-muted-foreground">
+                          {tipoDe(a.empresaId)}
+                        </span>
+                      )}
                       <span className="ml-2 font-mono text-xs text-muted-foreground">
                         {a.empresaId}
                       </span>
                     </td>
                     <td className="px-4 py-3">
                       {temFilhas(a.empresaId) ? (
-                        <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <input
-                            type="checkbox"
-                            checked={a.incluiDescendentes}
-                            disabled={pending}
-                            onChange={(e) =>
-                              rodar(
-                                () =>
-                                  alternarHerancaEmpresa({
-                                    acessoId: a.id,
-                                    incluiDescendentes: e.target.checked,
-                                  }),
-                                "Erro ao alterar a herança.",
-                              )
-                            }
-                          />
-                          herda
-                        </label>
+                        <div className="space-y-1">
+                          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <input
+                              type="checkbox"
+                              checked={a.incluiDescendentes}
+                              disabled={pending}
+                              onChange={(e) =>
+                                rodar(
+                                  () =>
+                                    alternarHerancaEmpresa({
+                                      acessoId: a.id,
+                                      incluiDescendentes: e.target.checked,
+                                    }),
+                                  "Erro ao alterar a herança.",
+                                )
+                              }
+                            />
+                            herda
+                          </label>
+                          <p className="text-[11px] text-muted-foreground">
+                            {a.incluiDescendentes
+                              ? `libera +${alcance(a.empresaId).length}: ${listarAlcance(alcance(a.empresaId))}`
+                              : `desmarcado — ${alcance(a.empresaId).length} nó(s) abaixo ficam de fora`}
+                          </p>
+                        </div>
                       ) : (
                         <span className="text-xs text-muted-foreground">
-                          — não tem empresas abaixo
+                          — não tem nós abaixo
                         </span>
                       )}
                     </td>
@@ -1007,7 +1084,7 @@ function EmpresasTab({
 
           <div className="flex flex-wrap items-end gap-3 rounded-xl border border-border bg-card p-4">
             <label className="flex flex-col gap-1">
-              <span className="text-xs font-medium text-muted-foreground">Conceder empresa</span>
+              <span className="text-xs font-medium text-muted-foreground">Conceder nó</span>
               <select
                 className={inputClass}
                 value={novaEmpresaId}
@@ -1015,26 +1092,40 @@ function EmpresasTab({
                 disabled={pending || disponiveis.length === 0}
               >
                 <option value="">
-                  {disponiveis.length === 0 ? "Todas já concedidas" : "Escolha uma empresa"}
+                  {disponiveis.length === 0 ? "Todos já concedidos" : "Escolha um nó"}
                 </option>
                 {disponiveis.map((e) => (
                   <option key={e.id} value={e.id}>
-                    {e.nome}
-                    {e.parentId === null && temFilhas(e.id) ? " (raiz do grupo)" : ""}
+                    {caminho(e.id)} · {e.tipo}
                   </option>
                 ))}
               </select>
             </label>
 
-            <label className="flex items-center gap-2 pb-2 text-xs text-muted-foreground">
-              <input
-                type="checkbox"
-                checked={novaHeranca}
-                disabled={pending}
-                onChange={(e) => setNovaHeranca(e.target.checked)}
-              />
-              alcança as empresas abaixo
-            </label>
+            <div className="flex flex-col gap-1 pb-1">
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={novaHeranca}
+                  disabled={pending || alcanceDaNova.length === 0}
+                  onChange={(e) => setNovaHeranca(e.target.checked)}
+                />
+                alcança os nós abaixo
+              </label>
+              {/* A prévia é o ponto do checkbox: "alcança os nós abaixo" não
+                  diz QUANTOS nem QUAIS, e com 3 níveis a diferença entre 0 e 3
+                  nós é a diferença entre conceder uma empresa e conceder o
+                  departamento dela inteiro. */}
+              <p className="text-[11px] text-muted-foreground">
+                {!novaEmpresaId
+                  ? "escolha um nó para ver o alcance"
+                  : alcanceDaNova.length === 0
+                    ? "este nó não tem nada abaixo — marcar não muda nada"
+                    : novaHeranca
+                      ? `libera ${alcanceDaNova.length + 1} nós: o escolhido + ${listarAlcance(alcanceDaNova)}`
+                      : `libera só o nó escolhido; ${alcanceDaNova.length} abaixo ficam de fora`}
+              </p>
+            </div>
 
             <button
               type="button"
@@ -1044,9 +1135,16 @@ function EmpresasTab({
                   const res = await concederEmpresa({
                     pessoaId,
                     empresaId: novaEmpresaId,
-                    incluiDescendentes: novaHeranca,
+                    // `&& alcance > 0`: o checkbox fica desabilitado em folha,
+                    // mas o estado sobrevive à troca de seleção — sem isto,
+                    // marcar numa empresa e depois escolher um departamento
+                    // gravaria herança que não alcança nada e mente na tabela.
+                    incluiDescendentes: novaHeranca && alcanceDaNova.length > 0,
                   });
-                  if (res.ok) setNovaEmpresaId("");
+                  if (res.ok) {
+                    setNovaEmpresaId("");
+                    setNovaHeranca(false);
+                  }
                   return res;
                 }, "Erro ao conceder.")
               }
