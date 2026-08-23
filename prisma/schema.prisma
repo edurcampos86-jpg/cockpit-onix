@@ -2158,11 +2158,22 @@ model PessoaEmpresa {
   empresaId String
   empresa   Empresa @relation(fields: [empresaId], references: [id], onDelete: Cascade)
 
-  /// Estende a concessão às empresas abaixo desta na árvore. `true` é a
-  /// leitura intuitiva de holding (acesso à Onix Co alcança o grupo); `false`
-  /// concede só a empresa exata. A escolha é POR CONCESSÃO porque "herda ou
-  /// não?" é decisão de produto e as duas respostas precisam caber.
-  incluiDescendentes Boolean @default(true)
+  /// Estende a concessão aos nós abaixo deste na árvore. A escolha é POR
+  /// CONCESSÃO porque "herda ou não?" é decisão de produto e as duas respostas
+  /// precisam caber.
+  ///
+  /// O DEFAULT ERA `true` e passou a ser `false`. O motivo é o terceiro nível:
+  /// com 2 níveis, herdar de uma empresa não alcançava nada (as empresas eram
+  /// folhas) e herdar da holding era a leitura intuitiva dela. Com 3, conceder
+  /// "Onix Capital" com herança passou a arrastar Agro, Qualidade e Onix
+  /// Investimentos — a semântica não mudou, o alcance dobrou. Um default que
+  /// concede mais do que foi pedido é a forma errada de errar num campo de
+  /// permissão: o padrão passa a ser concessão nó a nó, e herdar vira ato
+  /// explícito.
+  ///
+  /// Linhas JÁ EXISTENTES não são tocadas — mudar DEFAULT não reescreve dado,
+  /// e reescrever seria revogar acesso que alguém concedeu de propósito.
+  incluiDescendentes Boolean @default(false)
 
   criadoEm DateTime @default(now())
 

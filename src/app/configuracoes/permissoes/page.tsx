@@ -104,7 +104,10 @@ export default async function PermissoesPage() {
   const [empresasRaw, acessosEmpresaRaw] = await Promise.all([
     prisma.empresa.findMany({
       orderBy: [{ parentId: "asc" }, { nome: "asc" }],
-      select: { id: true, nome: true, parentId: true },
+      // `tipo` vai junto porque a aba mostra o PAPEL ao lado do caminho —
+      // holding/empresa/departamento não se deduz da profundidade nesta árvore
+      // (há departamento pendurado direto na holding).
+      select: { id: true, nome: true, parentId: true, tipo: true },
     }),
     prisma.pessoaEmpresa.findMany({
       select: { id: true, pessoaId: true, empresaId: true, incluiDescendentes: true },
