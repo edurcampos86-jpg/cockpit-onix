@@ -36,15 +36,16 @@ import { calcularCusto, textoDoDocx } from "@/lib/importacao/extracao-ia";
  * à pessoa o que ela precisa para decidir o destino da coluna.
  *
  * ── PDF ESCANEADO, E POR QUE A CONTA DE TOKENS NÃO SERVE ────────────────
- * A tentação é inferir "é digitalizado" de um número baixo de tokens de
- * entrada. É o contrário: a API converte página sem texto em IMAGEM, e imagem
- * custa MAIS tokens que texto. A heurística acusaria escaneado justamente nos
- * PDFs de texto limpo.
+ * A tentação é inferir "é digitalizado" de um número baixo de tokens. A conta
+ * até anda na direção certa — a API converte TODA página em imagem, e a de
+ * texto ainda soma a camada de texto por cima, então a escaneada custa menos —
+ * mas o limiar não existe: uma capa de texto curto e uma foto de papel caem na
+ * mesma faixa, e é justamente entre esses dois que a tela precisa distinguir.
  *
  * Então quem diz é o modelo, num campo do próprio schema: `motivoVazio`. Ele
- * está olhando a página — sabe distinguir papel fotografado de capa sem tabela.
- * A tela mostra a razão em vez de um formulário em branco, que a pessoa leria
- * como defeito.
+ * está olhando a página — sabe separar papel fotografado de capa sem tabela,
+ * que é a pergunta real. A tela mostra a razão em vez de um formulário em
+ * branco, que a pessoa leria como defeito.
  */
 
 export const dynamic = "force-dynamic";
@@ -53,7 +54,13 @@ export const maxDuration = 60;
 
 const MAX_BYTES = 20 * 1024 * 1024;
 const MODELO = "claude-haiku-4-5";
-const MAX_TOKENS = 2000;
+/**
+ * Teto da saída. 2.000 cabia em ~15 colunas e truncava num relatório de 40 —
+ * e resposta truncada não volta como "faltou espaço": volta como JSON inválido,
+ * erro que aponta para o lugar errado. 4.000 cobre ~60 colunas com exemplo, e o
+ * pior caso da conta ainda fica em centavos.
+ */
+const MAX_TOKENS = 4000;
 
 type Coluna = { rotulo: string; exemplo: string };
 
@@ -259,7 +266,9 @@ async function descobrirNoPdf(conteudo: Buffer, apiKey: string) {
 
   // `motivoVazio` só vale quando não veio coluna nenhuma: o modelo às vezes
   // preenche os dois, e a lista de colunas é o fato mais forte dos dois.
-  const semCamadaDeTexto = colunas.length === 0 && bruto.motivoVazio === "documento_digitalizado";
+  // Caixa normalizada: `enum` no schema não garante a capitalização de volta.
+  const motivo = String(bruto.motivoVazio ?? "").trim().toLowerCase();
+  const semCamadaDeTexto = colunas.length === 0 && motivo === "documento_digitalizado";
 
   return {
     formato: "pdf",
