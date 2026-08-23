@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { guardAdminApi } from "@/lib/api-admin-guard";
 import { prisma } from "@/lib/prisma";
-import { auditarAcessoPorEmpresa } from "@/lib/empresas/auditoria-core";
+import { auditarAcessoPorEmpresa, estadoDoRbac } from "@/lib/empresas/auditoria-core";
 import { divergencias, idsNoHub } from "@/lib/empresas/catalogo";
 
 export const dynamic = "force-dynamic";
@@ -72,7 +72,19 @@ export async function GET() {
    * banco. Então um ambiente onde o seed nunca rodou não mostra alerta nenhum;
    * mostra `linhas` sem restrição, que se lê como "está tudo certo" quando o
    * significado é "o RBAC de empresa está inerte". Foi exatamente esse achado
-   * que motivou `scripts/seed-empresas.ts`, e `rbacInerte` é ele por escrito. */
+   * que motivou `scripts/seed-empresas.ts`.
+   *
+   * ── `rbacInerte` PASSOU A MEDIR CONCESSÃO, NÃO CADASTRO ────────────────
+   * Ele era `empresas.length === 0`, e isso deixou de bastar no instante em
+   * que o seed roda: com 20 linhas em `Empresa` e ZERO em `PessoaEmpresa`, a
+   * flag apagaria e a leitura seria "o RBAC está de pé" — quando ninguém está
+   * restrito a nada, porque restrição só começa para quem GANHA uma linha
+   * (`acesso-core.ts`: sem concessão ⇒ `null` ⇒ vê tudo).
+   *
+   * O alarme antigo não some, ganha nome próprio (`semCadastro`): são dois
+   * buracos diferentes, com consertos diferentes — um pede o seed, o outro
+   * pede alguém conceder acesso. As duas contagens saem cruas ao lado, porque
+   * é a comparação delas que conta a história. */
   const { nosDois, soNoHub, soNoCadastro } = divergencias();
   const noBanco = new Set(empresas.map((e) => e.id));
   const cadastro = {
@@ -83,8 +95,7 @@ export async function GET() {
     anunciadasSemCadastro: soNoHub,
     /** Cadastradas fora do hub: acesso funciona, descoberta pela tela inicial não. */
     foraDoHub: soNoCadastro,
-    /** Nenhuma empresa cadastrada ⇒ nenhuma concessão tem efeito. */
-    rbacInerte: empresas.length === 0,
+    ...estadoDoRbac({ nosCadastrados: empresas.length, concessoes: concessoes.length }),
   };
 
   return NextResponse.json({

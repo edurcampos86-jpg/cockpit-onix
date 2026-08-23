@@ -498,6 +498,86 @@ export function filhosDe(id: string): NoDoGrupo[] {
   return CATALOGO_EMPRESAS.filter((e) => e.parentId === id);
 }
 
+/* ── O CAMINHO ATÉ O NÓ ──────────────────────────────────────────────────
+ *
+ * Com 20 nós e rótulos que repetem de propósito, "Qualidade e Pós-venda"
+ * deixou de identificar qualquer coisa: são SEIS, e "Onix Corretora" são
+ * DUAS. Um seletor que mostre só o rótulo pede uma escolha no escuro — e a
+ * escolha errada concede acesso à empresa errada, em silêncio, porque as duas
+ * opções são visualmente idênticas.
+ *
+ * O caminho ("Onix Tech › Qualidade e Pós-venda") é o menor identificador que
+ * volta a ser único, e é único por construção: dois irmãos não podem ter o
+ * mesmo rótulo sem serem o mesmo nó. */
+
+/** O mínimo para montar um caminho. Cabe tanto no catálogo quanto na linha do banco. */
+export type NoComPai = {
+  id: string;
+  nome: string;
+  parentId: string | null;
+};
+
+/**
+ * Os rótulos da raiz até `id`, inclusive. Lista vazia se o id não está na
+ * lista recebida.
+ *
+ * ── POR QUE RECEBE OS NÓS EM VEZ DE LER O CATÁLOGO ───────────────────────
+ * Quem chama de verdade é a tela de permissões, e ela trabalha com as linhas
+ * de `Empresa` — o que EXISTE, não o que está declarado. Se as duas divergirem
+ * (seed não rodado, nó criado à mão), o caminho tem de descrever o banco, que
+ * é quem o RBAC consulta. Montar a partir do catálogo mostraria um caminho
+ * bonito para uma árvore que não é a que decide acesso.
+ *
+ * A versão sobre o catálogo existe logo abaixo, para teste e para quem só
+ * precisa do declarado.
+ *
+ * À prova de ciclo: `parentId` é dado editável, e uma cadeia A→B→A faria a
+ * subida rodar para sempre. O conjunto `vistos` corta, e o caminho devolvido
+ * até ali continua útil.
+ */
+export function caminhoDe(id: string, nos: readonly NoComPai[]): string[] {
+  const porId = new Map(nos.map((n) => [n.id, n]));
+  let atual = porId.get(id);
+  if (!atual) return [];
+
+  const nomes = [atual.nome];
+  const vistos = new Set<string>([atual.id]);
+
+  while (atual.parentId !== null) {
+    if (vistos.has(atual.parentId)) break; // ciclo
+    const pai = porId.get(atual.parentId);
+    if (!pai) break; // pai órfão: o caminho para onde a cadeia quebra
+    vistos.add(pai.id);
+    nomes.unshift(pai.nome);
+    atual = pai;
+  }
+
+  return nomes;
+}
+
+/**
+ * O caminho como texto: `"Onix Co › Onix Tech › Qualidade e Pós-venda"`.
+ *
+ * `semRaiz` corta o primeiro nível. A holding aparece em TODOS os caminhos, e
+ * numa lista inteira de opções ela vira ruído que empurra a parte que
+ * distingue para fora do campo visível.
+ */
+export function rotuloComCaminho(
+  id: string,
+  nos: readonly NoComPai[],
+  opcoes?: { semRaiz?: boolean; separador?: string },
+): string {
+  const nomes = caminhoDe(id, nos);
+  if (nomes.length === 0) return id; // id órfão: melhor o id cru que string vazia
+  const visiveis = opcoes?.semRaiz && nomes.length > 1 ? nomes.slice(1) : nomes;
+  return visiveis.join(opcoes?.separador ?? " › ");
+}
+
+/** `caminhoDe` sobre o catálogo declarado. */
+export function caminhoNoCatalogo(id: string): string[] {
+  return caminhoDe(id, CATALOGO_EMPRESAS);
+}
+
 /* ── DIVERGÊNCIAS ENTRE CADASTRO E HUB ───────────────────────────────────── */
 
 /** As quatro caixas do catálogo, já separadas. */
