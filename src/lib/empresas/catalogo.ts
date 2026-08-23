@@ -500,9 +500,9 @@ export function filhosDe(id: string): NoDoGrupo[] {
 
 /* ── O CAMINHO ATÉ O NÓ ──────────────────────────────────────────────────
  *
- * Com 20 nós e rótulos que repetem de propósito, "Qualidade e Pós-venda"
- * deixou de identificar qualquer coisa: são SEIS, e "Onix Corretora" são
- * DUAS. Um seletor que mostre só o rótulo pede uma escolha no escuro — e a
+ * Com 48 nós e rótulos que repetem de propósito, "Qualidade e Pós-venda"
+ * deixou de identificar qualquer coisa: são SEIS. "Jurídico" são SETE — um em
+ * cada empresa mais o consolidador da holding — e "Onix Corretora" são DUAS. Um seletor que mostre só o rótulo pede uma escolha no escuro — e a
  * escolha errada concede acesso à empresa errada, em silêncio, porque as duas
  * opções são visualmente idênticas.
  *
