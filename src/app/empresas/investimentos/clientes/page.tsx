@@ -178,10 +178,11 @@ export default async function ClientesPage() {
   // a carteira toda e uma consulta por cliente seriam centenas de idas ao banco
   // para desenhar um badge. `groupBy` devolve a contagem já somada pelo Postgres.
   //
-  // Só ligação e reunião contam. O WHERE usa `TIPOS_QUE_CONTAM_TOQUE`, o MESMO
-  // array de `cadencia-core`, e não uma lista repetida aqui: duas cópias da
-  // régua divergiriam no dia em que "revisao" entrasse na conta, e a tabela
-  // passaria a mostrar um número que o alerta não reconhece.
+  // Quais tipos contam é decisão de `TIPOS_QUE_CONTAM_TOQUE`, e o WHERE usa o
+  // MESMO array — não uma lista repetida aqui. Duas cópias da régua divergiriam
+  // no dia em que um tipo entrasse ou saísse da conta, e a tabela passaria a
+  // mostrar um número que o alerta não reconhece. Foi por pouco: a lista mudou
+  // uma vez (WhatsApp entrou) enquanto esta PR estava aberta.
   if (clientes.length > 0) {
     const contagens = await prisma.interacaoCliente.groupBy({
       by: ["clienteId"],
