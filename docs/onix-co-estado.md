@@ -429,6 +429,47 @@ Eduardo.
 
 ---
 
+## Correções de dado em produção — o registro
+
+Não existe tabela de auditoria para correção de dado. `AcordoComercialParceiro`
+tem `criadoPor` e `encerradoPor`, e **não tem `atualizadoPor`**; `ConfigAudit` é
+de flags de configuração e usá-la para outra coisa seria desvio de propósito.
+
+Enquanto essa tabela não existir, **o registro é esta seção**. Toda correção que
+altera dado em produção fora do fluxo das telas entra aqui, com a saída do
+comando colada.
+
+### 22/08/2026 · `dataInicio` dos 4 acordos do Renan
+
+| campo | valor |
+|---|---|
+| o que estava errado | `dataInicio = 23/01/2026` nos 4 acordos por nó de Renan Afonso de Paula |
+| o correto | `01/01/2026` — erro de digitação na tela, o acordo sempre valeu desde o dia 1º |
+| linhas afetadas | 4 (Onix Capital, Onix Corretora, Onix Tech, Onix Educação), todas 20% com `incluiDescendentes` |
+| linhas NÃO afetadas | as 2 antigas por `tipoProduto` (`empresaId IS NULL`) |
+| comando | `scripts/corrige-datainicio-renan.sql` |
+| quem rodou | *(preencher com o email — a saída do bloco 2 imprime o campo)* |
+| quando | *(preencher com o `atualizadoEm` que a confirmação devolveu)* |
+
+**Por que UPDATE e não fechar-e-abrir.** A regra "alterar FECHA e ABRE" existe
+para mudança de **percentual**: 20% até uma data e 25% depois são dois fatos.
+Correção de data digitada não é um segundo fato — fechar-e-abrir inventaria um
+acordo que teria passado a valer em 23/01, e o fechamento de comissão leria uma
+troca de regra no meio de janeiro que nunca houve.
+
+**Três predicados medidos** contra uma réplica local com o mesmo cenário
+(4 acordos por nó + 2 antigos por `tipoProduto`, todos com a mesma data):
+
+| `WHERE` | linhas |
+|---|---|
+| `dataInicio = '2026-01-23'` | **0** — a tela grava data pura como MEIO-DIA UTC (`actions/parceiros.ts:30`); a meia-noite não casa nada |
+| janela do dia, sem `empresaId IS NOT NULL` | **6** — levaria as 2 antigas junto |
+| janela do dia, **com** `empresaId IS NOT NULL` | **4** ✅ |
+
+O valor gravado também é meio-dia (`2026-01-01 12:00:00`), não meia-noite: em
+qualquer fuso a oeste a meia-noite UTC cai no dia anterior, e a ficha passaria a
+mostrar 31/12/2025.
+
 ## Pendências conhecidas
 
 ### Bloqueantes
