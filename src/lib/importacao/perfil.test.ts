@@ -220,3 +220,87 @@ test("nenhum identificador do módulo nomeia seguro", () => {
     );
   }
 });
+
+test("PDF sem estrategia é recusado — o objeto que a tela montava por analogia", () => {
+  // `{ tipo: "pdf", linhaCabecalho: 1 }` é o que uma tela de criação monta
+  // copiando o padrão de xlsx. O tipo `Extracao` não o admite, mas o tipo não
+  // roda em runtime, e a validação deixava passar inteiro: `tipo` batia com
+  // `formato` e o único bloco de PDF era o de regex, pulado.
+  const erros = validarPerfil({
+    formato: "pdf",
+    extracao: { tipo: "pdf", linhaCabecalho: 1 } as unknown as PerfilImportacaoConfig["extracao"],
+    mapeamentoColunas: { "Apólice": "numeroContrato" },
+    formatosValor: {},
+    dicionarios: {},
+  });
+  assert.ok(
+    erros.some((e) => e.includes("estrategia")),
+    `esperava recusa por estrategia ausente, veio: ${JSON.stringify(erros)}`,
+  );
+});
+
+test("PDF com estrategia inventada também é recusado", () => {
+  const erros = validarPerfil({
+    formato: "pdf",
+    extracao: { tipo: "pdf", estrategia: "ocr" } as unknown as PerfilImportacaoConfig["extracao"],
+    mapeamentoColunas: { "Apólice": "numeroContrato" },
+    formatosValor: {},
+    dicionarios: {},
+  });
+  assert.ok(erros.some((e) => e.includes("estrategia")));
+});
+
+test("PDF por tabela continua válido", () => {
+  assert.deepEqual(
+    validarPerfil({
+      formato: "pdf",
+      extracao: { tipo: "pdf", estrategia: "tabela" },
+      mapeamentoColunas: { "Apólice": "numeroContrato" },
+      formatosValor: {},
+      dicionarios: {},
+    }),
+    [],
+  );
+});
+
+test("PDF por regex continua válido, e a regra dos padrões segue valendo", () => {
+  assert.deepEqual(
+    validarPerfil({
+      formato: "pdf",
+      extracao: { tipo: "pdf", estrategia: "regex", padroes: { "Apólice": "n. (\\d+)" } },
+      mapeamentoColunas: { "Apólice": "numeroContrato" },
+      formatosValor: {},
+      dicionarios: {},
+    }),
+    [],
+  );
+
+  const orfao = validarPerfil({
+    formato: "pdf",
+    extracao: { tipo: "pdf", estrategia: "regex", padroes: { "Ramo": "Ramo: (\\w+)" } },
+    mapeamentoColunas: { "Apólice": "numeroContrato" },
+    formatosValor: {},
+    dicionarios: {},
+  });
+  assert.ok(orfao.some((e) => e.includes("padroes")));
+});
+
+test("a trava é só de PDF — docx, xlsx e csv não ganham exigência nova", () => {
+  for (const extracao of [
+    { tipo: "docx", indiceTabela: 0 },
+    { tipo: "xlsx", linhaCabecalho: 1 },
+    { tipo: "csv", delimitador: ";" },
+  ] as const) {
+    assert.deepEqual(
+      validarPerfil({
+        formato: extracao.tipo,
+        extracao,
+        mapeamentoColunas: { "Apólice": "numeroContrato" },
+        formatosValor: {},
+        dicionarios: {},
+      }),
+      [],
+      `${extracao.tipo} não devia ganhar exigência de estrategia`,
+    );
+  }
+});

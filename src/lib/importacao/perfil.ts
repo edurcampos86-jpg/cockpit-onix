@@ -152,6 +152,27 @@ export function validarPerfil(perfil: PerfilImportacaoConfig): string[] {
     }
   }
 
+  // ── PDF PRECISA DECLARAR A ESTRATÉGIA ──────────────────────────────────
+  //
+  // `Extracao` só admite `estrategia: "tabela" | "regex"` para PDF, mas o tipo
+  // não roda em runtime: `{ tipo: "pdf", linhaCabecalho: 1 }` — o objeto que
+  // uma tela de criação monta por analogia com xlsx — passava por aqui
+  // INTEIRO. `extracao.tipo` batia com `formato`, e o único bloco que olhava
+  // PDF era o de regex, pulado por `estrategia` indefinida.
+  //
+  // Funcionava por acaso: `extrairPorIa` só lê `extracao` no ramo de regex,
+  // então o perfil torto extraía certo. É o pior tipo de bug adormecido — no
+  // dia em que a extração passar a usar `extracao`, os perfis antigos leem
+  // errado calados, e o defeito aparece longe de quem o criou.
+  if (perfil.extracao.tipo === "pdf") {
+    const estrategia = (perfil.extracao as { estrategia?: unknown }).estrategia;
+    if (estrategia !== "tabela" && estrategia !== "regex") {
+      erros.push(
+        `extracao de PDF precisa declarar estrategia "tabela" ou "regex" — recebeu ${JSON.stringify(estrategia)}`,
+      );
+    }
+  }
+
   if (perfil.extracao.tipo === "pdf" && perfil.extracao.estrategia === "regex") {
     // No PDF por regex, o nome do padrão É o rótulo de origem. Padrão sem
     // mapeamento é trabalho extraído e jogado fora.
