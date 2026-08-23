@@ -27,6 +27,7 @@ import {
   type EstadoAtencao,
 } from "@/lib/painel-atencao/core";
 import { rbacEnforcementHabilitado, resolverCgesVisiveis } from "@/lib/rbac";
+import { TIPOS_QUE_CONTAM_TOQUE, inicioJanelaToques } from "@/lib/cadencia-core";
 import { getAuthContext } from "@/lib/auth-helpers";
 
 export default async function ClientesPage() {
@@ -77,6 +78,8 @@ export default async function ClientesPage() {
     // Nome de quem definiu o teto manual (o banco guarda só o userId).
     cadenciaReuniaoEditadoPorNome: string | null;
     proximoContatoAt: Date | null;
+    /** Toques (ligação + reunião) nos últimos 12 meses — numerador do 12-4-2. */
+    toquesNoAno: number;
     receitaAnual: number;
     feeFixo: boolean;
     feeFixoEditadoEm: Date | null;
@@ -150,6 +153,9 @@ export default async function ClientesPage() {
         ? (nomePorUserId.get(c.cadenciaReuniaoEditadoPor) ?? null)
         : null,
       proximoContatoAt: c.proximoContatoAt,
+      // Preenchido logo abaixo pela agregação; 0 é o default honesto para quem
+      // não tiver nenhuma interação na janela.
+      toquesNoAno: 0,
       receitaAnual: c.receitaAnual,
       feeFixo: c.feeFixo,
       feeFixoEditadoEm: c.feeFixoEditadoEm,
@@ -164,6 +170,30 @@ export default async function ClientesPage() {
     }));
   } catch {
     // tabela pode não existir ainda
+  }
+
+  // Toques do último ano, por cliente — o numerador da cadência 12-4-2.
+  //
+  // UMA query agregada para a página inteira, não uma por linha: a tabela lista
+  // a carteira toda e uma consulta por cliente seriam centenas de idas ao banco
+  // para desenhar um badge. `groupBy` devolve a contagem já somada pelo Postgres.
+  //
+  // Só ligação e reunião contam. O WHERE usa `TIPOS_QUE_CONTAM_TOQUE`, o MESMO
+  // array de `cadencia-core`, e não uma lista repetida aqui: duas cópias da
+  // régua divergiriam no dia em que "revisao" entrasse na conta, e a tabela
+  // passaria a mostrar um número que o alerta não reconhece.
+  if (clientes.length > 0) {
+    const contagens = await prisma.interacaoCliente.groupBy({
+      by: ["clienteId"],
+      where: {
+        clienteId: { in: clientes.map((c) => c.id) },
+        tipo: { in: [...TIPOS_QUE_CONTAM_TOQUE] },
+        data: { gte: inicioJanelaToques() },
+      },
+      _count: { _all: true },
+    });
+    const porCliente = new Map(contagens.map((g) => [g.clienteId, g._count._all]));
+    clientes = clientes.map((c) => ({ ...c, toquesNoAno: porCliente.get(c.id) ?? 0 }));
   }
 
   // Fusão inline do sinal direcional de atenção na coluna Presença, ATRÁS DE FLAG

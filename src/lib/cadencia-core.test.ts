@@ -2,9 +2,17 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  DIAS_POR_CLASSE,
   DIAS_REUNIAO_POR_CLASSE,
+  TOQUES_POR_CLASSE,
+  alvoContado,
+  alvoOficial,
+  contaComoToque,
+  cumprimentoCadencia,
   diasCadenciaReuniao,
+  inicioJanelaToques,
   riscoEvasaoReuniao,
+  statusTermometro,
 } from "./cadencia-core.ts";
 
 const DIA = 24 * 60 * 60 * 1000;
@@ -145,4 +153,101 @@ test("aceita data em string ISO", () => {
     AGORA,
   );
   assert.equal(r.status, "risco");
+});
+
+// ============================================================================
+// RÉGUA DE TOQUES — a definição oficial do 12-4-2 desde 22/08/2026
+// ============================================================================
+
+test("os três alvos oficiais somam 18 / 12 / 7", () => {
+  assert.equal(alvoOficial("A"), 18);
+  assert.equal(alvoOficial("B"), 12);
+  assert.equal(alvoOficial("C"), 7);
+});
+
+test("classe A é 12 ligações + 4 reuniões + 2 revisões", () => {
+  assert.deepEqual(TOQUES_POR_CLASSE.A, { ligacoes: 12, reunioes: 4, revisoes: 2 });
+});
+
+// A revisão está no alvo declarado e FORA da conta. É a diferença entre os dois
+// números, e é ela que a tela precisa explicar em vez de mostrar 0/2.
+test("o alvo cobrado exclui revisão; o oficial a inclui", () => {
+  assert.equal(alvoContado("A"), 16);
+  assert.equal(alvoOficial("A"), 18);
+  assert.equal(alvoContado("C"), 6);
+  assert.equal(alvoOficial("C"), 7);
+});
+
+test("classe desconhecida cai no nível mais leve, nunca no mais exigente", () => {
+  assert.equal(alvoOficial("Z"), alvoOficial("C"));
+  assert.equal(alvoOficial(null), alvoOficial("C"));
+  assert.equal(alvoOficial(""), alvoOficial("C"));
+});
+
+test("classe é case-insensitive", () => {
+  assert.equal(alvoContado("a"), alvoContado("A"));
+});
+
+// ── A direção inverteu: mais toques é melhor. O teste existe porque a régua
+// antiga ia no sentido oposto e trocar o sinal é o erro fácil.
+
+test("bater o alvo é ok; 80% é atenção; abaixo é alerta", () => {
+  assert.equal(cumprimentoCadencia("A", 16, true).status, "ok");
+  assert.equal(cumprimentoCadencia("A", 20, true).status, "ok");
+  assert.equal(cumprimentoCadencia("A", 13, true).status, "atencao"); // 13/16 = 81%
+  assert.equal(cumprimentoCadencia("A", 12, true).status, "alerta"); // 12/16 = 75%
+  assert.equal(cumprimentoCadencia("A", 0, true).status, "alerta");
+});
+
+// 4,8/6 é exatamente 80%, mas em ponto flutuante dá 0.7999999999999999. Sem a
+// comparação em inteiro, o cliente no limite exato cairia para alerta por erro
+// de arredondamento — e ninguém acharia o motivo olhando a tela.
+test("o limite exato de 80% não escorrega para alerta por ponto flutuante", () => {
+  assert.equal(4.8 / 6 >= 0.8, false, "premissa: a divisão direta erra");
+  assert.equal(cumprimentoCadencia("C", 4.8, true).status, "atencao");
+});
+
+// ── Estado neutro preservado: sem esse cuidado, toda conta recém-aberta
+// nasceria reprovada e o KPI despencaria por contas que ninguém errou.
+
+test("cliente sem histórico nenhum é neutro, não alerta", () => {
+  const r = cumprimentoCadencia("A", 0, false);
+  assert.equal(r.status, "sem-historico");
+  assert.equal(r.pct, null);
+});
+
+test("o resultado carrega o que a conta NÃO enxerga", () => {
+  const r = cumprimentoCadencia("A", 8, true);
+  assert.equal(r.alvo, 16);
+  assert.equal(r.alvoComRevisao, 18);
+  assert.equal(r.revisoesNaoRastreadas, 2);
+});
+
+test("contagem negativa não vira pct negativo", () => {
+  assert.equal(cumprimentoCadencia("A", -5, true).feitos, 0);
+});
+
+// ── Quais tipos contam. WhatsApp e e-mail ficam de fora de propósito: contá-los
+// faria uma troca de mensagem valer o mesmo que uma reunião.
+
+test("só ligação e reunião contam como toque", () => {
+  assert.equal(contaComoToque("ligacao"), true);
+  assert.equal(contaComoToque("reuniao"), true);
+  assert.equal(contaComoToque("revisao"), false);
+  assert.equal(contaComoToque("whatsapp"), false);
+  assert.equal(contaComoToque("email"), false);
+  assert.equal(contaComoToque("evento"), false);
+});
+
+test("a janela de contagem é de 365 dias", () => {
+  const agora = new Date("2026-08-23T00:00:00Z");
+  const inicio = inicioJanelaToques(agora);
+  assert.equal(Math.round((agora.getTime() - inicio.getTime()) / 86_400_000), 365);
+});
+
+// A régua de dias continua existindo — rebaixada a métrica de recência. Se
+// alguém a apagar achando que virou órfã, o tooltip e o Painel de Atenção somem.
+test("a régua de dias sobrevive como métrica auxiliar", () => {
+  assert.equal(DIAS_POR_CLASSE.A, 30);
+  assert.equal(statusTermometro("A", null).status, "sem-historico");
 });
