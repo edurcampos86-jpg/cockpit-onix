@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
   CATALOGO_EMPRESAS,
   IDS_LEGADOS,
   RAIZ_DO_GRUPO,
   arvoreDoCatalogo,
+  caminhoDe,
+  caminhoNoCatalogo,
+  rotuloComCaminho,
   divergencias,
   empresaDoGrupo,
   filhosDe,
@@ -347,4 +351,100 @@ test("os nomes, tipos e pais do seed vêm do catálogo, sem redigitação", () =
     assert.equal(s.parentId, cat.parentId, `pai de "${s.id}" divergiu`);
     assert.equal(s.transversal, cat.transversal === true, `transversal de "${s.id}" divergiu`);
   }
+});
+
+// ── O CAMINHO ATÉ O NÓ ────────────────────────────────────────────────────
+
+test("o caminho vai da raiz até o nó, pelos rótulos", () => {
+  assert.deepEqual(caminhoNoCatalogo("tech-qualidade"), [
+    "Onix Co",
+    "Onix Tech",
+    "Qualidade e Pós-venda",
+  ]);
+  assert.deepEqual(caminhoNoCatalogo(RAIZ_DO_GRUPO), ["Onix Co"]);
+});
+
+test("o caminho DESAMBIGUA os rótulos repetidos — que é para isso que ele existe", () => {
+  // As 6 Qualidades são indistinguíveis pelo rótulo; pelo caminho, não. Um
+  // seletor sem isso pede escolha no escuro, e escolher errado concede acesso
+  // à empresa errada em silêncio.
+  //
+  // Com a estrutura de 48 nós isso deixou de ser um caso de 6 e virou um de 30:
+  // são 5 funções transversais em CADA uma das 6 empresas, e agora existem sete
+  // "Jurídico" no grupo contando o consolidador da holding. Quanto mais rótulo
+  // repetido, mais o caminho é a única coisa que separa um do outro.
+  const rotulos = idsTransversais().map((id) =>
+    rotuloComCaminho(id, CATALOGO_EMPRESAS, { semRaiz: true }),
+  );
+  assert.equal(rotulos.length, 30);
+  assert.equal(new Set(rotulos).size, 30);
+  assert.ok(rotulos.includes("Onix Tech › Qualidade e Pós-venda"));
+
+  // E as duas "Onix Corretora": a empresa e o departamento dentro dela.
+  assert.equal(
+    rotuloComCaminho("corretora", CATALOGO_EMPRESAS, { semRaiz: true }),
+    "Onix Corretora",
+  );
+  assert.equal(
+    rotuloComCaminho("corretora-corretora", CATALOGO_EMPRESAS, { semRaiz: true }),
+    "Onix Corretora › Onix Corretora",
+  );
+});
+
+test("todo nó do catálogo tem rótulo-com-caminho único", () => {
+  // A propriedade que faz o seletor voltar a ser confiável: dois irmãos não
+  // podem ter o mesmo rótulo sem serem o mesmo nó, então o caminho identifica.
+  const rotulos = CATALOGO_EMPRESAS.map((e) =>
+    rotuloComCaminho(e.id, CATALOGO_EMPRESAS, { semRaiz: true }),
+  );
+  assert.equal(new Set(rotulos).size, CATALOGO_EMPRESAS.length);
+});
+
+test("semRaiz corta a holding, mas nunca some com o nó", () => {
+  // A holding aparece em TODOS os caminhos e vira ruído numa lista de opções.
+  // O caso limite é ela própria: cortar a raiz do caminho dela deixaria string
+  // vazia, e uma opção sem texto é pior que uma repetida.
+  assert.equal(rotuloComCaminho(RAIZ_DO_GRUPO, CATALOGO_EMPRESAS, { semRaiz: true }), "Onix Co");
+});
+
+test("id que não está na lista devolve o id cru, não string vazia", () => {
+  assert.deepEqual(caminhoDe("fantasma", CATALOGO_EMPRESAS), []);
+  assert.equal(rotuloComCaminho("fantasma", CATALOGO_EMPRESAS), "fantasma");
+});
+
+test("o caminho é montado sobre a lista RECEBIDA, não sobre o catálogo", () => {
+  // É o que permite a tela usar as linhas do banco: se banco e catálogo
+  // divergirem, quem manda é o banco — é ele que o RBAC consulta.
+  const doBanco = [
+    { id: "onix-co", nome: "Onix Co (renomeada na mão)", parentId: null },
+    { id: "tech", nome: "Tech", parentId: "onix-co" },
+  ];
+  assert.deepEqual(caminhoDe("tech", doBanco), ["Onix Co (renomeada na mão)", "Tech"]);
+});
+
+test("ciclo em parentId não trava — devolve o que deu para subir", () => {
+  // `parentId` é dado editável; A→B→A faria a subida rodar para sempre.
+  const ciclo = [
+    { id: "a", nome: "A", parentId: "b" },
+    { id: "b", nome: "B", parentId: "a" },
+  ];
+  const caminho = caminhoDe("a", ciclo);
+  assert.ok(caminho.length > 0 && caminho.length <= 2);
+});
+
+test("pai órfão corta o caminho em vez de sumir com o nó", () => {
+  const orfao = [{ id: "solto", nome: "Solto", parentId: "fantasma" }];
+  assert.deepEqual(caminhoDe("solto", orfao), ["Solto"]);
+});
+
+// ── A HERANÇA NÃO É MAIS O PADRÃO ─────────────────────────────────────────
+
+test("o schema declara incluiDescendentes com default false", () => {
+  // A decisão do item 4 mora no BANCO, não em código — então é o schema que
+  // este teste lê. Com 3 níveis, um default que herda concede mais do que foi
+  // pedido, e num campo de permissão essa é a forma errada de errar.
+  const schema = readFileSync("prisma/schema.prisma", "utf8");
+  const linha = /incluiDescendentes\s+Boolean\s+@default\((\w+)\)/.exec(schema);
+  assert.ok(linha, "campo incluiDescendentes não encontrado em prisma/schema.prisma");
+  assert.equal(linha[1], "false");
 });

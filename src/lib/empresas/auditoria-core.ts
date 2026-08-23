@@ -264,3 +264,50 @@ function auditarPessoa(
 
   return { pessoa, concessoes, efetivas, porHeranca, alertas };
 }
+
+/* ── O ESTADO DO RBAC EM DUAS CONTAGENS ───────────────────────────────────
+ *
+ * Vive aqui, e não na rota, para poder ser testado: a distinção entre os dois
+ * buracos é a parte que já enganou uma vez, e ela é lógica, não I/O. */
+
+export type EstadoRbac = {
+  /** Linhas em `Empresa`. Conserto: `scripts/seed-empresas.ts`. */
+  nosCadastrados: number;
+  /** Linhas em `PessoaEmpresa`. Conserto: conceder acesso na tela. */
+  concessoes: number;
+  /** Nada semeado ⇒ não dá nem para CONCEDER: a FK de `empresaId` recusa. */
+  semCadastro: boolean;
+  /** Nenhuma concessão ⇒ ninguém está restrito, por mais cheio que o cadastro esteja. */
+  rbacInerte: boolean;
+};
+
+/**
+ * Os dois buracos que fazem o RBAC de empresa não valer nada — separados,
+ * porque têm consertos diferentes.
+ *
+ * ── POR QUE `rbacInerte` DEIXOU DE OLHAR O CADASTRO ──────────────────────
+ * Ele era `nosCadastrados === 0`. Isso bastava enquanto as duas coisas
+ * andavam juntas: sem seed não havia empresa, sem empresa não havia concessão
+ * possível (FK), logo nada restringia ninguém.
+ *
+ * O seed quebra o empate. No instante em que ele roda, `nosCadastrados` vai a
+ * 20 e a flag apaga — mas `PessoaEmpresa` continua vazia, e sem concessão
+ * NINGUÉM está restrito (`acesso-core.ts`: sem concessão ⇒ `null` ⇒ vê tudo).
+ * A flag antiga passaria de alarme correto a silêncio enganoso exatamente no
+ * momento em que alguém acabou de "configurar o RBAC" e vai embora achando
+ * que terminou.
+ *
+ * `semCadastro` herda o significado antigo e continua útil: é o único dos dois
+ * em que a tela não tem NADA a oferecer, porque não há o que conceder.
+ */
+export function estadoDoRbac(input: {
+  nosCadastrados: number;
+  concessoes: number;
+}): EstadoRbac {
+  return {
+    nosCadastrados: input.nosCadastrados,
+    concessoes: input.concessoes,
+    semCadastro: input.nosCadastrados === 0,
+    rbacInerte: input.concessoes === 0,
+  };
+}

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { auditarAcessoPorEmpresa, type EntradaAuditoria } from "./auditoria-core";
+import { auditarAcessoPorEmpresa, estadoDoRbac, type EntradaAuditoria } from "./auditoria-core";
 import type { NoEmpresa } from "./hierarquia";
 
 /** Árvore já reparentada: a raiz com as demais penduradas nela. */
@@ -175,4 +175,34 @@ test("cada pessoa é auditada com as PRÓPRIAS concessões", () => {
   );
   assert.deepEqual(linhas[0].efetivas, ["investimentos"]);
   assert.deepEqual(linhas[1].efetivas, ["corretora"]);
+});
+
+/* ── estadoDoRbac: os dois buracos, separados ──────────────────────────── */
+
+test("banco vazio: sem cadastro E inerte", () => {
+  const e = estadoDoRbac({ nosCadastrados: 0, concessoes: 0 });
+  assert.equal(e.semCadastro, true);
+  assert.equal(e.rbacInerte, true);
+});
+
+test("depois do seed, sem conceder nada: cadastro de pé e AINDA inerte", () => {
+  // O caso que motivou a mudança. A flag antiga (`nosCadastrados === 0`)
+  // apagaria aqui e diria "configurado" sobre um RBAC que não restringe
+  // ninguém — silêncio enganoso no exato momento em que alguém acha que
+  // terminou de configurar.
+  const e = estadoDoRbac({ nosCadastrados: 20, concessoes: 0 });
+  assert.equal(e.semCadastro, false);
+  assert.equal(e.rbacInerte, true);
+});
+
+test("com uma concessão, deixa de ser inerte", () => {
+  const e = estadoDoRbac({ nosCadastrados: 20, concessoes: 1 });
+  assert.equal(e.semCadastro, false);
+  assert.equal(e.rbacInerte, false);
+});
+
+test("as duas contagens saem cruas, para a tela poder mostrar as duas", () => {
+  const e = estadoDoRbac({ nosCadastrados: 20, concessoes: 3 });
+  assert.equal(e.nosCadastrados, 20);
+  assert.equal(e.concessoes, 3);
 });
