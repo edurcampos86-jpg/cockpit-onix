@@ -368,10 +368,16 @@ test("o caminho DESAMBIGUA os rótulos repetidos — que é para isso que ele ex
   // As 6 Qualidades são indistinguíveis pelo rótulo; pelo caminho, não. Um
   // seletor sem isso pede escolha no escuro, e escolher errado concede acesso
   // à empresa errada em silêncio.
+  //
+  // Com a estrutura de 48 nós isso deixou de ser um caso de 6 e virou um de 30:
+  // são 5 funções transversais em CADA uma das 6 empresas, e agora existem sete
+  // "Jurídico" no grupo contando o consolidador da holding. Quanto mais rótulo
+  // repetido, mais o caminho é a única coisa que separa um do outro.
   const rotulos = idsTransversais().map((id) =>
     rotuloComCaminho(id, CATALOGO_EMPRESAS, { semRaiz: true }),
   );
-  assert.equal(new Set(rotulos).size, 6);
+  assert.equal(rotulos.length, 30);
+  assert.equal(new Set(rotulos).size, 30);
   assert.ok(rotulos.includes("Onix Tech › Qualidade e Pós-venda"));
 
   // E as duas "Onix Corretora": a empresa e o departamento dentro dela.
