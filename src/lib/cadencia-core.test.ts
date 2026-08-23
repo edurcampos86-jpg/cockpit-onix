@@ -227,14 +227,23 @@ test("contagem negativa não vira pct negativo", () => {
   assert.equal(cumprimentoCadencia("A", -5, true).feitos, 0);
 });
 
-// ── Quais tipos contam. WhatsApp e e-mail ficam de fora de propósito: contá-los
-// faria uma troca de mensagem valer o mesmo que uma reunião.
+// ── Quais tipos contam, conforme especificado: ligação, WhatsApp e presencial.
 
-test("só ligação e reunião contam como toque", () => {
+test("ligação, reunião e whatsapp contam como toque", () => {
   assert.equal(contaComoToque("ligacao"), true);
   assert.equal(contaComoToque("reuniao"), true);
+  assert.equal(contaComoToque("whatsapp"), true);
+});
+
+// "presencial" não é `tipo`, é `canal` — uma reunião presencial tem
+// tipo "reuniao". Se alguém um dia acrescentar "presencial" à lista de tipos,
+// este teste avisa que o filtro está no campo errado.
+test("presencial não é um tipo — entra por reuniao/ligacao", () => {
+  assert.equal(contaComoToque("presencial"), false);
+});
+
+test("revisão, e-mail e evento ficam de fora", () => {
   assert.equal(contaComoToque("revisao"), false);
-  assert.equal(contaComoToque("whatsapp"), false);
   assert.equal(contaComoToque("email"), false);
   assert.equal(contaComoToque("evento"), false);
 });

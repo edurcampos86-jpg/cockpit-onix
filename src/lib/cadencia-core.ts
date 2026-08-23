@@ -183,12 +183,25 @@ export function inicioJanelaToques(agora: Date = new Date()): Date {
 /**
  * Os tipos de `InteracaoCliente` que contam como toque.
  *
- * "revisao" fica de fora pelo motivo em `TOQUES_CONTADOS`. "email", "whatsapp"
- * e "evento" também: são registro de canal, não o toque com hora marcada que a
- * promessa de serviço cobra — contá-los faria uma troca de mensagem valer o
- * mesmo que uma reunião, que é exatamente o que a #383 acabou de separar.
+ * Especificado pelo Eduardo: ligação, WhatsApp e presencial. Traduzido para os
+ * valores que a tabela realmente guarda:
+ *
+ *   ligação   → tipo "ligacao"
+ *   WhatsApp  → tipo "whatsapp"
+ *   presencial→ NÃO é um `tipo`, é um `canal`. Uma reunião presencial tem
+ *               tipo "reuniao" e canal "presencial"; uma visita rápida tem
+ *               tipo "ligacao" e canal "presencial". Filtrar `tipo` por
+ *               "presencial" não casaria com linha nenhuma — o presencial já
+ *               entra por "reuniao"/"ligacao", que estão aqui.
+ *
+ * "reuniao" está na lista porque o alvo é literalmente "12 ligações + 4
+ * REUNIÕES + 2 revisões": sem ela, o denominador cobraria reuniões que o
+ * numerador nunca contaria.
+ *
+ * Ficam de fora: "revisao" (pelo motivo em `TOQUES_CONTADOS`), "email" e
+ * "evento" — nenhum dos dois é toque de relacionamento na promessa Supernova.
  */
-export const TIPOS_QUE_CONTAM_TOQUE = ["ligacao", "reuniao"] as const;
+export const TIPOS_QUE_CONTAM_TOQUE = ["ligacao", "reuniao", "whatsapp"] as const;
 
 export function contaComoToque(tipo: string): boolean {
   return (TIPOS_QUE_CONTAM_TOQUE as readonly string[]).includes(tipo);
