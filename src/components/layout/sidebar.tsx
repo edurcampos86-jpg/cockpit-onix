@@ -8,6 +8,7 @@ import {
   FileText,
   CheckSquare,
   Users,
+  Upload,
   BarChart3,
   BarChart2,
   TrendingUp,
@@ -223,6 +224,9 @@ const operacoesItemsV2 = [
 // a migração de namespacing dela é backlog próprio.
 const corretoraItemsV2 = [
   { name: "Visão da Empresa (novo)", href: "/empresas/corretora", icon: Building2 },
+  // Único caminho de entrada de dados da Corretora. Sem item de menu ela só é
+  // alcançável digitando a URL. Admin-only via ADMIN_ONLY_HREFS.
+  { name: "Importar relatório", href: "/empresas/corretora/importar", icon: Upload },
   ...onixCorretorNavigation,
 ];
 
@@ -270,7 +274,12 @@ const configItemV2 = { name: "Configurações", href: "/configuracoes", icon: Se
 // Hrefs visíveis só pra admin (gate COSMÉTICO do nav — a segurança real é o
 // redirect na própria página, ex.: /configuracoes/implementacoes). O isAdmin
 // COMPLETO (role OU teamRole) vem de /api/auth/is-admin.
-const ADMIN_ONLY_HREFS = ["/configuracoes/implementacoes", "/configuracoes/permissoes", "/configuracoes/flags"];
+const ADMIN_ONLY_HREFS = [
+  "/configuracoes/implementacoes",
+  "/configuracoes/permissoes",
+  "/configuracoes/flags",
+  "/empresas/corretora/importar",
+];
 
 function getActiveModuleIdV2(pathname: string): string {
   if (pathname.startsWith("/onix-corretora")) return "onix-corretora";
