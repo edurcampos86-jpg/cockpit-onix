@@ -138,6 +138,11 @@ export const ERROS = {
     `O limite é ${limiteMb} MB e este arquivo tem ${tamanhoMb} MB. Em Excel, salvar só a aba do relatório costuma resolver; se não, divida em dois envios.`,
   conexaoPerdida:
     "A conexão caiu durante a gravação e parte dos contratos já entrou. Envie o mesmo arquivo de novo: nada será duplicado, mas o arquivo é reprocessado inteiro.",
+  // Distinta da de cima de propósito: usar a mensagem de gravação num erro de
+  // LEITURA anuncia gravação que não houve, e faz o operador reenviar o
+  // arquivo sem necessidade. Sondagem e ensaio não escrevem nada.
+  leituraFalhou:
+    "A conexão caiu antes de a leitura terminar. Nada foi gravado — o ensaio não escreve. Tente de novo.",
 } as const;
 
 /* ── Estados vazios (o ensaio rodou; não é falha) ─────────────────────── */
