@@ -132,6 +132,7 @@ export function ImportarCorretora() {
   const [aprendizado, setAprendizado] = useState<Record<string, Record<string, string>>>({});
   const [confirmando, setConfirmando] = useState(false);
   const [criando, setCriando] = useState<{ nome: string; fonte: string } | null>(null);
+  const [avisoPerfil, setAvisoPerfil] = useState<string | null>(null);
 
   const perfil = useMemo(
     () => perfis?.find((p) => p.id === estado.perfilId) ?? null,
@@ -295,6 +296,7 @@ export function ImportarCorretora() {
         return;
       }
       setCriando(null);
+      if (j.aviso) setAvisoPerfil(j.aviso);
       const lista = await carregarPerfis();
       const novo = lista?.find((x) => x.id === j.perfil.id);
       if (novo) {
@@ -305,6 +307,37 @@ export function ImportarCorretora() {
           impressaoDoPerfil: impressaoDoPerfil(novo),
         });
       }
+    } catch {
+      setErro(ERROS.leituraFalhou);
+    } finally {
+      setOcupado(null);
+    }
+  }
+
+  /**
+   * Desativa o perfil escolhido. Não apaga: os contratos já importados
+   * continuam apontando para ele, e é assim que se sabe como cada lote foi
+   * lido. Some da lista de escolha, e só.
+   */
+  async function desativarPerfil() {
+    if (!perfil) return;
+    setErro(null);
+    setOcupado("gravando");
+    try {
+      const r = await fetch(`/api/empresas/corretora/perfis/${perfil.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ativo: false }),
+      });
+      const j = await r.json();
+      if (!r.ok) {
+        setErro(j.error);
+        return;
+      }
+      setResultado(null);
+      setAprendizado({});
+      despachar({ tipo: "escolheu-arquivo", arquivo: estado.arquivo! });
+      await carregarPerfis();
     } catch {
       setErro(ERROS.leituraFalhou);
     } finally {
@@ -474,6 +507,23 @@ export function ImportarCorretora() {
             ))}
           </select>
         </label>
+        {avisoPerfil !== null && (
+          <p className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+            {avisoPerfil}
+          </p>
+        )}
+
+        {perfil && (
+          <button
+            type="button"
+            disabled={ocupado !== null}
+            onClick={() => void desativarPerfil()}
+            className="text-sm underline disabled:text-neutral-400"
+          >
+            Desativar “{perfil.nome}” — some da lista, não apaga nada
+          </button>
+        )}
+
         {sonda && estado.perfilId === null && criando === null && (
           <button
             type="button"

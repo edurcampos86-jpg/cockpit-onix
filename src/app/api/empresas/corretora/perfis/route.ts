@@ -30,12 +30,16 @@ export const dynamic = "force-dynamic";
 
 const EMPRESA = "corretora";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const negado = await guardAdminApi("empresas/corretora/perfis");
   if (negado) return negado;
 
+  // Só os ativos por padrão. Perfil desativado na lista de escolha é convite a
+  // importar pelo errado — e a razão de desativar costuma ser exatamente essa.
+  const incluirInativos = req.nextUrl.searchParams.get("incluirInativos") === "1";
+
   const perfis = await prisma.perfilImportacao.findMany({
-    where: { empresaId: EMPRESA },
+    where: { empresaId: EMPRESA, ...(incluirInativos ? {} : { ativo: true }) },
     orderBy: [{ ativo: "desc" }, { nome: "asc" }],
     select: {
       id: true,
@@ -203,6 +207,16 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // AVISO, não bloqueio: dois perfis para a mesma seguradora é legítimo quando
+  // ela entrega layouts diferentes (apólices num arquivo, sinistros noutro). O
+  // que não é legítimo é criar o segundo sem saber que o primeiro existe e
+  // depois importar pelo errado — e o 409 acima só pega nome IDÊNTICO.
+  const mesmaFonte = await prisma.perfilImportacao.findMany({
+    where: { empresaId: EMPRESA, fonte, ativo: true },
+    select: { nome: true },
+    take: 5,
+  });
+
   const criado = await prisma.perfilImportacao.create({
     data: {
       nome,
@@ -220,7 +234,16 @@ export async function POST(req: NextRequest) {
     select: { id: true, nome: true, fonte: true, formato: true, ativo: true },
   });
 
-  return NextResponse.json({ perfil: criado }, { status: 201 });
+  return NextResponse.json(
+    {
+      perfil: criado,
+      aviso:
+        mesmaFonte.length > 0
+          ? `Já existe perfil ativo para ${fonte}: ${mesmaFonte.map((p) => p.nome).join(", ")}. Confira qual usar no próximo import.`
+          : null,
+    },
+    { status: 201 },
+  );
 }
 
 function texto(v: unknown): string {

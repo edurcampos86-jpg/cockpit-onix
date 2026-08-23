@@ -24,6 +24,20 @@ import { prisma } from "@/lib/prisma";
  * UM arquivo, e mesclar layouts de arquivos diferentes produziria um perfil
  * que não corresponde a nenhum dos dois.
  *
+ * ── DESATIVAR É O CAMINHO DE VOLTA DO CRIAR ─────────────────────────────
+ * `{ ativo: false }` some com o perfil da lista da tela sem apagar nada.
+ *
+ * Isto não é conveniência: quem vai montar perfis para layouts que nunca viu
+ * erra alguns, e perfil criado errado não tinha conserto nem por dentro nem
+ * por fora — era comprar posição sem botão de zerar. Desativar é reversível
+ * (`{ ativo: true }` volta) e não toca em contrato nenhum: `loteImportacao` e
+ * `perfilImportacaoId` continuam gravados em quem já foi importado, então o
+ * histórico de "como este lote foi lido" sobrevive ao perfil sair de uso.
+ *
+ * Deletar seria o oposto: `ContratoCorretora` referencia o perfil, e apagar
+ * perderia a rastreabilidade de importações passadas para consertar um erro
+ * de cadastro. Por isso não há DELETE aqui, e não é esquecimento.
+ *
  * ── VALIDA ANTES DE GRAVAR ──────────────────────────────────────────────
  * O perfil resultante passa por `validarPerfil` — a mesma régua da importação.
  * Perfil quebrado gravado é pior que perfil quebrado recusado: ele só falha na
@@ -52,7 +66,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 
   const { id } = await ctx.params;
 
-  let corpo: { mapeamentoColunas?: unknown; dicionarios?: unknown };
+  let corpo: { mapeamentoColunas?: unknown; dicionarios?: unknown; ativo?: unknown };
   try {
     corpo = await req.json();
   } catch {
@@ -68,6 +82,22 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       { error: `perfil pertence à empresa "${perfilLinha.empresaId}", não a "${EMPRESA}"` },
       { status: 400 },
     );
+  }
+
+  if (corpo.ativo !== undefined && typeof corpo.ativo !== "boolean") {
+    return NextResponse.json({ error: "ativo precisa ser true ou false" }, { status: 400 });
+  }
+
+  // Desativar é um pedido sozinho: quem some com o perfil da lista não está
+  // regravando mapeamento nem vocabulário no mesmo gesto, e validar o perfil
+  // inteiro aqui impediria desativar justamente o perfil quebrado — que é o
+  // caso em que desativar mais serve.
+  if (corpo.ativo !== undefined && corpo.mapeamentoColunas === undefined && corpo.dicionarios === undefined) {
+    await prisma.perfilImportacao.update({
+      where: { id },
+      data: { ativo: corpo.ativo as boolean },
+    });
+    return NextResponse.json({ ok: true, ativo: corpo.ativo });
   }
 
   const mapeamento =
@@ -124,6 +154,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   await prisma.perfilImportacao.update({
     where: { id },
     data: {
+      ...(corpo.ativo === undefined ? {} : { ativo: corpo.ativo as boolean }),
       mapeamentoColunas: mapeamento,
       // `Object.create(null)` não é serializável pelo Prisma como Json sem
       // protótipo; o spread devolve objeto comum sem trazer chave perigosa.
