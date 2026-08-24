@@ -1,9 +1,14 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { getConfig } from "@/lib/config-db";
-import { sendSlackMessage } from "@/lib/integrations/slack";
-import { diasCadencia } from "@/lib/cadencia";
-import { riscoEvasaoReuniao } from "@/lib/cadencia-core";
+import {
+  contaComoToque,
+  cumprimentoCadencia,
+  inicioJanelaToques,
+  riscoEvasaoReuniao,
+} from "@/lib/cadencia-core";
+import { destinatariosPorCge } from "@/lib/alertas/destinatarios";
+import type { ResolucaoDestinatarios } from "@/lib/alertas/destinatarios-core";
 import { sendWhatsappMessage } from "@/lib/integrations/datacrazy-send";
 import {
   decidirAlertaCliente,
@@ -15,8 +20,18 @@ import {
 
 /**
  * Alertas proativos de relacionamento (Entrega C — Fase 3). Cron diário que
- * dispara no Slack quando um cliente A/B cruza um gatilho. Dedupe por
- * (gatilho, cliente) via AlertaClienteLog, reenvio no máx 1x/semana.
+ * dispara quando um cliente A/B cruza um gatilho. Dedupe por (gatilho, cliente)
+ * via AlertaClienteLog, reenvio no máx 1x/semana.
+ *
+ * ── Para quem vai (mudou em 22/08/2026) ──
+ * ANTES: canal `#ecossistema-onix`, o escritório inteiro. AGORA: WhatsApp
+ * individual do ASSESSOR responsável pelo cliente e do BACKOFFICE da carteira
+ * dele, pelo mesmo caminho que o alerta de evasão já usava. Motivo: alerta que
+ * é de todo mundo não é de ninguém — e o broadcast ainda expunha nome, conta e
+ * saldo de cliente para quem não atende aquela carteira.
+ *
+ * Nenhum canal novo, nenhum segredo novo. O destinatário sai da carteira que a
+ * tela de Permissões já monta (ver `alertas/destinatarios.ts`).
  *
  * Gatilhos (limiares em Config/env, ajustáveis sem deploy):
  *   1. saldo_parado       — saldoConta > ALERTA_SALDO_PARADO_MIN (R$100k) e
@@ -25,8 +40,12 @@ import {
  *      ALERTA_RF_VENCIMENTO_DIAS dias. DORMENTE: depende de vencimento por
  *      ativo, que a API BTG ainda não entrega (getPartnerPositions vazio) e o
  *      arquivo não traz. Ativa sozinho quando breakdownProdutos tiver datas.
- *   3. termometro_vermelho — cliente classe A "vermelho" no termômetro
- *      (dias sem contato > cadência A = 30d).
+ *   3. termometro_vermelho — cliente classe A que NÃO cumpriu a cadência
+ *      12-4-2 nos últimos 12 meses. Passou a contar TOQUES (ligações +
+ *      reuniões) contra o alvo da classe, no lugar de medir dias desde o
+ *      último contato. O nome do gatilho fica como está: renomeá-lo quebraria
+ *      o dedupe de `AlertaClienteLog`, cuja chave carrega o nome antigo em
+ *      todas as linhas já gravadas.
  *
  * Só avalia clientes classe A e B ativos.
  */
@@ -58,6 +77,8 @@ interface ClienteAlvo {
   classificacao: string;
   saldoConta: number;
   ultimoContatoAt: Date | null;
+  /** CGE do assessor responsável — é por ele que o alerta acha o destinatário. */
+  assessorCge: string | null;
   breakdownProdutos: unknown;
 }
 
@@ -167,7 +188,7 @@ export async function avaliarAlertasClientes(opts: {
   const saldoMin = await numConfig("ALERTA_SALDO_PARADO_MIN", 100_000);
   const semAplicacaoDias = await numConfig("ALERTA_SALDO_SEM_APLICACAO_DIAS", 30);
   const rfDias = await numConfig("ALERTA_RF_VENCIMENTO_DIAS", 30);
-  const cadenciaA = diasCadencia("A");
+
 
   const clientes: ClienteAlvo[] = await prisma.clienteBackoffice.findMany({
     where: {
@@ -181,6 +202,7 @@ export async function avaliarAlertasClientes(opts: {
       classificacao: true,
       saldoConta: true,
       ultimoContatoAt: true,
+      assessorCge: true,
       breakdownProdutos: true,
     },
   });
@@ -207,17 +229,51 @@ export async function avaliarAlertasClientes(opts: {
     });
   }
 
-  // Gatilho 3: termômetro vermelho (só classe A)
-  for (const c of clientes) {
-    if (c.classificacao.toUpperCase() !== "A" || !c.ultimoContatoAt) continue;
-    const dias = Math.floor((agora.getTime() - c.ultimoContatoAt.getTime()) / MS_DIA);
-    if (dias <= cadenciaA) continue; // vermelho = estourou a cadência (>100%)
-    disparos.push({
-      gatilho: "termometro_vermelho",
-      cliente: c,
-      detalhe: `Sem contato há ${dias} dias (cadência A: ${cadenciaA}d)`,
-      valor: `${dias}d`,
-    });
+  // Gatilho 3: cadência 12-4-2 não cumprida (só classe A).
+  //
+  // Conta TOQUES no último ano (ligações + reuniões) contra o alvo da classe.
+  // Antes media dias desde o último contato, o que dava por cumprida a promessa
+  // de um ano inteiro por causa de uma única ligação recente.
+  //
+  // Uma query só, agregada, para toda a carteira A: uma por cliente seriam
+  // centenas de idas ao banco dentro do cron.
+  const clientesA = clientes.filter((c) => c.classificacao.toUpperCase() === "A");
+  if (clientesA.length > 0) {
+    try {
+      const toques = await prisma.interacaoCliente.findMany({
+        where: {
+          clienteId: { in: clientesA.map((c) => c.id) },
+          data: { gte: inicioJanelaToques(agora) },
+        },
+        select: { clienteId: true, tipo: true },
+      });
+
+      const porCliente = new Map<string, number>();
+      for (const t of toques) {
+        if (!contaComoToque(t.tipo)) continue;
+        porCliente.set(t.clienteId, (porCliente.get(t.clienteId) ?? 0) + 1);
+      }
+
+      for (const c of clientesA) {
+        const feitos = porCliente.get(c.id) ?? 0;
+        // `temHistorico` amarra no mesmo sinal de antes: cliente que nunca foi
+        // contatado é neutro, não atrasado. Sem isso, toda conta recém-aberta
+        // entraria alertando no primeiro dia.
+        const r = cumprimentoCadencia(c.classificacao, feitos, !!c.ultimoContatoAt);
+        if (r.status !== "alerta") continue;
+        disparos.push({
+          gatilho: "termometro_vermelho",
+          cliente: c,
+          detalhe:
+            `${r.feitos} de ${r.alvo} toques nos últimos 12 meses ` +
+            `(ligações + reuniões). Alvo da classe A: ${r.alvoComRevisao}/ano — ` +
+            `${r.revisoesNaoRastreadas} revisões ainda não são rastreadas pelo sistema.`,
+          valor: `${r.feitos}/${r.alvo}`,
+        });
+      }
+    } catch (e) {
+      erros.push({ etapa: "cadencia-toques", motivo: e instanceof Error ? e.message : "?" });
+    }
   }
 
   // Gatilho 2: renda fixa vencendo (dormente até haver dado de vencimento)
@@ -263,6 +319,9 @@ export async function avaliarAlertasClientes(opts: {
         ultimaReuniaoAt: true,
         proximaReuniaoAt: true,
         cadenciaReuniaoDiasOverride: true,
+        // O alerta de evasão passa pelo mesmo roteamento dos demais — precisa
+        // do CGE para achar o assessor.
+        assessorCge: true,
       },
     });
 
@@ -303,51 +362,23 @@ export async function avaliarAlertasClientes(opts: {
   const rowByChave = new Map(rows.map((r) => [r.chave, r]));
   const link = baseUrl();
 
-  // Destinatários de WhatsApp do alerta de evasão. Vêm de Config
-  // (ALERTA_EVASAO_EMAILS, e-mails separados por vírgula) e não de nomes no
-  // código: quem recebe alerta de carteira muda com a equipe, e trocar isso
-  // não pode exigir deploy. O telefone sai do cadastro em Pessoa — uma fonte
-  // só, já mantida no /time.
+  // ── Para quem vai cada alerta ──
   //
-  // Sem a config, nenhum WhatsApp é enviado e o Slack segue normal: o alerta
-  // não deixa de existir por falta de configuração, só perde um canal.
-  let telefonesEvasao: Array<{ nome: string; telefone: string }> = [];
-  if (disparandoPorGatilho.risco_evasao > 0) {
-    try {
-      const emails = (await getConfig("ALERTA_EVASAO_EMAILS")) ?? "";
-      const lista = emails
-        .split(",")
-        .map((e) => e.trim().toLowerCase())
-        .filter((e) => e.includes("@"));
-      if (lista.length > 0) {
-        const pessoas = await prisma.pessoa.findMany({
-          where: { email: { in: lista } },
-          select: { nomeCompleto: true, telefone: true },
-        });
-        telefonesEvasao = pessoas
-          .filter((p): p is { nomeCompleto: string; telefone: string } => !!p.telefone)
-          .map((p) => ({ nome: p.nomeCompleto, telefone: p.telefone }));
-        const semTelefone = pessoas.length - telefonesEvasao.length;
-        if (semTelefone > 0) {
-          erros.push({
-            etapa: "whatsapp-evasao",
-            motivo: `${semTelefone} destinatário(s) sem telefone cadastrado em Pessoa`,
-          });
-        }
-        const naoEncontrados = lista.length - pessoas.length;
-        if (naoEncontrados > 0) {
-          erros.push({
-            etapa: "whatsapp-evasao",
-            motivo: `${naoEncontrados} e-mail(s) de ALERTA_EVASAO_EMAILS sem Pessoa correspondente`,
-          });
-        }
-      }
-    } catch (e) {
-      erros.push({
-        etapa: "whatsapp-evasao",
-        motivo: e instanceof Error ? e.message : "?",
-      });
-    }
+  // Um alerta é do ASSESSOR do cliente e do BACKOFFICE da carteira dele, não do
+  // escritório. O mapeamento não é novo nem inventado: sai da carteira que a
+  // tela de Permissões já monta — `assessorCge` → CarteiraCge → Carteira →
+  // AcessoCarteira ("dono" = assessor, "apoia" = backoffice) → Pessoa.telefone.
+  //
+  // Resolvido UMA vez para os CGEs de todos os disparos: o cron avalia a
+  // carteira inteira, e uma consulta por cliente seriam centenas de idas ao
+  // banco para responder uma pergunta que quase não muda.
+  let destinoPorCge = new Map<string, ResolucaoDestinatarios>();
+  try {
+    destinoPorCge = await destinatariosPorCge(
+      [...firingMap.values()].map((d) => d.cliente.assessorCge ?? ""),
+    );
+  } catch (e) {
+    erros.push({ etapa: "destinatarios", motivo: e instanceof Error ? e.message : "?" });
   }
 
   // Disparando agora → decide e (talvez) envia
@@ -362,42 +393,43 @@ export async function avaliarAlertasClientes(opts: {
       const c = d.cliente;
       const url = link ? `${link}/empresas/investimentos/clientes/${c.id}` : `/empresas/investimentos/clientes/${c.id}`;
       const lembrete = acao === "reenvio" ? " _(lembrete semanal)_" : "";
-      const msg =
-        `:rotating_light: *${LABEL_GATILHO[d.gatilho]}*${lembrete} — ${c.nome} ` +
-        `(classe ${c.classificacao}, conta ${c.numeroConta})\n` +
+      const texto =
+        `🚨 *${LABEL_GATILHO[d.gatilho]}*${lembrete}\n` +
+        `${c.nome} (classe ${c.classificacao}, conta ${c.numeroConta})\n` +
         `${d.detalhe}\n${url}`;
-      try {
-        const enviado = await sendSlackMessage(msg);
-        if (enviado) enviados++;
-        else erros.push({ etapa: "slack", motivo: "webhook não configurado/falhou" });
-      } catch (e) {
-        erros.push({ etapa: "slack", motivo: e instanceof Error ? e.message : "?" });
+
+      const destino = destinoPorCge.get(c.assessorCge ?? "");
+
+      // Cliente sem carteira configurada NÃO some em silêncio. Antes o
+      // broadcast cobria esse caso por acidente — todo mundo via tudo. Agora,
+      // se não há assessor alcançável, isso vira erro no log do cron em vez de
+      // um alerta que simplesmente não aconteceu.
+      if (!destino || destino.orfao) {
+        erros.push({
+          etapa: "roteamento",
+          motivo:
+            `${c.nome} (conta ${c.numeroConta}): sem assessor alcançável ` +
+            `para o CGE ${c.assessorCge ?? "—"} — alerta não entregue`,
+        });
       }
 
-      // WhatsApp individual — só para risco de evasão. Os outros gatilhos
-      // seguem só no Slack, como antes: mandar todos no WhatsApp de três
-      // pessoas transformaria o canal em ruído e o alerta grave se perderia
-      // no meio.
-      if (d.gatilho === "risco_evasao") {
-        const texto =
-          `🚨 *${LABEL_GATILHO[d.gatilho]}*${lembrete}\n` +
-          `${c.nome} (classe ${c.classificacao}, conta ${c.numeroConta})\n` +
-          `${d.detalhe}\n${url}`;
-        for (const dest of telefonesEvasao) {
-          try {
-            const ok = await sendWhatsappMessage(texto, dest.telefone);
-            if (!ok) {
-              erros.push({
-                etapa: "whatsapp-evasao",
-                motivo: `envio falhou para ${dest.nome}`,
-              });
-            }
-          } catch (e) {
-            erros.push({
-              etapa: "whatsapp-evasao",
-              motivo: `${dest.nome}: ${e instanceof Error ? e.message : "?"}`,
-            });
-          }
+      for (const nome of destino?.semTelefone ?? []) {
+        erros.push({
+          etapa: "roteamento",
+          motivo: `${nome} atende ${c.nome} mas não tem telefone cadastrado em Pessoa`,
+        });
+      }
+
+      for (const dest of destino?.destinatarios ?? []) {
+        try {
+          const ok = await sendWhatsappMessage(texto, dest.telefone);
+          if (ok) enviados++;
+          else erros.push({ etapa: "whatsapp", motivo: `envio falhou para ${dest.nome}` });
+        } catch (e) {
+          erros.push({
+            etapa: "whatsapp",
+            motivo: `${dest.nome}: ${e instanceof Error ? e.message : "?"}`,
+          });
         }
       }
     }
