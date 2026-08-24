@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/session";
+import { getAuthContext, isAdmin } from "@/lib/auth-helpers";
+import { filtroDeDono, type QuemOlha } from "@/lib/implementacoes/escopo";
 import { prisma } from "@/lib/prisma";
 import { implementacoesV2Habilitado } from "@/lib/implementacoes/v2-flag";
 import { tokenizar, similaridade } from "@/lib/implementacoes/similares";
@@ -42,8 +43,13 @@ const MAX_VARREDURA = 400;
 const PISO = 0.18;
 
 export async function GET(req: Request) {
-  const session = await getSession();
-  if (!session) {
+  /* `getAuthContext` e não `getSession`: o recorte abaixo pergunta se a pessoa
+   * é admin, e o `role` da sessão sozinho NÃO cobre `Pessoa.teamRole` — um
+   * admin por teamRole seria recortado como colaborador e perderia o aviso.
+   * O custo são duas buscas por chave primária, ao lado de uma varredura de
+   * até 400 linhas que já acontecia. */
+  const ctx = await getAuthContext().catch(() => null);
+  if (!ctx) {
     return NextResponse.json({ similares: [] }, { status: 401 });
   }
 
@@ -67,8 +73,24 @@ export async function GET(req: Request) {
     return NextResponse.json({ similares: [] });
   }
 
+  /* ESCOPADO PELO DONO — a mesma régua da central (`lib/implementacoes/escopo.ts`).
+   *
+   * Antes, este endpoint devolvia o `oQue` de sugestões de QUALQUER pessoa da
+   * empresa selecionada. Enquanto a central era admin-only isso já era o
+   * caminho pelo qual um não-admin lia títulos que a tela lhe negava — a #372
+   * estreitou exigindo a empresa, mas não fechou.
+   *
+   * Com a central aberta, "vê apenas as próprias" tem de valer AQUI também:
+   * um aviso de duplicata que cita o texto de outra pessoa é a mesma leitura
+   * por outra porta.
+   *
+   * O CUSTO É REAL E É DELIBERADO: o aviso deixa de avisar sobre a ideia que
+   * OUTRA pessoa já pediu, que era metade do valor dele. Trocar de volta é uma
+   * linha — tirar `...filtroDeDono(quem)` daqui —, e a decisão é do Eduardo. */
+  const quem: QuemOlha = { userId: ctx.userId, ehAdmin: isAdmin(ctx) };
+
   const linhas = await prisma.implementacao.findMany({
-    where: { empresaId },
+    where: { empresaId, ...filtroDeDono(quem) },
     orderBy: { createdAt: "desc" },
     take: MAX_VARREDURA,
     select: { id: true, oQue: true, status: true },
