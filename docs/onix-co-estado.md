@@ -439,6 +439,19 @@ Enquanto essa tabela não existir, **o registro é esta seção**. Toda correç�
 altera dado em produção fora do fluxo das telas entra aqui, com a saída do
 comando colada.
 
+> ⚠️ **Os arquivos citados abaixo não existem mais na árvore.** O workflow
+> `correcao-acordos-renan` e os dois `.sql` que ele executava foram removidos
+> depois de cumprirem o papel — manter no painel deixaria `aplicar=sim` a dois
+> cliques de um `DELETE`, guardando um estado que já não existe.
+>
+> Os caminhos ficam escritos porque são o que os runs referenciam. Para ver o
+> conteúdo: `git log --diff-filter=D -- scripts/corrige-datainicio-renan.sql`,
+> ou os runs 1, 2 e 3 de `correcao-acordos-renan`, que seguem no histórico do
+> GitHub com a saída completa.
+>
+> **Correção nova não reaproveita estes arquivos: escreve os seus.** O que se
+> reaproveita é o padrão — dois blocos, guardas que abortam, e o registro aqui.
+
 ### 22/08/2026 · `dataInicio` dos 4 acordos do Renan
 
 | campo | valor |
