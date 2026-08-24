@@ -133,6 +133,11 @@ export function ImportarCorretora() {
   const [confirmando, setConfirmando] = useState(false);
   const [criando, setCriando] = useState<{ nome: string; fonte: string } | null>(null);
   const [avisoPerfil, setAvisoPerfil] = useState<string | null>(null);
+  const [descoberta, setDescoberta] = useState<{
+    colunas: { rotulo: string; exemplo: string }[];
+    custoUsd: number;
+    aviso: string | null;
+  } | null>(null);
 
   const perfil = useMemo(
     () => perfis?.find((p) => p.id === estado.perfilId) ?? null,
@@ -176,6 +181,7 @@ export function ImportarCorretora() {
     setResultado(null);
     setGravado(null);
     setSonda(null);
+    setDescoberta(null);
     setArquivoBruto(f);
     despachar({
       tipo: "escolheu-arquivo",
@@ -275,6 +281,60 @@ export function ImportarCorretora() {
    * É o que tira a tela do ovo: sem esta função ela só serve parceiro que já
    * tem perfil, e não havia como criar o primeiro por lugar nenhum.
    */
+  /**
+   * Descobre as colunas de um PDF ou Word.
+   *
+   * A sonda de planilha lê o cabeçalho e pronto; aqui não existe cabeçalho
+   * declarado. Sem este botão, PDF e Word chegavam à tela de mapeamento em
+   * branco e a pessoa tinha de digitar cada rótulo olhando o arquivo noutra
+   * janela — que é onde o erro de digitação vira coluna que não existe.
+   *
+   * Em Word não custa nada; em PDF custa uma página de Haiku, e o valor
+   * medido aparece na tela.
+   */
+  async function descobrirColunas() {
+    if (!arquivoBruto || !estado.arquivo) return;
+    setErro(null);
+    setOcupado("sondando");
+    try {
+      const corpo = new FormData();
+      corpo.set("arquivo", arquivoBruto);
+      corpo.set("formato", FORMATO_DO_NOME(estado.arquivo.nome));
+      const r = await fetch("/api/empresas/corretora/importar/descobrir", {
+        method: "POST",
+        body: corpo,
+      });
+      const j = await r.json();
+      if (!r.ok) {
+        setErro(j.error);
+        return;
+      }
+      setDescoberta({ colunas: j.colunas, custoUsd: j.custoUsd, aviso: j.aviso });
+      // Popula a tabela de mapeamento com o que voltou — os destinos ficam
+      // vazios de propósito: descobrir o rótulo não é adivinhar o destino.
+      setSonda({
+        colunas: j.colunas.map((c: { rotulo: string }) => c.rotulo),
+        amostra:
+          j.colunas.length > 0
+            ? [
+                {
+                  numero: 1,
+                  celulas: Object.fromEntries(
+                    j.colunas.map((c: { rotulo: string; exemplo: string }) => [c.rotulo, c.exemplo]),
+                  ),
+                },
+              ]
+            : [],
+        avisos: j.aviso ? [j.aviso] : [],
+        linhasLidas: 0,
+      });
+    } catch {
+      setErro(ERROS.leituraFalhou);
+    } finally {
+      setOcupado(null);
+    }
+  }
+
   async function criarPerfil() {
     if (!criando || !estado.arquivo) return;
     setErro(null);
@@ -479,9 +539,34 @@ export function ImportarCorretora() {
           !sonda &&
           ocupado !== "sondando" &&
           !["xlsx", "csv"].includes(FORMATO_DO_NOME(estado.arquivo.nome)) && (
-            <p className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
-              PDF e Word são lidos por inteligência artificial, e ler só para descobrir os nomes
-              das colunas custaria uma leitura inteira. Escolha um perfil já existente abaixo.
+            <div className="space-y-2 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+              <p>
+                PDF e Word não têm cabeçalho declarado como planilha. Dá para descobrir as colunas
+                lendo a primeira página — ou escolher um perfil que já existe, abaixo.
+              </p>
+              <button
+                type="button"
+                disabled={ocupado !== null}
+                onClick={() => void descobrirColunas()}
+                className="rounded border border-amber-500 px-3 py-1.5 disabled:border-amber-200 disabled:text-amber-400"
+              >
+                Descobrir colunas
+              </button>
+              <p className="text-xs">
+                {FORMATO_DO_NOME(estado.arquivo.nome) === "docx"
+                  ? "Em Word não custa nada: o texto sai do próprio arquivo, sem IA."
+                  : "Em PDF vai só a primeira página para a IA — centavos, não a leitura inteira."}
+              </p>
+            </div>
+          )}
+
+          {descoberta !== null && (
+            <p className="text-sm text-neutral-700">
+              {descoberta.colunas.length} colunas descobertas
+              {descoberta.custoUsd > 0
+                ? ` · custou US$ ${descoberta.custoUsd.toFixed(4)}`
+                : " · sem custo de IA"}
+              . Confira cada rótulo contra o arquivo antes de mapear.
             </p>
           )}
       </section>

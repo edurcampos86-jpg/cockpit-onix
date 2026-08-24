@@ -429,6 +429,81 @@ Eduardo.
 
 ---
 
+## Correções de dado em produção — o registro
+
+Não existe tabela de auditoria para correção de dado. `AcordoComercialParceiro`
+tem `criadoPor` e `encerradoPor`, e **não tem `atualizadoPor`**; `ConfigAudit` é
+de flags de configuração e usá-la para outra coisa seria desvio de propósito.
+
+Enquanto essa tabela não existir, **o registro é esta seção**. Toda correção que
+altera dado em produção fora do fluxo das telas entra aqui, com a saída do
+comando colada.
+
+### 22/08/2026 · `dataInicio` dos 4 acordos do Renan
+
+| campo | valor |
+|---|---|
+| o que estava errado | `dataInicio = 23/01/2026` nos 4 acordos por nó de Renan Afonso de Paula |
+| o correto | `01/01/2026` — erro de digitação na tela, o acordo sempre valeu desde o dia 1º |
+| linhas afetadas | 4 (Onix Capital, Onix Corretora, Onix Tech, Onix Educação), todas 20% com `incluiDescendentes` |
+| linhas NÃO afetadas | as 2 antigas por `tipoProduto` (`empresaId IS NULL`) |
+| comando | `scripts/corrige-datainicio-renan.sql` |
+| quem rodou | *(preencher com o email — a saída do bloco 2 imprime o campo)* |
+| quando | *(preencher com o `atualizadoEm` que a confirmação devolveu)* |
+
+**Por que UPDATE e não fechar-e-abrir.** A regra "alterar FECHA e ABRE" existe
+para mudança de **percentual**: 20% até uma data e 25% depois são dois fatos.
+Correção de data digitada não é um segundo fato — fechar-e-abrir inventaria um
+acordo que teria passado a valer em 23/01, e o fechamento de comissão leria uma
+troca de regra no meio de janeiro que nunca houve.
+
+**Três predicados medidos** contra uma réplica local com o mesmo cenário
+(4 acordos por nó + 2 antigos por `tipoProduto`, todos com a mesma data):
+
+| `WHERE` | linhas |
+|---|---|
+| `dataInicio = '2026-01-23'` | **0** — a tela grava data pura como MEIO-DIA UTC (`actions/parceiros.ts:30`); a meia-noite não casa nada |
+| janela do dia, sem `empresaId IS NOT NULL` | **6** — levaria as 2 antigas junto |
+| janela do dia, **com** `empresaId IS NOT NULL` | **4** ✅ |
+
+O valor gravado também é meio-dia (`2026-01-01 12:00:00`), não meia-noite: em
+qualquer fuso a oeste a meia-noite UTC cai no dia anterior, e a ficha passaria a
+mostrar 31/12/2025.
+
+### 23/08/2026 · apagados os 2 acordos residuais por `tipoProduto`
+
+**Decisão do Eduardo: apagar, não mapear.** As duas linhas eram tentativas de
+cadastro por `tipoProduto`, feitas **antes** da mudança de modelo da #385,
+quando o acordo era por texto de produto e não por nó da hierarquia. Nunca
+geraram pagamento — resíduo de modelagem, não histórico financeiro.
+
+Mapeá-las a uma empresa criaria **histórico ficcional**: afirmaria que alguém
+decidiu, em janeiro, que aquele acordo pertencia a um nó. Ninguém decidiu. Um
+`empresaId` inventado num registro de remuneração é pior que registro nenhum,
+porque o fechamento de comissão não tem como saber que foi chute.
+
+**Por que precisava sair:** a migration da #387 abre com
+`ALTER COLUMN "empresaId" SET NOT NULL`, que é da coluna inteira e não olha
+vigência. Linha encerrada com `empresaId` nulo barra a migration igual a uma
+linha viva — e, com `migrate deploy && next start`, isso não vira "migration
+pendente", vira app em loop de restart.
+
+| campo | valor |
+|---|---|
+| comando | `scripts/apaga-acordos-residuais.sql` |
+| linhas apagadas | 2 (`dataFim IS NOT NULL AND empresaId IS NULL`) |
+| quem rodou | *(preencher)* |
+| quando | *(preencher)* |
+| `sem_no` depois | *(preencher — a confirmação do bloco 2 imprime; tem de ser 0)* |
+
+**As 2 linhas, para o registro** — cole aqui a saída do **bloco 1** ANTES de
+rodar o bloco 2. Depois do `DELETE` não há de onde reconstruir a não ser do
+backup, e este registro passa a ser a única memória de que elas existiram.
+
+```
+(colar a saída do bloco 1 aqui)
+```
+
 ## Pendências conhecidas
 
 ### Bloqueantes
