@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth-helpers";
 import { extrairPat } from "@/lib/integrations/pat";
+import { MAX_PDF_BYTES, MAX_PDF_LABEL, formatarMB } from "@/lib/pat-upload";
 
 function s(v: FormDataEntryValue | null): string {
   return typeof v === "string" ? v.trim() : "";
@@ -16,95 +17,162 @@ function sOrNull(v: FormDataEntryValue | null): string | null {
 /* ──────────────────────────────────────────────────────────────────────────
    uploadPat — admin only.
    Salva PDF, extrai dados via Claude, cria registro Pat.
+
+   ── Por que esta action devolve estado em vez de lançar ───────────────────
+   Ela já devolvia `{ ok: false, error }` em todos os ramos de guarda. O
+   problema nunca esteve aqui: estava no wrapper `uploadPatForm`, que
+   convertia a recusa educada num `throw`. Sem `error.tsx` no projeto, o Next
+   trocava a mensagem por um digest e a tela mostrava 500 sem texto.
+
+   Custou dois dias de diagnóstico errado — incluindo teste em domínio legado
+   por suspeita de bug de rota — para descobrir que a causa era um arquivo
+   grande demais e que o sistema SABIA disso desde o primeiro clique.
+
+   Agora a assinatura é a de `useActionState` (mesma de `saveNotifyConfig`), o
+   wrapper morreu, e a regra passa a ser: NENHUM caminho sai daqui por
+   exceção. Toda falha vira texto que cabe na tela.
    ────────────────────────────────────────────────────────────────────────── */
 
+export type UploadPatState =
+  | undefined
+  | { ok: true; patId: string; error?: never }
+  | { ok?: false; error: string; patId?: never };
+
+/** Mensagem de erro legível a partir de um `unknown` de catch. */
+function motivo(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
 export async function uploadPat(
+  _state: UploadPatState,
   formData: FormData,
-): Promise<{ ok: true; patId: string } | { ok: false; error: string }> {
+): Promise<UploadPatState> {
+  // FORA de qualquer try: `requireAdmin` sinaliza com `redirect()`, que é um
+  // throw especial do Next. Um catch em volta o engoliria e devolveria "erro
+  // inesperado" para quem apenas não é admin — trocando um redirecionamento
+  // correto por uma mensagem falsa.
   await requireAdmin();
 
   const pessoaId = s(formData.get("pessoaId"));
   const file = formData.get("pdf");
 
-  if (!pessoaId) return { ok: false, error: "ID da pessoa ausente" };
-  if (!(file instanceof File)) return { ok: false, error: "Arquivo PDF ausente" };
-  if (file.size === 0) return { ok: false, error: "Arquivo vazio" };
-  if (file.size > 10 * 1024 * 1024) return { ok: false, error: "PDF maior que 10MB" };
-  if (!file.type.includes("pdf")) {
-    return { ok: false, error: `Apenas PDF é aceito (recebido: ${file.type})` };
+  if (!pessoaId) return { error: "ID da pessoa ausente — recarregue a ficha e tente de novo." };
+  if (!(file instanceof File)) return { error: "Nenhum arquivo foi anexado." };
+  if (file.size === 0) return { error: "O arquivo está vazio." };
+
+  if (file.size > MAX_PDF_BYTES) {
+    return {
+      error:
+        `Este PDF tem ${formatarMB(file.size)}, acima do limite de ${MAX_PDF_LABEL}. ` +
+        `Reexporte o laudo em resolução menor e envie de novo.`,
+    };
   }
 
-  const pessoa = await prisma.pessoa.findUnique({
-    where: { id: pessoaId },
-    select: { id: true },
-  });
-  if (!pessoa) return { ok: false, error: "Pessoa não encontrada" };
+  if (!file.type.includes("pdf")) {
+    const tipo = file.type || "de tipo desconhecido";
+    return { error: `Só PDF é aceito aqui — o arquivo enviado é ${tipo}.` };
+  }
 
-  const buf = Buffer.from(await file.arrayBuffer());
-  const pdfBase64 = buf.toString("base64");
+  // ── Gravação do PDF ───────────────────────────────────────────────────────
+  // `arrayBuffer()` e o `create` podem falhar por conta própria (memória,
+  // constraint, banco fora). Sem este catch, voltariam a ser 500 mudo mesmo
+  // com o wrapper removido — é o ponto que a auditoria deste handler achou
+  // além das guardas.
+  let patId: string;
+  let pdfBase64: string;
+  try {
+    const pessoa = await prisma.pessoa.findUnique({
+      where: { id: pessoaId },
+      select: { id: true },
+    });
+    if (!pessoa) return { error: "Pessoa não encontrada." };
 
-  // Cria registro pendente
-  const pat = await prisma.pat.create({
-    data: {
-      pessoaId,
-      filename: file.name,
-      pdfBase64,
-      bytes: file.size,
-      dataPat: new Date(), // placeholder — será atualizado após extração
-      status: "pendente",
-    },
-  });
+    pdfBase64 = Buffer.from(await file.arrayBuffer()).toString("base64");
 
-  // Extração via Claude
+    // Registro pendente: existe antes da extração para que uma falha na
+    // extração deixe rastro na ficha em vez de sumir.
+    const pat = await prisma.pat.create({
+      data: {
+        pessoaId,
+        filename: file.name,
+        pdfBase64,
+        bytes: file.size,
+        dataPat: new Date(), // placeholder — será atualizado após extração
+        status: "pendente",
+      },
+    });
+    patId = pat.id;
+  } catch (e) {
+    return { error: `Não deu para guardar o PDF: ${motivo(e)}` };
+  }
+
+  // ── Extração via Claude ──────────────────────────────────────────────────
   let extraction;
   try {
     extraction = await extrairPat(pdfBase64);
   } catch (e) {
-    const msg = (e as Error).message;
-    await prisma.pat.update({
-      where: { id: pat.id },
-      data: { status: "erro", erroMensagem: msg.slice(0, 500) },
-    });
-    return { ok: false, error: `Falha na extração: ${msg}` };
+    const msg = motivo(e);
+    await marcarErro(patId, msg);
+    return { error: `Falha na extração: ${msg}` };
   }
 
-  // Atualiza com dados extraídos
   const dataPat = extraction.dataPat ? new Date(extraction.dataPat) : new Date();
   if (Number.isNaN(dataPat.getTime())) {
-    await prisma.pat.update({
-      where: { id: pat.id },
-      data: { status: "erro", erroMensagem: "Data do PAT inválida na extração" },
-    });
-    return { ok: false, error: "Data do PAT inválida na extração" };
+    const msg = "Data do PAT inválida na extração";
+    await marcarErro(patId, msg);
+    return { error: msg };
   }
 
-  await prisma.pat.update({
-    where: { id: pat.id },
-    data: {
-      status: "extraido",
-      dataPat,
-      perspectiva: extraction.perspectiva,
-      ambienteCelula: extraction.ambienteCelula,
-      ambienteNome: extraction.ambienteNome,
-      orientacao: extraction.orientacao,
-      aproveitamento: extraction.aproveitamento,
-      principaisCompetencias: extraction.principaisCompetencias,
-      caracteristicas: extraction.caracteristicas,
-      estrutural: extraction.estrutural ?? undefined,
-      iconeEstrutural: extraction.iconeEstrutural ?? undefined,
-      tendencias: extraction.tendencias ?? undefined,
-      risco: extraction.risco ?? undefined,
-      competenciasEstrategicas: extraction.competenciasEstrategicas,
-      ambiente: extraction.ambiente ?? undefined,
-      resumido: extraction.resumido,
-      detalhado: extraction.detalhado,
-      sugestoes: extraction.sugestoes,
-      gerencial: extraction.gerencial,
-    },
-  });
+  // ── Gravação do resultado ────────────────────────────────────────────────
+  try {
+    await prisma.pat.update({
+      where: { id: patId },
+      data: {
+        status: "extraido",
+        dataPat,
+        perspectiva: extraction.perspectiva,
+        ambienteCelula: extraction.ambienteCelula,
+        ambienteNome: extraction.ambienteNome,
+        orientacao: extraction.orientacao,
+        aproveitamento: extraction.aproveitamento,
+        principaisCompetencias: extraction.principaisCompetencias,
+        caracteristicas: extraction.caracteristicas,
+        estrutural: extraction.estrutural ?? undefined,
+        iconeEstrutural: extraction.iconeEstrutural ?? undefined,
+        tendencias: extraction.tendencias ?? undefined,
+        risco: extraction.risco ?? undefined,
+        competenciasEstrategicas: extraction.competenciasEstrategicas,
+        ambiente: extraction.ambiente ?? undefined,
+        resumido: extraction.resumido,
+        detalhado: extraction.detalhado,
+        sugestoes: extraction.sugestoes,
+        gerencial: extraction.gerencial,
+      },
+    });
+  } catch (e) {
+    const msg = motivo(e);
+    await marcarErro(patId, msg);
+    return { error: `Extraiu, mas não deu para gravar: ${msg}` };
+  }
 
   revalidatePath(`/time/${pessoaId}`);
-  return { ok: true, patId: pat.id };
+  return { ok: true, patId };
+}
+
+/**
+ * Marca o PAT como "erro" e guarda o motivo.
+ * Nunca lança: é chamada de dentro de tratamento de erro, e uma falha aqui
+ * não pode substituir a mensagem que o usuário precisa ver.
+ */
+async function marcarErro(patId: string, mensagem: string): Promise<void> {
+  try {
+    await prisma.pat.update({
+      where: { id: patId },
+      data: { status: "erro", erroMensagem: mensagem.slice(0, 500) },
+    });
+  } catch {
+    // silêncio proposital — ver docstring
+  }
 }
 
 /* ──────────────────────────────────────────────────────────────────────────
@@ -214,10 +282,13 @@ export async function recalcularPat(
    Wrappers void
    ────────────────────────────────────────────────────────────────────────── */
 
-export async function uploadPatForm(formData: FormData): Promise<void> {
-  const r = await uploadPat(formData);
-  if (!r.ok) throw new Error(r.error);
-}
+// `uploadPatForm` foi removido: era ele que transformava `{ ok: false, error }`
+// num throw, e o throw num 500 sem texto. O upload agora usa `uploadPat`
+// direto, via `useActionState`, em `pat-upload-form.tsx`.
+//
+// Os wrappers abaixo continuam lançando — e continuam produzindo 500 mudo
+// pelos mesmos motivos. Ficam de fora desta PR de propósito (uma preocupação
+// por PR); estão listados no relatório como a próxima frente.
 export async function atualizarLeituraPatForm(formData: FormData): Promise<void> {
   const r = await atualizarLeituraPat(formData);
   if (!r.ok) throw new Error(r.error);
