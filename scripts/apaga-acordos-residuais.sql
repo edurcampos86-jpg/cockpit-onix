@@ -67,6 +67,8 @@ SELECT count(*) AS "vigentes sem no — tem de ser 0"
 FROM "AcordoComercialParceiro"
 WHERE "dataFim" IS NULL AND "empresaId" IS NULL;
 
+-- @@ FIM DO BLOCO 1 @@
+
 -- ============================================================================
 -- BLOCO 2 · DELETE  (transação com guarda — aborta sozinha se algo mudou)
 -- ============================================================================
