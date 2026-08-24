@@ -448,8 +448,9 @@ comando colada.
 | linhas afetadas | 4 (Onix Capital, Onix Corretora, Onix Tech, Onix Educação), todas 20% com `incluiDescendentes` |
 | linhas NÃO afetadas | as 2 antigas por `tipoProduto` (`empresaId IS NULL`) |
 | comando | `scripts/corrige-datainicio-renan.sql` |
-| quem rodou | *(preencher com o email — a saída do bloco 2 imprime o campo)* |
-| quando | *(preencher com o `atualizadoEm` que a confirmação devolveu)* |
+| executado | ✅ 23/08/2026, run 2 do workflow `correcao-acordos-renan` (`corrige-data`, `aplicar=sim`) |
+| resultado | `UPDATE 4` + `COMMIT` — as 4 datas passaram de 23/01/2026 para 01/01/2026 |
+| quem rodou | Eduardo, pelo painel de Actions (o run registra o ator) |
 
 **Por que UPDATE e não fechar-e-abrir.** A regra "alterar FECHA e ABRE" existe
 para mudança de **percentual**: 20% até uma data e 25% depois são dois fatos.
@@ -492,17 +493,56 @@ pendente", vira app em loop de restart.
 |---|---|
 | comando | `scripts/apaga-acordos-residuais.sql` |
 | linhas apagadas | 2 (`dataFim IS NOT NULL AND empresaId IS NULL`) |
-| quem rodou | *(preencher)* |
-| quando | *(preencher)* |
-| `sem_no` depois | *(preencher — a confirmação do bloco 2 imprime; tem de ser 0)* |
+| executado | ✅ 23/08/2026, run 3 do workflow `correcao-acordos-renan` (`apaga-encerradas`, `aplicar=sim`) |
+| resultado | `DELETE 2` + `COMMIT` |
+| quem rodou | Eduardo, pelo painel de Actions (o run registra o ator) |
+| placar | `7 · 2 · 5` → **`5 · 0 · 5`** — `sem_no` chegou a **zero** |
 
-**As 2 linhas, para o registro** — cole aqui a saída do **bloco 1** ANTES de
-rodar o bloco 2. Depois do `DELETE` não há de onde reconstruir a não ser do
-backup, e este registro passa a ser a única memória de que elas existiram.
+**AS 2 LINHAS APAGADAS.** Este bloco é a única memória delas: o `DELETE` não
+deixa linha para consultar, e reconstruir só a partir do backup diário.
 
-```
-(colar a saída do bloco 1 aqui)
-```
+| `tipoProduto` | % | `dataInicio` | `dataFim` | `incluiDescendentes` | `empresaId` |
+|---|---|---|---|---|---|
+| `assessoria` | 20% | 01/01/2026 | 23/08/2026 11:54:03.226 | `false` | — |
+| `seguro_resgatavel` | 20% | 01/01/2026 | 23/08/2026 11:54:06.127 | `false` | — |
+
+Ambas criadas em **22/08/2026** e encerradas na manhã de 23/08, minutos antes
+de serem apagadas. Nenhuma gerou pagamento.
+
+> Repare que elas já estavam com `dataInicio = 01/01/2026`. A digitação errada
+> de 23/01 atingiu só os acordos **por nó** — por isso o `UPDATE` da correção
+> exigia `empresaId IS NOT NULL` e não podia se guiar pela data. Sem esse
+> predicado, o comando teria alcançado estas duas linhas também.
+
+### 23/08/2026 · estado final dos acordos do Renan
+
+**5 acordos vigentes, todos por nó, todos desde 01/01/2026, todos com
+`incluiDescendentes` ligado:**
+
+| nó | percentual |
+|---|---|
+| Onix Corretora | 20% |
+| Onix Educação | 20% |
+| Onix Investimentos | 20% |
+| Onix Tech | 20% |
+| **Onix Imob** | **0%** |
+
+**5 clientes vinculados.**
+
+A linha de **0% da Onix Imob** é a decisão, não a omissão: o Renan já é sócio
+lá, e gravar `0%` diz *"decidido que não remunera"*, enquanto não ter linha
+diria *"ninguém cadastrou"*. `encerrarAcordoForm` já carrega essa distinção por
+escrito (`src/app/actions/parceiros.ts:275`).
+
+Ela também explica a divergência que ficou aberta em 23/08: a leitura de
+produção mostrava **5** vigentes com nó quando só **4** tinham sido citados. A
+quinta era a Imob — cadastrada e correta desde o início, e por isso fora do
+`UPDATE` da correção de data, que encontrou 4 e não 5.
+
+**`sem_no = 0` desde 23/08.** A #387 (remoção de `tipoProduto`) fica
+**tecnicamente liberada** — a guarda `SET NOT NULL` passaria. Segue **parada,
+sem label e sem merge**, aguardando autorização do Eduardo em sessão futura,
+com dias de intervalo.
 
 ## Pendências conhecidas
 
