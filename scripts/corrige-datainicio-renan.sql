@@ -72,6 +72,8 @@ LEFT JOIN "Empresa" e ON e.id = a."empresaId"
 WHERE p.nome = 'Renan Afonso de Paula'
 ORDER BY a."dataFim" NULLS FIRST, e.nome;
 
+-- @@ FIM DO BLOCO 1 @@
+
 -- ============================================================================
 -- BLOCO 2 · CORREÇÃO  (transação com guardas — aborta sozinha se algo mudou)
 -- ============================================================================
@@ -79,9 +81,10 @@ ORDER BY a."dataFim" NULLS FIRST, e.nome;
 -- Só SQL — nenhum comando de barra invertida. O console do Railway não é o
 -- psql interativo e engasgaria em `\set`.
 --
--- ↓↓↓ TROQUE pelo seu email antes de rodar. Ele sai na saída, e é a saída que
---     vai para o registro de auditoria em docs/onix-co-estado.md.
-SELECT 'PREENCHER: email de quem esta corrigindo' AS "responsavel pela correcao";
+-- Quem rodou: pelo workflow `correcao-acordos-renan.yml`, é o ator do Actions,
+-- gravado no registro do run — auditoria que ninguém precisa lembrar de
+-- preencher. À mão no console, é quem está logado, e aí o registro é você
+-- anotando em docs/onix-co-estado.md.
 
 BEGIN;
 

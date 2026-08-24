@@ -1,0 +1,250 @@
+name: correcao-acordos-renan
+
+# Roda os scripts de correção de dado CONTRA PRODUÇÃO, a partir do painel de
+# Actions.
+#
+# ── POR QUE UM WORKFLOW ──────────────────────────────────────────────────
+# Os dois `.sql` da #393 e da #395 nasceram para o console do Railway porque
+# nenhuma sessão de agente alcança o banco: a rede é bloqueada (`CONNECT 403`)
+# e o `DATABASE_URL` de produção é secret do repositório.
+#
+# Só que "cole isto no console" não deixa rastro. Aqui deixa: quem disparou,
+# quando, com qual entrada e com qual saída ficam no registro do run — e é
+# exatamente o buraco de auditoria que o cabeçalho do
+# `corrige-datainicio-renan.sql` admitia ter (não existe `atualizadoPor`, nem
+# tabela de log para correção de dado). O ator do Actions vira o "quem".
+#
+# Mesmo padrão do `piloto-parceiro.yml`, que já rodou contra produção.
+#
+# ── DRY-RUN É O PADRÃO ───────────────────────────────────────────────────
+# `aplicar` nasce em `nao`, e nesse modo roda SÓ o bloco 1 — conferência,
+# somente leitura. Escrever exige trocar o valor à mão, na hora.
+#
+# ── AS GUARDAS SÃO DO SQL, E NÃO SÃO TOCADAS AQUI ────────────────────────
+# Quem recusa rodar no estado errado é o `RAISE EXCEPTION` dentro de cada
+# script: exatamente 4 acordos na correção de data, exatamente 2 no delete, e
+# zero acordos vigentes sem nó. Este workflow não afrouxa nem contorna nenhuma
+# delas — com `ON_ERROR_STOP=1`, a exceção aborta a transação e o job falha
+# carregando a mensagem original.
+
+on:
+  workflow_dispatch:
+    inputs:
+      script:
+        description: 'Qual correção rodar'
+        type: choice
+        options:
+          - corrige-data
+          - apaga-encerradas
+        required: true
+      aplicar:
+        description: 'ESCREVE no banco de produção. Deixe em "nao" para só conferir'
+        type: choice
+        options:
+          - nao
+          - sim
+        default: nao
+
+permissions:
+  contents: read
+
+concurrency:
+  # Um de cada vez. Duas execuções simultâneas com `aplicar=sim` leriam a mesma
+  # contagem e as duas passariam pela guarda — a segunda encontraria o banco já
+  # mudado no meio da própria transação.
+  group: correcao-acordos-renan
+  cancel-in-progress: false
+
+jobs:
+  correcao:
+    name: Correção de acordos
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Conferir secret e resolver o script
+        id: alvo
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          ESCOLHA: ${{ inputs.script }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "::error::secrets.DATABASE_URL não está configurado neste repositório."
+            exit 1
+          fi
+
+          case "$ESCOLHA" in
+            corrige-data)     ARQ=scripts/corrige-datainicio-renan.sql ;;
+            apaga-encerradas) ARQ=scripts/apaga-acordos-residuais.sql  ;;
+            *) echo "::error::Script desconhecido: $ESCOLHA"; exit 1 ;;
+          esac
+
+          if [ ! -f "$ARQ" ]; then
+            echo "::error::$ARQ não existe nesta branch."
+            exit 1
+          fi
+          echo "arquivo=$ARQ" >> "$GITHUB_OUTPUT"
+          echo "Script: $ARQ"
+
+      # ── O corte, e a prova de que o bloco 1 não escreve ─────────────────
+      #
+      # Cada `.sql` traz a linha `-- @@ FIM DO BLOCO 1 @@` separando a
+      # conferência (só SELECT) da parte que escreve. O corte é por essa marca,
+      # e não por número de linha, para não quebrar quando o comentário do
+      # arquivo crescer.
+      #
+      # E o corte é CONFERIDO: se aparecer um verbo de escrita no bloco 1, o
+      # job para. Sem isto, "dry-run não escreve" seria promessa de comentário,
+      # e um `-- @@ FIM DO BLOCO 1 @@` colocado no lugar errado escreveria em
+      # produção justamente no modo que existe para não escrever.
+      - name: Cortar em bloco 1 e bloco 2
+        id: corte
+        env:
+          ARQ: ${{ steps.alvo.outputs.arquivo }}
+        run: |
+          set -euo pipefail
+          MARCA='@@ FIM DO BLOCO 1 @@'
+
+          if ! grep -q "$MARCA" "$ARQ"; then
+            echo "::error::$ARQ não tem a marca de corte. Não dá para separar conferência de escrita."
+            exit 1
+          fi
+
+          awk -v m="$MARCA" 'index($0, m) { achou = 1; exit } { print }' "$ARQ" \
+            > "${RUNNER_TEMP}/bloco1.sql"
+          awk -v m="$MARCA" 'passou { print } index($0, m) { passou = 1 }' "$ARQ" \
+            > "${RUNNER_TEMP}/bloco2.sql"
+
+          if grep -qiE '^[[:space:]]*(begin|update|delete|insert|drop|alter|truncate|commit)\b' \
+               "${RUNNER_TEMP}/bloco1.sql"; then
+            echo "::error::O bloco 1 de $ARQ contém verbo de escrita. A marca de corte está no lugar errado — nada foi executado."
+            exit 1
+          fi
+
+          if [ ! -s "${RUNNER_TEMP}/bloco2.sql" ]; then
+            echo "::error::O bloco 2 saiu vazio. Corte errado — nada foi executado."
+            exit 1
+          fi
+          echo "Corte OK: bloco 1 sem escrita, bloco 2 com conteúdo."
+
+      - name: Placar ANTES
+        id: antes
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          cat > "${RUNNER_TEMP}/placar.sql" <<'SQL'
+          SELECT
+            count(*)                                          AS acordos,
+            count(*) FILTER (WHERE "empresaId" IS NULL)       AS sem_no,
+            count(*) FILTER (WHERE "dataFim"   IS NULL)       AS vigentes
+          FROM "AcordoComercialParceiro";
+          SQL
+
+          docker run --rm \
+            -v "${RUNNER_TEMP}/placar.sql:/q.sql:ro" \
+            -e "PGURL=${DATABASE_URL}" \
+            postgres:16-alpine \
+            sh -c 'psql "$PGURL" -v ON_ERROR_STOP=1 --no-psqlrc -f /q.sql' \
+            | tee "${RUNNER_TEMP}/antes.txt"
+
+      # ── Bloco 1 · conferência. Roda SEMPRE, nos dois modos ──────────────
+      - name: Conferência (bloco 1)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "${RUNNER_TEMP}/bloco1.sql:/q.sql:ro" \
+            -e "PGURL=${DATABASE_URL}" \
+            postgres:16-alpine \
+            sh -c 'psql "$PGURL" -v ON_ERROR_STOP=1 --no-psqlrc -f /q.sql' \
+            | tee "${RUNNER_TEMP}/bloco1.txt"
+
+      # ── Bloco 2 · escreve. Só com aplicar=sim ───────────────────────────
+      #
+      # `ON_ERROR_STOP=1` é o que liga a guarda ao resultado do job: o
+      # RAISE EXCEPTION do script aborta a transação, o psql sai diferente de
+      # zero, e o step falha com a mensagem original na saída — que é
+      # exatamente o comportamento pedido.
+      - name: Aplicar (bloco 2)
+        id: aplicar
+        if: inputs.aplicar == 'sim'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          QUEM: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          echo "::warning::APLICAR=sim — esta execução ESCREVE no banco de produção. Disparado por $QUEM."
+          docker run --rm \
+            -v "${RUNNER_TEMP}/bloco2.sql:/q.sql:ro" \
+            -e "PGURL=${DATABASE_URL}" \
+            postgres:16-alpine \
+            sh -c 'psql "$PGURL" -v ON_ERROR_STOP=1 --no-psqlrc -f /q.sql' \
+            | tee "${RUNNER_TEMP}/bloco2.txt"
+
+      - name: Placar DEPOIS
+        if: always()
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          [ -f "${RUNNER_TEMP}/placar.sql" ] || exit 0
+          docker run --rm \
+            -v "${RUNNER_TEMP}/placar.sql:/q.sql:ro" \
+            -e "PGURL=${DATABASE_URL}" \
+            postgres:16-alpine \
+            sh -c 'psql "$PGURL" -v ON_ERROR_STOP=1 --no-psqlrc -f /q.sql' \
+            | tee "${RUNNER_TEMP}/depois.txt"
+
+      # `always()` porque o resumo vale MAIS quando o job falha: é onde a
+      # mensagem da guarda fica legível, ao lado dos dois placares que provam
+      # que nada mudou.
+      - name: Resumo
+        if: always()
+        env:
+          ESCOLHA: ${{ inputs.script }}
+          APLICAR: ${{ inputs.aplicar }}
+          QUEM: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          mostra() {
+            if [ -f "$2" ]; then
+              echo "### $1"
+              echo
+              echo '```'
+              cat "$2"
+              echo '```'
+              echo
+            fi
+          }
+
+          if [ "$APLICAR" = "sim" ]; then
+            TITULO='## Correção APLICADA (escreveu)'
+          else
+            TITULO='## Conferência (não escreveu nada)'
+          fi
+
+          {
+            echo "$TITULO"
+            echo
+            echo "| campo | valor |"
+            echo "|---|---|"
+            echo "| script | \`$ESCOLHA\` |"
+            echo "| aplicar | \`$APLICAR\` |"
+            echo "| quem disparou | @$QUEM |"
+            echo
+            mostra 'Placar ANTES' "${RUNNER_TEMP}/antes.txt"
+            mostra 'Bloco 1 — conferência' "${RUNNER_TEMP}/bloco1.txt"
+            mostra 'Bloco 2 — escrita' "${RUNNER_TEMP}/bloco2.txt"
+            mostra 'Placar DEPOIS' "${RUNNER_TEMP}/depois.txt"
+            echo
+            # Sem crase dentro de aspas simples: o shellcheck do actionlint lê
+            # crase como substituição de comando (SC2016).
+            echo 'Se o job falhou, a mensagem da guarda está na saída do step “Aplicar (bloco 2)”, e os dois placares acima devem estar iguais — a transação abortou inteira.'
+            echo
+            echo 'Copie a saída do bloco 1 para o registro em docs/onix-co-estado.md.'
+          } >> "$GITHUB_STEP_SUMMARY"
