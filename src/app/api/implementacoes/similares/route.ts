@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { getAuthContext, isAdmin } from "@/lib/auth-helpers";
-import { filtroDeDono, type QuemOlha } from "@/lib/implementacoes/escopo";
+import { getSession } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { implementacoesV2Habilitado } from "@/lib/implementacoes/v2-flag";
 import { tokenizar, similaridade } from "@/lib/implementacoes/similares";
@@ -25,11 +24,13 @@ export const dynamic = "force-dynamic";
  * justamente onde a duplicata costuma estar parada.
  *
  * ESCOPO: só a empresa que a pessoa selecionou no modal, e nunca a fila inteira.
- * A tela de triagem é admin-only (`page.tsx`), mas este endpoint precisa
- * responder a todo usuário logado — é o modal do FAB que o chama. Sem o recorte
- * por empresa, qualquer pessoa logada sondaria termos e enumeraria os títulos da
- * fila de TODAS as empresas, que hoje só admin vê. Duplicata só interessa dentro
- * da própria fila de qualquer forma, então o recorte não custa nada ao produto.
+ * O modal do FAB chama isto para todo usuário logado. Sem o recorte por empresa,
+ * qualquer pessoa sondaria termos e enumeraria os títulos da fila de TODAS as
+ * empresas. Duplicata só interessa dentro da própria fila de qualquer forma,
+ * então o recorte não custa nada ao produto.
+ *
+ * O recorte por DONO, ao contrário, custaria tudo — ver o bloco de decisão
+ * junto da consulta, no corpo do `GET`.
  *
  * Campos devolvidos ao mínimo (id, o quê, status): "por quê" é texto livre onde
  * as pessoas escrevem contexto que não precisa circular só para desduplicar um
@@ -43,13 +44,12 @@ const MAX_VARREDURA = 400;
 const PISO = 0.18;
 
 export async function GET(req: Request) {
-  /* `getAuthContext` e não `getSession`: o recorte abaixo pergunta se a pessoa
-   * é admin, e o `role` da sessão sozinho NÃO cobre `Pessoa.teamRole` — um
-   * admin por teamRole seria recortado como colaborador e perderia o aviso.
-   * O custo são duas buscas por chave primária, ao lado de uma varredura de
-   * até 400 linhas que já acontecia. */
-  const ctx = await getAuthContext().catch(() => null);
-  if (!ctx) {
+  /* `getSession` basta: a única pergunta que este endpoint faz é "está logado?".
+   * Sem recorte por dono não há o que perguntar sobre papel, e voltar ao
+   * `getSession` devolve as duas buscas por chave primária que o recorte
+   * custava a cada tecla digitada no modal. */
+  const session = await getSession();
+  if (!session) {
     return NextResponse.json({ similares: [] }, { status: 401 });
   }
 
@@ -73,24 +73,29 @@ export async function GET(req: Request) {
     return NextResponse.json({ similares: [] });
   }
 
-  /* ESCOPADO PELO DONO — a mesma régua da central (`lib/implementacoes/escopo.ts`).
+  /* NÃO ESCOPADO PELO DONO — decisão do Eduardo, e ela tem nome.
    *
-   * Antes, este endpoint devolvia o `oQue` de sugestões de QUALQUER pessoa da
-   * empresa selecionada. Enquanto a central era admin-only isso já era o
-   * caminho pelo qual um não-admin lia títulos que a tela lhe negava — a #372
-   * estreitou exigindo a empresa, mas não fechou.
+   * A central de implementações deixou de ser admin-only, e a régua de lá
+   * (`lib/implementacoes/escopo.ts`) é "cada um vê APENAS as próprias". Este
+   * endpoint é a ÚNICA exceção deliberada a ela, porque escopá-lo mata o
+   * produto: um aviso de duplicata que só olha a sua própria fila nunca avisa
+   * sobre a ideia que OUTRA pessoa já pediu — que é o caso que faz a mesma
+   * ideia entrar três vezes com três redações.
    *
-   * Com a central aberta, "vê apenas as próprias" tem de valer AQUI também:
-   * um aviso de duplicata que cita o texto de outra pessoa é a mesma leitura
-   * por outra porta.
+   * O que atravessa a fronteira é o MÍNIMO, e está no `select` abaixo:
+   *   `oQue`    o título, que é o que se compara para desduplicar;
+   *   `status`  para o aviso dizer se aquilo já foi entregue ou está parado;
+   *   `id`      inerte — o PDF (`[id]/print`) e o anexo passam por `podeAbrir`
+   *             e devolvem 404 para quem não é dono.
    *
-   * O CUSTO É REAL E É DELIBERADO: o aviso deixa de avisar sobre a ideia que
-   * OUTRA pessoa já pediu, que era metade do valor dele. Trocar de volta é uma
-   * linha — tirar `...filtroDeDono(quem)` daqui —, e a decisão é do Eduardo. */
-  const quem: QuemOlha = { userId: ctx.userId, ehAdmin: isAdmin(ctx) };
-
+   * O que NÃO atravessa: `porQue` (texto livre, onde as pessoas escrevem o
+   * contexto do pedido) e qualquer traço de autoria. Título de sugestão interna
+   * não é dado de cliente; o corpo continua escopado por dono na central.
+   *
+   * O recorte por empresa (`empresaId`, exigido acima) permanece: ele impede
+   * enumerar a fila do grupo inteiro sondando termos. */
   const linhas = await prisma.implementacao.findMany({
-    where: { empresaId, ...filtroDeDono(quem) },
+    where: { empresaId },
     orderBy: { createdAt: "desc" },
     take: MAX_VARREDURA,
     select: { id: true, oQue: true, status: true },
