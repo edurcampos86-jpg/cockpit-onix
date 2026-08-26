@@ -27,6 +27,7 @@ import {
   Layers,
   Save,
 } from "lucide-react";
+import { PECAS_POR_SEMANA } from "@/lib/grade/semanal";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -124,7 +125,7 @@ const CAMADAS: CamadaDefinition[] = [
     textColor: "text-purple-400",
     kpis: [
       { id: "ratio_seguindo_seguidores", name: "Ratio seguindo/seguidores", description: "Proporcao entre quem voce segue e quem te segue", meta: "<0,3 (hoje: 0,74)", metaValue: 0.3, icon: Ratio },
-      { id: "frequencia_publicacao", name: "Frequencia de publicacao", description: "Posts por semana", meta: "5 (conforme calendario v4)", metaValue: 5, icon: Calendar },
+      { id: "frequencia_publicacao", name: "Frequencia de publicacao", description: "Posts por semana", meta: `${PECAS_POR_SEMANA} (uma por posição da grade)`, metaValue: PECAS_POR_SEMANA, icon: Calendar },
       { id: "distribuicao_pilar", name: "Distribuicao por pilar", description: "% de posts em cada pilar", meta: "P1:40% P2:20% P3:20% P4:20%", icon: Layers },
       { id: "uso_cta_algoritmo", name: "Uso de CTA de Algoritmo", description: "% de posts P1/P3 com Salva ou Compartilha", meta: "100% dos P1 e P3", metaValue: 100, icon: Megaphone, suffix: "%", isPercentage: true },
     ],

@@ -3,23 +3,23 @@
 import { useMemo } from "react";
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import { CATEGORY_LABELS, type PostCategory } from "@/lib/types";
+import { categoriasDaSemana } from "@/lib/grade/semanal";
+import { somenteQueOcupamSlot } from "@/lib/grade/regime";
 
-const REQUIRED_CATEGORIES: PostCategory[] = [
-  "pergunta_semana",
-  "onix_pratica",
-  "patrimonio_mimimi",
-  "alerta_patrimonial",
-  "sabado_bastidores",
-];
+/** DERIVADO da grade — antes era uma 6ª cópia da lista, escrita à mão. */
+const REQUIRED_CATEGORIES: PostCategory[] = categoriasDaSemana();
 
 interface WeekCategoriesAlertProps {
-  posts: { category: string }[];
+  posts: { category: string; regime?: string | null }[];
   compact?: boolean;
 }
 
 export function WeekCategoriesAlert({ posts, compact = false }: WeekCategoriesAlertProps) {
   const { missing, present, allPresent } = useMemo(() => {
-    const presentSet = new Set(posts.map((p) => p.category));
+    // SÓ peças planejadas fecham slot. Um post oportunista com a mesma
+    // categoria faria a semana parecer completa e calaria o alerta que cobra
+    // a peça de verdade — que é como o planejamento se desfaz sozinho.
+    const presentSet = new Set(somenteQueOcupamSlot(posts).map((p) => p.category));
     const missingCategories = REQUIRED_CATEGORIES.filter((c) => !presentSet.has(c));
     const presentCategories = REQUIRED_CATEGORIES.filter((c) => presentSet.has(c));
     return {

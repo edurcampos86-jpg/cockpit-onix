@@ -7,6 +7,7 @@ import type { CalendarPost } from "@/app/calendario/page";
 import { Plus } from "lucide-react";
 import {
   CATEGORY_LABELS,
+  DAY_CATEGORY_MAP,
   type PostCategory,
   type PostStatus,
 } from "@/lib/types";
@@ -23,14 +24,9 @@ interface CalendarWeekGridProps {
 
 const WEEKDAYS = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
 
-// Quadro fixo esperado para cada dia da semana (1=Seg...6=Sáb)
-const EXPECTED_CATEGORY: Record<number, PostCategory> = {
-  1: "pergunta_semana",
-  2: "onix_pratica",
-  3: "patrimonio_mimimi",
-  4: "alerta_patrimonial",
-  6: "sabado_bastidores",
-};
+// A 4ª cópia da grade vivia aqui. Agora vem de `lib/grade/semanal.ts`, com
+// o nome local preservado para o resto do componente não mudar.
+const EXPECTED_CATEGORY: Partial<Record<number, PostCategory>> = DAY_CATEGORY_MAP;
 
 export function CalendarWeekGrid({
   currentDate,

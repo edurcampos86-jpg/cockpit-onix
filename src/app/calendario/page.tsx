@@ -17,6 +17,7 @@ import { FillWeekButton } from "@/components/calendario/fill-week-button";
 import { MonthlyCoverageScore } from "@/components/calendario/monthly-coverage-score";
 import { ChevronLeft, ChevronRight, Plus, CalendarDays, LayoutGrid } from "lucide-react";
 import type { PostFormat, PostStatus } from "@/lib/types";
+import { somenteQueOcupamSlot } from "@/lib/grade/regime";
 
 type CalendarView = "month" | "week";
 
@@ -29,6 +30,12 @@ export interface CalendarPost {
   scheduledDate: string;
   scheduledTime: string | null;
   ctaType: string | null;
+  /**
+   * `planejado` | `oportunista`. Opcional porque a coluna `Post.regime` só
+   * entra na PR de migration — até lá vem `undefined` e `regimeDoPost` lê
+   * como `planejado`, preservando o comportamento de hoje.
+   */
+  regime?: string | null;
   author: { name: string };
   script?: {
     hook: string | null;
@@ -179,7 +186,10 @@ export default function CalendarioPage() {
         <div className="flex items-center gap-2 self-start">
           <FillWeekButton
             currentDate={currentDate}
-            existingCategories={posts.map((p) => p.category)}
+            // Só peças planejadas contam como "já existe": um post
+            // oportunista não pode fazer o botão parar de oferecer a peça
+            // da grade que ainda falta.
+            existingCategories={somenteQueOcupamSlot(posts).map((p) => p.category)}
             onFilled={fetchPosts}
           />
           <button
