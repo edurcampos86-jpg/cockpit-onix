@@ -187,8 +187,23 @@ export default function KpisPage() {
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
   // Load data on mount
+  //
+  // A regra `react-hooks/set-state-in-effect` acusa este bloco, e o aviso é
+  // pré-existente — não nasceu nesta PR. Fica silenciado aqui porque o efeito
+  // É o padrão certo neste caso: `loadAllWeeks` lê o `localStorage`, que não
+  // existe no servidor. Semear o estado direto no `useState` faria a primeira
+  // renderização do cliente divergir do HTML que o servidor mandou, e a
+  // hidratação quebraria a tela — trocar um aviso de lint por uma tela quebrada
+  // é péssimo negócio.
+  //
+  // O caminho sem efeito seria `useSyncExternalStore`, e ele exige um snapshot
+  // referencialmente estável: `loadAllWeeks` devolve um array novo a cada
+  // chamada, então a migração pede cache e um caminho de escrita de verdade.
+  // Isso é refatoração da tela de KPIs, não desta PR, que só passou por aqui
+  // para tirar o `5` escrito à mão da meta de frequência.
   useEffect(() => {
     const weeks = loadAllWeeks();
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setAllWeeks(weeks);
     const current = weeks.find((w) => w.weekLabel === selectedWeek);
     if (current) {
