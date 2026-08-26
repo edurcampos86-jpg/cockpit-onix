@@ -24,11 +24,13 @@ export const dynamic = "force-dynamic";
  * justamente onde a duplicata costuma estar parada.
  *
  * ESCOPO: só a empresa que a pessoa selecionou no modal, e nunca a fila inteira.
- * A tela de triagem é admin-only (`page.tsx`), mas este endpoint precisa
- * responder a todo usuário logado — é o modal do FAB que o chama. Sem o recorte
- * por empresa, qualquer pessoa logada sondaria termos e enumeraria os títulos da
- * fila de TODAS as empresas, que hoje só admin vê. Duplicata só interessa dentro
- * da própria fila de qualquer forma, então o recorte não custa nada ao produto.
+ * O modal do FAB chama isto para todo usuário logado. Sem o recorte por empresa,
+ * qualquer pessoa sondaria termos e enumeraria os títulos da fila de TODAS as
+ * empresas. Duplicata só interessa dentro da própria fila de qualquer forma,
+ * então o recorte não custa nada ao produto.
+ *
+ * O recorte por DONO, ao contrário, custaria tudo — ver o bloco de decisão
+ * junto da consulta, no corpo do `GET`.
  *
  * Campos devolvidos ao mínimo (id, o quê, status): "por quê" é texto livre onde
  * as pessoas escrevem contexto que não precisa circular só para desduplicar um
@@ -42,6 +44,10 @@ const MAX_VARREDURA = 400;
 const PISO = 0.18;
 
 export async function GET(req: Request) {
+  /* `getSession` basta: a única pergunta que este endpoint faz é "está logado?".
+   * Sem recorte por dono não há o que perguntar sobre papel, e voltar ao
+   * `getSession` devolve as duas buscas por chave primária que o recorte
+   * custava a cada tecla digitada no modal. */
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ similares: [] }, { status: 401 });
@@ -67,6 +73,27 @@ export async function GET(req: Request) {
     return NextResponse.json({ similares: [] });
   }
 
+  /* NÃO ESCOPADO PELO DONO — decisão do Eduardo, e ela tem nome.
+   *
+   * A central de implementações deixou de ser admin-only, e a régua de lá
+   * (`lib/implementacoes/escopo.ts`) é "cada um vê APENAS as próprias". Este
+   * endpoint é a ÚNICA exceção deliberada a ela, porque escopá-lo mata o
+   * produto: um aviso de duplicata que só olha a sua própria fila nunca avisa
+   * sobre a ideia que OUTRA pessoa já pediu — que é o caso que faz a mesma
+   * ideia entrar três vezes com três redações.
+   *
+   * O que atravessa a fronteira é o MÍNIMO, e está no `select` abaixo:
+   *   `oQue`    o título, que é o que se compara para desduplicar;
+   *   `status`  para o aviso dizer se aquilo já foi entregue ou está parado;
+   *   `id`      inerte — o PDF (`[id]/print`) e o anexo passam por `podeAbrir`
+   *             e devolvem 404 para quem não é dono.
+   *
+   * O que NÃO atravessa: `porQue` (texto livre, onde as pessoas escrevem o
+   * contexto do pedido) e qualquer traço de autoria. Título de sugestão interna
+   * não é dado de cliente; o corpo continua escopado por dono na central.
+   *
+   * O recorte por empresa (`empresaId`, exigido acima) permanece: ele impede
+   * enumerar a fila do grupo inteiro sondando termos. */
   const linhas = await prisma.implementacao.findMany({
     where: { empresaId },
     orderBy: { createdAt: "desc" },

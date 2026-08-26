@@ -9,6 +9,7 @@
  * A key e as credenciais B2 nunca são expostas na resposta nem no log.
  */
 import { getAuthContext, isAdmin } from "@/lib/auth-helpers";
+import { podeAbrir } from "@/lib/implementacoes/escopo";
 import { prisma } from "@/lib/prisma";
 import { downloadContrato } from "@/lib/b2/upload";
 import { mimeFromKey } from "@/lib/implementacoes/anexos";
@@ -23,17 +24,31 @@ export async function GET(
 ) {
   const ctx = await getAuthContext().catch(() => null);
   if (!ctx) return new Response("forbidden", { status: 403 });
-  // Central de implementações é admin-only; não-admin recebe o MESMO 404 do
-  // "não existe" (não vaza existência) — mesmo padrão da rota sugerir-rice.
-  if (!isAdmin(ctx)) return new Response("Não encontrado", { status: 404 });
+  /* Deixou de ser admin-only: quem criou a sugestão abre a própria.
+   *
+   * A checagem migrou para DEPOIS da leitura, porque aqui não há `where` a
+   * espalhar — é este o caminho pelo qual um id compartilhado ou adivinhado
+   * entregaria o item de outra pessoa. Segue respondendo 404, nunca 403: "sem
+   * permissão" confirmaria que aquele id existe. */
+  const ehAdmin = isAdmin(ctx);
 
   const { anexoId } = await ctxParams.params;
 
+  // `implementacao.userId` entra no select: o anexo não guarda dono próprio,
+  // quem tem dono é a sugestão à qual ele pertence.
   const anexo = await prisma.implementacaoAnexo.findUnique({
     where: { id: anexoId },
-    select: { b2Key: true, contentType: true, nomeArquivo: true },
+    select: {
+      b2Key: true,
+      contentType: true,
+      nomeArquivo: true,
+      implementacao: { select: { userId: true } },
+    },
   });
   if (!anexo) {
+    return new Response("Não encontrado", { status: 404 });
+  }
+  if (!podeAbrir({ userId: ctx.userId, ehAdmin }, anexo.implementacao.userId)) {
     return new Response("Não encontrado", { status: 404 });
   }
 
