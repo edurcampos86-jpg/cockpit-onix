@@ -15,7 +15,7 @@
  * Ele TRANSCREVE. O schema de saída é construído a partir dos rótulos do
  * perfil, então o modelo não escolhe nomes de campo, não inventa coluna e não
  * traduz vocabulário — "Ramo" continua "Ramo", e quem decide que "Ramo: AUTO
- * FÁCIL" vira a família `auto_residencial` é o dicionário do perfil, código
+ * FÁCIL" vira o produto `auto` é o dicionário do perfil, código
  * determinístico, depois daqui.
  *
  * Célula ilegível vira string vazia, JAMAIS um chute: a linha é rejeitada com
