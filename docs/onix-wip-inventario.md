@@ -1,4 +1,90 @@
-# Inventário de WIP — todas as frentes abertas
+# Livro-caixa das frentes — Ecossistema Onix
+
+> **Como usar, em duas linhas:**
+> **Antes de abrir** uma frente, acrescente a linha aqui.
+> **Antes de fechar** uma frente, marque-a como concluída aqui.
+>
+> Este arquivo é a **fonte única de verdade entre sessões paralelas** do Claude
+> Code. Sessões diferentes não se enxergam: sem um lugar comum, cada uma abre
+> achando que é a única — foi assim que **seis PRs entraram na `main` em 91
+> minutos** na madrugada de 24/08, sem que nenhuma soubesse das outras.
+>
+> Escrever aqui é barato; descobrir a colisão depois do merge não é.
+> O teto de WIP da skill `onix-entrega-segura` (3 frentes) só é verificável
+> contra esta lista.
+
+**Estado corrente levantado em 2026-08-26 22:14Z, contra a `main` em `3e87f10`.**
+
+---
+
+## Frentes abertas — 17
+
+Ordenadas da mais recente para a mais antiga. "Parada há" conta desde a última
+movimentação da PR.
+
+| PR | parada há | frente | faixa |
+|---|---:|---|---|
+| **#405** | horas | Grade PR 2 — a grade ganha um dono, e encolhe | 🟡 |
+| **#404** | horas | Apagar TODA a receita passa a exigir administrador | 🔴 (RBAC) |
+| **#367** | horas | Backup do MSP/Supabase — script manual, read-only, cifrado com `age` | 🔴 (segredo) |
+| **#400** | 2 d | Upload do PAT diz por que recusou; teto sobe para 20 MB | 🟡 |
+| **#399** | 2 d | Grade PR 1 — a esteira de produção ganha um dono | 🟡 |
+| **#387** | 3 d | Remove `tipoProduto` do acordo de parceiro — **marcada PARADA** | 🔴 |
+| **#394** | 3 d | Importação: PDF passa a ter de declarar a estratégia | 🟡 |
+| **#382** | 3 d | Guia de Voz — extrator somente-leitura das transcrições | 🟢 |
+| **#370** | 8 d | Tela de abertura da Onix Capital, atrás de flag OFF | 🟢 (flag OFF) |
+| **#353** | 11 d | Auditor de 6 integrações + idade por integração no `/api/health` | 🟡 |
+| **#180** | 71 d | Backfill de conversas DataCrazy (dry-run) | 🟡 · 🗄️ congelar |
+| **#166** | 74 d | Tipagem dos `no-explicit-any` de `datacrazy.ts` | 🟢 · 🗄️ congelar |
+| **#161** | 75 d | Endpoint server-side de import do Saldo em CC | 🔴 · 🗄️ arquivar |
+| **#154** | 77 d | Carrossel "Tudo dá trabalho" | 🟢 · 🗄️ arquivar |
+| **#113** | 88 d | Busca inteligente de clientes | 🟡 · 🗄️ congelar |
+| **#27** | 100 d | Remove credenciais em claro + script de rotação | 🔴 · 🗄️ arquivar **após conferir a exposição na `main`** |
+| **#2** | 104 d | Rename Cockpit → Ecossistema Onix | 🔴 · 🗄️ arquivar (já entregue por outra via) |
+
+**Sete estão vivas** (movimentação nos últimos 3 dias) e **sete são herança de
+maio/junho**, todas com veredito de congelar ou arquivar desde a fotografia de
+13/08 — e todas ainda abertas. A leitura de 13/08 continua valendo: a dívida de
+WIP deste repositório é herdada, não produzida pelo ritmo atual.
+
+---
+
+## Entregas recentes — flag e confirmação em produção
+
+O que já está na `main`. A coluna que importa é a última: **código na `main` não
+é código no ar**, e código no ar atrás de flag OFF não muda nada para ninguém.
+
+| PR | fundida | o que faz | flag | no ar? |
+|---|---|---|---|---|
+| **#403** | 26/08 22:02Z | Central de Implementações abre para todos: cada um vê as próprias, admin vê todas. O `redirect("/")` para não-admin virou recorte em 6 pontos de leitura | **sem flag** | ⏳ fundida há minutos — deploy ainda não conferido |
+| **#397** | 24/08 02:41Z | Sidebar filtrada por cargo e por nó, resolvida no servidor | `SIDEBAR_FILTRADA` — **OFF** | ✅ no ar e **inerte**. Ligar é uma linha em `Config`, sem redeploy |
+| **#402** | 24/08 02:30Z | Remove o workflow da #398 e os dois `.sql`, já executados | sem flag | ✅ só CI |
+| **#401** | 24/08 02:25Z | Registra as 2 linhas apagadas e o estado final dos acordos do Renan | sem flag | ✅ documento, sem efeito em runtime |
+| **#396** | 24/08 01:29Z | O 12-4-2 passa a contar toques do ano; o alerta de cadência sai do canal do escritório e vai ao assessor e ao backoffice da carteira | **sem flag** | ✅ **ativo** — muda a tela de clientes e o destino do alerta |
+| **#398** | 24/08 01:13Z | Botão de Actions para rodar os dois `.sql` de correção dos acordos | sem flag | ✅ executado e depois removido pela #402 |
+| **#395** | 24/08 01:10Z | Traz o SQL que apaga os 2 acordos de parceiro residuais por `tipoProduto` | sem flag | ✅ script; a execução foi à parte |
+| **#383** | 22/08 | Registro rico da ficha do cliente — 6 tabelas novas, 7 rotas, 6 componentes | `CLIENTES_REGISTRO_RICO` — **OFF** | ✅ no ar e **inerte**. Migration aplicada; UI não aparece |
+
+> **Duas flags OFF acumuladas** (`SIDEBAR_FILTRADA`, `CLIENTES_REGISTRO_RICO`).
+> Flag desligada é entrega parada com custo de manutenção: enquanto dorme, o
+> caminho antigo e o novo convivem e toda PR vizinha tem de acertar os dois.
+
+**Última confirmação de produção:** `6f2f0e7` servindo em `production`,
+verificado pelo `post-deploy-smoke` em 25/08 15:20Z.
+
+---
+---
+
+# Fotografia de 2026-08-13 — preservada como histórico
+
+> O que vem abaixo é o inventário original, levantado contra a `main` em
+> `ea60148`. **Não foi reescrito de propósito**: o veredito de cada frente
+> (manter / congelar / arquivar) e a análise da #301 continuam válidos, e a
+> lista de branches órfãs não foi refeita desde então.
+>
+> **O que mudou desde ele:** as frentes #305, #309, #323, #301, #304 e #326
+> saíram da lista de abertas — a seção "Frentes abertas" no topo é a que vale.
+> As sete frentes de maio/junho continuam exatamente onde estavam.
 
 > **Levantado em 2026-08-13**, contra `main` em `ea60148`.
 > Fontes cruzadas e deduplicadas: **PRs abertas** (12) · **issues abertas** (0) ·
