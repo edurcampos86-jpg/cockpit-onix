@@ -64,7 +64,7 @@ export async function uploadPat(
     return {
       error:
         `Este PDF tem ${formatarMB(file.size)}, acima do limite de ${MAX_PDF_LABEL}. ` +
-        `Reexporte o laudo em resolução menor e envie de novo.`,
+        `Comprima o PDF antes de enviar. Reexportar pelo navegador não reduz o suficiente.`,
     };
   }
 
