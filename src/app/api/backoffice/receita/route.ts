@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getAuthContext, isAdmin } from "@/lib/auth-helpers";
 import { randomUUID, createHash } from "crypto";
 
 interface RowIn {
@@ -240,8 +241,31 @@ export async function PATCH() {
   }
 }
 
-/** DELETE /api/backoffice/receita -> limpa tudo */
+/**
+ * DELETE /api/backoffice/receita -> apaga TODOS os lançamentos de receita.
+ *
+ * SOMENTE ADMIN. Não é um delete por id: é `deleteMany({})`, a tabela inteira,
+ * e o handler não recebe argumento nenhum — uma requisição sem corpo zera o
+ * snapshot de receita do grupo. É também o ÚNICO caminho de apagamento total
+ * desta tabela; o POST de importação só cria (`createMany` com
+ * `skipDuplicates`), nunca limpa antes.
+ *
+ * Até aqui a única barreira era o proxy exigir sessão (`src/proxy.ts`), e a
+ * página que expõe o botão (`/empresas/investimentos/receita`) não tem gate de
+ * papel: qualquer uma das 22 pessoas logadas abria a tela e apagava. O
+ * `confirm()` do navegador não é barreira — some com uma chamada direta.
+ *
+ * 403 e não 404: a rota é conhecida e o próprio menu leva até ela; esconder a
+ * existência dela não protege nada, e um 404 aqui só faria o operador legítimo
+ * achar que a rota sumiu. O 404 mudo é para item fora de escopo, onde o próprio
+ * "sem permissão" confirmaria que aquele id existe — não é o caso.
+ */
 export async function DELETE() {
+  const ctx = await getAuthContext().catch(() => null);
+  if (!ctx || !isAdmin(ctx)) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+
   try {
     const r = await prisma.receitaItem.deleteMany({});
     return NextResponse.json({ success: true, deleted: r.count });
