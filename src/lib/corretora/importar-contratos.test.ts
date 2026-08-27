@@ -47,7 +47,7 @@ const PERFIL: PerfilImportacaoConfig = {
     capitalSegurado: "decimal_ptbr",
   },
   dicionarios: {
-    tipoProduto: { "SEGURO DE VIDA": "vida", "AUTO FÁCIL": "auto_residencial" },
+    tipoProduto: { "SEGURO DE VIDA": "vida", "AUTO FÁCIL": "auto" },
     status: { "EM VIGOR": "ativo", "CANCELADA": "cancelado", "ENCERRADA": "encerrado" },
   },
 };
@@ -181,7 +181,7 @@ test("a chave normaliza os três lados", () => {
 test("produto diferente na MESMA apólice são contratos diferentes", () => {
   // Por isso o tipoProduto entra na chave: uma apólice pode cobrir dois ramos.
   const a = chaveNegocio({ parceiro: "Porto", numeroContrato: "AP-1", tipoProduto: "vida" });
-  const b = chaveNegocio({ parceiro: "Porto", numeroContrato: "AP-1", tipoProduto: "consorcio" });
+  const b = chaveNegocio({ parceiro: "Porto", numeroContrato: "AP-1", tipoProduto: "consorcio-auto" });
   assert.notEqual(a, b);
 });
 
@@ -357,12 +357,26 @@ test("dicionário DECLARADO é autoritativo — o alias de mercado não o comple
 test("sem dicionário declarado, vale o alias de mercado do catálogo", () => {
   const semDicionario = { ...PERFIL, dicionarios: { status: PERFIL.dicionarios.status } };
   const linhas = aplicarPerfil(
-    [{ numero: 2, celulas: { ...BASE, Ramo: "Consórcio" }, origem: "deterministica" as const }],
+    [{ numero: 2, celulas: { ...BASE, Ramo: "Consórcio Auto" }, origem: "deterministica" as const }],
     semDicionario,
   );
   const r = montarRegistro(linhas[0], "Porto Seguro", undefined, AGOSTO);
   assert.ok(r.ok, r.ok ? "" : r.motivo);
-  assert.equal(r.registro.tipoProduto, "consorcio");
+  assert.equal(r.registro.tipoProduto, "consorcio-auto");
+});
+
+test("alias AMBÍGUO é recusado pelo motor inteiro, não só pelo catálogo", () => {
+  // "Consórcio" sozinho deixou de resolver quando a família virou dois
+  // produtos. O que importa aqui é o comportamento de PONTA: a linha é
+  // rejeitada com motivo, e não gravada no produto mais provável.
+  const semDicionario = { ...PERFIL, dicionarios: { status: PERFIL.dicionarios.status } };
+  const linhas = aplicarPerfil(
+    [{ numero: 2, celulas: { ...BASE, Ramo: "Consórcio" }, origem: "deterministica" as const }],
+    semDicionario,
+  );
+  const r = montarRegistro(linhas[0], "Porto Seguro", undefined, AGOSTO);
+  assert.equal(r.ok, false);
+  assert.match(r.ok ? "" : r.motivo, /tipoProduto sem mapeamento/);
 });
 
 test("todo tipoProduto que sai do plano está no catálogo", () => {

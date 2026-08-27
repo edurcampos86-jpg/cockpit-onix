@@ -56,6 +56,9 @@ on:
       - 'scripts/quem-ve-a-sidebar.ts'
       # Mesmo motivo, para a medição da receita.
       - 'scripts/receita-esta-inflada.ts'
+      # Sem isto, editar a contagem não roda a contagem — e o detector volta a
+      # ficar cego para si mesmo, que é o defeito que ele existe para corrigir.
+      - 'scripts/contagem-tabelas.ts'
 
 permissions:
   contents: read
@@ -233,6 +236,56 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           cat "${RUNNER_TEMP}/empresa.txt"
+          echo "código: $CODIGO"
+
+      # ── CONTAGEM DE TODAS AS TABELAS ───────────────────────────────────
+      #
+      # Este passo existe por um erro que aconteceu DUAS vezes.
+      #
+      # A #301 apostou em "`Empresa` está vazia" e a tabela tinha 6 linhas. A
+      # resposta foi o passo acima — que responde bem, e sobre UMA tabela.
+      #
+      # Em ago/2026 a #410 apostou em "`ContratoCorretora` está vazia" para
+      # redividir o catálogo de produtos. Este workflow DISPAROU naquela PR (ela
+      # tocou `prisma/schema.prisma`), passou VERDE, e não citava aquela tabela
+      # nenhuma vez. O detector estava ligado e olhando para o lado errado — e
+      # verde lido como resposta é pior que ausência de detector.
+      #
+      # O conserto óbvio seria uma lista de tabelas de interesse. Seria o mesmo
+      # defeito outra vez: lista não acompanha schema, e a PRÓXIMA tabela nova
+      # fica de fora em silêncio. Então não há lista — o script lê os `model`
+      # do `schema.prisma` e conta todos, e diz quantos contou.
+      #
+      # `continue-on-error`: contagem é DIAGNÓSTICO, não gate. Código 1 quer
+      # dizer "o schema declara tabela que o banco não tem", que costuma ser
+      # migration pendente — informação, não motivo para barrar merge. Quem
+      # barra é o "Gate de migration destrutiva", acima.
+      - name: Contagem de todas as tabelas
+        continue-on-error: true
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          set +e
+          npx tsx scripts/contagem-tabelas.ts > "${RUNNER_TEMP}/contagem.txt" 2>&1
+          CODIGO=$?
+          set -e
+          case "$CODIGO" in
+            0) VEREDITO='Todas as tabelas do schema foram contadas.' ;;
+            1) VEREDITO='**DIVERGÊNCIA** — o schema declara tabela que o banco não tem. Costuma ser migration pendente; se for a tabela sobre a qual esta PR aposta, a aposta NÃO foi conferida.' ;;
+            *) VEREDITO='**INDETERMINADO** — não consegui perguntar ao banco. Isto não é "está vazio".' ;;
+          esac
+          {
+            echo
+            echo '## Contagem de linhas por tabela'
+            echo
+            echo "$VEREDITO"
+            echo
+            echo '```'
+            cat "${RUNNER_TEMP}/contagem.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "${RUNNER_TEMP}/contagem.txt"
           echo "código: $CODIGO"
 
       # ── INCIDENTE 15/08: quem escreve saldoConta, e quando ─────────────

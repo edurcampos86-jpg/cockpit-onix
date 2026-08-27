@@ -41,9 +41,56 @@
  *
  * O dicionário do perfil VENCE o catálogo: se um parceiro chama de "Vida" o
  * que para o mercado é outra coisa, quem sabe disso é o perfil dele.
+ *
+ * ── AGO/2026: SEIS FAMÍLIAS VIRARAM ONZE PRODUTOS ────────────────────────
+ * Revisão do Eduardo, e a régua dele foi explícita: NÃO agrupar produtos
+ * diferentes sob o mesmo nome. Um agrupamento cômodo no catálogo vira, três
+ * meses depois, um relatório que soma coisas que não se somam — e o dano é
+ * silencioso, porque o número existe e parece certo.
+ *
+ * O que se desfez, e por quê:
+ *
+ *   `auto_residencial` → `auto`, `residencial`, `empresarial`
+ *      Eram uma família porque compartilham a lógica de franquia. Mas
+ *      precificação e cobertura são distintas, e é por produto que se decide
+ *      onde vender.
+ *
+ *   `consorcio` → `consorcio-auto`, `consorcio-imobiliario`
+ *      Carta de crédito de veículo e de imóvel têm prazo, valor e público
+ *      diferentes. Somar as duas esconde qual está crescendo.
+ *
+ *   `fianca_rc_profissional` → `fianca-locaticia`, `rc-profissional`
+ *      Estavam juntas por ambas garantirem obrigação de terceiro — parentesco
+ *      conceitual que não sobrevive à pergunta "quanto vendemos de fiança?".
+ *
+ *   `saude_odonto` → `saude`, `odonto`
+ *      Mesma régua. Odonto é ticket e ciclo próprios.
+ *
+ *   `vida` continua uma, com VIDA FLEX entre os sinônimos.
+ *
+ * ── O QUE ISSO CUSTA, E POR QUE É VERDE MESMO ASSIM ─────────────────────
+ * `tipoProduto` é `String` validada contra este catálogo, não `enum` de banco:
+ * mudar a lista é mudar código, sem migration e sem `ALTER TYPE`.
+ *
+ * O preço é que os quatro ids antigos deixam de ser válidos. Contrato gravado
+ * com `auto_residencial` passaria a falhar em `ehTipoProdutoValido` — e é por
+ * isso que esta mudança é segura AGORA e não seria daqui a um mês:
+ * `ContratoCorretora` está vazia. Depois da primeira importação, redividir
+ * família vira trabalho de dado, não de catálogo.
+ *
+ * ── AMBIGUIDADE VIROU RECUSA, DE PROPÓSITO ───────────────────────────────
+ * Alguns sinônimos genéricos deixaram de existir porque agora apontariam para
+ * mais de um produto: "consórcio" sozinho (auto ou imobiliário?), "carta de
+ * crédito" (idem), "patrimonial" (auto, residencial ou empresarial?), "seguro
+ * de pessoas" (vida, saúde ou DIT?).
+ *
+ * Nenhum deles foi atribuído ao "mais provável". Rótulo ambíguo devolve `null`,
+ * a linha é recusada e o rótulo aparece no relatório do ensaio para virar
+ * entrada no dicionário DAQUELE parceiro — que é quem sabe o que "Consórcio"
+ * significa no arquivo dele. Chutar aqui inventaria dado de cliente.
  * ────────────────────────────────────────────────────────────── */
 
-/** Uma família canônica de produto. O `id` é o que vai para o banco. */
+/** Um produto canônico do catálogo. O `id` é o que vai para o banco. */
 export type FamiliaProduto = {
   /** Valor canônico gravado em `ContratoCorretora.tipoProduto`. */
   readonly id: string;
@@ -60,11 +107,35 @@ export type FamiliaProduto = {
 };
 
 /**
- * As seis famílias. Acrescentar produto novo é acrescentar linha AQUI — sem
+ * Os onze produtos. Acrescentar produto novo é acrescentar linha AQUI — sem
  * migration, sem deploy de banco, e com o teste de unicidade abaixo travando
  * id ou alias repetido.
  */
 export const CATALOGO_PRODUTOS: readonly FamiliaProduto[] = [
+  {
+    id: "auto",
+    nome: "Auto",
+    descricao:
+      "Seguro de automóvel: casco, terceiros e assistência 24h. Franquia por " +
+      "sinistro sobre o veículo segurado.",
+    aliases: ["auto", "automovel", "seguro auto", "seguro automovel", "seguro de automovel"],
+  },
+  {
+    id: "residencial",
+    nome: "Residencial",
+    descricao:
+      "Seguro de imóvel de moradia: incêndio, roubo, danos elétricos e " +
+      "assistência. Inclui condomínio residencial.",
+    aliases: ["residencial", "seguro residencial", "residencia", "condominio"],
+  },
+  {
+    id: "empresarial",
+    nome: "Empresarial",
+    descricao:
+      "Seguro patrimonial de estabelecimento comercial ou industrial. Separado " +
+      "de residencial porque a vistoria, o prêmio e a cobertura são outros.",
+    aliases: ["empresarial", "seguro empresarial", "empresa", "comercial", "seguro comercial"],
+  },
   {
     id: "vida",
     nome: "Vida",
@@ -73,78 +144,73 @@ export const CATALOGO_PRODUTOS: readonly FamiliaProduto[] = [
       "invalidez e assistências ligadas à pessoa.",
     aliases: [
       "seguro de vida",
+      "vida",
+      "vida flex",
       "vida individual",
       "vida em grupo",
       "seguro vida",
       "vida resgatavel",
       "vida inteira",
-      "seguro de pessoas",
       "prestamista",
     ],
   },
   {
-    id: "auto_residencial",
-    nome: "Auto e Residencial",
+    id: "saude",
+    nome: "Saúde",
     descricao:
-      "Seguro de bem patrimonial: automóvel, residência, condomínio e empresarial. " +
-      "Agrupados porque compartilham a mesma lógica de franquia e de bem segurado.",
-    aliases: [
-      "auto",
-      "automovel",
-      "seguro auto",
-      "seguro automovel",
-      "residencial",
-      "seguro residencial",
-      "residencia",
-      "patrimonial",
-      "condominio",
-      "empresarial",
-    ],
-  },
-  {
-    id: "saude_odonto",
-    nome: "Saúde e Odonto",
-    descricao:
-      "Plano de saúde e plano odontológico, individual, familiar ou PME. " +
-      "Contrato com mensalidade e rede credenciada, não com apólice de sinistro.",
+      "Plano de saúde individual, familiar ou PME. Contrato com mensalidade e " +
+      "rede credenciada, não com apólice de sinistro.",
     aliases: [
       "saude",
       "plano de saude",
       "assistencia medica",
-      "odonto",
-      "odontologico",
-      "plano odontologico",
       "saude pme",
       "saude empresarial",
+      "seguro saude",
     ],
   },
   {
-    id: "consorcio",
-    nome: "Consórcio",
+    id: "odonto",
+    nome: "Odonto",
     descricao:
-      "Carta de crédito em grupo, imóvel ou veículo. Não é seguro: não há " +
-      "sinistro, há contemplação — por isso família própria.",
-    aliases: [
-      "consorcio",
-      "carta de credito",
-      "consorcio imovel",
-      "consorcio imobiliario",
-      "consorcio veiculo",
-      "consorcio auto",
-    ],
+      "Plano odontológico, individual ou PME. Ticket e ciclo de venda próprios — " +
+      "por isso não entra em saúde.",
+    aliases: ["odonto", "odontologico", "plano odontologico", "dental", "plano dental"],
   },
   {
-    id: "fianca_rc_profissional",
-    nome: "Fiança e RC Profissional",
+    id: "consorcio-auto",
+    nome: "Consórcio Auto",
     descricao:
-      "Garantia locatícia (fiança) e responsabilidade civil profissional (E&O, D&O). " +
-      "Agrupados porque ambos garantem OBRIGAÇÃO de terceiro, não bem nem pessoa.",
+      "Carta de crédito em grupo para veículo. Não é seguro: não há sinistro, " +
+      "há contemplação.",
+    aliases: ["consorcio auto", "consorcio veiculo", "consorcio de automovel", "consorcio automovel"],
+  },
+  {
+    id: "consorcio-imobiliario",
+    nome: "Consórcio Imobiliário",
+    descricao:
+      "Carta de crédito em grupo para imóvel. Prazo, valor e público distintos " +
+      "do consórcio de veículo.",
+    aliases: ["consorcio imobiliario", "consorcio imovel", "consorcio de imovel"],
+  },
+  {
+    id: "fianca-locaticia",
+    nome: "Fiança Locatícia",
+    descricao:
+      "Garantia de aluguel em lugar do fiador. Garante OBRIGAÇÃO de terceiro, " +
+      "não bem nem pessoa.",
+    aliases: ["fianca", "fianca locaticia", "seguro fianca", "garantia locaticia"],
+  },
+  {
+    id: "rc-profissional",
+    nome: "RC Profissional",
+    descricao:
+      "Responsabilidade civil profissional — E&O, D&O. Cobre dano causado a " +
+      "terceiro no exercício da atividade.",
     aliases: [
-      "fianca",
-      "fianca locaticia",
-      "seguro fianca",
-      "garantia locaticia",
       "rc profissional",
+      "rcivil",
+      "rc civil",
       "responsabilidade civil",
       "responsabilidade civil profissional",
       "e o",
