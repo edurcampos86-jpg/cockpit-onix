@@ -665,6 +665,59 @@ aqui porque **parece** pendência para quem chega sem contexto, e o custo de nã
 registrar é uma auditoria repetindo a mesma proposta a cada rodada. A régua para
 mudar é mostrar o que mudou desde esta linha.
 
+### `ContratoCorretora` vazia — cadeia lógica, não suposição
+
+A redivisão do catálogo (#410, ago/2026: 6 famílias → 11 produtos) só foi
+segura porque `ContratoCorretora` está vazia: os quatro ids compostos
+(`auto_residencial`, `saude_odonto`, `consorcio`, `fianca_rc_profissional`)
+deixaram de ser válidos, e um contrato gravado com eles passaria a falhar em
+`ehTipoProdutoValido`.
+
+Ninguém abriu o banco para conferir — nem eu, nem o auditor. O que sustenta a
+afirmação é uma cadeia de três elos, e cada um foi verificado no código:
+
+**1. A tabela nasceu vazia.** `prisma/migrations/20260816002845_corretora_contrato_perfil_importacao/migration.sql`
+cria `ContratoCorretora` e não tem **nenhum** `INSERT` — conferido por
+contagem, não por leitura.
+
+**2. Só um caminho escreve nela em produção.**
+`src/lib/corretora/executar-importacao.ts` (`create` e `update`), alcançável
+apenas pela rota `POST /api/empresas/corretora/importar`. Zero SQL cru, zero
+seed, zero cron.
+
+O segundo escritor no repositório é `scripts/ensaio-import-corretora.ts`, e ele
+**não roda contra produção nem por acidente**: as linhas 51-56 abortam se o host
+do `DATABASE_URL` não for `localhost` e se o nome do banco não começar com
+`ensaio_`. O `deleteMany({})` que ele faz em seguida é consequência disso, não a
+garantia — a garantia é o guard.
+
+**3. Esse caminho exige um `PerfilImportacao`, e não havia nenhum.** A rota
+devolve 404 sem perfil (`importar/route.ts:102`). Até a #390 (mergeada em
+23/ago), a única criação de perfil no sistema inteiro era o mesmo script de
+ensaio — não existia POST.
+
+**Onde a cadeia PARA, e vale dizer:** ela prova que era impossível gravar
+contrato até 23/ago. Da #390 até a #410 (27/ago) passaram quatro dias em que
+criar perfil pela tela e importar já era possível — e nesse intervalo a garantia
+não é mais mecânica, é o Eduardo dizendo que não importou. É a única parte deste
+registro que a cadeia não sustenta sozinha.
+
+**A janela fechou.** Com a #390 em produção dá para criar perfil pela tela, e
+com a primeira importação a tabela deixa de estar vazia. Daí em diante,
+redividir família é trabalho de DADO — `UPDATE` de `tipoProduto` linha a linha,
+faixa vermelha — e não mais uma linha de catálogo.
+
+Quem quiser reabrir a discussão de agrupamento de produto tem, a partir de
+agora, o ônus de contar as linhas antes.
+
+**E o detector que existe para isto estava olhando para outro lado.** O
+workflow `estado-do-banco.yml` nasceu porque a #301 apostou em "`Empresa` está
+vazia" e a tabela tinha 6 linhas. Ele **disparou** na #410 — que tocou
+`prisma/schema.prisma` — e passou verde sem contar `ContratoCorretora`: o
+arquivo não cita essa tabela nenhuma vez. Acrescentar a contagem das tabelas da
+Corretora ao relatório dele é o conserto óbvio, e é o que transformaria esta
+cadeia de raciocínio num número.
+
 ### Conferências humanas pendentes
 
 - 📋 ~331 pares CPF↔CNPJ por sinal fraco — fila de revisão, sem união automática.
