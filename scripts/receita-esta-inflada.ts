@@ -63,6 +63,55 @@ const dia = (d: Date | string | null) =>
 
 const pct = (parte: number, todo: number) => (todo === 0 ? "—" : `${((parte / todo) * 100).toFixed(1)}%`);
 
+
+/**
+ * O que as telas mostram, com ou sem `ReceitaItem`.
+ *
+ * `ClienteBackoffice.receitaAnual` alimenta a ficha do cliente, a soma "renda
+ * total" da tabela, o CSV exportado e o KPI "Receita anual" do dashboard de
+ * performance. Tem DOIS escritores: o import da planilha (a tabela de clientes
+ * aceita as colunas `receita`, `receitaAnual`, `receitaAno`, `rendaAnual`) e o
+ * `recomputeReceitaClientes` do import de receita.
+ *
+ * O detalhe que faz esta leitura valer mesmo com a tabela vazia:
+ * `recomputeReceitaClientes` começa com `if (!items.length) return` — com zero
+ * linhas em `ReceitaItem` ele NÃO zera nada. O número que estiver na ficha
+ * continua na ficha, e nada nesta rodada o corrige.
+ */
+async function fichaDoCliente(
+  prisma: { $queryRaw: <T>(q: TemplateStringsArray, ...v: unknown[]) => Promise<T> },
+  liquidoDoReceitaItem: number,
+) {
+  const [ficha] = await prisma.$queryRaw<
+    Array<{ clientes: bigint; com_receita: bigint; soma: unknown; maior: unknown }>
+  >`
+    SELECT count(*)                                   AS clientes,
+           count(*) FILTER (WHERE "receitaAnual" > 0) AS com_receita,
+           coalesce(sum("receitaAnual"), 0)           AS soma,
+           coalesce(max("receitaAnual"), 0)           AS maior
+    FROM "ClienteBackoffice"
+  `;
+
+  console.log("\n── O QUE AS TELAS MOSTRAM (ClienteBackoffice.receitaAnual) ──");
+  console.log(`  clientes na base           ${Number(ficha.clientes)}`);
+  console.log(`  com receitaAnual > 0       ${Number(ficha.com_receita)}`);
+  console.log(`  soma                       ${dinheiro(n(ficha.soma))}`);
+  console.log(`  maior de um cliente só     ${dinheiro(n(ficha.maior))}`);
+  console.log("\n  Este é o número do KPI 'Receita anual' em /empresas/investimentos/");
+  console.log("  performance, da 'renda total' na tabela de clientes, da ficha e do CSV.");
+
+  if (liquidoDoReceitaItem === 0 && Number(ficha.com_receita) > 0) {
+    console.log("\n  ⚠ As telas mostram receita e `ReceitaItem` está vazia.");
+    console.log("  Não é contradição: o import da planilha de clientes também escreve");
+    console.log("  `receitaAnual`. Mas significa que o número exibido NÃO vem do");
+    console.log("  relatório de receita — e que `recomputeReceitaClientes` não tem como");
+    console.log("  corrigi-lo, porque ele desiste na primeira linha quando a tabela está");
+    console.log("  vazia. Qual das duas fontes está na tela hoje, só o histórico do");
+    console.log("  import diz — e não existe histórico: é a sugestão 'Extrato do");
+    console.log("  apagamento' que ficou pendente.");
+  }
+}
+
 async function main() {
   const url = process.env.DATABASE_URL;
   if (!url) {
@@ -108,7 +157,10 @@ async function main() {
 
   console.log("── PANORAMA ──");
   if (linhas === 0) {
-    console.log("  Tabela VAZIA. Nada a medir — e nada inflado.");
+    console.log("  `ReceitaItem` está VAZIA. Zero linhas.");
+    console.log("  Não há inflação a medir — mas VAZIO não é o mesmo que INOFENSIVO,");
+    console.log("  e a pergunta que sobra é o que as telas mostram sem esta tabela.");
+    await fichaDoCliente(prisma, 0);
     return;
   }
   console.log(`  linhas                 ${linhas}`);
@@ -261,32 +313,7 @@ async function main() {
     );
   }
 
-  /* ── 6. O QUE JÁ VAZOU PARA A FICHA DO CLIENTE ───────────────────────── */
-
-  const [propagado] = await prisma.$queryRaw<
-    Array<{ clientes: bigint; soma_ficha: unknown; com_receita: bigint }>
-  >`
-    SELECT count(*)                          AS clientes,
-           coalesce(sum("receitaAnual"), 0)  AS soma_ficha,
-           count(*) FILTER (WHERE "receitaAnual" > 0) AS com_receita
-    FROM "ClienteBackoffice"
-  `;
-
-  const [doze] = await prisma.$queryRaw<Array<{ liquido: unknown }>>`
-    SELECT coalesce(sum("faturamentoLiquido"), 0) AS liquido
-    FROM "ReceitaItem"
-    WHERE "data" >= (SELECT max("data") FROM "ReceitaItem") - interval '1 year'
-  `;
-
-  console.log("\n── O QUE JÁ CHEGOU NA FICHA DO CLIENTE ──");
-  console.log(`  clientes com receita > 0   ${Number(propagado.com_receita)} de ${Number(propagado.clientes)}`);
-  console.log(`  soma de receitaAnual       ${dinheiro(n(propagado.soma_ficha))}`);
-  console.log(`  receita dos últimos 12m    ${dinheiro(n(doze.liquido))}`);
-  console.log("\n  Os dois números não fecham exatamente nem num banco saudável:");
-  console.log("  `recomputeReceitaClientes` casa cliente por NOME normalizado e cai para");
-  console.log("  o primeiro nome quando não acha — receita de cliente sem ficha fica de");
-  console.log("  fora, e um casamento por primeiro nome pode contar duas vezes. A");
-  console.log("  distância entre eles é uma pista, não um veredito.");
+  await fichaDoCliente(prisma, liquidoTotal);
 
   /* ── VEREDITO ────────────────────────────────────────────────────────── */
 
