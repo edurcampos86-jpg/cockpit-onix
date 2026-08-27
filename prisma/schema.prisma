@@ -742,6 +742,10 @@ model ClienteBackoffice {
   feeFixoEditadoEm  DateTime?
   feeFixoEditadoPor String? // userId de quem alternou (sessao atual)
 
+  /// Série mensal de comissão do BTG por este cliente. Read-only para a ficha:
+  /// quem escreve é o enrich, e quem lê é o portal do parceiro e o histórico.
+  comissoesMensais ComissaoMensalCliente[] @relation("ComissaoMensalDoCliente")
+
   // Dados BTG sincronizados via API
   cpfCnpj                     String? // taxIdentification do holder (CPF ou CNPJ)
   perfilInvestidor            String? // Suitability: "conservador" | "moderado" | "sofisticado"
@@ -1799,6 +1803,114 @@ model StoryAnalogia {
 }
 
 // Lançamentos de receita por parceiro/produto/cliente (importados via planilha BTG)
+/// Comissão que o BTG paga à casa por um cliente, MÊS A MÊS.
+///
+/// ── POR QUE ESTA TABELA EXISTE ──────────────────────────────────────────
+/// O número já chegava e era jogado fora. `btg-enrich` chama
+/// `getCommissionReport()` (src/lib/integrations/btg.ts:207), monta um mapa
+/// `numeroConta -> comissão do mês`, e então multiplica por 12 e grava um
+/// único Float em `ClienteBackoffice.receitaAnual`. A linha mensal morria ali.
+///
+/// O próprio código admitia: "TODO: receitaAnual aqui é estimativa = mes × 12.
+/// Evoluir pra média móvel quando tivermos histórico." O histórico nunca
+/// chegou porque ninguém guardava o que já vinha.
+///
+/// Esta tabela é só isso: parar de jogar fora. Nenhuma integração nova,
+/// nenhuma planilha nova.
+///
+/// ── NÃO CONFUNDIR COM `ReceitaItem` ─────────────────────────────────────
+/// `ReceitaItem` vem de planilha subida à mão, casa cliente por NOME e não
+/// tem uma FK sequer. Esta vem da API, casa por FK, e é por competência. As
+/// duas convivem: a antiga não é migrada nem removida nesta PR.
+model ComissaoMensalCliente {
+  id String @id @default(cuid())
+
+  /// FK REAL, não `numeroConta` solto. É a diferença central para o
+  /// `ReceitaItem`, que casa por nome e por isso tem um fallback que aceita
+  /// "primeiro nome" e atribui receita de um cliente à ficha de outro.
+  ///
+  /// `Restrict`, não `Cascade`: apagar um cliente não pode apagar o registro
+  /// de quanto ele gerou. Mesmo contrato de reter de
+  /// `ContratoCorretora.pessoaGrupo`.
+  ///
+  /// ⚠️ CONSEQUÊNCIA CONHECIDA, e ela é deliberada:
+  /// `src/lib/backoffice/merge-leading-zeros.ts` deduplica clientes que
+  /// diferem por zero à esquerda e, no passo 6, APAGA o antigo. O guarda do
+  /// passo 5 só enxerga filhos `ON DELETE CASCADE` — a consulta filtra
+  /// `confdeltype = 'c'` (linha 65) —, então uma FK `Restrict` fica invisível
+  /// para ele e o DELETE falha com violação de chave estrangeira.
+  ///
+  /// Isso é o modo de falha SEGURO: a transação inteira reverte, nada é
+  /// destruído, e o operador vê o erro. O contrário — `Cascade` — apagaria
+  /// histórico financeiro em silêncio no meio de uma rotina de manutenção.
+  ///
+  /// A tabela nasce VAZIA, então nada quebra hoje. Religar as linhas no merge
+  /// é PR própria e precisa de uma decisão que ninguém tomou ainda: quando os
+  /// dois lados do par têm a MESMA competência, isso é o mesmo dinheiro
+  /// contado duas vezes ou duas contas distintas? Somar, escolher uma ou
+  /// abortar são respostas diferentes, e nenhuma delas cabe num palpite.
+  clienteId String
+  cliente   ClienteBackoffice @relation("ComissaoMensalDoCliente", fields: [clienteId], references: [id], onDelete: Restrict)
+
+  /// Competência no formato `"AAAA-MM"` — ex.: `"2026-08"`.
+  ///
+  /// String e não DateTime, por dois motivos. Primeiro, precedente da casa:
+  /// `PainelPrioridade.data` já guarda `"YYYY-MM-DD"` como texto, pelo mesmo
+  /// motivo. Segundo, e mais forte: competência é um RÓTULO de mês, não um
+  /// instante. Guardar como `DateTime` obrigaria a escolher um dia e um fuso
+  /// que ninguém quis dizer, e este projeto já pagou por isso — `TIMESTAMP(3)`
+  /// arredonda para cima e meia-noite UTC cai no dia anterior a oeste.
+  ///
+  /// `"AAAA-MM"` ordena lexicograficamente na mesma ordem cronológica, então
+  /// `ORDER BY` e `BETWEEN` funcionam sem conversão. O formato é imposto por
+  /// CHECK na migration, não por confiança em quem escreve.
+  competencia String
+
+  /// DECIMAL, NUNCA Float. Mesma razão da #318 e do `ContratoCorretora`: este
+  /// número vai ser SOMADO (12 meses, uma carteira inteira, um nó da
+  /// hierarquia) e comparado. `float8` erra em soma e em igualdade, e o erro
+  /// aparece justamente no total, que é o número que alguém lê.
+  ///
+  /// `(14,2)` é o mesmo de `ContratoCorretora.premio`/`comissao` — a casa já
+  /// escolheu essa precisão para dinheiro.
+  comissao Decimal @db.Decimal(14, 2)
+
+  /// De ONDE veio o número. Validado em código, não enum de banco — mesma
+  /// postura de `ContratoCorretora.tipoProduto`: a lista de relatórios cresce
+  /// por decisão comercial, e relatório novo não pode custar migration de
+  /// faixa vermelha.
+  ///
+  /// Hoje só `"btg_rm_reports"`. Entra na chave única porque duas fontes
+  /// podem reportar a MESMA competência com números diferentes, e apagar uma
+  /// com a outra perderia justamente a divergência que precisa ser vista.
+  fonte String
+
+  /// Quando o dado foi trazido — distinto de `criadoEm`. Reimportar a mesma
+  /// competência atualiza o valor e MOVE este carimbo; `criadoEm` guarda a
+  /// primeira vez. Sem os dois, "esse número é de quando?" não tem resposta.
+  importadoEm DateTime @default(now())
+
+  /// `BtgSyncLog.id` da execução que trouxe a linha, quando houver. String
+  /// solta de propósito: o log tem retenção própria e não pode segurar o
+  /// histórico financeiro por FK.
+  origemSyncId String?
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  /// IDEMPOTÊNCIA. Reimportar o mesmo mês NÃO duplica: o upsert casa por esta
+  /// chave e atualiza o valor. Sem ela, rodar o enrich duas vezes no mesmo dia
+  /// dobraria a receita do mês — e o erro só apareceria na soma.
+  @@unique([clienteId, competencia, fonte])
+
+  /// "Quanto esta carteira gerou neste mês?" — a leitura que o portal do
+  /// parceiro faz. Competência primeiro porque o filtro por mês é sempre o
+  /// mais seletivo.
+  @@index([competencia])
+  /// A série de um cliente, em ordem.
+  @@index([clienteId, competencia])
+}
+
 model ReceitaItem {
   id                 String   @id @default(cuid())
   data               DateTime
