@@ -1,6 +1,37 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getAuthContext, isAdmin } from "@/lib/auth-helpers";
 import { randomUUID, createHash } from "crypto";
+
+/**
+ * ── GATE DE ESCRITA ──────────────────────────────────────────────────────
+ *
+ * A #404 fechou o `DELETE`, que era o buraco mais fundo. Ficaram abertos os
+ * outros dois caminhos de MUTAÇÃO da mesma tabela, e eles não são pequenos:
+ *
+ *   POST  → `createMany` de lançamentos de receita: qualquer logado injeta
+ *           números na única base de receita do grupo.
+ *   PATCH → `recomputeReceitaClientes()`, que roda um `update` em CADA
+ *           `ClienteBackoffice` reescrevendo `receitaAnual` — a base inteira,
+ *           num clique, sem corpo de requisição.
+ *
+ * Fechar só o `DELETE` deixa a tela parecendo protegida enquanto duas portas
+ * seguem abertas ao lado. O gate é o mesmo predicado e a mesma resposta 403 da
+ * #404; o que muda é que agora ele mora numa função e cobre os três verbos, em
+ * vez de repetido em um.
+ *
+ * `GET` fica aberto a qualquer logado, de propósito: a tela
+ * `/empresas/investimentos/receita` é leitura, e fechá-la apagaria capacidade
+ * real de quem precisa consultar sem poder mexer — mesmo critério registrado
+ * para `/integracoes` no AGENTS.md.
+ */
+async function exigirAdmin(): Promise<NextResponse | null> {
+  const ctx = await getAuthContext().catch(() => null);
+  if (!ctx || !isAdmin(ctx)) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+  return null;
+}
 
 interface RowIn {
   data?: string | number | Date | null;
@@ -163,6 +194,8 @@ export async function GET(req: NextRequest) {
 
 /** POST /api/backoffice/receita -> importa lote */
 export async function POST(req: NextRequest) {
+  const negado = await exigirAdmin();
+  if (negado) return negado;
   try {
     const { rows, replace } = (await req.json()) as { rows: RowIn[]; replace?: boolean };
     void replace;
@@ -232,6 +265,8 @@ export async function POST(req: NextRequest) {
 
 /** PATCH /api/backoffice/receita -> apenas re-sincroniza receita anual nos clientes */
 export async function PATCH() {
+  const negado = await exigirAdmin();
+  if (negado) return negado;
   try {
     const sync = await recomputeReceitaClientes();
     return NextResponse.json({ success: true, ...sync });
@@ -240,8 +275,29 @@ export async function PATCH() {
   }
 }
 
-/** DELETE /api/backoffice/receita -> limpa tudo */
+/**
+ * DELETE /api/backoffice/receita -> apaga TODOS os lançamentos de receita.
+ *
+ * SOMENTE ADMIN. Não é um delete por id: é `deleteMany({})`, a tabela inteira,
+ * e o handler não recebe argumento nenhum — uma requisição sem corpo zera o
+ * snapshot de receita do grupo. É também o ÚNICO caminho de apagamento total
+ * desta tabela; o POST de importação só cria (`createMany` com
+ * `skipDuplicates`), nunca limpa antes.
+ *
+ * Até aqui a única barreira era o proxy exigir sessão (`src/proxy.ts`), e a
+ * página que expõe o botão (`/empresas/investimentos/receita`) não tem gate de
+ * papel: qualquer uma das 22 pessoas logadas abria a tela e apagava. O
+ * `confirm()` do navegador não é barreira — some com uma chamada direta.
+ *
+ * 403 e não 404: a rota é conhecida e o próprio menu leva até ela; esconder a
+ * existência dela não protege nada, e um 404 aqui só faria o operador legítimo
+ * achar que a rota sumiu. O 404 mudo é para item fora de escopo, onde o próprio
+ * "sem permissão" confirmaria que aquele id existe — não é o caso.
+ */
 export async function DELETE() {
+  const negado = await exigirAdmin();
+  if (negado) return negado;
+
   try {
     const r = await prisma.receitaItem.deleteMany({});
     return NextResponse.json({ success: true, deleted: r.count });

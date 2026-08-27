@@ -8,6 +8,7 @@ import {
   FileText,
   CheckSquare,
   Users,
+  Upload,
   BarChart3,
   BarChart2,
   TrendingUp,
@@ -56,6 +57,12 @@ import {
 } from "lucide-react";
 import { useState, useSyncExternalStore, useTransition, useEffect } from "react";
 import { cn } from "@/lib/utils";
+import {
+  podeVerHref,
+  podeVerMidiasSociais,
+  separarGrupos,
+  type AcessoSidebar,
+} from "@/lib/sidebar/permissoes";
 import { logout } from "@/app/actions/auth";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useTheme } from "@/components/theme-provider";
@@ -223,6 +230,9 @@ const operacoesItemsV2 = [
 // a migração de namespacing dela é backlog próprio.
 const corretoraItemsV2 = [
   { name: "Visão da Empresa (novo)", href: "/empresas/corretora", icon: Building2 },
+  // Único caminho de entrada de dados da Corretora. Sem item de menu ela só é
+  // alcançável digitando a URL. Admin-only via ADMIN_ONLY_HREFS.
+  { name: "Importar relatório", href: "/empresas/corretora/importar", icon: Upload },
   ...onixCorretorNavigation,
 ];
 
@@ -270,7 +280,12 @@ const configItemV2 = { name: "Configurações", href: "/configuracoes", icon: Se
 // Hrefs visíveis só pra admin (gate COSMÉTICO do nav — a segurança real é o
 // redirect na própria página, ex.: /configuracoes/implementacoes). O isAdmin
 // COMPLETO (role OU teamRole) vem de /api/auth/is-admin.
-const ADMIN_ONLY_HREFS = ["/configuracoes/implementacoes", "/configuracoes/permissoes", "/configuracoes/flags"];
+const ADMIN_ONLY_HREFS = [
+  "/configuracoes/implementacoes",
+  "/configuracoes/permissoes",
+  "/configuracoes/flags",
+  "/empresas/corretora/importar",
+];
 
 function getActiveModuleIdV2(pathname: string): string {
   if (pathname.startsWith("/onix-corretora")) return "onix-corretora";
@@ -393,7 +408,7 @@ function gravarPreferenciaSidebar(recolhida: boolean) {
 
 /* ── Componente Sidebar ─────────────────────────────── */
 
-export function Sidebar() {
+export function Sidebar({ acesso = null }: { acesso?: AcessoSidebar | null }) {
   const pathname = usePathname();
   /* `null` = segue a largura da tela; booleano = o usuário decidiu na mão e a
    * escolha dele passa a valer em qualquer largura, inclusive depois de
@@ -474,9 +489,34 @@ export function Sidebar() {
 
   const podeVerItem = (item: { href: string }) => {
     // /configuracoes/permissoes: admin-only E atrás da flag PERMISSOES_UI.
+    // Vale nos DOIS caminhos — a régua nova cuida do "admin-only", a flag
+    // PERMISSOES_UI é outra pergunta e continua sendo respondida aqui.
     if (item.href === "/configuracoes/permissoes" && !permissoesUiOn) return false;
+
+    /* SIDEBAR_FILTRADA ligada: quem decide é a régua resolvida no servidor.
+     * O `isAdmin` do cliente (com o piscar do useEffect) sai de cena — a
+     * resposta já veio pronta no HTML. */
+    if (acesso) return podeVerHref(item.href, acesso);
+
+    // Flag desligada: exatamente o comportamento de antes desta mudança.
     return isAdmin || !ADMIN_ONLY_HREFS.includes(item.href);
   };
+
+  /* Mídias Sociais é MÓDULO, não href: a régua vale para a seção inteira. */
+  const podeVerModulo = (id: string) => {
+    if (!acesso) return true;
+    if (id === "mkt" || id === "marketing") return podeVerMidiasSociais(acesso);
+    return true;
+  };
+
+  /* GERAL e ADMINISTRAÇÃO saem de UMA passagem sobre a mesma lista.
+   *
+   * Com a flag desligada não há grupo de administração: os itens de admin
+   * continuam onde sempre estiveram, dentro de GERAL, e o cabeçalho novo nem
+   * aparece. É o que mantém "flag OFF = tela idêntica à de ontem". */
+  const gruposGeral = acesso
+    ? separarGrupos(sharedNavigation, acesso)
+    : { geral: sharedNavigation.filter(podeVerItem), administracao: [] };
 
   /* ── Check if a nav item is active ── */
   const isItemActive = (href: string) => {
@@ -715,14 +755,27 @@ export function Sidebar() {
             {/* ── GERAL ── */}
             {renderSectionLabel("Geral")}
             <div className="px-2 pb-2 space-y-0.5">
-              {sharedNavigation.filter(podeVerItem).map(renderNavLink)}
+              {gruposGeral.geral.map(renderNavLink)}
             </div>
 
             {/* ── EMPRESAS ── */}
             {renderSectionLabel("Empresas")}
             <div className="px-2 pb-2 space-y-1">
-              {modules.map(renderModule)}
+              {modules.filter((m) => podeVerModulo(m.id)).map(renderModule)}
             </div>
+
+            {/* ── ADMINISTRAÇÃO ──
+              * Só existe quando há algo embaixo dele. Cabeçalho de seção vazia
+              * é ruído puro numa lista aberta dezenas de vezes por dia — e
+              * anuncia a existência de um grupo que a pessoa não pode abrir. */}
+            {gruposGeral.administracao.length > 0 && (
+              <>
+                {renderSectionLabel("Administração")}
+                <div className="px-2 pb-2 space-y-0.5">
+                  {gruposGeral.administracao.map(renderNavLink)}
+                </div>
+              </>
+            )}
           </>
         )}
       </div>

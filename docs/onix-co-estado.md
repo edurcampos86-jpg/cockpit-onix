@@ -429,6 +429,134 @@ Eduardo.
 
 ---
 
+## Correções de dado em produção — o registro
+
+Não existe tabela de auditoria para correção de dado. `AcordoComercialParceiro`
+tem `criadoPor` e `encerradoPor`, e **não tem `atualizadoPor`**; `ConfigAudit` é
+de flags de configuração e usá-la para outra coisa seria desvio de propósito.
+
+Enquanto essa tabela não existir, **o registro é esta seção**. Toda correção que
+altera dado em produção fora do fluxo das telas entra aqui, com a saída do
+comando colada.
+
+> ⚠️ **Os arquivos citados abaixo não existem mais na árvore.** O workflow
+> `correcao-acordos-renan` e os dois `.sql` que ele executava foram removidos
+> depois de cumprirem o papel — manter no painel deixaria `aplicar=sim` a dois
+> cliques de um `DELETE`, guardando um estado que já não existe.
+>
+> Os caminhos ficam escritos porque são o que os runs referenciam. Para ver o
+> conteúdo: `git log --diff-filter=D -- scripts/corrige-datainicio-renan.sql`,
+> ou os runs 1, 2 e 3 de `correcao-acordos-renan`, que seguem no histórico do
+> GitHub com a saída completa.
+>
+> **Correção nova não reaproveita estes arquivos: escreve os seus.** O que se
+> reaproveita é o padrão — dois blocos, guardas que abortam, e o registro aqui.
+
+### 22/08/2026 · `dataInicio` dos 4 acordos do Renan
+
+| campo | valor |
+|---|---|
+| o que estava errado | `dataInicio = 23/01/2026` nos 4 acordos por nó de Renan Afonso de Paula |
+| o correto | `01/01/2026` — erro de digitação na tela, o acordo sempre valeu desde o dia 1º |
+| linhas afetadas | 4 (Onix Capital, Onix Corretora, Onix Tech, Onix Educação), todas 20% com `incluiDescendentes` |
+| linhas NÃO afetadas | as 2 antigas por `tipoProduto` (`empresaId IS NULL`) |
+| comando | `scripts/corrige-datainicio-renan.sql` |
+| executado | ✅ 23/08/2026, run 2 do workflow `correcao-acordos-renan` (`corrige-data`, `aplicar=sim`) |
+| resultado | `UPDATE 4` + `COMMIT` — as 4 datas passaram de 23/01/2026 para 01/01/2026 |
+| quem rodou | Eduardo, pelo painel de Actions (o run registra o ator) |
+
+**Por que UPDATE e não fechar-e-abrir.** A regra "alterar FECHA e ABRE" existe
+para mudança de **percentual**: 20% até uma data e 25% depois são dois fatos.
+Correção de data digitada não é um segundo fato — fechar-e-abrir inventaria um
+acordo que teria passado a valer em 23/01, e o fechamento de comissão leria uma
+troca de regra no meio de janeiro que nunca houve.
+
+**Três predicados medidos** contra uma réplica local com o mesmo cenário
+(4 acordos por nó + 2 antigos por `tipoProduto`, todos com a mesma data):
+
+| `WHERE` | linhas |
+|---|---|
+| `dataInicio = '2026-01-23'` | **0** — a tela grava data pura como MEIO-DIA UTC (`actions/parceiros.ts:30`); a meia-noite não casa nada |
+| janela do dia, sem `empresaId IS NOT NULL` | **6** — levaria as 2 antigas junto |
+| janela do dia, **com** `empresaId IS NOT NULL` | **4** ✅ |
+
+O valor gravado também é meio-dia (`2026-01-01 12:00:00`), não meia-noite: em
+qualquer fuso a oeste a meia-noite UTC cai no dia anterior, e a ficha passaria a
+mostrar 31/12/2025.
+
+### 23/08/2026 · apagados os 2 acordos residuais por `tipoProduto`
+
+**Decisão do Eduardo: apagar, não mapear.** As duas linhas eram tentativas de
+cadastro por `tipoProduto`, feitas **antes** da mudança de modelo da #385,
+quando o acordo era por texto de produto e não por nó da hierarquia. Nunca
+geraram pagamento — resíduo de modelagem, não histórico financeiro.
+
+Mapeá-las a uma empresa criaria **histórico ficcional**: afirmaria que alguém
+decidiu, em janeiro, que aquele acordo pertencia a um nó. Ninguém decidiu. Um
+`empresaId` inventado num registro de remuneração é pior que registro nenhum,
+porque o fechamento de comissão não tem como saber que foi chute.
+
+**Por que precisava sair:** a migration da #387 abre com
+`ALTER COLUMN "empresaId" SET NOT NULL`, que é da coluna inteira e não olha
+vigência. Linha encerrada com `empresaId` nulo barra a migration igual a uma
+linha viva — e, com `migrate deploy && next start`, isso não vira "migration
+pendente", vira app em loop de restart.
+
+| campo | valor |
+|---|---|
+| comando | `scripts/apaga-acordos-residuais.sql` |
+| linhas apagadas | 2 (`dataFim IS NOT NULL AND empresaId IS NULL`) |
+| executado | ✅ 23/08/2026, run 3 do workflow `correcao-acordos-renan` (`apaga-encerradas`, `aplicar=sim`) |
+| resultado | `DELETE 2` + `COMMIT` |
+| quem rodou | Eduardo, pelo painel de Actions (o run registra o ator) |
+| placar | `7 · 2 · 5` → **`5 · 0 · 5`** — `sem_no` chegou a **zero** |
+
+**AS 2 LINHAS APAGADAS.** Este bloco é a única memória delas: o `DELETE` não
+deixa linha para consultar, e reconstruir só a partir do backup diário.
+
+| `tipoProduto` | % | `dataInicio` | `dataFim` | `incluiDescendentes` | `empresaId` |
+|---|---|---|---|---|---|
+| `assessoria` | 20% | 01/01/2026 | 23/08/2026 11:54:03.226 | `false` | — |
+| `seguro_resgatavel` | 20% | 01/01/2026 | 23/08/2026 11:54:06.127 | `false` | — |
+
+Ambas criadas em **22/08/2026** e encerradas na manhã de 23/08, minutos antes
+de serem apagadas. Nenhuma gerou pagamento.
+
+> Repare que elas já estavam com `dataInicio = 01/01/2026`. A digitação errada
+> de 23/01 atingiu só os acordos **por nó** — por isso o `UPDATE` da correção
+> exigia `empresaId IS NOT NULL` e não podia se guiar pela data. Sem esse
+> predicado, o comando teria alcançado estas duas linhas também.
+
+### 23/08/2026 · estado final dos acordos do Renan
+
+**5 acordos vigentes, todos por nó, todos desde 01/01/2026, todos com
+`incluiDescendentes` ligado:**
+
+| nó | percentual |
+|---|---|
+| Onix Corretora | 20% |
+| Onix Educação | 20% |
+| Onix Investimentos | 20% |
+| Onix Tech | 20% |
+| **Onix Imob** | **0%** |
+
+**5 clientes vinculados.**
+
+A linha de **0% da Onix Imob** é a decisão, não a omissão: o Renan já é sócio
+lá, e gravar `0%` diz *"decidido que não remunera"*, enquanto não ter linha
+diria *"ninguém cadastrou"*. `encerrarAcordoForm` já carrega essa distinção por
+escrito (`src/app/actions/parceiros.ts:275`).
+
+Ela também explica a divergência que ficou aberta em 23/08: a leitura de
+produção mostrava **5** vigentes com nó quando só **4** tinham sido citados. A
+quinta era a Imob — cadastrada e correta desde o início, e por isso fora do
+`UPDATE` da correção de data, que encontrou 4 e não 5.
+
+**`sem_no = 0` desde 23/08.** A #387 (remoção de `tipoProduto`) fica
+**tecnicamente liberada** — a guarda `SET NOT NULL` passaria. Segue **parada,
+sem label e sem merge**, aguardando autorização do Eduardo em sessão futura,
+com dias de intervalo.
+
 ## Pendências conhecidas
 
 ### Bloqueantes

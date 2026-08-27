@@ -198,6 +198,22 @@ export const FLAGS_REGISTRADAS: readonly FlagRegistrada[] = [
     impacto: "normal",
   },
   {
+    key: "ORGANOGRAMA_HOME",
+    rotulo: "Organograma do grupo na rota raiz (vence o hub)",
+    onde: "src/lib/organograma/flag.ts",
+    tipo: "booleana",
+    dialeto: "amplo",
+    impacto: "normal",
+  },
+  {
+    key: "SIDEBAR_FILTRADA",
+    rotulo: "Sidebar filtrada por cargo e por nó do organograma",
+    onde: "src/lib/sidebar/flag.ts",
+    tipo: "booleana",
+    dialeto: "amplo",
+    impacto: "normal",
+  },
+  {
     key: "COCKPIT_REUNIAO",
     rotulo: "Aba Cockpit de Reunião na ficha do cliente",
     onde: "src/lib/cockpit-reuniao/flag.ts",

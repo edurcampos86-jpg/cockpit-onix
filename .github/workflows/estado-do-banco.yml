@@ -52,6 +52,8 @@ on:
       - '.github/workflows/estado-do-banco.yml'
       # Mesmo motivo, para o script de inventário.
       - 'scripts/inventario-reunioes.ts'
+      # Mesmo motivo, para o leitor da sidebar.
+      - 'scripts/quem-ve-a-sidebar.ts'
 
 permissions:
   contents: read
@@ -348,6 +350,83 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # ── Acordos de parceiro sem nó ───────────────────────────────────────
+      #
+      # Existe para responder UMA pergunta, e ela decide se uma PR pode ser
+      # mergeada: sobrou acordo de parceiro sem `empresaId`?
+      #
+      # A migration que remove `tipoProduto` começa com `SET NOT NULL` em
+      # `empresaId` — uma guarda que FALHA se o de-para não tiver sido feito. E
+      # migration que falha, com `prisma migrate deploy && next start`, não vira
+      # "pendente": vira app em loop de restart (é a lição da #301).
+      #
+      # Então a conferência tem de acontecer ANTES do merge, e não depender de
+      # alguém lembrar. Aqui ela roda em toda PR que toca prisma/.
+      #
+      # SOMENTE LEITURA e sem linha de cliente: dois números.
+      - name: Acordos de parceiro sem nó
+        # `always()` pelo mesmo motivo do check de cron em actionlint.yml: este
+        # número é O QUE DECIDE se a PR destrutiva pode ser mergeada, e o gate
+        # de assinatura roda ANTES. Sem isto, a resposta ficaria atrás da
+        # própria assinatura que ela deveria informar — assina-se no escuro.
+        if: always()
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          cat > "${RUNNER_TEMP}/sem-no.sql" <<'SQL'
+          -- `to_regclass` devolve NULL quando a tabela ou a coluna ainda não
+          -- existe no banco: numa PR que ainda não aplicou a migration, isto
+          -- precisa responder "nada a conferir" em vez de derrubar o job.
+          SELECT
+            CASE
+              WHEN to_regclass('"AcordoComercialParceiro"') IS NULL THEN 'tabela ainda não existe'
+              WHEN NOT EXISTS (
+                SELECT 1 FROM information_schema.columns
+                 WHERE table_name = 'AcordoComercialParceiro' AND column_name = 'empresaId'
+              ) THEN 'coluna empresaId ainda não existe'
+              ELSE 'conferido'
+            END AS situacao;
+          SQL
+
+          docker run --rm \
+            -v "${RUNNER_TEMP}/sem-no.sql:/q.sql:ro" \
+            -e "PGURL=${DATABASE_URL}" \
+            postgres:16-alpine \
+            sh -c 'psql "$PGURL" -v ON_ERROR_STOP=1 --no-psqlrc --tuples-only -f /q.sql' \
+            | tee "${RUNNER_TEMP}/situacao.txt"
+
+          if grep -q "conferido" "${RUNNER_TEMP}/situacao.txt"; then
+            cat > "${RUNNER_TEMP}/contagem.sql" <<'SQL'
+            SELECT
+              count(*)                                          AS acordos,
+              count(*) FILTER (WHERE "empresaId" IS NULL)       AS sem_no,
+              count(*) FILTER (WHERE "dataFim" IS NULL)         AS vigentes
+            FROM "AcordoComercialParceiro";
+          SQL
+            docker run --rm \
+              -v "${RUNNER_TEMP}/contagem.sql:/q.sql:ro" \
+              -e "PGURL=${DATABASE_URL}" \
+              postgres:16-alpine \
+              sh -c 'psql "$PGURL" -v ON_ERROR_STOP=1 --no-psqlrc -f /q.sql' \
+              | tee "${RUNNER_TEMP}/sem-no.txt"
+          else
+            cp "${RUNNER_TEMP}/situacao.txt" "${RUNNER_TEMP}/sem-no.txt"
+          fi
+
+          {
+            echo
+            echo '## Acordos de parceiro'
+            echo
+            # Sem crase: dentro de aspas simples o shellcheck lê crase como
+            # substituição de comando (SC2016), e o gate roda com -shellcheck.
+            echo 'A coluna sem_no maior que zero significa que a PR de remoção de tipoProduto NÃO pode ser mergeada: a migration recusaria e o serviço não subiria.'
+            echo
+            echo '```'
+            cat "${RUNNER_TEMP}/sem-no.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       # ── Contas xará ──────────────────────────────────────────────────────
       #
       # `ClienteBackoffice.numeroConta` NÃO é @unique (ver o comentário em
@@ -486,6 +565,45 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           cat "${RUNNER_TEMP}/inventario.txt"
+          echo "código: $CODIGO"
+
+      # Quem veria o quê na sidebar filtrada: cargos reais e concessões reais.
+      - name: Quem vê a sidebar
+        if: >-
+          (github.event_name == 'workflow_dispatch' && inputs.consultas == 'completo') ||
+          github.event_name == 'pull_request'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          # Numa PR, só roda se a PR mexeu no script. O gatilho por `paths` traz
+          # também toda PR de migration, e a resposta desta consulta não muda
+          # com migration nenhuma — rodar sempre seria ruído que se aprende a
+          # pular, que é o oposto do que este workflow existe para fazer.
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            if ! git diff --name-only "$BASE_SHA" "$HEAD_SHA" \
+                 | grep -q '^scripts/quem-ve-a-sidebar\.ts$'; then
+              echo "PR não mexeu no script — pulando."
+              exit 0
+            fi
+          fi
+
+          set +e
+          npx tsx scripts/quem-ve-a-sidebar.ts > "${RUNNER_TEMP}/sidebar.txt" 2>&1
+          CODIGO=$?
+          set -e
+          {
+            echo
+            echo '## Quem vê a sidebar'
+            echo
+            echo '```'
+            cat "${RUNNER_TEMP}/sidebar.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "${RUNNER_TEMP}/sidebar.txt"
           echo "código: $CODIGO"
 
       # Só no disparo manual com `completo`. São as consultas da auditoria BTG:

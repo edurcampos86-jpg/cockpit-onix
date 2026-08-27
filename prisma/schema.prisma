@@ -742,6 +742,10 @@ model ClienteBackoffice {
   feeFixoEditadoEm  DateTime?
   feeFixoEditadoPor String? // userId de quem alternou (sessao atual)
 
+  /// Série mensal de comissão do BTG por este cliente. Read-only para a ficha:
+  /// quem escreve é o enrich, e quem lê é o portal do parceiro e o histórico.
+  comissoesMensais ComissaoMensalCliente[] @relation("ComissaoMensalDoCliente")
+
   // Dados BTG sincronizados via API
   cpfCnpj                     String? // taxIdentification do holder (CPF ou CNPJ)
   perfilInvestidor            String? // Suitability: "conservador" | "moderado" | "sofisticado"
@@ -1555,7 +1559,7 @@ model ParceiroCliente {
 //      `regrasEspeciais` em texto livre. O acordo de parceiro precisa de
 //      número por produto: forma diferente, não coluna nullable a mais.
 //   3. A cardinalidade diverge. Pessoa tem UM acordo vigente; parceiro tem um
-//      vigente POR tipoProduto, vários ao mesmo tempo. Compartilhar a tabela
+//      vigente POR NÓ da hierarquia, vários ao mesmo tempo. Compartilhar a tabela
 //      mudaria o sentido do invariante existente.
 //   4. `atualizarAcordo` (acordo-comercial.ts:147) faz UPDATE no lugar — o que
 //      viola frontalmente a regra abaixo de que alterar percentual FECHA e
@@ -1586,7 +1590,7 @@ model ParceiroCliente {
 //       - vigente na DATA $X -> "dataInicio" <= $X AND ("dataFim" IS NULL OR "dataFim" > $X)
 //
 // (c) PERCENTUAL VARIA POR TIPO DE PRODUTO (seguro resgatável ≠ assessoria).
-//     Por isso a unicidade do vigente é por (parceiroId, tipoProduto) e não
+//     Por isso a unicidade do vigente é por (parceiroId, empresaId) e não
 //     por parceiro — um parceiro tem vários acordos abertos ao mesmo tempo.
 //
 // NESTA PR a tabela nasce VAZIA e NADA a lê. Sem backfill, sem UI, sem rota.
@@ -1599,17 +1603,6 @@ model AcordoComercialParceiro {
   /// "seguro_resgatavel" | "assessoria" | … TEXTO LIVRE por ora, mesmo
   /// critério de `Parceiro.tipo`: a lista de produtos ainda muda, e um enum
   /// obrigaria migration a cada produto novo. Vira enum quando parar de mudar.
-  /// ⚠️ EM MIGRAÇÃO para `empresaId` — ver o campo abaixo. Continua aqui, e
-  /// agora NULLABLE, porque a troca é em duas PRs: esta acrescenta o caminho
-  /// novo, e uma futura remove a coluna. Linha antiga mantém o texto; linha
-  /// nova nasce com `empresaId` e este campo em NULL.
-  ///
-  /// NÃO confundir com `ContratoCorretora.tipoProduto`: aquele é o produto
-  /// VENDIDO pela corretora, tem catálogo próprio em
-  /// `src/lib/corretora/catalogo-produtos.ts` e alimenta a importação. Nome
-  /// igual, coisa diferente, e ele não é tocado.
-  tipoProduto String?
-
   /// O NÓ da hierarquia Onix Co sobre o qual o acordo incide — "Onix
   /// Corretora", "Planejamento Patrimonial", "Onix Imobiliária".
   ///
@@ -1624,10 +1617,10 @@ model AcordoComercialParceiro {
   /// acordo é o registro de quanto se paga a alguém; sumir junto com o nó
   /// apagaria a razão de um pagamento passado.
   ///
-  /// Nullable NESTA PR por convivência com `tipoProduto`. Vira obrigatório
-  /// quando a coluna antiga sair.
-  empresaId String?
-  empresa   Empresa? @relation("AcordoParceiroEmpresa", fields: [empresaId], references: [id], onDelete: Restrict)
+  /// OBRIGATÓRIO desde a remoção de `tipoProduto`: acordo sem destino não é
+  /// acordo, é linha órfã que nenhum fechamento sabe onde aplicar.
+  empresaId String
+  empresa   Empresa @relation("AcordoParceiroEmpresa", fields: [empresaId], references: [id], onDelete: Restrict)
 
   /// O acordo deste nó vale também para os nós ABAIXO dele?
   ///
@@ -1680,13 +1673,14 @@ model AcordoComercialParceiro {
   /// AcordoComercial([pessoaId, dataInicio] / [pessoaId, dataFim]).
   @@index([parceiroId, dataInicio])
   @@index([parceiroId, dataFim])
-  /// "Quem tem acordo neste produto?" — a leitura que a régua de comissão faz
-  /// ao fechar um tipo de produto inteiro.
-  @@index([tipoProduto])
-  /// O mesmo, pelo caminho novo: "quem tem acordo NESTE nó?". Declarado aqui e
-  /// não só na migration — índice que existe no banco e não no schema é drift,
-  /// e a próxima `migrate dev` de qualquer sessão o emitiria como DROP INDEX.
-  /// É a mesma armadilha do índice FTS que `scripts/guarda-drift-fts.sh` tranca.
+  /// "Quem tem acordo NESTE nó?" — a leitura que a régua de comissão faz ao
+  /// fechar uma parte da casa inteira. Herdou o papel do antigo
+  /// `@@index([tipoProduto])`, que sai junto com a coluna nesta PR.
+  ///
+  /// Declarado aqui e não só na migration: índice que existe no banco e não no
+  /// schema é drift, e a próxima `migrate dev` de qualquer sessão o emitiria
+  /// como DROP INDEX. Mesma armadilha do índice FTS que
+  /// `scripts/guarda-drift-fts.sh` tranca.
   @@index([empresaId])
 }
 
@@ -1799,6 +1793,114 @@ model StoryAnalogia {
 }
 
 // Lançamentos de receita por parceiro/produto/cliente (importados via planilha BTG)
+/// Comissão que o BTG paga à casa por um cliente, MÊS A MÊS.
+///
+/// ── POR QUE ESTA TABELA EXISTE ──────────────────────────────────────────
+/// O número já chegava e era jogado fora. `btg-enrich` chama
+/// `getCommissionReport()` (src/lib/integrations/btg.ts:207), monta um mapa
+/// `numeroConta -> comissão do mês`, e então multiplica por 12 e grava um
+/// único Float em `ClienteBackoffice.receitaAnual`. A linha mensal morria ali.
+///
+/// O próprio código admitia: "TODO: receitaAnual aqui é estimativa = mes × 12.
+/// Evoluir pra média móvel quando tivermos histórico." O histórico nunca
+/// chegou porque ninguém guardava o que já vinha.
+///
+/// Esta tabela é só isso: parar de jogar fora. Nenhuma integração nova,
+/// nenhuma planilha nova.
+///
+/// ── NÃO CONFUNDIR COM `ReceitaItem` ─────────────────────────────────────
+/// `ReceitaItem` vem de planilha subida à mão, casa cliente por NOME e não
+/// tem uma FK sequer. Esta vem da API, casa por FK, e é por competência. As
+/// duas convivem: a antiga não é migrada nem removida nesta PR.
+model ComissaoMensalCliente {
+  id String @id @default(cuid())
+
+  /// FK REAL, não `numeroConta` solto. É a diferença central para o
+  /// `ReceitaItem`, que casa por nome e por isso tem um fallback que aceita
+  /// "primeiro nome" e atribui receita de um cliente à ficha de outro.
+  ///
+  /// `Restrict`, não `Cascade`: apagar um cliente não pode apagar o registro
+  /// de quanto ele gerou. Mesmo contrato de reter de
+  /// `ContratoCorretora.pessoaGrupo`.
+  ///
+  /// ⚠️ CONSEQUÊNCIA CONHECIDA, e ela é deliberada:
+  /// `src/lib/backoffice/merge-leading-zeros.ts` deduplica clientes que
+  /// diferem por zero à esquerda e, no passo 6, APAGA o antigo. O guarda do
+  /// passo 5 só enxerga filhos `ON DELETE CASCADE` — a consulta filtra
+  /// `confdeltype = 'c'` (linha 65) —, então uma FK `Restrict` fica invisível
+  /// para ele e o DELETE falha com violação de chave estrangeira.
+  ///
+  /// Isso é o modo de falha SEGURO: a transação inteira reverte, nada é
+  /// destruído, e o operador vê o erro. O contrário — `Cascade` — apagaria
+  /// histórico financeiro em silêncio no meio de uma rotina de manutenção.
+  ///
+  /// A tabela nasce VAZIA, então nada quebra hoje. Religar as linhas no merge
+  /// é PR própria e precisa de uma decisão que ninguém tomou ainda: quando os
+  /// dois lados do par têm a MESMA competência, isso é o mesmo dinheiro
+  /// contado duas vezes ou duas contas distintas? Somar, escolher uma ou
+  /// abortar são respostas diferentes, e nenhuma delas cabe num palpite.
+  clienteId String
+  cliente   ClienteBackoffice @relation("ComissaoMensalDoCliente", fields: [clienteId], references: [id], onDelete: Restrict)
+
+  /// Competência no formato `"AAAA-MM"` — ex.: `"2026-08"`.
+  ///
+  /// String e não DateTime, por dois motivos. Primeiro, precedente da casa:
+  /// `PainelPrioridade.data` já guarda `"YYYY-MM-DD"` como texto, pelo mesmo
+  /// motivo. Segundo, e mais forte: competência é um RÓTULO de mês, não um
+  /// instante. Guardar como `DateTime` obrigaria a escolher um dia e um fuso
+  /// que ninguém quis dizer, e este projeto já pagou por isso — `TIMESTAMP(3)`
+  /// arredonda para cima e meia-noite UTC cai no dia anterior a oeste.
+  ///
+  /// `"AAAA-MM"` ordena lexicograficamente na mesma ordem cronológica, então
+  /// `ORDER BY` e `BETWEEN` funcionam sem conversão. O formato é imposto por
+  /// CHECK na migration, não por confiança em quem escreve.
+  competencia String
+
+  /// DECIMAL, NUNCA Float. Mesma razão da #318 e do `ContratoCorretora`: este
+  /// número vai ser SOMADO (12 meses, uma carteira inteira, um nó da
+  /// hierarquia) e comparado. `float8` erra em soma e em igualdade, e o erro
+  /// aparece justamente no total, que é o número que alguém lê.
+  ///
+  /// `(14,2)` é o mesmo de `ContratoCorretora.premio`/`comissao` — a casa já
+  /// escolheu essa precisão para dinheiro.
+  comissao Decimal @db.Decimal(14, 2)
+
+  /// De ONDE veio o número. Validado em código, não enum de banco — mesma
+  /// postura de `ContratoCorretora.tipoProduto`: a lista de relatórios cresce
+  /// por decisão comercial, e relatório novo não pode custar migration de
+  /// faixa vermelha.
+  ///
+  /// Hoje só `"btg_rm_reports"`. Entra na chave única porque duas fontes
+  /// podem reportar a MESMA competência com números diferentes, e apagar uma
+  /// com a outra perderia justamente a divergência que precisa ser vista.
+  fonte String
+
+  /// Quando o dado foi trazido — distinto de `criadoEm`. Reimportar a mesma
+  /// competência atualiza o valor e MOVE este carimbo; `criadoEm` guarda a
+  /// primeira vez. Sem os dois, "esse número é de quando?" não tem resposta.
+  importadoEm DateTime @default(now())
+
+  /// `BtgSyncLog.id` da execução que trouxe a linha, quando houver. String
+  /// solta de propósito: o log tem retenção própria e não pode segurar o
+  /// histórico financeiro por FK.
+  origemSyncId String?
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  /// IDEMPOTÊNCIA. Reimportar o mesmo mês NÃO duplica: o upsert casa por esta
+  /// chave e atualiza o valor. Sem ela, rodar o enrich duas vezes no mesmo dia
+  /// dobraria a receita do mês — e o erro só apareceria na soma.
+  @@unique([clienteId, competencia, fonte])
+
+  /// "Quanto esta carteira gerou neste mês?" — a leitura que o portal do
+  /// parceiro faz. Competência primeiro porque o filtro por mês é sempre o
+  /// mais seletivo.
+  @@index([competencia])
+  /// A série de um cliente, em ordem.
+  @@index([clienteId, competencia])
+}
+
 model ReceitaItem {
   id                 String   @id @default(cuid())
   data               DateTime
@@ -2158,11 +2260,22 @@ model PessoaEmpresa {
   empresaId String
   empresa   Empresa @relation(fields: [empresaId], references: [id], onDelete: Cascade)
 
-  /// Estende a concessão às empresas abaixo desta na árvore. `true` é a
-  /// leitura intuitiva de holding (acesso à Onix Co alcança o grupo); `false`
-  /// concede só a empresa exata. A escolha é POR CONCESSÃO porque "herda ou
-  /// não?" é decisão de produto e as duas respostas precisam caber.
-  incluiDescendentes Boolean @default(true)
+  /// Estende a concessão aos nós abaixo deste na árvore. A escolha é POR
+  /// CONCESSÃO porque "herda ou não?" é decisão de produto e as duas respostas
+  /// precisam caber.
+  ///
+  /// O DEFAULT ERA `true` e passou a ser `false`. O motivo é o terceiro nível:
+  /// com 2 níveis, herdar de uma empresa não alcançava nada (as empresas eram
+  /// folhas) e herdar da holding era a leitura intuitiva dela. Com 3, conceder
+  /// "Onix Capital" com herança passou a arrastar Agro, Qualidade e Onix
+  /// Investimentos — a semântica não mudou, o alcance dobrou. Um default que
+  /// concede mais do que foi pedido é a forma errada de errar num campo de
+  /// permissão: o padrão passa a ser concessão nó a nó, e herdar vira ato
+  /// explícito.
+  ///
+  /// Linhas JÁ EXISTENTES não são tocadas — mudar DEFAULT não reescreve dado,
+  /// e reescrever seria revogar acesso que alguém concedeu de propósito.
+  incluiDescendentes Boolean @default(false)
 
   criadoEm DateTime @default(now())
 

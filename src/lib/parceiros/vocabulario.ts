@@ -1,27 +1,21 @@
 /* ──────────────────────────────────────────────────────────────
- * Vocabulário de `Parceiro.tipo` e `AcordoComercialParceiro.tipoProduto`
- * — módulo PURO, sem banco.
+ * Vocabulário de `Parceiro.tipo` — módulo PURO, sem banco.
  *
- * ── O BURACO QUE ISTO FECHA ──────────────────────────────────────────────
- * A #318 garante no banco "no máximo um acordo VIGENTE por (parceiroId,
- * tipoProduto)" com um índice parcial único. Mas `tipoProduto` é TEXTO LIVRE,
- * e para o Postgres "assessoria" e "Assessoria" são valores diferentes — então
- * os dois passam pelo índice e o mesmo parceiro fica com DOIS acordos vigentes
- * no mesmo produto. A regra de negócio é furada sem que nenhuma constraint
- * seja violada, e o erro só aparece no fechamento, como comissão dobrada.
+ * ── ENCOLHEU, E ISSO É O DESENHO FUNCIONANDO ─────────────────────────────
+ * Este módulo nasceu (#329) cuidando de DOIS campos de texto livre:
+ * `Parceiro.tipo` e `AcordoComercialParceiro.tipoProduto`. O segundo virou FK
+ * para `Empresa`, e a FK garante melhor do que a normalização garantia: com
+ * chave estrangeira não existe "Assessoria" e "assessoria" como dois valores,
+ * porque não existe valor fora da tabela.
  *
- * Normalizar na ESCRITA é o que faz o índice significar o que ele promete.
+ * Sobrou a metade que ainda é texto livre. `Parceiro.tipo` continua assim de
+ * propósito — a relação com a casa muda mais devagar que a estrutura dela, e
+ * um enum aqui obrigaria migration a cada relação nova.
  *
- * ── POR QUE NORMALIZAR, E NÃO RESTRINGIR A UM ENUM ───────────────────────
- * O texto livre foi decisão deliberada (ver o comentário de `Parceiro.tipo` no
- * schema): a taxonomia de produto ainda muda, e um enum obrigaria migration a
- * cada produto novo descoberto em campo.
- *
- * Estas duas coisas convivem: `normalizar*` SEMPRE devolve um valor gravável,
- * conhecido ou não; `ehTipoProdutoConhecido` responde se ele está na lista, e
- * quem chama decide se avisa, sugere ou aceita em silêncio. Rejeitar o
- * desconhecido aqui reintroduziria o enum pela porta dos fundos — e o primeiro
- * produto novo viraria um erro de validação em vez de uma linha no banco.
+ * `normalizar*` SEMPRE devolve um valor gravável, conhecido ou não;
+ * `ehTipoParceiroConhecido` responde se ele está na lista, e quem chama decide
+ * se avisa, sugere ou aceita em silêncio. Rejeitar o desconhecido aqui
+ * reintroduziria o enum pela porta dos fundos.
  * ────────────────────────────────────────────────────────────── */
 
 /**
@@ -53,44 +47,6 @@ export function normalizarChaveVocabulario(
     .replace(/[\s_.-]+/g, "_")
     .replace(/^_+|_+$/g, "");
   return chave.length > 0 ? chave : null;
-}
-
-// ── tipoProduto ──────────────────────────────────────────────────────────
-
-/**
- * Produtos conhecidos hoje. É uma lista de REFERÊNCIA, não uma restrição:
- * gravar fora dela é permitido e esperado enquanto a taxonomia assenta.
- *
- * Não confundir com `productInterest` de `Lead` (ex.: "consorcio_saude" em
- * src/app/api/relatorio/route.ts:74) — aquilo é interesse de lead no funil de
- * marketing, este é o produto sobre o qual incide comissão de parceiro. Os dois
- * vocabulários se parecem e não são o mesmo; unir os dois é decisão de produto,
- * não de código.
- */
-export const TIPOS_PRODUTO = [
-  "assessoria",
-  "seguro_resgatavel",
-  "seguro_risco",
-  "previdencia",
-  "consorcio",
-  "imobiliaria",
-] as const;
-
-export type TipoProdutoConhecido = (typeof TIPOS_PRODUTO)[number];
-
-/** Forma canônica de um `tipoProduto`. `null` = entrada vazia ou não-string. */
-export function normalizarTipoProduto(
-  valor: string | null | undefined,
-): string | null {
-  return normalizarChaveVocabulario(valor);
-}
-
-/** Está na lista de referência? Use para AVISAR, não para bloquear. */
-export function ehTipoProdutoConhecido(
-  valor: string | null | undefined,
-): valor is TipoProdutoConhecido {
-  const chave = normalizarTipoProduto(valor);
-  return chave !== null && (TIPOS_PRODUTO as readonly string[]).includes(chave);
 }
 
 // ── Parceiro.tipo ────────────────────────────────────────────────────────
