@@ -74,7 +74,16 @@ export function PerformanceDashboard({ data }: Props) {
           sub={`A:${kpis.clientesA} · B:${kpis.clientesB} · C:${kpis.clientesC}`}
         />
         <Kpi icon={DollarSign} label="AUM total" value={moeda(kpis.aumTotal)} />
-        <Kpi icon={TrendingUp} label="Receita anual" value={moeda(kpis.receitaAnual)} />
+        {/* NÃO é receita da Onix. `ClienteBackoffice.receitaAnual` é a renda anual
+            DECLARADA do cliente, vinda do Base BTG — `field-source-policy.ts` a lista
+            sob "Posição financeira", ao lado de `saldo` e `plDeclarado`, e o comentário
+            de lá diz o nome verdadeiro: "task chama de rendaAnual".
+
+            O rótulo antigo dizia "Receita anual" e somava R$ 10,5 bi em 2.706 clientes
+            (média R$ 3,88 mi cada, maior deles R$ 2,34 bi). Como receita de corretora é
+            impossível; como renda declarada, é o esperado. A tabela de clientes já
+            chamava isto de "Renda anual dos clientes" — esta tela é que divergia. */}
+        <Kpi icon={TrendingUp} label="Renda anual declarada" value={moeda(kpis.receitaAnual)} />
         <Kpi
           icon={Award}
           label="Cumprimento promessa A"
@@ -203,7 +212,8 @@ export function PerformanceDashboard({ data }: Props) {
                 <th className="text-left px-4 py-2 font-medium text-muted-foreground">Classe</th>
                 <th className="text-left px-4 py-2 font-medium text-muted-foreground">Nome</th>
                 <th className="text-right px-4 py-2 font-medium text-muted-foreground">AUM</th>
-                <th className="text-right px-4 py-2 font-medium text-muted-foreground">Receita/ano</th>
+                {/* Mesmo campo do KPI acima — renda declarada do cliente, não receita. */}
+                <th className="text-right px-4 py-2 font-medium text-muted-foreground">Renda/ano</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
