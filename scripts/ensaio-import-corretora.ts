@@ -111,7 +111,7 @@ const FORMATOS_VALOR = {
 } as const;
 
 const DICIONARIOS = {
-  tipoProduto: { "SEGURO DE VIDA": "vida", "AUTO FÁCIL": "auto_residencial" },
+  tipoProduto: { "SEGURO DE VIDA": "vida", "AUTO FÁCIL": "auto" },
   status: { "EM VIGOR": "ativo", CANCELADA: "cancelado", ENCERRADA: "encerrado" },
 };
 
