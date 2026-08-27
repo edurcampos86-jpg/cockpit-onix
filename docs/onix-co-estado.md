@@ -665,6 +665,41 @@ aqui porque **parece** pendência para quem chega sem contexto, e o custo de nã
 registrar é uma auditoria repetindo a mesma proposta a cada rodada. A régua para
 mudar é mostrar o que mudou desde esta linha.
 
+### `ContratoCorretora` vazia — cadeia lógica, não suposição
+
+A redivisão do catálogo (#410, ago/2026: 6 famílias → 11 produtos) só foi
+segura porque `ContratoCorretora` está vazia: os quatro ids compostos
+(`auto_residencial`, `saude_odonto`, `consorcio`, `fianca_rc_profissional`)
+deixaram de ser válidos, e um contrato gravado com eles passaria a falhar em
+`ehTipoProdutoValido`.
+
+Ninguém abriu o banco para conferir — nem eu, nem o auditor. O que sustenta a
+afirmação é uma cadeia de três elos, e cada um foi verificado no código:
+
+**1. A tabela nasceu vazia.** `prisma/migrations/20260816002845_corretora_contrato_perfil_importacao/migration.sql`
+cria `ContratoCorretora` e não tem **nenhum** `INSERT` — conferido por
+contagem, não por leitura.
+
+**2. Só um caminho escreve nela em produção.**
+`src/lib/corretora/executar-importacao.ts` (`create` e `update`), alcançável
+apenas pela rota `POST /api/empresas/corretora/importar`. O segundo escritor no
+repositório é `scripts/ensaio-import-corretora.ts`, que **começa com
+`deleteMany({})`** — o que é, em si, a prova de que ele é feito para banco
+descartável, não para produção.
+
+**3. Esse caminho exige um `PerfilImportacao`, e não havia nenhum.** A rota
+devolve 404 sem perfil. Até a #390, a única criação de perfil no sistema inteiro
+era o mesmo script de ensaio — não existia POST. O Eduardo nunca concluiu uma
+importação.
+
+**A janela fechou.** Com a #390 em produção dá para criar perfil pela tela, e
+com a primeira importação a tabela deixa de estar vazia. Daí em diante,
+redividir família é trabalho de DADO — `UPDATE` de `tipoProduto` linha a linha,
+faixa vermelha — e não mais uma linha de catálogo.
+
+Quem quiser reabrir a discussão de agrupamento de produto tem, a partir de
+agora, o ônus de contar as linhas antes.
+
 ### Conferências humanas pendentes
 
 - 📋 ~331 pares CPF↔CNPJ por sinal fraco — fila de revisão, sem união automática.
