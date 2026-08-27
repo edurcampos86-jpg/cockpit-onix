@@ -62,7 +62,7 @@ const PORTO_XLSX: PerfilImportacaoConfig = {
     fimVigencia: "data_ddmmaaaa",
   },
   dicionarios: {
-    tipoProduto: { "SEGURO DE VIDA": "vida", "AUTO FÁCIL": "auto_residencial" },
+    tipoProduto: { "SEGURO DE VIDA": "vida", "AUTO FÁCIL": "auto" },
     status: { "EM VIGOR": "ativo", "CANCELADA": "cancelado" },
   },
 };

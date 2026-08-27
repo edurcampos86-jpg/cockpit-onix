@@ -3531,7 +3531,7 @@ model PerfilImportacao {
   formatosValor Json
 
   /// campo de destino → { rótulo do parceiro → valor canônico }.
-  ///   {"tipoProduto": {"VIDA PREMIADA PLUS": "vida", "AUTO FÁCIL": "auto_residencial"},
+  ///   {"tipoProduto": {"VIDA PREMIADA PLUS": "vida", "AUTO FÁCIL": "auto"},
   ///    "status":      {"EM VIGOR": "ativo", "CANCELADA": "cancelado"}}
   ///
   /// É AQUI que mora a normalização de vocabulário por parceiro, e não
