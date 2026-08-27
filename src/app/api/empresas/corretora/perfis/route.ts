@@ -168,13 +168,25 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // O padrão por formato. Antes era `{ tipo: formato, linhaCabecalho: 1 }` para
+  // os quatro — e em PDF isso produzia um `extracao` que o tipo `Extracao` não
+  // admite. Passava porque `validarPerfil` só olhava o ramo de regex; agora ela
+  // exige a estratégia, e o padrão certo tem de vir daqui.
+  //
+  // PDF nasce em `tabela`: decisão do Eduardo, ago/2026 — PDF na Corretora é
+  // SEMPRE por IA. `regex` existe no motor e continua aceito se vier
+  // explícito, mas não é o que a tela oferece.
+  const PADRAO_POR_FORMATO: Readonly<Record<string, Record<string, unknown>>> = {
+    xlsx: { tipo: "xlsx", linhaCabecalho: 1 },
+    csv: { tipo: "csv", linhaCabecalho: 1 },
+    pdf: { tipo: "pdf", estrategia: "tabela" },
+    docx: { tipo: "docx", indiceTabela: 0 },
+  };
+
   const extracao =
     corpo.extracao !== undefined && corpo.extracao !== null && typeof corpo.extracao === "object"
       ? (corpo.extracao as Record<string, unknown>)
-      : // Padrão que serve xlsx e csv sem pedir nada à pessoa: primeira aba,
-        // cabeçalho na linha 1. PDF e Word não têm padrão possível — a
-        // estratégia muda tudo —, e por isso são recusados sem `extracao`.
-        { tipo: formato, linhaCabecalho: 1 };
+      : PADRAO_POR_FORMATO[formato];
   if (extracao.tipo !== formato) {
     return NextResponse.json(
       { error: `extracao.tipo (${String(extracao.tipo)}) não bate com formato (${formato})` },

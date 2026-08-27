@@ -665,6 +665,38 @@ aqui porque **parece** pendência para quem chega sem contexto, e o custo de nã
 registrar é uma auditoria repetindo a mesma proposta a cada rodada. A régua para
 mudar é mostrar o que mudou desde esta linha.
 
+### PDF na Corretora é SEMPRE por IA — decidido, não pendente
+
+`Extracao` admite duas estratégias para PDF: `tabela` (o arquivo vai inteiro
+para o modelo) e `regex` (padrões nomeados por parceiro, casados
+deterministicamente). **Decisão do Eduardo, ago/2026: a Corretora usa só
+`tabela`.**
+
+O motivo é custo de manutenção, não de token: `regex` precisa de um padrão por
+campo por parceiro, e a seguradora muda o template sem avisar. Cada mudança
+viraria manutenção de expressão regular — trabalho recorrente que a leitura por
+IA absorve sozinha. `regex` continua no motor e é aceito se vier explícito no
+perfil; o que a tela oferece é `tabela`.
+
+**O que essa decisão consertou de quebra.** `validarPerfil` deixava passar
+`{ tipo: "pdf", linhaCabecalho: 1 }` — o objeto que uma tela de criação monta
+por analogia com xlsx. O tipo `Extracao` não o admite, mas tipo não roda em
+runtime: `extracao.tipo` batia com `formato`, e o único bloco que olhava PDF era
+o de `regex`, pulado por `estrategia` indefinida.
+
+Funcionava por acaso. `extrairPorIa` só lê `extracao` no ramo de regex, então o
+perfil torto extraía certo — e é o pior tipo de bug adormecido: no dia em que a
+extração passar a usar `extracao`, os perfis antigos leem errado calados, e o
+defeito aparece longe de quem o criou. A validação agora exige
+`estrategia: "tabela" | "regex"` quando o formato é PDF, e o POST de perfis
+(`src/app/api/empresas/corretora/perfis/route.ts`) tem padrão por formato em vez
+de um `linhaCabecalho: 1` para os quatro.
+
+Entra nesta seção pelo mesmo motivo da linha do `/integracoes` acima: não é
+pendência, é o oposto — está aqui porque **parece** escolha em aberto para quem
+chega sem contexto. A régua para reabrir é um parceiro cujo relatório a IA leia
+mal de forma reprodutível, medido, não suposto.
+
 ### Conferências humanas pendentes
 
 - 📋 ~331 pares CPF↔CNPJ por sinal fraco — fila de revisão, sem união automática.
