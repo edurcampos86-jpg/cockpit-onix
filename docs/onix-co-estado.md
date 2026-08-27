@@ -524,6 +524,41 @@ mostrar 31/12/2025.
   começar por um `SELECT` de diagnóstico e decidir o que fazer com as
   duplicatas — decisão de negócio, não de código. PR própria, tier 🔴 RED.
 
+### Dívida de lint — `set-state-in-effect` em `/kpis`
+
+- 📋 **`src/app/kpis/page.tsx` carrega um `eslint-disable-next-line`.** O erro
+  silenciado é `react-hooks/set-state-in-effect` no efeito de montagem, e ele é
+  **anterior** à PR que o silenciou (mesma contagem na branch da PR 1 sem
+  aquele diff). A supressão entrou como desbloqueio, autorizada, e fica
+  registrada aqui como dívida ABERTA — não como assunto encerrado.
+
+  **Por que ela existiu:** o gate `Lint (apenas arquivos alterados)` do
+  `ci.yml` linta todo `.ts`/`.tsx` que a PR toca em relação ao merge-base.
+  A PR 2 da grade encostou em duas linhas do arquivo (o import e a meta de
+  frequência, que passou a derivar da grade) e herdou o passivo dele inteiro.
+  Esse é o comportamento pretendido do gate, não um defeito dele.
+
+  **Por que não foi corrigida ali:** o efeito é o padrão certo naquele ponto —
+  `loadAllWeeks` lê `localStorage`, que não existe no servidor, e semear o
+  estado direto no `useState` faria a primeira renderização do cliente divergir
+  do HTML do servidor, quebrando a hidratação. O caminho sem efeito é
+  `useSyncExternalStore`, que exige snapshot referencialmente estável;
+  `loadAllWeeks` devolve array novo a cada chamada, então pede cache e um
+  caminho de escrita de verdade.
+
+  ⚠️ **Quem for encostar nisso deve resolver junto com o Cofre dos KPIs, não
+  antes.** É o mesmo arquivo e a mesma função: `/kpis` guarda o histórico
+  semanal inteiro **só no `localStorage` do navegador** (`STORAGE_KEY` em
+  `:137`, `loadAllWeeks` em `:153`, `saveAllWeeks` em `:171`). O Eduardo
+  preenche a tela de três lugares — Mac no escritório, Windows em casa e às
+  vezes o celular —, então **o dado digitado num lugar não existe nos outros**,
+  sem aviso e sem cópia. Levar o histórico para o banco é o que faz o
+  `localStorage` virar cache; e é exatamente aí que a escolha entre efeito e
+  `useSyncExternalStore` se decide com a fonte de dados certa na mão.
+
+  Corrigir o lint isolado agora custaria a refatoração inteira da tela para
+  apagar um aviso, e apagaria a pista que aponta para o problema real.
+
 ### Empréstimo de campo — a terceira ocorrência
 
 `ContratoCorretora.importadoEm` foi **reaproveitado**: era o relógio da máquina
