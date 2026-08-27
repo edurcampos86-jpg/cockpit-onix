@@ -59,24 +59,55 @@ test("nenhum id repetido", () => {
   assert.equal(new Set(ids).size, ids.length);
 });
 
-test("nenhum alias aponta para duas famílias", () => {
+test("nenhum RÓTULO INDEXÁVEL aponta para dois produtos", () => {
   // O caso que quebraria a resolução em silêncio: "residencial" listado em
   // `residencial` E em `empresarial` faria o resultado
   // depender da ORDEM do catálogo. O índice é um Map — o último venceria, e
   // ninguém veria.
+  // Varre a MESMA tripla que `POR_ROTULO` indexa — id, nome e aliases —, não
+  // só os aliases. O guard estreito tinha buraco provado: um produto novo
+  // chamado "Dental" colidiria com o alias `dental` de `odonto`, roubaria a
+  // resolução, e o teste passava. Guard que confere metade do que o código
+  // indexa é guard que assina embaixo do que não olhou.
   const visto = new Map<string, string>();
   for (const familia of CATALOGO_PRODUTOS) {
-    for (const alias of familia.aliases) {
-      const chave = normalizarRotulo(alias);
+    for (const rotulo of [familia.id, familia.nome, ...familia.aliases]) {
+      const chave = normalizarRotulo(rotulo);
       const dono = visto.get(chave);
+      // Colisão do produto CONSIGO MESMO é normal: em `auto`, id e nome
+      // normalizam para a mesma chave. O que não pode é dois produtos
+      // DIFERENTES disputando o rótulo.
+      if (dono === familia.id) continue;
       assert.equal(
         dono,
         undefined,
-        `alias ${JSON.stringify(alias)} está em "${dono}" e em "${familia.id}"`,
+        `rótulo ${JSON.stringify(rotulo)} está em "${dono}" e em "${familia.id}"`,
       );
       visto.set(chave, familia.id);
     }
   }
+});
+
+test("o rótulo de TELA de cada produto é exatamente este", () => {
+  // O `nome` não tinha teste nenhum: perder o acento de "Saúde" chegava ao
+  // cliente sem o CI reclamar, porque a resolução normaliza acento e continua
+  // funcionando. O número fecha, a leitura não.
+  assert.deepEqual(
+    CATALOGO_PRODUTOS.map((f) => [f.id, f.nome]),
+    [
+      ["auto", "Auto"],
+      ["residencial", "Residencial"],
+      ["empresarial", "Empresarial"],
+      ["vida", "Vida"],
+      ["saude", "Saúde"],
+      ["odonto", "Odonto"],
+      ["consorcio-auto", "Consórcio Auto"],
+      ["consorcio-imobiliario", "Consórcio Imobiliário"],
+      ["fianca-locaticia", "Fiança Locatícia"],
+      ["rc-profissional", "RC Profissional"],
+      ["dit", "DIT"],
+    ],
+  );
 });
 
 test("todo alias já está na forma normalizada", () => {
