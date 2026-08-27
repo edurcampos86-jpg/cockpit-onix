@@ -1,9 +1,21 @@
 name: Post-deploy smoke tests
 
-# Smoke tests da produção. Roda em 3 situações:
-#   1. Webhook do Railway pós-deploy (repository_dispatch event_type=deployed)
-#   2. Cron a cada 15 min como fallback (mesmo sem deploy, monitora uptime)
-#   3. Manualmente via workflow_dispatch (debug)
+# Smoke tests da produção. Roda em 4 situações:
+#   1. PUSH na main — o merge é o que dispara o deploy no Railway, então este é
+#      o gatilho mais próximo do evento real que existe DENTRO do GitHub.
+#      Espera a produção convergir antes de sondar (ver "Espera o deploy").
+#   2. Webhook do Railway pós-deploy (repository_dispatch event_type=deployed)
+#   3. Cron a cada 15 min como fallback (mesmo sem deploy, monitora uptime)
+#   4. Manualmente via workflow_dispatch (debug)
+#
+# ── POR QUE O PUSH, E NÃO `workflow_run` DEPOIS DO CI ────────────────────────
+# `ci.yml` dispara apenas em `pull_request` — não existe run de CI DEPOIS do
+# merge para escutar. Amarrar em `workflow_run` ouviria o CI da PR, que termina
+# ANTES do merge: sondaria produção antes de o deploy sequer começar.
+# O `push` na main é o mesmo evento que o Railway escuta para deployar.
+#
+# O cron CONTINUA como rede de segurança. Este gatilho é adição, não troca:
+# push cobre "acabei de mergear"; o cron cobre "está de pé desde ontem".
 #
 # Cada execução testa 4 endpoints da produção:
 #   - GET /login                      → 200 (sentinela do proxy/middleware)
@@ -23,6 +35,8 @@ name: Post-deploy smoke tests
 #     -d '{"event_type":"deployed"}'
 
 on:
+  push:
+    branches: [main]
   repository_dispatch:
     types: [deployed]
   schedule:
@@ -42,7 +56,10 @@ permissions:
 jobs:
   smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # 5 min bastavam quando o job só sondava (roda em ~10 s). A espera pelo
+    # deploy, que só existe no gatilho de push, pode consumir até 13 min.
+    # Teto, não atraso: os outros gatilhos seguem terminando em segundos.
+    timeout-minutes: 20
     steps:
       - name: Resolve base URL
         id: base
@@ -57,6 +74,77 @@ jobs:
           while [ "${BASE_URL: -1}" = "/" ]; do BASE_URL="${BASE_URL%/}"; done
           echo "url=$BASE_URL" >> "$GITHUB_OUTPUT"
           echo "Base: $BASE_URL"
+
+      # ─────────────────────────────────────────────────────────────────
+      # Espera o deploy (SÓ no gatilho de push)
+      #
+      # O deploy é do Railway, não do Actions: quando o push chega aqui, o
+      # Railway ainda está construindo. Sondar agora leria o commit ANTERIOR e
+      # o smoke passaria verde contra código velho — exatamente a falha
+      # silenciosa que o campo `versao` do /api/health existe para impedir.
+      #
+      # Então este step espera a produção CONVERGIR para o sha deste push antes
+      # de qualquer probe.
+      #
+      # ── NUNCA REPROVA ─────────────────────────────────────────────────
+      # Estourar a espera é `::warning::`, nunca `exit 1`. Quem decide se a
+      # divergência é problema é o step "Divergência de sha", que só falha
+      # depois de 30 min divergente — e continua sendo o único gate disso.
+      # Um deploy legitimamente lento não pode virar CI vermelho.
+      #
+      # Sem CRON_SECRET não há como ler o sha no ar: o step se declara cego e
+      # sai, e o run segue como sempre seguiu.
+      - name: Espera o deploy convergir
+        id: espera
+        if: github.event_name == 'push'
+        env:
+          BASE: ${{ steps.base.outputs.url }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          # 60 s + 24 × 30 s ≈ 13 min. Um build de imagem completo tem levado
+          # ~4 min; 13 dá folga para fila do Railway sem encostar no teto de
+          # 30 min do gate de divergência.
+          PRIMEIRA_ESPERA: '60'
+          INTERVALO: '30'
+          TENTATIVAS: '24'
+        run: |
+          set -uo pipefail
+
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::warning::CRON_SECRET ausente — sem como ler o sha no ar. Sondando sem esperar."
+            echo "estado=cego" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          ESPERADO="${GITHUB_SHA:0:7}"
+          echo "Esperando produção convergir para \`$ESPERADO\`."
+
+          sleep "$PRIMEIRA_ESPERA"
+
+          i=0
+          while [ "$i" -lt "$TENTATIVAS" ]; do
+            i=$((i + 1))
+            # `|| true`: falha de rede numa tentativa é ruído, não veredito.
+            curl -sS -o /tmp/espera.json --max-time 20 \
+              -H "Authorization: Bearer $CRON_SECRET" "$BASE/api/health" || true
+            NO_AR=$(jq -r '.versao.shaCurto // empty' /tmp/espera.json 2>/dev/null || true)
+
+            if [ "$NO_AR" = "$ESPERADO" ]; then
+              MIN=$(( (PRIMEIRA_ESPERA + (i - 1) * INTERVALO) / 60 ))
+              echo "Convergiu em ~${MIN} min: $ESPERADO está no ar."
+              echo "estado=convergiu" >> "$GITHUB_OUTPUT"
+              {
+                echo "### Deploy conferido no push"
+                echo ""
+                echo "\`$ESPERADO\` no ar após ~${MIN} min."
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+
+            sleep "$INTERVALO"
+          done
+
+          echo "::warning::Produção ainda em \`${NO_AR:-?}\` (esperado \`$ESPERADO\`) após a espera. Seguindo com os probes — quem decide se isso é falha é o gate de divergência, aos 30 min."
+          echo "estado=estourou" >> "$GITHUB_OUTPUT"
 
       - name: Probe GET /login (root proxy check)
         id: root
