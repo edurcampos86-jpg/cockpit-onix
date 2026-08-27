@@ -54,6 +54,8 @@ on:
       - 'scripts/inventario-reunioes.ts'
       # Mesmo motivo, para o leitor da sidebar.
       - 'scripts/quem-ve-a-sidebar.ts'
+      # Mesmo motivo, para a medição da receita.
+      - 'scripts/receita-esta-inflada.ts'
 
 permissions:
   contents: read
@@ -527,6 +529,42 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           cat "${RUNNER_TEMP}/sidebar.txt"
+          echo "código: $CODIGO"
+
+      - name: A receita está inflada por reimportação?
+        if: >-
+          (github.event_name == 'workflow_dispatch' && inputs.consultas == 'completo') ||
+          github.event_name == 'pull_request'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          # Mesma regra dos outros leitores: numa PR, só roda se a PR mexeu no
+          # script. A resposta não muda com migration nenhuma.
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            if ! git diff --name-only "$BASE_SHA" "$HEAD_SHA" \
+                 | grep -q '^scripts/receita-esta-inflada\.ts$'; then
+              echo "PR não mexeu no script — pulando."
+              exit 0
+            fi
+          fi
+
+          set +e
+          npx tsx scripts/receita-esta-inflada.ts > "${RUNNER_TEMP}/receita.txt" 2>&1
+          CODIGO=$?
+          set -e
+          {
+            echo
+            echo '## A receita está inflada por reimportação?'
+            echo
+            echo '```'
+            cat "${RUNNER_TEMP}/receita.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "${RUNNER_TEMP}/receita.txt"
           echo "código: $CODIGO"
 
       # Só no disparo manual com `completo`. São as consultas da auditoria BTG:
