@@ -135,11 +135,19 @@ async function main(): Promise<number> {
   // assim passam por um regex, porque interpolar identificador em SQL merece
   // duas travas e não uma.
   const seguros = contaveis.filter((d) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(d.tabela));
+  // O que o regex recusa NÃO some: some seria reproduzir, dentro do próprio
+  // detector, o defeito que ele existe para acabar. `@@map("relatório")` é
+  // nome válido de tabela no Postgres e inválido para interpolar sem aspas —
+  // então ele fica de fora da contagem, e o relatório DIZ isso.
+  const naoContadas = contaveis.filter((d) => !seguros.includes(d));
   const uniao = seguros
     .map((d) => `SELECT '${d.tabela}' AS tabela, count(*)::int AS linhas FROM "${d.tabela}"`)
     .join(" UNION ALL ");
 
-  const contagens = await prisma.$queryRawUnsafe<Array<{ tabela: string; linhas: number }>>(uniao);
+  const contagens =
+    seguros.length === 0
+      ? []
+      : await prisma.$queryRawUnsafe<Array<{ tabela: string; linhas: number }>>(uniao);
   const porTabela = new Map(contagens.map((c) => [c.tabela, c.linhas]));
 
   // ── Destaque ────────────────────────────────────────────────────────────
@@ -149,7 +157,15 @@ async function main(): Promise<number> {
       console.log(`  ${nome.padEnd(24)} (não existe neste banco)`);
       continue;
     }
-    const linhas = porTabela.get(nome) ?? 0;
+    // NÃO usar `?? 0`. Zero-que-ninguém-contou impresso como "VAZIA" é
+    // exatamente o erro da #301, agora com carimbo de CI em cima. Ausência de
+    // resposta e resposta zero são coisas diferentes, e a tela precisa
+    // distingui-las — é a razão de este script existir.
+    const linhas = porTabela.get(nome);
+    if (linhas === undefined) {
+      console.log(`  ${nome.padEnd(24)} ${"NÃO CONTADA".padStart(12)} (existe no banco, ficou fora da contagem)`);
+      continue;
+    }
     console.log(`  ${nome.padEnd(24)} ${String(linhas).padStart(8)} ${linhas === 0 ? "VAZIA" : ""}`);
   }
 
@@ -159,16 +175,28 @@ async function main(): Promise<number> {
   // de quatro dias. `min(importadoEm)` responde isso em um segundo — e
   // `null` significa que nunca houve importação, que é a resposta desejada.
   if (noBanco.has("ContratoCorretora")) {
-    const datas = await prisma.$queryRaw<Array<{ primeira: Date | null; ultima: Date | null }>>`
-      SELECT min("importadoEm") AS primeira, max("importadoEm") AS ultima
+    const datas = await prisma.$queryRaw<
+      Array<{ primeira: Date | null; ultima: Date | null; total: number }>
+    >`
+      SELECT min("importadoEm") AS primeira, max("importadoEm") AS ultima, count(*)::int AS total
       FROM "ContratoCorretora"
     `;
     const primeira = datas[0]?.primeira ?? null;
+    const total = datas[0]?.total ?? 0;
+
+    // `min` nulo NÃO quer dizer "nunca houve importação": `importadoEm` é
+    // opcional, então tabela vazia e tabela cheia de nulos dão a MESMA
+    // resposta. É a contagem que separa os dois casos — e sem ela o relatório
+    // afirmaria mais do que sabe, que é o defeito que esta PR persegue.
     console.log(
-      primeira === null
-        ? "\n  Primeira importação da Corretora: NUNCA HOUVE (importadoEm todo nulo)"
-        : `\n  Primeira importação da Corretora: ${primeira.toISOString()}` +
-            `\n  Última:                          ${datas[0]?.ultima?.toISOString() ?? "?"}`,
+      total === 0
+        ? "\n  Primeira importação da Corretora: NENHUM CONTRATO GRAVADO (tabela vazia)"
+        : primeira === null
+          ? `\n  Primeira importação da Corretora: ${total} contratos gravados, TODOS sem` +
+            " competência — não dá para datar a primeira importação"
+          : `\n  Primeira importação da Corretora: ${primeira.toISOString()}` +
+            `\n  Última:                          ${datas[0]?.ultima?.toISOString() ?? "?"}` +
+            `\n  Contratos:                       ${total}`,
     );
   }
 
@@ -185,6 +213,18 @@ async function main(): Promise<number> {
 
   console.log(`\n=== ${vazias.length} tabelas VAZIAS ===`);
   console.log(vazias.length === 0 ? "  (nenhuma)" : `  ${vazias.join(", ")}`);
+
+  if (naoContadas.length > 0) {
+    console.error(
+      `\n=== ${naoContadas.length} tabelas NÃO CONTADAS (nome exige aspas no SQL) ===`,
+    );
+    for (const d of naoContadas) console.error(`  ${d.tabela} (model ${d.model})`);
+    console.error(
+      "\nElas existem no banco e ficaram de fora desta contagem. Some do relatório\n" +
+        "em silêncio era o defeito que este script existe para acabar — por isso\n" +
+        "aparecem aqui em vez de sumirem.",
+    );
+  }
 
   // ── A divergência, que é o defeito de fundo ─────────────────────────────
   if (faltando.length > 0) {
@@ -203,6 +243,12 @@ async function main(): Promise<number> {
     return DIVERGENTE;
   }
 
+  if (naoContadas.length > 0) {
+    console.error(
+      `\n${seguros.length} de ${contaveis.length} tabelas declaradas foram contadas.`,
+    );
+    return DIVERGENTE;
+  }
   console.log(`\nTodas as ${contaveis.length} tabelas declaradas foram contadas.`);
   return OK;
 }
