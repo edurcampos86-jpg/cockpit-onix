@@ -1,7 +1,7 @@
 import "server-only";
 import { NextResponse } from "next/server";
 import { getAuthContext } from "@/lib/auth-helpers";
-import { isAdmin } from "@/lib/rbac-papeis";
+import { isAdmin, isAdminMaster } from "@/lib/rbac-papeis";
 
 /**
  * Guarda de admin para rotas de API — espelha `guardCron` (cron-guard.ts):
@@ -35,6 +35,37 @@ export async function guardAdminApi(
     // atribuída — sem registro, não há como notar o padrão.
     console.warn(
       `[guard-admin] acesso NEGADO · rota=${contexto} · usuario=${ctx.userId}` +
+        ` (${ctx.email}, role=${ctx.role}) · ${new Date().toISOString()}`,
+    );
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+  return null;
+}
+
+/**
+ * Guard de ADMIN MASTER — para as portas que admin comum perdeu.
+ *
+ * Vive ao lado de `guardAdminApi` em vez de substituí-lo porque os dois têm
+ * público diferente e isso é a decisão, não um detalhe: importar planilha,
+ * testar integração e editar perfil continuam sendo trabalho de admin. Ligar e
+ * desligar flag, conceder acesso, exportar e apagar em massa não.
+ *
+ * Trocar o corpo de `guardAdminApi` fecharia de uma vez as quinze rotas que o
+ * usam — inclusive as de importação, que a regra manda deixar abertas.
+ */
+export async function guardAdminMasterApi(
+  contexto: string,
+): Promise<NextResponse | null> {
+  const ctx = await getAuthContext().catch(() => null);
+
+  if (!ctx) {
+    return NextResponse.json({ error: "nao_autenticado" }, { status: 403 });
+  }
+  if (!isAdminMaster(ctx)) {
+    // Mesmo registro do guard de admin, e aqui ele importa mais: negar aqui
+    // significa que um ADMIN tentou algo que só o master pode.
+    console.warn(
+      `[guard-master] acesso NEGADO · rota=${contexto} · usuario=${ctx.userId}` +
         ` (${ctx.email}, role=${ctx.role}) · ${new Date().toISOString()}`,
     );
     return NextResponse.json({ error: "forbidden" }, { status: 403 });

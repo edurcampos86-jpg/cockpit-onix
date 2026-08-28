@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
+import { isAdmin } from "@/lib/rbac-papeis";
 import { getConfig } from "@/lib/config-db";
 import { runDatacrazyPoll } from "@/lib/integrations/datacrazy-poll-runner";
 
@@ -27,7 +28,7 @@ export async function GET(req: NextRequest) {
   if (!session) {
     return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
   }
-  if (session.role !== "admin") {
+  if (!isAdmin({ role: session.role, pessoa: null })) {
     return NextResponse.json(
       { error: "Apenas admin pode disparar polling manual" },
       { status: 403 },

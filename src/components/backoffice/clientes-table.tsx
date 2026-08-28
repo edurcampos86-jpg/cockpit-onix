@@ -424,11 +424,15 @@ function statusCadencia(c: Cliente): "ok" | "atencao" | "alerta" {
 export function ClientesTable({
   clientes: iniciais,
   isAdmin = false,
+  ehAdminMaster = false,
   mostrarSaldoParado = false,
   usuarioNome = null,
 }: {
   clientes: Cliente[];
   isAdmin?: boolean;
+  /* Exportar a base inteira é poder de Admin Master. Default `false`: um
+   * chamador que esqueça a prop esconde o botão, não abre a porta. */
+  ehAdminMaster?: boolean;
   // Gate da UI "parado há X dias" (flag CLIENTES_SALDO_PARADO_DIAS). Default
   // false → célula Saldo Conta e ordenação byte-idênticas a hoje (invariante OFF).
   mostrarSaldoParado?: boolean;
@@ -933,6 +937,13 @@ export function ClientesTable({
     !!busca;
 
   const exportarCSV = () => {
+    /* Gate NO DADO, não só no botão. Esconder o botão é conveniência; isto é o
+     * que impede a exportação de acontecer se o componente for montado sem a
+     * prop certa, ou se alguém chamar a função por outro caminho. O CSV carrega
+     * a base inteira — nome, conta, CPF por tabelião, telefone, e-mail, saldo e
+     * renda de 2.716 clientes —, e é a maior superfície de exportação que
+     * existe hoje. */
+    if (!ehAdminMaster) return;
     const alvo = selecionados.size > 0 ? ordenados.filter((c) => selecionados.has(c.id)) : ordenados;
     const cabecalhos = [
       "Classe",
@@ -1192,14 +1203,16 @@ export function ClientesTable({
           <ChevronDown className={`h-3 w-3 transition-transform ${filtrosExpandidos ? "rotate-180" : ""}`} />
         </button>
 
-        <button
-          onClick={exportarCSV}
-          className="px-3 py-2 rounded-lg border text-sm flex items-center gap-2"
-          title="Exportar para CSV (abre no Excel)"
-        >
-          <Download className="h-4 w-4" />
-          Exportar CSV {selecionados.size > 0 && `(${selecionados.size})`}
-        </button>
+        {ehAdminMaster && (
+          <button
+            onClick={exportarCSV}
+            className="px-3 py-2 rounded-lg border text-sm flex items-center gap-2"
+            title="Exportar para CSV (abre no Excel)"
+          >
+            <Download className="h-4 w-4" />
+            Exportar CSV {selecionados.size > 0 && `(${selecionados.size})`}
+          </button>
+        )}
 
         {isAdmin && (
           <>
@@ -1354,13 +1367,15 @@ export function ClientesTable({
             {marcandoContato ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
             Marcar contatados hoje
           </button>
-          <button
-            onClick={exportarCSV}
-            className="px-3 py-1.5 rounded-md border text-xs flex items-center gap-1"
-          >
-            <Download className="h-3 w-3" />
-            Exportar selecionados
-          </button>
+          {ehAdminMaster && (
+            <button
+              onClick={exportarCSV}
+              className="px-3 py-1.5 rounded-md border text-xs flex items-center gap-1"
+            >
+              <Download className="h-3 w-3" />
+              Exportar selecionados
+            </button>
+          )}
           <button onClick={() => setSelecionados(new Set())} className="ml-auto text-xs underline">
             Limpar seleção
           </button>
