@@ -472,7 +472,9 @@ function CadastroTab({ cliente: c }: { cliente: Cliente }) {
       <CadastroSection title="Posição financeira">
         <CadastroField label="AUM total" value={moedaBR(c.saldo)} mono />
         <CadastroField label="Saldo em conta" value={moedaBR(c.saldoConta)} mono />
-        <CadastroField label="Receita anual" value={moedaBR(c.receitaAnual)} mono />
+        {/* Renda anual DECLARADA pelo cliente (Base BTG), não receita da Onix.
+            Ver o bloco em performance-dashboard.tsx e field-source-policy.ts:54. */}
+        <CadastroField label="Renda anual declarada" value={moedaBR(c.receitaAnual)} mono />
         <CadastroField label="Classificação ABC" value={c.classificacao} />
       </CadastroSection>
 
