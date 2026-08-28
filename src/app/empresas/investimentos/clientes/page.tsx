@@ -7,6 +7,7 @@ export const revalidate = 0;
 export const fetchCache = "force-no-store";
 
 import { prisma } from "@/lib/prisma";
+import { isAdmin as ehAdmin, isAdminMaster as souMaster } from "@/lib/rbac-papeis";
 import { getSession } from "@/lib/session";
 import { unstable_noStore as noStore } from "next/cache";
 import { headers } from "next/headers";
@@ -35,7 +36,14 @@ export default async function ClientesPage() {
   // Toca os headers da request pra evitar qualquer cache estático
   await headers();
   const session = await getSession();
-  const isAdmin = session?.role === "admin";
+  /* O Admin Master tem `role` "master" e precisa passar aqui também. `pessoa: null`
+   * porque este caminho só tem o JWT, que não carrega `teamRole`. */
+  const isAdmin = session ? ehAdmin({ role: session.role, pessoa: null }) : false;
+  /* Exportar a base é poder de Admin Master. O JWT não carrega e-mail, então o
+   * fallback de bootstrap não alcança aqui — quem for master pelo e-mail e ainda
+   * não tiver `role` "master" no banco não verá o botão até o UPDATE rodar. É o
+   * lado seguro do erro: esconde demais, nunca exporta demais. */
+  const ehAdminMaster = session ? souMaster({ role: session.role, pessoa: null }) : false;
 
   // RBAC — Camada 1 (escopo). Flag RBAC_ENFORCEMENT (default OFF). OFF => where
   // vazio (comportamento atual). ON => filtra pela carteira do usuário, exceto
@@ -255,6 +263,7 @@ export default async function ClientesPage() {
         <ClientesTable
           clientes={clientes}
           isAdmin={isAdmin}
+          ehAdminMaster={ehAdminMaster}
           mostrarSaldoParado={mostrarSaldoParado}
           usuarioNome={session?.name ?? null}
         />
