@@ -411,11 +411,79 @@ de roupa nova.
 |---|---|---|
 | `ContratoCorretora` | **renomeada** para `Contrato` + 7 colunas novas | é o molde que o próprio schema anuncia; renomear é `ALTER TABLE … RENAME`, barato **se vazia** |
 | `PerfilImportacao` | **+1 coluna:** `destino String @default("contrato")` | o model foi feito ignorante da tabela de destino; agora há mais de um destino e o importador precisa saber qual. Validada em código |
-| `ComissaoMensalCliente` | **aposentada** — `btg-enrich` passa a escrever `ParcelaReceita` | é a `ParcelaReceita` da Capital com outro nome: mesma competência `"AAAA-MM"`, mesmo `Decimal(14,2)`, mesma ideia de `fonte` na chave única. Manter as duas faria a Capital ser caso especial do consolidador para sempre |
+| `ComissaoMensalCliente` | **dado MIGRA, tabela é congelada** e só cai numa PR posterior — §1.7 | é a `ParcelaReceita` da Capital com outro nome: mesma competência `"AAAA-MM"`, mesmo `Decimal(14,2)`, mesma ideia de `fonte` na chave única. Manter as duas faria a Capital ser caso especial do consolidador para sempre |
 | `ReceitaItem` | **marcada obsoleta**, `DROP` em PR seguinte | está vazia (medido na #409). Sua sucessora casa por FK; ela casa por **nome**, com fallback que aceita primeiro nome e atribui receita de um cliente à ficha de outro |
 | `MetaMensal` | **+1 coluna:** `empresaId String?`, `@@unique` vira `[empresaId, mes, ano]` | hoje é global e só o painel semanal da Corretora a lê. Linhas existentes ficam com `null` = "meta do grupo". Aditiva, não quebra o painel |
 | `ImportJob` | **nada** — reusada com `tipo = "receita_<empresa>"` | o campo já diz `"outros tipos no futuro"` |
 | `Empresa`, `Pessoa`, `PessoaGrupo`, `Parceiro`, `ClienteBackoffice` | só lados inversos de relação | **nenhum SQL nessas tabelas** |
+
+### 1.7 O que acontece com o dado de `ComissaoMensalCliente`
+
+A pergunta é **migra, é recalculado, ou se perde?** — e a resposta importa
+porque essa tabela é hoje a ÚNICA cópia da receita da Onix Capital.
+
+**MIGRA. Não é recalculado, e não se perde.** Em três passos, e o segundo é o
+que dá segurança:
+
+**1. Backfill dentro da própria migration**, na mesma transação que cria a
+tabela nova:
+
+```sql
+INSERT INTO "ParcelaReceita" (
+  "id", "empresaId", "competencia", "origem", "status",
+  "valorBruto", "imposto", "valorLiquido",
+  "clienteId", "fonte", "importadoEm", "criadoEm", "atualizadoEm"
+)
+SELECT gen_random_uuid(), 'investimentos', c."competencia", 'apuracao', 'recebida',
+       c."comissao", 0, c."comissao",
+       c."clienteId", c."fonte", c."importadoEm", c."criadoEm", c."atualizadoEm"
+FROM "ComissaoMensalCliente" c;
+```
+
+**2. A migration CONFERE e falha se não bater.** Backfill sem conferência é fé:
+
+```sql
+DO $$
+DECLARE antes bigint; depois bigint; soma_antes numeric; soma_depois numeric;
+BEGIN
+  SELECT count(*), coalesce(sum("comissao"),0) INTO antes, soma_antes
+    FROM "ComissaoMensalCliente";
+  SELECT count(*), coalesce(sum("valorLiquido"),0) INTO depois, soma_depois
+    FROM "ParcelaReceita" WHERE "fonte" = 'btg_rm_reports';
+  IF antes <> depois OR soma_antes <> soma_depois THEN
+    RAISE EXCEPTION 'Backfill nao fecha: % linhas / % -> % linhas / %',
+      antes, soma_antes, depois, soma_depois;
+  END IF;
+END $$;
+```
+
+Contagem **e** soma. Só a contagem deixaria passar um erro de conversão de
+valor; só a soma deixaria passar linhas trocadas que se compensam.
+
+**3. A tabela velha NÃO cai nesta PR.** Ela fica no ar, congelada — o
+`btg-enrich` para de escrever nela e passa a escrever `ParcelaReceita`, mas as
+linhas antigas continuam lá, intactas, como testemunha. O `DROP` é uma PR
+separada, faixa vermelha, depois de o caminho novo ter rodado em produção pelo
+menos uma vez e os dois lados baterem.
+
+**Por que NÃO recalcular.** Seria tentador chamar o BTG de novo e reconstruir a
+série. Não dá: `getCommissionReport()` (`src/lib/btg/…`, o endpoint em uso)
+serve a competência corrente, não o histórico. O que está gravado é a única
+cópia daqueles meses. Recalcular seria trocar dado real por dado que a API não
+tem mais.
+
+**Se a migration falhar**, a transação inteira reverte: a tabela nova não
+existe, a velha está intacta, e o `RAISE EXCEPTION` diz os quatro números.
+Nada a restaurar de backup.
+
+> ⚠️ **Risco de indisponibilidade, e ele é real neste projeto.** O
+> `prisma migrate deploy` roda dentro do `startCommand` (`railway.toml`, bloco
+> `[deploy]`): migration que falha **derruba o serviço em loop de restart** —
+> falha de dado vira app fora do ar. Por isso o backfill é validado em
+> shadow-DB antes do merge, e por isso a conferência está DENTRO da transação
+> e não num script depois.
+
+---
 
 > **`MetaMensal.metaFaturamento` continua `Float`.** Trocar para `Decimal` numa
 > coluna com dado vivo é migration de conversão, risco desproporcional ao ganho
