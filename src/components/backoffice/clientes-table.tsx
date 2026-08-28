@@ -942,6 +942,12 @@ export function ClientesTable({
       "Saldo Conta",
       // "Receita/ano" saiu da TABELA mas continua no CSV: o dado não foi
       // removido do banco e planilhas existentes dependem dessa coluna.
+      //
+      // O RÓTULO ESTÁ ERRADO e continua errado de propósito: o campo é a renda
+      // declarada do cliente, não receita da Onix (ver field-source-policy.ts).
+      // As telas foram corrigidas; este cabeçalho NÃO, porque é chave de coluna
+      // em planilhas que já existem fora daqui — renomear quebraria o consumidor
+      // para consertar a etiqueta. Trocar exige combinar com quem usa o arquivo.
       "Receita/ano",
       "Fee Fixo",
       "Assessor",
