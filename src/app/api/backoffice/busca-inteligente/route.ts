@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
+import { isAdmin } from "@/lib/rbac-papeis";
 import {
   BUSCA_TOOL_SCHEMA,
   validarFiltros,
@@ -33,7 +34,7 @@ async function requireAdmin() {
       error: NextResponse.json({ error: "Nao autenticado" }, { status: 401 }),
     };
   }
-  if (session.role !== "admin") {
+  if (!isAdmin({ role: session.role, pessoa: null })) {
     return {
       error: NextResponse.json(
         { error: "Apenas o login administrador pode usar a busca inteligente." },
