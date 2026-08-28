@@ -51,6 +51,19 @@ export const FIELD_SOURCE_POLICY: Record<string, FonteImport[]> = {
   derivativos: ["base_btg"],
   valorEmTransito: ["base_btg"],
   criptoativos: ["base_btg"],
+  // ATENÇÃO — o nome da coluna mente, e a política é quem diz a verdade: isto é a
+  // renda anual DECLARADA do cliente (o "rendaAnual" da task do Base BTG), não a
+  // receita da Onix. Em 27/08/2026 somava R$ 10,5 bi em 2.706 clientes; como
+  // receita de corretora seria impossível.
+  //
+  // DOIS OUTROS ESCRITORES IGNORAM ESTA LINHA, e gravam grandeza DIFERENTE no
+  // mesmo campo:
+  //   `api/backoffice/btg-enrich/route.ts:141` — comissão do mês × 12, que é
+  //       receita da Onix (estimada). O próprio arquivo registra o TODO.
+  //   `api/backoffice/receita/route.ts:81`     — receita líquida realizada dos
+  //       últimos 12 meses, a partir de `ReceitaItem`.
+  // Enquanto os três convivem, o valor de um cliente significa uma coisa ou
+  // outra conforme quem escreveu por último — e nada na tela distingue.
   receitaAnual: ["base_btg"], // task chama de "rendaAnual"
   plDeclarado: ["base_btg"],
   aportes: ["base_btg"],
