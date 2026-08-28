@@ -121,7 +121,17 @@ export function diasAte(fimVigencia: Date, hoje: Date): number {
   return Math.round((fim - agora) / dia);
 }
 
-/** O fuso em que a Onix opera. Mesmo de `painel-do-dia` e `btg-freshness`. */
+/**
+ * O fuso em que a Onix opera.
+ *
+ * É a TERCEIRA implementação de "hoje na Bahia" no repo: `hojeBahia()` em
+ * `painel-do-dia/agregador.ts` usa a mesma construção `Intl`, e
+ * `btg-freshness.ts` usa offset fixo. Esta é superset das duas (recebe o
+ * instante e o fuso, devolve `Date` ancorada ao meio-dia), mas as três
+ * continuam existindo — e no dia em que alguém precisar mudar o fuso, são três
+ * lugares. Unificar é trabalho próprio, e está anotado aqui para não virar
+ * descoberta.
+ */
 export const FUSO = "America/Bahia";
 
 /**
@@ -150,6 +160,18 @@ export function diaCivil(instante: Date, fuso: string = FUSO): Date {
     .format(instante)
     .split("-")
     .map(Number);
+
+  // A guarda existe porque a falha seria SILENCIOSA E TOTAL: sem ICU completo,
+  // `en-CA` não vem ISO, os três viram NaN, `Date.UTC(NaN,…)` dá Invalid Date,
+  // `diasAte` devolve NaN, e toda comparação com NaN é falsa — o radar
+  // classificaria a base inteira como "adiante" e a fila esvaziaria sem lançar,
+  // sem logar e sem 500. A imagem de produção é full-ICU e isso não acontece
+  // hoje; lançar é o que garante que, se um dia acontecer, apareça.
+  if (!Number.isFinite(ano) || !Number.isFinite(mes) || !Number.isFinite(dia)) {
+    throw new Error(
+      `não consegui ler o dia civil em ${fuso}: o runtime não formatou a data como AAAA-MM-DD`,
+    );
+  }
   return new Date(Date.UTC(ano, mes - 1, dia, 12, 0, 0));
 }
 

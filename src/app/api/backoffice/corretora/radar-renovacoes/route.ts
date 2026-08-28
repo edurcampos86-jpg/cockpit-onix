@@ -53,7 +53,6 @@ import { unstable_noStore as noStore } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getAuthContext, isAdmin } from "@/lib/auth-helpers";
 import { getConfig } from "@/lib/config-db";
-import * as motorDeImportacao from "@/lib/corretora/importar-contratos";
 import { CHAVE_DA_REGUA, coletarRadar, diaCivil, lerRegua } from "@/lib/corretora/radar-renovacoes";
 
 export const dynamic = "force-dynamic";
@@ -63,21 +62,27 @@ export const runtime = "nodejs";
 const EMPRESA = "corretora";
 
 /**
- * A trava contra o update cego está neste motor?
+ * O aviso sobre a trava do update NÃO tenta adivinhar se ela existe.
  *
- * `CAMPOS_SOBRESCREVIVEIS` só existe depois dela — é a lista dos campos que a
- * escrita passou a omitir quando o relatório não traz a coluna. Perguntar ao
- * CÓDIGO, e não a um número de PR escrito à mão, é o que faz este aviso
- * continuar verdadeiro sem ninguém lembrar de atualizá-lo.
+ * Duas versões anteriores erraram, cada uma de um jeito. A primeira citava o
+ * número da PR: string fixa que vira mentira sozinha no dia em que a trava
+ * entra. A segunda perguntava ao código — `Array.isArray(motor.CAMPOS_
+ * SOBRESCREVIVEIS)` — e era pior, porque falhava na DIREÇÃO PERIGOSA: testava
+ * um proxy ("existe um símbolo com esse nome") e não o comportamento ("o
+ * update omite coluna não mapeada"). Renomear a constante, ou mantê-la e
+ * quebrar a escrita, faria o aviso dizer ao admin que ele está seguro
+ * enquanto as datas somem — e nenhum teste, tipo ou lint veria o rename.
  *
- * A checagem é sobre o objeto de módulo, e não um import nomeado, porque
- * enquanto a trava não estiver na base desta branch o símbolo não existe e o
- * import nomeado não compilaria.
+ * Aviso de segurança que pode silenciosamente virar "tudo certo" é pior que
+ * aviso nenhum. O que fica é o MECANISMO, que é verdade em qualquer versão, e
+ * a instrução de como conferir. Errar para "confira" é a direção certa de
+ * errar.
  */
-const TRAVA_DO_UPDATE_PRESENTE = Array.isArray(
-  (motorDeImportacao as Record<string, unknown>).CAMPOS_SOBRESCREVIVEIS,
-);
-
+const SOBRE_FIM_DE_VIGENCIA =
+  "Esta fila vive de fimVigencia. Se o motor de importação ainda gravar o objeto " +
+  "inteiro no update, coluna não mapeada no perfil vira null e uma importação " +
+  "APAGA essas datas — a fila encolhe sozinha, sem avisar. Confira se o perfil de " +
+  "cada seguradora mapeia fim de vigência antes de importar.";
 export async function GET() {
   noStore();
 
@@ -120,14 +125,7 @@ export async function GET() {
         // O que fica é o MECANISMO, que é verdade em qualquer versão, mais
         // como conferir. `travaDoUpdatePresente` responde pelo código que
         // está rodando, não pelo estado de uma PR num dia qualquer.
-        travaDoUpdatePresente: TRAVA_DO_UPDATE_PRESENTE,
-        sobreFimDeVigencia: TRAVA_DO_UPDATE_PRESENTE
-          ? "O motor só grava coluna que o relatório trouxe, então importar com um " +
-            "perfil incompleto não apaga mais fim de vigência."
-          : "ATENÇÃO: esta versão do motor grava o objeto inteiro no update, e coluna " +
-            "não mapeada no perfil vira null. Uma importação com perfil que não traga " +
-            "fim de vigência APAGA essas datas, e a fila encolhe sozinha sem avisar. " +
-            "Confira o mapeamento do perfil antes de cada importação.",
+        sobreFimDeVigencia: SOBRE_FIM_DE_VIGENCIA,
       },
     });
   } catch (e) {
