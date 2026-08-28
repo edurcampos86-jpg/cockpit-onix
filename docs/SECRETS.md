@@ -87,6 +87,7 @@ Configurar em **Settings → Secrets and variables → Actions → Variables →
 | `DATACRAZY_API_TOKEN` | API key | `src/lib/integrations/datacrazy/*` |
 | `DATACRAZY_WEBHOOK_SECRET` | HMAC | webhook handler |
 | `MANYCHAT_API_TOKEN` | API key | `src/app/api/webhooks/manychat/*` |
+| `MANYCHAT_WEBHOOK_SECRET` | Secret do webhook receptor | `src/app/api/manychat/lead/route.ts` — **obrigatório**; se ausente, a rota responde 401 para tudo (ver [doc](manychat-lead-webhook.md)) |
 | `INSTAGRAM_GRAPH_TOKEN` | API key | analytics |
 | `B2_KEY_ID` / `B2_APP_KEY` / `B2_BUCKET` | Backblaze | upload de PDFs (Jurídico) |
 | `OUTLOOK_ICS_URL` | URL | `src/app/api/cron/outlook-poll/*` |
