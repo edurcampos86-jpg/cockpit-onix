@@ -98,13 +98,13 @@ async function main() {
     SELECT count(*)                                                     AS total,
            count(*) FILTER (WHERE "receitaAnual" > 0)                   AS com_valor,
            count(*) FILTER (WHERE "receitaAnual" > 0
-                              AND "fonteUltimoUpdate" ? 'receitaAnual') AS com_procedencia,
+                              AND coalesce("fonteUltimoUpdate" ? 'receitaAnual', false)) AS com_procedencia,
            count(*) FILTER (WHERE "receitaAnual" > 0
-                              AND NOT ("fonteUltimoUpdate" ? 'receitaAnual')) AS sem_procedencia,
+                              AND NOT coalesce("fonteUltimoUpdate" ? 'receitaAnual', false)) AS sem_procedencia,
            coalesce(sum("receitaAnual") FILTER (WHERE "receitaAnual" > 0
-                              AND "fonteUltimoUpdate" ? 'receitaAnual'), 0)   AS soma_com,
+                              AND coalesce("fonteUltimoUpdate" ? 'receitaAnual', false)), 0)   AS soma_com,
            coalesce(sum("receitaAnual") FILTER (WHERE "receitaAnual" > 0
-                              AND NOT ("fonteUltimoUpdate" ? 'receitaAnual')), 0) AS soma_sem
+                              AND NOT coalesce("fonteUltimoUpdate" ? 'receitaAnual', false)), 0) AS soma_sem
     FROM "ClienteBackoffice"
   `;
 
@@ -125,6 +125,20 @@ async function main() {
   console.log("  escrita. `btg-enrich` e o recompute da receita chamam `update` direto e");
   console.log("  NÃO carimbam — então 'sem procedência' é o teto da contaminação.");
 
+  /* GUARDA DE ARITMÉTICA. Os dois ramos têm de somar o total — se não somarem,
+   * o número está errado e a conclusão também. A primeira versão deste script
+   * perdeu 5 clientes exatamente aqui: `NULL ? 'chave'` devolve NULL em Postgres,
+   * não `false`, e `NOT NULL` é NULL — então quem tinha `fonteUltimoUpdate` nulo
+   * não entrava em NENHUM dos dois FILTER e sumia da conta em silêncio.
+   * O `coalesce(..., false)` conserta; esta guarda é para nunca mais passar. */
+  if (comProc + semProc !== comValor) {
+    console.log(
+      `\n  ⚠ A PARTIÇÃO NÃO FECHA: ${comProc} + ${semProc} = ${comProc + semProc}, mas ` +
+        `${comValor} têm valor. ${comValor - comProc - semProc} cliente(s) fora dos dois ramos — ` +
+        "o número acima está errado e a leitura abaixo não vale.",
+    );
+  }
+
   if (comValor === 0) {
     console.log("\n  Nenhum cliente com valor. Nada a decidir.");
     return;
@@ -137,7 +151,7 @@ async function main() {
            count(*)                                                 AS clientes,
            coalesce(sum("receitaAnual"), 0)                          AS soma
     FROM "ClienteBackoffice"
-    WHERE "receitaAnual" > 0 AND "fonteUltimoUpdate" ? 'receitaAnual'
+    WHERE "receitaAnual" > 0 AND coalesce("fonteUltimoUpdate" ? 'receitaAnual', false)
     GROUP BY 1
     ORDER BY 2 DESC
   `;
@@ -172,7 +186,7 @@ async function main() {
            count(*) FILTER (WHERE "saldo" > 0
                               AND "receitaAnual" / "saldo" >= 0.5)             AS parece_renda
     FROM "ClienteBackoffice"
-    WHERE "receitaAnual" > 0 AND NOT ("fonteUltimoUpdate" ? 'receitaAnual')
+    WHERE "receitaAnual" > 0 AND NOT coalesce("fonteUltimoUpdate" ? 'receitaAnual', false)
   `;
 
   console.log("\n── OS SEM CARIMBO, POR ORDEM DE GRANDEZA (indício, não prova) ──");
