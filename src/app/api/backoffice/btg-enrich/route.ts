@@ -19,7 +19,7 @@ const FONTE_COMISSAO = "btg_rm_reports";
  * Enriquece ClienteBackoffice já existentes com:
  * - Suitability (perfilInvestidor + validade) — 1 chamada por cliente, rate limit 60/min
  * - Relacionamento Conta×Assessor (assessorCge + assessorNome) — 1 chamada global
- * - Comissões (receitaAnual estimada = mês × 12) — 1 chamada global
+ * - Comissões (persistidas em `ComissaoMensalCliente`, por competência) — 1 chamada global
  *
  * Query params:
  * - ?clienteId=xxx — processa só 1 cliente (útil pra detalhe)
@@ -138,8 +138,7 @@ export async function POST(req: NextRequest) {
       const assessor = assessoresMap.get(numeroConta);
       if (assessor) comAssessor++;
       const receitaMes = receitasMap.get(numeroConta);
-      const receitaAnual = receitaMes !== undefined ? receitaMes * 12 : undefined;
-      if (receitaAnual !== undefined) comReceita++;
+      if (receitaMes !== undefined) comReceita++;
 
       // Atualiza só campos com novidade
       const data: Record<string, unknown> = { ultimaSyncBtg: new Date() };
@@ -149,11 +148,19 @@ export async function POST(req: NextRequest) {
         data.assessorCge = assessor.cge;
         data.assessorNome = assessor.nome;
       }
-      // `receitaAnual` continua exatamente como estava. Removê-lo é PR futura,
-      // depois de haver histórico real para derivar — trocar a estimativa pelo
-      // realizado ANTES de ter 12 meses guardados zeraria a tela de quem lê.
-      // TODO: receitaAnual aqui é estimativa = mes × 12. Evoluir pra média móvel quando tivermos histórico.
-      if (receitaAnual !== undefined) data.receitaAnual = receitaAnual;
+      /* NÃO escreve `receitaAnual` — e o TODO que pedia esta PR está cumprido.
+       *
+       * `ClienteBackoffice.receitaAnual` é a renda anual DECLARADA do cliente,
+       * vinda do Base BTG; a `FIELD_SOURCE_POLICY` declara `base_btg` como dono
+       * único. Gravar aqui comissão × 12 punha receita da Onix num campo do
+       * cliente, e as duas grandezas não se comparam: em 28/08/2026 a renda
+       * declarada somava R$ 10,5 bilhões em 2.706 clientes.
+       *
+       * A comissão continua sendo persistida — logo abaixo, em
+       * `ComissaoMensalCliente`, por competência mensal e com `fonte`. É o lugar
+       * certo desde a #408, e é de lá que o Financeiro vai ler. O TODO antigo
+       * temia "zerar a tela de quem lê"; não zera: parar de escrever não apaga o
+       * que já está lá, e o que está lá é renda declarada do Base BTG. */
 
       try {
         await prisma.clienteBackoffice.update({ where: { id: c.id }, data });
