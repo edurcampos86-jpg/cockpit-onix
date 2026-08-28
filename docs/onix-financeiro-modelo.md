@@ -157,11 +157,18 @@ uma cadeia de três elos verificados no código, e diz honestamente onde a cadei
 para: *"da #390 até a #410 passaram quatro dias em que criar perfil pela tela e
 importar já era possível — e nesse intervalo a garantia não é mais mecânica."*
 
-`scripts/contagem-tabelas.ts:68` já conta `ContratoCorretora`, mas o guarda por
-diff do `estado-do-banco.yml` só o executa quando a PR **toca o script**. A PR
-da migration vai tocá-lo (para acrescentar as tabelas novas), então **o número
-ao vivo chega na própria PR, antes do "ok" do SQL**. Se vier diferente de zero,
-o rename sai e a tabela mantém o nome — o resto da proposta não muda.
+`scripts/contagem-tabelas.ts:68` já conta `ContratoCorretora`, e — diferente dos
+outros leitores do `estado-do-banco.yml` — esse step **não tem guarda por diff**
+(`.github/workflows/estado-do-banco.yml:265`): ele roda sempre que o workflow
+dispara. `prisma/schema.prisma` está na lista de `paths` do gatilho, então **a PR
+da migration produz o número sozinha, antes do "ok" do SQL.** Se vier diferente
+de zero, o rename sai e a tabela mantém o nome — o resto da proposta não muda.
+
+⚠️ **O número é produzido e não é encontrável.** Ele sai no meio de um log de
+~1.300 linhas e no resumo do job; tentei recuperá-lo três vezes nesta sessão, por
+`tail` crescente, e desisti. Um dado que existe e ninguém acha decide tão pouco
+quanto um dado que não existe — é a sugestão "Contagem que grita" no relatório
+desta tarefa.
 
 ---
 
@@ -628,5 +635,5 @@ SQL — e o teto de WIP de 3 frentes vale aqui.
 | a migration aplica limpo | ⚠️ **não testado** — shadow-DB é gate da PR #2, não deste documento |
 
 Sessão de agente não alcança o banco de produção (`CONNECT 403`). O caminho é o
-`estado-do-banco.yml`, e o guarda por diff dele só dispara quando a PR toca o
-script — o que a PR da migration fará, por construção.
+`estado-do-banco.yml`, que dispara com `prisma/schema.prisma` nos `paths` — logo
+a PR da migration produz as contagens por construção, sem passo extra.
