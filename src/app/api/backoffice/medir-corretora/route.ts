@@ -22,13 +22,19 @@
  * caminho nenhum — nem sob condição. É `GET`, e é `GET` de verdade: chamar
  * dez vezes seguidas não muda uma linha.
  *
- * ── NENHUM DADO PESSOAL NA RESPOSTA ──────────────────────────────────────
- * Só contagens agregadas e nomes de COLUNA de relatório. Nem documento, nem
- * nome de cliente, nem e-mail, nem telefone — a medição de colunas extras
- * devolve as CHAVES do Json e nunca os valores. A única string livre é
- * `atendenteCorretora`, que é quem atende e não o cliente, e é o objeto da
- * própria medição 4. Mesma regra de `api/backoffice/recon-identidade` e de
- * `api/backoffice/pessoa-grupo/backfill`.
+ * ── NENHUM DADO DE CLIENTE NA RESPOSTA ───────────────────────────────────
+ * "Nenhum dado pessoal" seria rótulo otimista, e rótulo errado é pior do que
+ * rótulo ausente: a medição 4 devolve `atendenteCorretora` — nome de PESSOA,
+ * ainda que funcionário, com a contagem de contratos dela ao lado. Isso é
+ * exatamente o objeto da medição, e sai atrás do mesmo gate de admin das
+ * rotas irmãs; mas quem for auditar esta rota precisa ler a verdade e não o
+ * slogan.
+ *
+ * De CLIENTE não sai nada: nem documento, nem nome, nem e-mail, nem telefone.
+ * A medição de colunas extras devolve as CHAVES do Json de origem e nunca os
+ * valores — é a diferença entre saber que a Porto manda uma coluna "Telefone"
+ * e ver os telefones. O resto é contagem agregada. Mesma regra de
+ * `api/backoffice/recon-identidade` e de `api/backoffice/pessoa-grupo/backfill`.
  *
  * ── GATE DE AUTORIZAÇÃO ──────────────────────────────────────────────────
  * `isAdmin(ctx)` de `@/lib/auth-helpers`, o mesmo das rotas irmãs
@@ -66,47 +72,57 @@ export async function GET() {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
-  // Tabela ausente é 503 e não 500: o serviço está de pé, a pergunta é que não
-  // pode ser respondida NESTE banco (branch sem a migration, ambiente errado).
-  // Devolver 500 mandaria procurar bug onde há descompasso de ambiente.
-  const faltando = await tabelasAusentes(prisma);
-  if (faltando.length > 0) {
-    return NextResponse.json(
-      {
-        error: "tabelas-ausentes",
-        faltando,
-        necessarias: TABELAS_NECESSARIAS,
-        detalhe:
-          "Estas tabelas não existem neste banco. As medições não podem ser feitas aqui.",
+  try {
+    // Tabela ausente é 503 e não 500: o serviço está de pé, a pergunta é que
+    // não pode ser respondida NESTE banco (branch sem a migration, ambiente
+    // errado). Devolver 500 mandaria procurar bug onde há descompasso de
+    // ambiente — e sem o `try` em volta, uma falha de driver viraria um 500
+    // genérico do Next, apagando justamente essa distinção.
+    const faltando = await tabelasAusentes(prisma);
+    if (faltando.length > 0) {
+      return NextResponse.json(
+        {
+          error: "tabelas-ausentes",
+          faltando,
+          necessarias: TABELAS_NECESSARIAS,
+          detalhe:
+            "Estas tabelas não existem neste banco. As medições não podem ser feitas aqui.",
+        },
+        { status: 503 },
+      );
+    }
+
+    const medicoes = await coletarMedicoes(prisma);
+
+    return NextResponse.json({
+      medidoEm: new Date().toISOString(),
+      medicoes,
+      // As leituras viajam junto com os números DE PROPÓSITO. Número sem
+      // leitura vira interpretação de quem lê, e a interpretação errada é o
+      // defeito que estas medições existem para evitar — a versão anterior
+      // deste cálculo errou justamente aí.
+      leituras: LEITURAS,
+      // O contexto que muda a leitura do resultado, e que não está em nenhum
+      // dos números: a carteira de Investimentos TEM nome, documento, e-mail e
+      // telefone. Logo, para o cliente das duas casas o nome já é alcançável
+      // sem migration nenhuma, e o número que decide a coluna nova é só o
+      // complemento — quem não tem contraparte lá.
+      contexto: {
+        investimentosTemNomeEContato: true,
+        numeroQueDecideAColunaDeNome: "medicoes.nome.semContraparteEmInvestimentos",
+        porQue:
+          "Cliente das duas casas já tem nome, e-mail e telefone alcançáveis por " +
+          "PessoaGrupo.clientes, sem migration. Só o cliente EXCLUSIVO da Corretora " +
+          "fica sem nome em lugar nenhum — e é só ele que justifica (ou não) a " +
+          "coluna PessoaGrupo.nome, que é faixa vermelha.",
       },
-      { status: 503 },
-    );
+      somenteLeitura: true,
+    });
+  } catch (e) {
+    // A mensagem do driver pode conter a connection string (logo, credencial).
+    // Ela vai para o log do servidor; o cliente recebe só o código. Mesma
+    // regra de `api/backoffice/recon-identidade`.
+    console.error("[medir-corretora] falha ao coletar medições:", e);
+    return NextResponse.json({ error: "erro ao coletar medicoes" }, { status: 500 });
   }
-
-  const medicoes = await coletarMedicoes(prisma);
-
-  return NextResponse.json({
-    medidoEm: new Date().toISOString(),
-    medicoes,
-    // As leituras viajam junto com os números DE PROPÓSITO. Número sem leitura
-    // vira interpretação de quem lê, e a interpretação errada é o defeito que
-    // estas medições existem para evitar — a versão anterior deste cálculo
-    // errou justamente aí.
-    leituras: LEITURAS,
-    // O contexto que muda a leitura do resultado, e que não está em nenhum
-    // dos números: a carteira de Investimentos TEM nome, documento, e-mail e
-    // telefone. Logo, para o cliente das duas casas o nome já é alcançável
-    // sem migration nenhuma, e o número que decide a coluna nova é só o
-    // complemento — quem não tem contraparte lá.
-    contexto: {
-      investimentosTemNomeEContato: true,
-      numeroQueDecideAColunaDeNome: "medicoes.nome.semContraparteEmInvestimentos",
-      porQue:
-        "Cliente das duas casas já tem nome, e-mail e telefone alcançáveis por " +
-        "PessoaGrupo.clientes, sem migration. Só o cliente EXCLUSIVO da Corretora " +
-        "fica sem nome em lugar nenhum — e é só ele que justifica (ou não) a " +
-        "coluna PessoaGrupo.nome, que é faixa vermelha.",
-    },
-    somenteLeitura: true,
-  });
 }

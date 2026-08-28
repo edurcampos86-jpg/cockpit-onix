@@ -229,12 +229,23 @@ export function pareceContato(coluna: string): boolean {
 }
 
 /**
- * Coleta as cinco medições numa transação de LEITURA.
+ * Coleta as cinco medições numa transação de LEITURA, em `RepeatableRead`.
  *
  * A transação não é cerimônia: o import da Corretora pode estar rodando
  * enquanto isto mede. Sem ela, a contagem de contratos e a de titulares viriam
  * de instantes diferentes, e a inconsistência apareceria como "bug" na hora de
- * decidir. Mesma razão de `coletarMetricasIdentidade`.
+ * decidir.
+ *
+ * O NÍVEL É EXPLÍCITO, e precisa ser. Sem `isolationLevel`, o Prisma abre a
+ * transação e deixa o Postgres no default — `READ COMMITTED`, cujo snapshot é
+ * por STATEMENT e não por transação. Ou seja: envolver as cinco consultas num
+ * `BEGIN` não daria instantâneo nenhum, e o comentário prometeria uma garantia
+ * que o código não entrega. `RepeatableRead` tira um snapshot só, no primeiro
+ * statement, e as cinco leem dele.
+ *
+ * Custo: nenhum bloqueio (leitura pura não conflita) e nenhum risco de
+ * serialization failure, que é problema de `Serializable` — este nível não
+ * precisa ser tentado de novo.
  */
 export async function coletarMedicoes(db: ClienteLeitura): Promise<Medicoes> {
   const [vigRows, nomeRows, colunaRows, atendenteRows, cruzRows] = await db.$transaction([
@@ -313,7 +324,11 @@ export async function coletarMedicoes(db: ClienteLeitura): Promise<Medicoes> {
        GROUP BY 1
        ORDER BY 1
     `,
-  ]);
+    // `Prisma.TransactionIsolationLevel.RepeatableRead` seria o import do
+    // client gerado; a união é de strings e o literal evita puxar o namespace
+    // de runtime para um módulo que só importa TIPO do Prisma — é a nota do
+    // topo do arquivo.
+  ], { isolationLevel: "RepeatableRead" });
 
   const v = vigRows[0] ?? { contratos: 0, sem_fim: 0, ativos: 0, ativos_sem_fim: 0 };
   const n = nomeRows[0] ?? {
