@@ -33,7 +33,7 @@
  *     relatórios das companhias traz telefone, criar campo para ele não
  *     resolve nada: nasceria vazio, porque não existe escrita de
  *     `ContratoCorretora`/`PessoaGrupo` fora do import.
- *  4. Atendente — `@@index([atendenteCorretora, status])` (`:3443`) foi criado
+ *  4. Atendente — `@@index([atendenteCorretora, status])` (`:3445`) foi criado
  *     para "meus contratos ativos". Se o campo estiver majoritariamente vazio,
  *     ou com uma grafia por relatório, filtrar por atendente é promessa falsa.
  *  5. Cross-sell — só existe oportunidade de venda cruzada se houver gente com
@@ -45,6 +45,18 @@
  * BRANCH e a pergunta é sobre o BANCO. Aqui pesa mais ainda, porque duas das
  * cinco perguntas são sobre `jsonb` e sobre `regexp_replace`, que o cliente
  * tipado não expressa.
+ *
+ * ── POR QUE ISTO NÃO VIRA WORKFLOW DE CI ─────────────────────────────────
+ * A medição 2 cruza os documentos com `regexp_replace` sobre
+ * `ClienteBackoffice.cpfCnpj`, que é nullable e admite máscara. Isso INUTILIZA
+ * o índice daquela coluna e o `EXISTS` correlacionado tende a reexecutar por
+ * titular. Com a Corretora na escala de hoje o produto é pequeno e o custo é
+ * irrelevante; em dezenas de milhares de contratos vira varredura.
+ *
+ * Rodar à mão, quando alguém vai decidir algo, é barato. Pendurar num
+ * workflow que dispara em toda PR seria pagar essa conta a cada push — e o
+ * conserto certo, antes de pensar nisso, é uma coluna canônica de dígitos no
+ * `ClienteBackoffice`, como `PessoaGrupo` já tem.
  *
  * ── CÓDIGOS DE SAÍDA ─────────────────────────────────────────────────────
  *   0  mediu tudo
@@ -150,40 +162,49 @@ async function main(): Promise<number> {
   // hoje nasce null em toda linha e só é preenchido pelo backfill) e o
   // CASAMENTO POR DOCUMENTO, que não depende do backfill ter rodado. A
   // distância entre os dois é exatamente o que o backfill entregaria.
+  //
+  // E o "sem nome" NÃO é `pessoas - casa_por_documento`. Os dois caminhos são
+  // independentes, e `ClienteBackoffice.cpfCnpj` é NULLABLE: existe titular já
+  // vinculado (nome alcançável pela relação) que não casa por documento, e a
+  // subtração o contaria como perdido. Como este é justamente o número que
+  // decide entre "empresta o nome" e "migration de faixa vermelha", ele é
+  // calculado como o complemento de verdade — `NOT (vinculo OR documento)`.
   titulo(2, "Nome do titular — o join cobre quanto?");
   // `[^0-9]` e não `\D`: isto é uma template literal, e `\D` não é escape
   // reconhecido — o valor cozido chegaria ao Postgres como a letra `D`, e o
   // `regexp_replace` apagaria os "D" do documento em vez dos não-dígitos.
   // Silencioso e errado, que é a pior combinação.
   const nomes = await prisma.$queryRaw<
-    Array<{ pessoas: number; com_vinculo: number; casa_por_documento: number }>
+    Array<{ pessoas: number; com_vinculo: number; casa_por_documento: number; sem_nome: number }>
   >`
     WITH titulares AS (
       SELECT DISTINCT pg.id, pg."cpfCnpj"
         FROM "PessoaGrupo" pg
         JOIN "ContratoCorretora" c ON c."pessoaGrupoId" = pg.id
-    )
-    SELECT count(*)::int AS pessoas,
-           count(*) FILTER (
-             WHERE EXISTS (SELECT 1 FROM "ClienteBackoffice" cb WHERE cb."pessoaGrupoId" = t.id)
-           )::int AS com_vinculo,
-           count(*) FILTER (
-             WHERE EXISTS (
+    ),
+    caminhos AS (
+      SELECT t.id,
+             EXISTS (
+               SELECT 1 FROM "ClienteBackoffice" cb WHERE cb."pessoaGrupoId" = t.id
+             ) AS por_vinculo,
+             EXISTS (
                SELECT 1 FROM "ClienteBackoffice" cb
-                WHERE regexp_replace(coalesce(cb."cpfCnpj", ''), '[^0-9]', '', 'g') = t."cpfCnpj"
-                  AND t."cpfCnpj" <> ''
-             )
-           )::int AS casa_por_documento
-      FROM titulares t
+                WHERE t."cpfCnpj" <> ''
+                  AND regexp_replace(coalesce(cb."cpfCnpj", ''), '[^0-9]', '', 'g') = t."cpfCnpj"
+             ) AS por_documento
+        FROM titulares t
+    )
+    SELECT count(*)::int                                             AS pessoas,
+           count(*) FILTER (WHERE por_vinculo)::int                  AS com_vinculo,
+           count(*) FILTER (WHERE por_documento)::int                AS casa_por_documento,
+           count(*) FILTER (WHERE NOT (por_vinculo OR por_documento))::int AS sem_nome
+      FROM caminhos
   `;
-  const n = nomes[0] ?? { pessoas: 0, com_vinculo: 0, casa_por_documento: 0 };
+  const n = nomes[0] ?? { pessoas: 0, com_vinculo: 0, casa_por_documento: 0, sem_nome: 0 };
   console.log(`  Titulares com contrato na Corretora: ${n.pessoas}`);
   console.log(`  Já vinculados a ClienteBackoffice:   ${fatia(n.com_vinculo, n.pessoas)}`);
   console.log(`  Casariam por documento (pós-backfill): ${fatia(n.casa_por_documento, n.pessoas)}`);
-  console.log(
-    `  SEM NOME por nenhum caminho:        ${fatia(n.pessoas - n.casa_por_documento, n.pessoas)}` +
-      "  <- é este que decide",
-  );
+  console.log(`  SEM NOME por nenhum caminho:        ${fatia(n.sem_nome, n.pessoas)}  <- é este que decide`);
   console.log(
     "  Leitura: a última linha é o cliente EXCLUSIVO da Corretora. Se for\n" +
       "  pequena, a tela empresta o nome de Investimentos e não há migration.\n" +
@@ -197,10 +218,15 @@ async function main(): Promise<number> {
   // do que as companhias mandam e o sistema não sabe usar. É onde um telefone
   // apareceria, se aparecesse.
   titulo(3, "Telefone — alguma companhia manda?");
+  // `jsonb_typeof(...) = 'object'` e não `IS NOT NULL`: `jsonb_object_keys`
+  // LANÇA em escalar, array e no `'null'::jsonb` que `Prisma.JsonNull` grava —
+  // e uma linha ruim derrubaria também os blocos 4 e 5. O `IS NOT NULL`
+  // sozinho não protegeria: a função é strict, então SQL NULL já devolve zero
+  // linhas e a cláusula não cobria justamente o caso que estoura.
   const chaves = await prisma.$queryRaw<Array<{ coluna: string; linhas: number }>>`
     SELECT k AS coluna, count(*)::int AS linhas
-      FROM "ContratoCorretora" c, LATERAL jsonb_object_keys(c."dadosProduto"::jsonb) AS k
-     WHERE c."dadosProduto" IS NOT NULL
+      FROM "ContratoCorretora" c, LATERAL jsonb_object_keys(c."dadosProduto") AS k
+     WHERE jsonb_typeof(c."dadosProduto") = 'object'
      GROUP BY k
      ORDER BY 2 DESC, 1
   `;
@@ -224,8 +250,12 @@ async function main(): Promise<number> {
   // próprio motor já diagnostica grafias repetidas — se "Ana", "ANA" e "Ana
   // Paula" forem a mesma pessoa, o filtro divide a carteira dela em três.
   titulo(4, "Atendente — dá para filtrar por quem atende?");
-  const atendentes = await prisma.$queryRaw<Array<{ atendente: string; linhas: number }>>`
-    SELECT coalesce(nullif(trim("atendenteCorretora"), ''), '(vazio)') AS atendente,
+  // `atendente` volta NULL para vazio em vez de uma sentinela de texto: um
+  // atendente gravado literalmente como "(vazio)" colidiria com a sentinela e
+  // seria contado como ausência. Texto livre não dá garantia nenhuma sobre o
+  // conteúdo, então a distinção mora no tipo, não na string.
+  const atendentes = await prisma.$queryRaw<Array<{ atendente: string | null; linhas: number }>>`
+    SELECT nullif(trim("atendenteCorretora"), '') AS atendente,
            count(*)::int AS linhas
       FROM "ContratoCorretora"
      WHERE "status" = 'ativo'
@@ -235,8 +265,10 @@ async function main(): Promise<number> {
   if (atendentes.length === 0) {
     console.log("  Nenhum contrato ativo.");
   } else {
-    for (const a of atendentes) console.log(`  ${a.atendente.padEnd(32)} ${String(a.linhas).padStart(6)}`);
-    const vazio = atendentes.find((a) => a.atendente === "(vazio)")?.linhas ?? 0;
+    for (const a of atendentes) {
+      console.log(`  ${(a.atendente ?? "(sem atendente)").padEnd(32)} ${String(a.linhas).padStart(6)}`);
+    }
+    const vazio = atendentes.find((a) => a.atendente === null)?.linhas ?? 0;
     const total = atendentes.reduce((s, a) => s + a.linhas, 0);
     console.log(`  Sem atendente: ${fatia(vazio, total)}`);
     console.log(
@@ -281,8 +313,15 @@ main()
   })
   .catch((erro) => {
     console.error("Erro ao medir:", erro instanceof Error ? erro.message : erro);
+    // Erro de conexão do Prisma costuma trazer usuário e host na mensagem — e
+    // este script existe para ter a saída colada em conversa. O aviso vem
+    // junto do erro, não no cabeçalho, porque é ali que ele é lido.
+    console.error("(a mensagem acima pode conter credencial — não cole sem revisar)");
     process.exitCode = INDETERMINADO;
   })
   .finally(async () => {
-    await clienteAberto?.$disconnect();
+    // `catch` no disconnect: sem ele, uma rejeição aqui vira unhandled
+    // rejection DEPOIS de `process.exitCode` já estar definido, e o Node sai
+    // com 1 — um código que o cabeçalho declara não existir neste script.
+    await clienteAberto?.$disconnect().catch(() => {});
   });
