@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
+import { isAdmin } from "@/lib/rbac-papeis";
 import { type FonteImport } from "@/lib/backoffice/field-source-policy";
 import { upsertPorPolitica } from "@/lib/backoffice/upsert-cliente";
 import { gateSanidadeSaldoCc } from "@/lib/backoffice/import-sanity";
@@ -28,7 +29,7 @@ async function requireAdmin() {
       error: NextResponse.json({ error: "Não autenticado" }, { status: 401 }),
     };
   }
-  if (session.role !== "admin") {
+  if (!isAdmin({ role: session.role, pessoa: null })) {
     return {
       error: NextResponse.json(
         { error: "Apenas o login administrador pode importar ou exportar dados de clientes." },

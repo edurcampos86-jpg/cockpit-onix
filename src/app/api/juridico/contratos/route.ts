@@ -10,6 +10,7 @@
  * Auth: admin. RBAC granular vem na Fase 1B.
  */
 import { NextResponse } from "next/server";
+import { isAdminMaster } from "@/lib/rbac-papeis";
 import { prisma } from "@/lib/prisma";
 import { getAuthContext } from "@/lib/auth-helpers";
 import { canViewContratosModule, getPermissoes } from "@/lib/auth/permissions";
@@ -28,7 +29,7 @@ export async function GET(req: Request) {
   // das pessoas que estão na lista (admin bypassa via "*").
   const perm = await getPermissoes(ctx.userId);
   const filtroCarteira =
-    ctx.role === "admin" || perm.carteirasPermitidas === "*"
+    isAdminMaster(ctx) || ctx.role === "admin" || perm.carteirasPermitidas === "*"
       ? undefined
       : { pessoaId: { in: perm.carteirasPermitidas as string[] } };
 

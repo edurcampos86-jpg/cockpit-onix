@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { getAuthContext, isAdmin } from "@/lib/auth-helpers";
+import { getAuthContext } from "@/lib/auth-helpers";
+import { isAdminMaster } from "@/lib/rbac-papeis";
 
 const ESCOPOS = ["propria", "propria_mais_apoio", "todas"];
 const NIVEIS = ["nenhum", "membro", "admin"];
@@ -24,9 +25,12 @@ export type SalvarPapelState = { ok: boolean; error?: string };
  * NÃO toca nenhuma outra tabela, sem enforcement.
  */
 export async function salvarPapel(input: SalvarPapelInput): Promise<SalvarPapelState> {
+  /* SÓ ADMIN MASTER. Editar papel É conceder acesso: quem mexe em
+   * `adminGlobal` e no escopo operacional decide o que todo mundo enxerga.
+   * Admin comum perdeu isto de propósito — ver `isAdminMaster`. */
   const ctx = await getAuthContext().catch(() => null);
-  if (!ctx || !isAdmin(ctx)) {
-    return { ok: false, error: "Apenas administradores podem editar papéis." };
+  if (!ctx || !isAdminMaster(ctx)) {
+    return { ok: false, error: "Apenas o Admin Master pode editar papéis." };
   }
 
   if (!ESCOPOS.includes(input.escopoOperacional)) {
@@ -71,10 +75,21 @@ export async function salvarPapel(input: SalvarPapelInput): Promise<SalvarPapelS
 
 export type CarteiraResult = { ok: boolean; error?: string; id?: string };
 
+/**
+ * SÓ ADMIN MASTER — o ponto único de conceder e revogar acesso.
+ *
+ * Carteira define QUEM enxerga QUAIS clientes: criar, mudar dono, acrescentar
+ * CGE ou apoio é conceder; remover é revogar. Todas as operações de carteira
+ * passam por aqui, então este é o gate que a regra do Eduardo pede — "conceder
+ * e revogar acesso → só Admin Master".
+ *
+ * O nome `gateAdmin` ficou por compatibilidade com os dez chamadores; o que ele
+ * exige agora está no corpo, não no nome.
+ */
 async function gateAdmin(): Promise<{ ok: true } | { ok: false; error: string }> {
   const ctx = await getAuthContext().catch(() => null);
-  if (!ctx || !isAdmin(ctx)) {
-    return { ok: false, error: "Apenas administradores podem gerir carteiras." };
+  if (!ctx || !isAdminMaster(ctx)) {
+    return { ok: false, error: "Apenas o Admin Master pode gerir carteiras." };
   }
   return { ok: true };
 }

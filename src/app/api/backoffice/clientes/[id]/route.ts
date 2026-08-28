@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
+import { isAdmin } from "@/lib/rbac-papeis";
 import { NextRequest, NextResponse } from "next/server";
 import {
   rbacEnforcementHabilitado,
@@ -17,7 +18,7 @@ async function requireAdmin() {
       error: NextResponse.json({ error: "Não autenticado" }, { status: 401 }),
     };
   }
-  if (session.role !== "admin") {
+  if (!isAdmin({ role: session.role, pessoa: null })) {
     return {
       error: NextResponse.json(
         { error: "Apenas o login administrador pode remover clientes." },
