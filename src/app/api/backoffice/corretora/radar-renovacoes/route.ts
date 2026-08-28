@@ -53,13 +53,30 @@ import { unstable_noStore as noStore } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getAuthContext, isAdmin } from "@/lib/auth-helpers";
 import { getConfig } from "@/lib/config-db";
-import { CHAVE_DA_REGUA, coletarRadar, lerRegua } from "@/lib/corretora/radar-renovacoes";
+import * as motorDeImportacao from "@/lib/corretora/importar-contratos";
+import { CHAVE_DA_REGUA, coletarRadar, diaCivil, lerRegua } from "@/lib/corretora/radar-renovacoes";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const runtime = "nodejs";
 
 const EMPRESA = "corretora";
+
+/**
+ * A trava contra o update cego está neste motor?
+ *
+ * `CAMPOS_SOBRESCREVIVEIS` só existe depois dela — é a lista dos campos que a
+ * escrita passou a omitir quando o relatório não traz a coluna. Perguntar ao
+ * CÓDIGO, e não a um número de PR escrito à mão, é o que faz este aviso
+ * continuar verdadeiro sem ninguém lembrar de atualizá-lo.
+ *
+ * A checagem é sobre o objeto de módulo, e não um import nomeado, porque
+ * enquanto a trava não estiver na base desta branch o símbolo não existe e o
+ * import nomeado não compilaria.
+ */
+const TRAVA_DO_UPDATE_PRESENTE = Array.isArray(
+  (motorDeImportacao as Record<string, unknown>).CAMPOS_SOBRESCREVIVEIS,
+);
 
 export async function GET() {
   noStore();
@@ -71,7 +88,14 @@ export async function GET() {
 
   try {
     const regua = lerRegua(await getConfig(CHAVE_DA_REGUA));
-    const radar = await coletarRadar(prisma, { empresaId: EMPRESA, hoje: new Date(), regua });
+    // `diaCivil` e não `new Date()`: o servidor roda em UTC e quem lê está na
+    // Bahia. Entre 21:00 e meia-noite, o UTC já virou — e sem isto a fila
+    // mostraria como ATRASADO, toda noite, o contrato que vence hoje.
+    const radar = await coletarRadar(prisma, {
+      empresaId: EMPRESA,
+      hoje: diaCivil(new Date()),
+      regua,
+    });
 
     return NextResponse.json({
       geradoEm: new Date().toISOString(),
@@ -87,10 +111,23 @@ export async function GET() {
           "exige tabela nova e está reportado como faixa vermelha. Enquanto não " +
           "existir, a mesma lista reaparece a cada consulta, inclusive os nomes " +
           "que você já trabalhou.",
-        dependeDaTravaDoImport:
-          "Esta lista vive de fimVigencia. Enquanto a PR #424 não estiver em main, " +
-          "uma importação com perfil que não mapeie fim de vigência apaga essas " +
-          "datas e a fila encolhe sozinha, sem avisar.",
+        // Este aviso NÃO cita o número da PR de propósito. A versão anterior
+        // dizia "enquanto a #424 não estiver em main", e isso é string fixa
+        // que vira mentira sozinha: no dia em que a trava entrar, a rota
+        // continuaria dizendo ao admin que as datas dele estão sendo
+        // apagadas. Aviso falso gasta a atenção do aviso verdadeiro.
+        //
+        // O que fica é o MECANISMO, que é verdade em qualquer versão, mais
+        // como conferir. `travaDoUpdatePresente` responde pelo código que
+        // está rodando, não pelo estado de uma PR num dia qualquer.
+        travaDoUpdatePresente: TRAVA_DO_UPDATE_PRESENTE,
+        sobreFimDeVigencia: TRAVA_DO_UPDATE_PRESENTE
+          ? "O motor só grava coluna que o relatório trouxe, então importar com um " +
+            "perfil incompleto não apaga mais fim de vigência."
+          : "ATENÇÃO: esta versão do motor grava o objeto inteiro no update, e coluna " +
+            "não mapeada no perfil vira null. Uma importação com perfil que não traga " +
+            "fim de vigência APAGA essas datas, e a fila encolhe sozinha sem avisar. " +
+            "Confira o mapeamento do perfil antes de cada importação.",
       },
     });
   } catch (e) {

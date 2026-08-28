@@ -102,10 +102,13 @@ export function antecedenciaDe(tipoProduto: string, regua: ReguaAntecedencia): n
 /**
  * Dias inteiros entre hoje e o fim de vigência. Negativo = já passou.
  *
- * Contado em UTC e por DIA, não por instante: vigência é dia, e comparar
- * relógios faria o mesmo contrato mudar de faixa conforme a hora em que
- * alguém abre a tela. `montarData` (`importacao/valores.ts`) grava meio-dia
- * UTC pela mesma razão.
+ * Contado por DIA, não por instante: vigência é dia, e comparar relógios faria
+ * o mesmo contrato mudar de faixa conforme a hora em que alguém abre a tela.
+ * `montarData` (`importacao/valores.ts`) grava meio-dia UTC pela mesma razão.
+ *
+ * A aritmética é em UTC, e `hoje` PRECISA chegar aqui já como dia civil do
+ * fuso certo — use `diaCivil()`. Passar `new Date()` cru faz a fila virar de
+ * dia às 21:00 na Bahia, três horas antes de virar para quem está olhando.
  */
 export function diasAte(fimVigencia: Date, hoje: Date): number {
   const dia = 24 * 60 * 60 * 1000;
@@ -116,6 +119,38 @@ export function diasAte(fimVigencia: Date, hoje: Date): number {
   );
   const agora = Date.UTC(hoje.getUTCFullYear(), hoje.getUTCMonth(), hoje.getUTCDate());
   return Math.round((fim - agora) / dia);
+}
+
+/** O fuso em que a Onix opera. Mesmo de `painel-do-dia` e `btg-freshness`. */
+export const FUSO = "America/Bahia";
+
+/**
+ * O DIA CIVIL de um instante, no fuso dado, como `Date` ao meio-dia UTC.
+ *
+ * Existe porque `new Date()` em UTC responde a pergunta errada. Entre 21:00 e
+ * 00:00 na Bahia, o UTC já virou: um contrato que vence hoje aparecia como
+ * `dias: -1`, faixa ATRASADO, e o cabeçalho da tela mostrava a data de amanhã.
+ * Toda noite, por três horas, a fila mentia sobre perda consumada.
+ *
+ * O meio-dia UTC no retorno não é enfeite: é a mesma âncora que `montarData`
+ * (`importacao/valores.ts`) usa para gravar vigência, e é o que mantém a
+ * comparação entre as duas datas livre de borda de fuso.
+ *
+ * `en-CA` porque o formato dele é `AAAA-MM-DD` — não é preferência de idioma,
+ * é a única locale comum cuja saída já vem ordenável e sem ambiguidade de
+ * ordem entre dia e mês.
+ */
+export function diaCivil(instante: Date, fuso: string = FUSO): Date {
+  const [ano, mes, dia] = new Intl.DateTimeFormat("en-CA", {
+    timeZone: fuso,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  })
+    .format(instante)
+    .split("-")
+    .map(Number);
+  return new Date(Date.UTC(ano, mes - 1, dia, 12, 0, 0));
 }
 
 /**
@@ -190,6 +225,7 @@ export type Radar = {
 
 type LinhaCrua = {
   id: string;
+  pessoa_grupo_id: string;
   cpf_cnpj: string;
   tipo_produto: string;
   parceiro: string;
@@ -197,60 +233,150 @@ type LinhaCrua = {
   fim_vigencia: Date | null;
   status: string;
   atendente: string | null;
-  nome: string | null;
-  telefone: string | null;
+};
+
+/** Uma contraparte candidata em Investimentos, com o caminho que a alcançou. */
+export type Contraparte = {
+  readonly pessoaGrupoId: string | null;
+  /** Documento só dígitos, já normalizado pelo SQL. */
+  readonly documento: string;
+  readonly nome: string;
+  readonly telefone: string | null;
+  /** `ClienteBackoffice.id` — desempate final, para a fila não oscilar. */
+  readonly id: string;
 };
 
 /**
- * Carrega os contratos EM VIGOR da Corretora, com o contato do titular quando
- * ele existe.
+ * Escolhe UMA contraparte por titular, com precedência declarada.
  *
- * O `LEFT JOIN LATERAL` busca a contraparte em Investimentos por dois
- * caminhos, nesta ordem: o vínculo (`pessoaGrupoId`) e, quando ele não existe,
- * o documento normalizado. O `ORDER BY` dentro do lateral é o que garante que
- * o vínculo ganhe do casamento por documento quando os dois existirem — o
- * vínculo é decisão registrada, o documento é inferência.
+ * PURA de propósito: é a regra que decide para quem o backoffice vai ligar, e
+ * regra assim não pode morar dentro de um `ORDER BY` que ninguém consegue
+ * testar sem banco. A primeira versão deste código escondia a precedência num
+ * `ORDER BY (b."pessoaGrupoId" = pg.id) DESC` e ela saía INVERTIDA: quando a
+ * linha não tem vínculo, a expressão é NULL, e `DESC` no Postgres é
+ * `NULLS FIRST` — o `LIMIT 1` colhia a inferência por documento e descartava a
+ * decisão registrada. A fila entregava o telefone da pessoa errada.
+ *
+ * A ordem é: vínculo (`pessoaGrupoId`) ganha do documento, porque vínculo é
+ * decisão registrada e documento é inferência; e empate desempata por
+ * `ClienteBackoffice.id`, para o mesmo contrato não trocar de telefone entre
+ * dois carregamentos da tela. Homônimo e documento duplicado existem nesta
+ * base — `api/backoffice/clientes` tem lógica de unificação por causa disso.
+ */
+export function escolherContraparte(
+  pessoaGrupoId: string,
+  documento: string,
+  candidatas: readonly Contraparte[],
+): Contraparte | null {
+  let melhor: Contraparte | null = null;
+  let melhorPrioridade = Number.POSITIVE_INFINITY;
+
+  for (const c of candidatas) {
+    const prioridade =
+      c.pessoaGrupoId === pessoaGrupoId ? 0 : c.documento !== "" && c.documento === documento ? 1 : 2;
+    // 2 = não alcança este titular por caminho nenhum. Entra no laço porque a
+    // consulta traz as candidatas de TODOS os titulares de uma vez.
+    if (prioridade === 2) continue;
+    if (prioridade < melhorPrioridade || (prioridade === melhorPrioridade && melhor !== null && c.id < melhor.id)) {
+      melhor = c;
+      melhorPrioridade = prioridade;
+    }
+  }
+  return melhor;
+}
+
+/**
+ * Carrega os contratos EM VIGOR da Corretora. Sem contato: ele vem à parte.
+ *
+ * ── POR QUE `statusVigentes()`, E O QUE ISSO DEIXA DE FORA ───────────────
+ * `statusVigentes()` devolve só `["ativo"]`. Logo, contrato SUSPENSO não entra
+ * no radar — e suspensão é reversível (inadimplência, `status-contrato.ts`),
+ * então um suspenso vencendo é discutivelmente a ligação mais urgente que
+ * existe.
+ *
+ * Fica fora por DECISÃO de escopo, não por descuido: esta rodada é sobre o
+ * contrato em vigor. Está escrito aqui porque decisão herdada de um filtro
+ * padrão, sem ninguém dizer que escolheu, é como uma faixa inteira de contrato
+ * some de uma tela sem que ninguém perceba.
+ *
+ * ── SEM `take` ───────────────────────────────────────────────────────────
+ * A Corretora em vigor é a base do radar, e ela é da ordem de centenas. Quando
+ * passar de alguns milhares, o corte entra aqui — e com `count` do mesmo
+ * `where` ao lado, para a tela não mentir sobre o total.
+ */
+async function carregarContratos(db: ClienteLeitura, empresaId: string): Promise<LinhaCrua[]> {
+  const vigentes = statusVigentes();
+  return db.$queryRaw<LinhaCrua[]>`
+    SELECT c.id,
+           c."pessoaGrupoId"    AS pessoa_grupo_id,
+           pg."cpfCnpj"         AS cpf_cnpj,
+           c."tipoProduto"      AS tipo_produto,
+           c.parceiro,
+           c."numeroContrato"   AS numero_contrato,
+           c."fimVigencia"      AS fim_vigencia,
+           c.status,
+           nullif(trim(c."atendenteCorretora"), '') AS atendente
+      FROM "ContratoCorretora" c
+      JOIN "PessoaGrupo" pg ON pg.id = c."pessoaGrupoId"
+     WHERE c."empresaId" = ${empresaId}
+       AND c.status = ANY(${vigentes})
+  `;
+}
+
+/**
+ * Busca as contrapartes em Investimentos numa varredura SÓ.
+ *
+ * ── POR QUE NÃO UM LATERAL POR CONTRATO ──────────────────────────────────
+ * A primeira versão fazia `LEFT JOIN LATERAL` com um `OR` entre o vínculo e o
+ * documento normalizado. `regexp_replace` é expressão funcional, então o
+ * `@@index([cpfCnpj])` não pode ser usado, e o `OR` impede combinar os dois
+ * caminhos: o planner escolhia Seq Scan em `ClienteBackoffice` POR CONTRATO.
+ * Medido em Postgres 16 com 2.602 clientes e 500 contratos — 141 mil buffer
+ * hits e 3,2 s com cache quente em socket local, que é piso e não teto.
+ *
+ * Aqui a mesma pergunta é feita UMA vez para todos os titulares do lote: um
+ * `ANY` sobre os ids, que usa índice, e um `ANY` sobre os documentos numa
+ * varredura única. Custo O(clientes), não O(contratos × clientes).
  *
  * `[^0-9]` e não `\D`: em template literal do JavaScript, `\D` não é escape
  * reconhecido e chegaria ao Postgres como a letra `D`, apagando os "D" do
  * documento em vez dos não-dígitos. Mesma trava de `recon-identidade.ts`.
- *
- * Sem `take`: a Corretora inteira em vigor é a base do radar, e ela é da ordem
- * de centenas. Quando passar de alguns milhares, o corte entra aqui — e com
- * `count` do mesmo `where` ao lado, para a tela não mentir sobre o total.
  */
-async function carregarContratos(
+async function carregarContrapartes(
   db: ClienteLeitura,
-  empresaId: string,
-): Promise<LinhaCrua[]> {
-  const vigentes = statusVigentes();
-  return db.$queryRaw<LinhaCrua[]>`
-    SELECT c.id,
-           pg."cpfCnpj"          AS cpf_cnpj,
-           c."tipoProduto"       AS tipo_produto,
-           c.parceiro,
-           c."numeroContrato"    AS numero_contrato,
-           c."fimVigencia"       AS fim_vigencia,
-           c.status,
-           nullif(trim(c."atendenteCorretora"), '') AS atendente,
-           cb.nome,
-           cb.telefone
-      FROM "ContratoCorretora" c
-      JOIN "PessoaGrupo" pg ON pg.id = c."pessoaGrupoId"
-      LEFT JOIN LATERAL (
-        SELECT b.nome, b.telefone
-          FROM "ClienteBackoffice" b
-         WHERE b."pessoaGrupoId" = pg.id
-            OR (
-              pg."cpfCnpj" <> ''
-              AND regexp_replace(coalesce(b."cpfCnpj", ''), '[^0-9]', '', 'g') = pg."cpfCnpj"
-            )
-         ORDER BY (b."pessoaGrupoId" = pg.id) DESC
-         LIMIT 1
-      ) cb ON true
-     WHERE c."empresaId" = ${empresaId}
-       AND c.status = ANY(${vigentes})
+  pessoaGrupoIds: readonly string[],
+  documentos: readonly string[],
+): Promise<Contraparte[]> {
+  if (pessoaGrupoIds.length === 0 && documentos.length === 0) return [];
+  const ids = [...pessoaGrupoIds];
+  const docs = [...documentos];
+
+  const linhas = await db.$queryRaw<
+    Array<{
+      id: string;
+      pessoa_grupo_id: string | null;
+      documento: string;
+      nome: string;
+      telefone: string | null;
+    }>
+  >`
+    SELECT b.id,
+           b."pessoaGrupoId" AS pessoa_grupo_id,
+           regexp_replace(coalesce(b."cpfCnpj", ''), '[^0-9]', '', 'g') AS documento,
+           b.nome,
+           b.telefone
+      FROM "ClienteBackoffice" b
+     WHERE b."pessoaGrupoId" = ANY(${ids})
+        OR regexp_replace(coalesce(b."cpfCnpj", ''), '[^0-9]', '', 'g') = ANY(${docs})
   `;
+
+  return linhas.map((l) => ({
+    id: l.id,
+    pessoaGrupoId: l.pessoa_grupo_id,
+    documento: l.documento,
+    nome: l.nome,
+    telefone: l.telefone,
+  }));
 }
 
 /** Ordena a fila por urgência: quem venceu há mais tempo vem primeiro. */
@@ -278,14 +404,25 @@ export async function coletarRadar(
 ): Promise<Radar> {
   const cruas = await carregarContratos(db, opcoes.empresaId);
 
+  // As contrapartes vêm numa consulta só, para todos os titulares do lote —
+  // ver a nota de `carregarContrapartes`. `Set` antes de virar array porque a
+  // mesma pessoa costuma ter vários contratos, e mandar o documento repetido
+  // ao Postgres só engorda o parâmetro.
+  const contrapartes = await carregarContrapartes(
+    db,
+    [...new Set(cruas.map((c) => c.pessoa_grupo_id))],
+    [...new Set(cruas.map((c) => c.cpf_cnpj).filter((d) => d !== ""))],
+  );
+
   const linhas: LinhaDoRadar[] = cruas.map((c) => {
     const faixa = faixaDoContrato(c.fim_vigencia, c.tipo_produto, opcoes.hoje, opcoes.regua);
+    const contato = escolherContraparte(c.pessoa_grupo_id, c.cpf_cnpj, contrapartes);
     return {
       contratoId: c.id,
       faixa,
       dias: c.fim_vigencia === null ? null : diasAte(c.fim_vigencia, opcoes.hoje),
-      nome: c.nome,
-      telefone: c.telefone,
+      nome: contato?.nome ?? null,
+      telefone: contato?.telefone ?? null,
       cpfCnpj: c.cpf_cnpj,
       tipoProduto: c.tipo_produto,
       parceiro: c.parceiro,

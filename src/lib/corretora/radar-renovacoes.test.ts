@@ -12,10 +12,13 @@ import { test } from "node:test";
 import {
   REGUA_PADRAO,
   antecedenciaDe,
+  diaCivil,
   diasAte,
+  escolherContraparte,
   faixaDoContrato,
   lerRegua,
   produtosConfiguraveis,
+  type Contraparte,
   type ReguaAntecedencia,
 } from "./radar-renovacoes.ts";
 import { tiposProdutoValidos } from "./catalogo-produtos.ts";
@@ -175,4 +178,109 @@ test("poluição de protótipo pelo JSON de configuração é recusada", () => {
   assert.equal(r.porProduto.auto, 15);
   assert.equal(({} as Record<string, unknown>).poluido, undefined);
   assert.equal(Object.prototype.hasOwnProperty.call(r.porProduto, "__proto__"), false);
+});
+
+// ── Para quem se liga: a precedência do contato ───────────────────────────
+//
+// A primeira versão deste código escondia a precedência num
+// `ORDER BY (b."pessoaGrupoId" = pg.id) DESC` dentro do SQL, e ela saía
+// INVERTIDA: sem vínculo a expressão é NULL, e `DESC` no Postgres é
+// `NULLS FIRST`, então o `LIMIT 1` colhia a inferência por documento e
+// descartava a decisão registrada. A fila entregava o telefone da pessoa
+// errada — num campo que existe para ser discado.
+//
+// A regra saiu do `ORDER BY` e virou função pura por causa disso.
+
+const VINCULADO: Contraparte = {
+  id: "cb_vinculo",
+  pessoaGrupoId: "pg_1",
+  documento: "00000000000",
+  nome: "Vínculo Registrado",
+  telefone: "71-90000-0001",
+};
+const POR_DOCUMENTO: Contraparte = {
+  id: "cb_doc",
+  pessoaGrupoId: null,
+  documento: "09714600510",
+  nome: "Inferido Por Documento",
+  telefone: "71-90000-0002",
+};
+
+test("o vínculo ganha do casamento por documento", () => {
+  // Vínculo é decisão registrada; documento é inferência.
+  const escolhido = escolherContraparte("pg_1", "09714600510", [POR_DOCUMENTO, VINCULADO]);
+  assert.equal(escolhido?.nome, "Vínculo Registrado");
+});
+
+test("a ordem em que as candidatas chegam não muda a escolha", () => {
+  // Se dependesse da ordem do resultado, dependeria do plano do Postgres.
+  const a = escolherContraparte("pg_1", "09714600510", [VINCULADO, POR_DOCUMENTO]);
+  const b = escolherContraparte("pg_1", "09714600510", [POR_DOCUMENTO, VINCULADO]);
+  assert.equal(a?.id, b?.id);
+  assert.equal(a?.id, "cb_vinculo");
+});
+
+test("sem vínculo, o documento serve", () => {
+  const escolhido = escolherContraparte("pg_9", "09714600510", [POR_DOCUMENTO]);
+  assert.equal(escolhido?.nome, "Inferido Por Documento");
+});
+
+test("duplicata desempata por id — o telefone não muda entre dois carregamentos", () => {
+  // Documento duplicado existe nesta base: `api/backoffice/clientes` tem
+  // lógica de unificação por causa disso. Sem desempate, qual telefone aparece
+  // seria escolha do plano de execução.
+  const primeira: Contraparte = { ...POR_DOCUMENTO, id: "cb_aaa", telefone: "71-1111-1111" };
+  const segunda: Contraparte = { ...POR_DOCUMENTO, id: "cb_bbb", telefone: "71-2222-2222" };
+  assert.equal(escolherContraparte("pg_9", "09714600510", [primeira, segunda])?.id, "cb_aaa");
+  assert.equal(escolherContraparte("pg_9", "09714600510", [segunda, primeira])?.id, "cb_aaa");
+});
+
+test("candidata de outro titular é ignorada", () => {
+  // A consulta traz as candidatas de TODOS os titulares de uma vez — se o
+  // filtro falhasse, um cliente receberia o telefone de outro.
+  const deOutro: Contraparte = {
+    id: "cb_outro",
+    pessoaGrupoId: "pg_outro",
+    documento: "11111111111",
+    nome: "Outra Pessoa",
+    telefone: "71-3333-3333",
+  };
+  assert.equal(escolherContraparte("pg_1", "09714600510", [deOutro]), null);
+});
+
+test("documento vazio não casa com documento vazio", () => {
+  // `PessoaGrupo.cpfCnpj` é canônico e não deveria ser vazio, mas
+  // `ClienteBackoffice.cpfCnpj` é nullable e vira "" na normalização. Sem esta
+  // guarda, todo cliente sem documento casaria com todo titular sem documento.
+  const semDoc: Contraparte = { ...POR_DOCUMENTO, documento: "", pessoaGrupoId: null };
+  assert.equal(escolherContraparte("pg_1", "", [semDoc]), null);
+});
+
+// ── O fuso ────────────────────────────────────────────────────────────────
+
+test("diaCivil devolve o dia da Bahia, não o do UTC", () => {
+  // 29/08 00:30Z é ainda 28/08 21:30 na Bahia. Sem isto, toda noite por três
+  // horas o contrato que vence hoje aparecia como ATRASADO e o cabeçalho
+  // mostrava a data de amanhã.
+  const noiteNaBahia = new Date("2026-08-29T00:30:00Z");
+  assert.equal(diaCivil(noiteNaBahia).toISOString().slice(0, 10), "2026-08-28");
+});
+
+test("de manhã, UTC e Bahia concordam", () => {
+  const manha = new Date("2026-08-28T13:00:00Z");
+  assert.equal(diaCivil(manha).toISOString().slice(0, 10), "2026-08-28");
+});
+
+test("o contrato que vence hoje não vira atrasado às 21h", () => {
+  // O teste que amarra o defeito ao comportamento visível, e não só à função.
+  const venceHoje = new Date(Date.UTC(2026, 7, 28, 12, 0, 0));
+  const consultaDeNoite = diaCivil(new Date("2026-08-29T00:30:00Z"));
+  assert.equal(diasAte(venceHoje, consultaDeNoite), 0);
+  assert.equal(faixaDoContrato(venceHoje, "auto", consultaDeNoite, REGUA_PADRAO), "vencendo");
+});
+
+test("diaCivil ancora ao meio-dia UTC, como o motor grava vigência", () => {
+  // Mesma âncora de `montarData` — é o que mantém a comparação entre as duas
+  // datas livre de borda de fuso.
+  assert.equal(diaCivil(new Date("2026-08-28T13:00:00Z")).getUTCHours(), 12);
 });
