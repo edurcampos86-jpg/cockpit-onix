@@ -107,7 +107,9 @@ export function DashboardSupernova() {
         </div>
         <div className="rounded-xl border bg-card p-4">
           <div className="flex items-center gap-2 mb-1 text-muted-foreground text-xs">
-            <Target className="h-4 w-4" /> Receita/ano
+            {/* Soma de `receitaAnual`, que é renda declarada do cliente (Base BTG),
+                não receita da Onix. Ver field-source-policy.ts:54. */}
+            <Target className="h-4 w-4" /> Renda/ano declarada
           </div>
           <p className="text-2xl font-bold">{moeda(data.resumo.receitaTotal)}</p>
         </div>

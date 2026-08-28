@@ -28,7 +28,7 @@ import {
   Phone,
   BadgeDollarSign,
 } from "lucide-react";
-import { riscoEvasaoReuniao, statusTermometro } from "@/lib/cadencia-core";
+import { cumprimentoCadencia, riscoEvasaoReuniao, statusTermometro } from "@/lib/cadencia-core";
 import {
   selarPresenca,
   type SeloPresenca,
@@ -242,6 +242,8 @@ interface Cliente {
   profissao: string | null;
   nicho: string | null;
   ultimoContatoAt: Date | string | null;
+  /** Toques (ligação + reunião) nos últimos 12 meses. Numerador do 12-4-2. */
+  toquesNoAno?: number;
   ultimaReuniaoAt: Date | string | null;
   proximaReuniaoAt: Date | string | null;
   // Procedência gravada pelo recompute — ver FonteReuniao abaixo. Opcionais
@@ -394,6 +396,31 @@ const SELO_TERMOMETRO: Record<SeloPresenca, { dot: string; texto: string; label:
 
 const SALDO_PARADO_LIMITE = 10_000;
 
+/**
+ * Cadência 12-4-2 = CONTAGEM de toques no último ano contra o alvo da classe.
+ *
+ * Até 22/08/2026 isto derivava do termômetro de dias, e uma única ligação
+ * recente dava por cumprida a promessa do ano inteiro. Agora conta ligações +
+ * reuniões dos últimos 12 meses. O termômetro continua existindo, como
+ * RECÊNCIA — são perguntas diferentes e as duas aparecem na mesma linha.
+ *
+ * Fora do componente de propósito: são puras (só dependem do cliente recebido),
+ * e defini-las dentro fazia os `useMemo` que as usam recriarem a dependência a
+ * cada render — a tabela inteira reordenaria sem nada ter mudado.
+ */
+function cadenciaDoCliente(c: Cliente) {
+  return cumprimentoCadencia(c.classificacao, c.toquesNoAno ?? 0, !!c.ultimoContatoAt);
+}
+
+/**
+ * "sem-historico" vira ok: quem nunca foi contatado não é atrasado, é uma conta
+ * que ainda não começou. Era assim antes da troca de régua e continua sendo.
+ */
+function statusCadencia(c: Cliente): "ok" | "atencao" | "alerta" {
+  const { status } = cadenciaDoCliente(c);
+  return status === "sem-historico" ? "ok" : status;
+}
+
 export function ClientesTable({
   clientes: iniciais,
   isAdmin = false,
@@ -500,15 +527,6 @@ export function ClientesTable({
   };
 
   // Status legado de 3 estados (ok/atencao/alerta) usado por filtros e contadores.
-  // Deriva do termômetro compartilhado: vermelho→alerta, amarelo→atencao,
-  // verde/sem-historico→ok (nunca-contatado é estado neutro, não conta como fora).
-  const statusCadencia = (c: Cliente): "ok" | "atencao" | "alerta" => {
-    const { status } = statusTermometro(c.classificacao, c.ultimoContatoAt);
-    if (status === "vermelho") return "alerta";
-    if (status === "amarelo") return "atencao";
-    return "ok";
-  };
-
   const whatsappLink = (telefone: string | null): string | null => {
     if (!telefone) return null;
     const limpo = telefone.replace(/\D/g, "");
@@ -924,6 +942,12 @@ export function ClientesTable({
       "Saldo Conta",
       // "Receita/ano" saiu da TABELA mas continua no CSV: o dado não foi
       // removido do banco e planilhas existentes dependem dessa coluna.
+      //
+      // O RÓTULO ESTÁ ERRADO e continua errado de propósito: o campo é a renda
+      // declarada do cliente, não receita da Onix (ver field-source-policy.ts).
+      // As telas foram corrigidas; este cabeçalho NÃO, porque é chave de coluna
+      // em planilhas que já existem fora daqui — renomear quebraria o consumidor
+      // para consertar a etiqueta. Trocar exige combinar com quem usa o arquivo.
       "Receita/ano",
       "Fee Fixo",
       "Assessor",
@@ -1085,7 +1109,7 @@ export function ClientesTable({
           icon={TrendingUp}
           label="Clientes A na cadência"
           value={`${kpis.pctAOk}%`}
-          sub={`${kpis.totalA - kpis.aForaCadencia}/${kpis.totalA} dentro do 12-4-2`}
+          sub={`${kpis.totalA - kpis.aForaCadencia}/${kpis.totalA} dentro do 12-4-2 · revisão não rastreada`}
           tone={kpis.pctAOk >= 80 ? "ok" : kpis.pctAOk >= 60 ? "atencao" : "alerta"}
         />
         <KpiCard
@@ -1418,6 +1442,7 @@ export function ClientesTable({
             </thead>
             <tbody className="divide-y divide-border">
               {ordenados.map((c) => {
+                const cadenciaCliente = cadenciaDoCliente(c);
                 const cadencia = statusCadencia(c);
                 // Eixo de REUNIÃO — independente do termômetro de contato
                 // abaixo. Cliente pode estar verde no contato e em risco aqui.
@@ -1499,9 +1524,20 @@ export function ClientesTable({
                         )}
                         {cadencia !== "ok" && c.classificacao === "A" && (
                           <span
-                            title={`Cliente A fora da cadência 12-4-2 (último contato há ${
-                              diasContato === null ? "—" : `${diasContato} dias`
-                            }). Cadência A: 30 dias (amarelo ≥24d, vermelho >30d).`}
+                            // O tooltip diz EXPLICITAMENTE que a revisão não é
+                            // rastreada. Mostrar "0 de 2 revisões" seria mentir
+                            // com número: o sistema não coleta esse dado, então
+                            // o zero não é descumprimento, é ausência de medição
+                            // — e quem lesse cobraria o assessor por nada.
+                            title={
+                              `Cliente A fora da cadência 12-4-2: ` +
+                              `${cadenciaCliente.feitos} de ${cadenciaCliente.alvo} toques nos últimos 12 meses ` +
+                              `(ligações + reuniões).\n` +
+                              `Alvo da classe A: ${cadenciaCliente.alvoComRevisao}/ano — ` +
+                              `12 ligações + 4 reuniões + ${cadenciaCliente.revisoesNaoRastreadas} revisões.\n` +
+                              `Revisão: ainda não rastreada pelo sistema, fora desta conta.\n` +
+                              `Último contato há ${diasContato === null ? "—" : `${diasContato} dias`}.`
+                            }
                           >
                             <AlertTriangle
                               className={`h-3.5 w-3.5 ${
@@ -1608,10 +1644,14 @@ export function ClientesTable({
                     <td className="px-3 py-3 text-xs">
                       {c.ultimoContatoAt ? (
                         <span
+                          // Pintada pelo TERMÔMETRO (recência), não pela
+                          // cadência. São eixos diferentes desde 22/08/2026:
+                          // esta coluna responde "faz quanto tempo", e o badge
+                          // ao lado do nome responde "cumpriu a promessa".
                           className={
-                            cadencia === "alerta"
+                            term.status === "vermelho"
                               ? "text-red-600 dark:text-red-400"
-                              : cadencia === "atencao"
+                              : term.status === "amarelo"
                               ? "text-amber-600 dark:text-amber-400"
                               : "text-muted-foreground"
                           }

@@ -10,6 +10,14 @@ export type AbaEmpresa = {
   icon: string;
   href?: string;
   emBreve?: boolean;
+  /**
+   * Aba que só aparece para admin.
+   *
+   * Gate COSMÉTICO, como o da sidebar: quem esconde de verdade é a página
+   * (`/empresas/corretora/importar` responde `notFound()` para não-admin) e a
+   * rota (`guardAdminApi`). Aqui é para não oferecer a quem não pode usar.
+   */
+  soAdmin?: boolean;
 };
 
 export type EmpresaConfig = {
@@ -65,7 +73,18 @@ function abasPadrao(slug: string): AbaEmpresa[] {
 const corretora: EmpresaConfig = {
   id: "corretora",
   nome: "Onix Corretora",
-  abas: abasPadrao("corretora"),
+  abas: [
+    ...abasPadrao("corretora"),
+    // Só a Corretora tem esta aba: é a única empresa com motor de importação
+    // de contratos. Sem ela, a tela existe e só é alcançável digitando a URL —
+    // e ela é hoje o único caminho de entrada de dados da Corretora.
+    {
+      label: "Importar relatório",
+      icon: "Upload",
+      href: "/empresas/corretora/importar",
+      soAdmin: true,
+    },
+  ],
 };
 
 const planejamento: EmpresaConfig = {

@@ -28,15 +28,30 @@ import {
 
 // ── O catálogo em si ─────────────────────────────────────────────────────
 
-test("as seis famílias combinadas estão declaradas", () => {
+test("os onze produtos estão declarados, nesta ordem", () => {
   assert.deepEqual(tiposProdutoValidos(), [
+    "auto",
+    "residencial",
+    "empresarial",
     "vida",
-    "auto_residencial",
-    "saude_odonto",
-    "consorcio",
-    "fianca_rc_profissional",
+    "saude",
+    "odonto",
+    "consorcio-auto",
+    "consorcio-imobiliario",
+    "fianca-locaticia",
+    "rc-profissional",
     "dit",
   ]);
+});
+
+test("os ids das famílias desfeitas NÃO valem mais", () => {
+  // Ago/2026: seis famílias viraram onze produtos. Os quatro ids compostos
+  // deixaram de existir, e isso precisa FALHAR alto — um deles sobrevivendo
+  // num dicionário de perfil gravaria um valor que nenhuma tela sabe exibir.
+  for (const antigo of ["auto_residencial", "saude_odonto", "consorcio", "fianca_rc_profissional"]) {
+    assert.equal(ehTipoProdutoValido(antigo), false, `${antigo} devia ter sumido`);
+    assert.equal(familiaPorId(antigo), null);
+  }
 });
 
 test("nenhum id repetido", () => {
@@ -44,24 +59,55 @@ test("nenhum id repetido", () => {
   assert.equal(new Set(ids).size, ids.length);
 });
 
-test("nenhum alias aponta para duas famílias", () => {
+test("nenhum RÓTULO INDEXÁVEL aponta para dois produtos", () => {
   // O caso que quebraria a resolução em silêncio: "residencial" listado em
-  // `auto_residencial` E em `fianca_rc_profissional` faria o resultado
+  // `residencial` E em `empresarial` faria o resultado
   // depender da ORDEM do catálogo. O índice é um Map — o último venceria, e
   // ninguém veria.
+  // Varre a MESMA tripla que `POR_ROTULO` indexa — id, nome e aliases —, não
+  // só os aliases. O guard estreito tinha buraco provado: um produto novo
+  // chamado "Dental" colidiria com o alias `dental` de `odonto`, roubaria a
+  // resolução, e o teste passava. Guard que confere metade do que o código
+  // indexa é guard que assina embaixo do que não olhou.
   const visto = new Map<string, string>();
   for (const familia of CATALOGO_PRODUTOS) {
-    for (const alias of familia.aliases) {
-      const chave = normalizarRotulo(alias);
+    for (const rotulo of [familia.id, familia.nome, ...familia.aliases]) {
+      const chave = normalizarRotulo(rotulo);
       const dono = visto.get(chave);
+      // Colisão do produto CONSIGO MESMO é normal: em `auto`, id e nome
+      // normalizam para a mesma chave. O que não pode é dois produtos
+      // DIFERENTES disputando o rótulo.
+      if (dono === familia.id) continue;
       assert.equal(
         dono,
         undefined,
-        `alias ${JSON.stringify(alias)} está em "${dono}" e em "${familia.id}"`,
+        `rótulo ${JSON.stringify(rotulo)} está em "${dono}" e em "${familia.id}"`,
       );
       visto.set(chave, familia.id);
     }
   }
+});
+
+test("o rótulo de TELA de cada produto é exatamente este", () => {
+  // O `nome` não tinha teste nenhum: perder o acento de "Saúde" chegava ao
+  // cliente sem o CI reclamar, porque a resolução normaliza acento e continua
+  // funcionando. O número fecha, a leitura não.
+  assert.deepEqual(
+    CATALOGO_PRODUTOS.map((f) => [f.id, f.nome]),
+    [
+      ["auto", "Auto"],
+      ["residencial", "Residencial"],
+      ["empresarial", "Empresarial"],
+      ["vida", "Vida"],
+      ["saude", "Saúde"],
+      ["odonto", "Odonto"],
+      ["consorcio-auto", "Consórcio Auto"],
+      ["consorcio-imobiliario", "Consórcio Imobiliário"],
+      ["fianca-locaticia", "Fiança Locatícia"],
+      ["rc-profissional", "RC Profissional"],
+      ["dit", "DIT"],
+    ],
+  );
 });
 
 test("todo alias já está na forma normalizada", () => {
@@ -93,10 +139,12 @@ test("ehTipoProdutoValido aceita o canônico e recusa o resto", () => {
 });
 
 test("exigirTipoProduto devolve o id válido e lança no inválido", () => {
-  assert.equal(exigirTipoProduto("consorcio"), "consorcio");
+  assert.equal(exigirTipoProduto("consorcio-auto"), "consorcio-auto");
   assert.throws(() => exigirTipoProduto("seguro viagem"), /tipoProduto inválido/);
   // A mensagem tem de listar os válidos: quem a lê está no meio de um import.
-  assert.throws(() => exigirTipoProduto("xpto"), /vida, auto_residencial/);
+  assert.throws(() => exigirTipoProduto("xpto"), /auto, residencial, empresarial/);
+  // E o id antigo tem de cair no MESMO caminho de erro, com a lista nova junto.
+  assert.throws(() => exigirTipoProduto("auto_residencial"), /consorcio-imobiliario/);
 });
 
 test("familiaPorId devolve a família ou null", () => {
@@ -126,17 +174,81 @@ test("rótulos diferentes de parceiros diferentes caem na mesma família", () =>
 });
 
 test("resolve com variação de caixa, acento e espaço", () => {
-  for (const cru of ["Consórcio", "CONSORCIO", "  consórcio  ", "consórcio"]) {
-    assert.equal(resolverFamilia(cru), "consorcio", `falhou em ${JSON.stringify(cru)}`);
+  for (const cru of [
+    "Consórcio Auto",
+    "CONSORCIO AUTO",
+    "  consórcio   auto  ",
+    "CONSÓRCIO   AUTO",
+  ]) {
+    assert.equal(resolverFamilia(cru), "consorcio-auto", `falhou em ${JSON.stringify(cru)}`);
   }
-  assert.equal(resolverFamilia("Carta de Crédito"), "consorcio");
-  assert.equal(resolverFamilia("Responsabilidade Civil Profissional"), "fianca_rc_profissional");
-  assert.equal(resolverFamilia("D&O"), "fianca_rc_profissional");
+  for (const cru of ["Fiança Locatícia", "FIANCA LOCATICIA", "fiança  locaticia"]) {
+    assert.equal(resolverFamilia(cru), "fianca-locaticia", `falhou em ${JSON.stringify(cru)}`);
+  }
+  assert.equal(resolverFamilia("Responsabilidade Civil Profissional"), "rc-profissional");
+  assert.equal(resolverFamilia("D&O"), "rc-profissional");
+});
+
+test("espaço duplo no meio não muda o resultado, em nenhum produto", () => {
+  // Planilha de seguradora é digitada à mão: "CONSÓRCIO  IMOBILIÁRIO" com dois
+  // espaços aparece no MESMO arquivo que a versão com um.
+  const pares: [string, string][] = [
+    ["AUTO", "auto"],
+    ["  RESIDENCIAL  ", "residencial"],
+    ["Empresarial", "empresarial"],
+    ["VIDA FLEX", "vida"],
+    ["Vida  Flex", "vida"],
+    ["SAÚDE", "saude"],
+    ["Odontológico", "odonto"],
+    ["consórcio   imobiliário", "consorcio-imobiliario"],
+    ["RCIVIL", "rc-profissional"],
+    ["RC  CIVIL", "rc-profissional"],
+    ["dit", "dit"],
+  ];
+  for (const [cru, esperado] of pares) {
+    assert.equal(resolverFamilia(cru), esperado, `falhou em ${JSON.stringify(cru)}`);
+  }
+});
+
+test("os rótulos que as seguradoras mandam de verdade caem certo", () => {
+  // Lista do Eduardo, ago/2026 — rótulos reais dos arquivos.
+  const reais: [string, string][] = [
+    ["AUTO", "auto"],
+    ["RESIDENCIAL", "residencial"],
+    ["EMPRESARIAL", "empresarial"],
+    ["VIDA", "vida"],
+    ["VIDA FLEX", "vida"],
+    ["CONSÓRCIO AUTO", "consorcio-auto"],
+    ["CONSORCIO AUTO", "consorcio-auto"],
+    ["FIANÇA LOCATICIA", "fianca-locaticia"],
+    ["FIANÇA LOCATÍCIA", "fianca-locaticia"],
+    ["RCIVIL", "rc-profissional"],
+    ["RC CIVIL", "rc-profissional"],
+    ["RESPONSABILIDADE CIVIL", "rc-profissional"],
+  ];
+  for (const [cru, esperado] of reais) {
+    assert.equal(resolverFamilia(cru), esperado, `falhou em ${JSON.stringify(cru)}`);
+  }
+});
+
+test("rótulo AMBÍGUO devolve null — não vira o produto mais provável", () => {
+  // Estes eram aliases válidos quando as famílias eram compostas. Agora
+  // apontariam para mais de um produto, e o catálogo se RECUSA a escolher: a
+  // linha é recusada e o rótulo vai para o dicionário daquele parceiro, que é
+  // quem sabe o que "Consórcio" significa no arquivo dele.
+  assert.equal(resolverFamilia("Consórcio"), null, "auto ou imobiliário?");
+  assert.equal(resolverFamilia("Carta de Crédito"), null, "auto ou imobiliário?");
+  assert.equal(resolverFamilia("Patrimonial"), null, "auto, residencial ou empresarial?");
+  assert.equal(resolverFamilia("Seguro de Pessoas"), null, "vida, saúde ou DIT?");
+  assert.equal(resolverFamilia("Saúde e Odonto"), null, "o nome composto morreu junto");
 });
 
 test("o próprio id canônico e o nome de exibição resolvem", () => {
-  assert.equal(resolverFamilia("auto_residencial"), "auto_residencial");
-  assert.equal(resolverFamilia("Auto e Residencial"), "auto_residencial");
+  assert.equal(resolverFamilia("auto"), "auto");
+  assert.equal(resolverFamilia("consorcio-imobiliario"), "consorcio-imobiliario");
+  assert.equal(resolverFamilia("Consórcio Imobiliário"), "consorcio-imobiliario");
+  assert.equal(resolverFamilia("RC Profissional"), "rc-profissional");
+  assert.equal(resolverFamilia("Fiança Locatícia"), "fianca-locaticia");
 });
 
 test("rótulo desconhecido devolve null, não chuta", () => {
@@ -150,26 +262,35 @@ test("rótulo desconhecido devolve null, não chuta", () => {
 
 // ── O dicionário do PerfilImportacao vence o catálogo ────────────────────
 
+test("dicionário de perfil apontando para id ANTIGO devolve null", () => {
+  // O caso caro desta mudança: perfil gravado antes de ago/2026 traduz para
+  // `auto_residencial`, que não existe mais. Cair no catálogo em silêncio
+  // gravaria o produto errado; devolver null recusa a linha e a põe no
+  // relatório, onde alguém conserta o perfil.
+  assert.equal(resolverFamilia("AUTO FÁCIL", { "AUTO FÁCIL": "auto_residencial" }), null);
+  assert.equal(resolverFamilia("MEU CONSÓRCIO", { "MEU CONSÓRCIO": "consorcio" }), null);
+});
+
 test("dicionário do perfil resolve rótulo que o catálogo não conhece", () => {
   // É o caminho normal: rótulo interno de um parceiro, que não é vocabulário
   // de mercado e não deve poluir os aliases genéricos.
-  const dicionario = { "VIDA PREMIADA PLUS": "vida", "AUTO FÁCIL 3.0": "auto_residencial" };
+  const dicionario = { "VIDA PREMIADA PLUS": "vida", "AUTO FÁCIL 3.0": "auto" };
   assert.equal(resolverFamilia("Vida Premiada Plus", dicionario), "vida");
-  assert.equal(resolverFamilia("auto facil 3 0", dicionario), "auto_residencial");
+  assert.equal(resolverFamilia("auto facil 3 0", dicionario), "auto");
 });
 
 test("dicionário do perfil tem precedência sobre o alias genérico", () => {
   // Um parceiro que chama de "Prestamista" o que vende como consórcio: quem
   // conhece o vocabulário da fonte é o perfil dela, não o catálogo.
   assert.equal(resolverFamilia("prestamista"), "vida", "sem perfil, vale o alias de mercado");
-  assert.equal(resolverFamilia("prestamista", { prestamista: "consorcio" }), "consorcio");
+  assert.equal(resolverFamilia("prestamista", { prestamista: "consorcio-auto" }), "consorcio-auto");
 });
 
 test("as chaves do dicionário também são normalizadas", () => {
   // O perfil é digitado à mão por quem está olhando a planilha; exigir acento
   // e caixa exatos faria o mapeamento falhar sem dizer por quê.
-  const dicionario = { "Seguro Résidencial": "auto_residencial" };
-  assert.equal(resolverFamilia("SEGURO RESIDENCIAL", dicionario), "auto_residencial");
+  const dicionario = { "Seguro Résidencial": "residencial" };
+  assert.equal(resolverFamilia("SEGURO RESIDENCIAL", dicionario), "residencial");
 });
 
 test("dicionário apontando para id inválido devolve null, não cai no catálogo", () => {

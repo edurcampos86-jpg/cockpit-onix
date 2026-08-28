@@ -85,6 +85,21 @@ export async function obterParceiro(id: string) {
       clienteBackoffice: {
         select: { id: true, nome: true, numeroConta: true },
       },
+      // A pessoa do time, quando o parceiro é do time. O que a ficha mostra
+      // daqui é HERDADO por leitura, nunca copiado para `Parceiro` — copiar
+      // criaria a segunda grafia que este elo existe para acabar.
+      pessoa: {
+        select: {
+          id: true,
+          nomeCompleto: true,
+          apelido: true,
+          email: true,
+          telefone: true,
+          cargoFamilia: true,
+          cargoTitulo: true,
+          status: true,
+        },
+      },
       // Vigentes primeiro (dataFim null), depois o histórico do mais recente
       // para o mais antigo. Mesma ordenação do acordo comercial da Pessoa.
       acordos: {
@@ -99,6 +114,8 @@ export async function obterParceiro(id: string) {
           dataInicio: true,
           dataFim: true,
           criadoPor: true,
+          incluiDescendentes: true,
+          empresa: { select: { id: true, nome: true, tipo: true, parentId: true } },
         },
       },
       clientes: {
@@ -198,4 +215,95 @@ export async function parceiroVigenteDoCliente(clienteId: string) {
     },
   });
   return vinculo;
+}
+
+export type PessoaVinculavel = {
+  id: string;
+  nome: string;
+  cargo: string;
+  jaEhParceiro: boolean;
+};
+
+/**
+ * Pessoas do time que podem ser ligadas a um parceiro.
+ *
+ * Traz TAMBÉM as que já são parceiro, marcadas — some-las esconderia o motivo
+ * de a pessoa procurada não aparecer na lista, que é a pergunta seguinte de
+ * quem não a encontra. `@unique` no campo impede o vínculo duplo de qualquer
+ * jeito; aqui o trabalho é explicar, não bloquear.
+ */
+export async function listarPessoasParaVinculo(): Promise<PessoaVinculavel[]> {
+  const pessoas = await prisma.pessoa.findMany({
+    where: { status: "ativo" },
+    orderBy: { nomeCompleto: "asc" },
+    select: {
+      id: true,
+      nomeCompleto: true,
+      apelido: true,
+      cargoFamilia: true,
+      cargoTitulo: true,
+      parceiro: { select: { id: true } },
+    },
+  });
+
+  return pessoas.map((p) => ({
+    id: p.id,
+    nome: p.apelido?.trim() || p.nomeCompleto,
+    cargo: p.cargoTitulo?.trim() || p.cargoFamilia.replace(/_/g, " "),
+    jaEhParceiro: p.parceiro !== null,
+  }));
+}
+
+export type NoHierarquia = {
+  id: string;
+  nome: string;
+  tipo: string;
+  parentId: string | null;
+  /** Profundidade na árvore — vira indentação no seletor. */
+  nivel: number;
+};
+
+/**
+ * Os nós da hierarquia Onix Co, já ordenados como árvore para caber num
+ * `<select>`.
+ *
+ * A ordenação é feita aqui, e não no SQL, porque "ordem de árvore" não é
+ * `ORDER BY` — é percurso. São dezenas de linhas; carregar todas e percorrer
+ * em memória é mais barato que uma recursiva, e não esconde a lógica no banco.
+ */
+export async function listarNosHierarquia(): Promise<NoHierarquia[]> {
+  const nos = await prisma.empresa.findMany({
+    orderBy: { nome: "asc" },
+    select: { id: true, nome: true, tipo: true, parentId: true },
+  });
+
+  const porPai = new Map<string | null, typeof nos>();
+  for (const n of nos) {
+    const chave = n.parentId ?? null;
+    const lista = porPai.get(chave) ?? [];
+    lista.push(n);
+    porPai.set(chave, lista);
+  }
+
+  const saida: NoHierarquia[] = [];
+  const visitados = new Set<string>();
+  const descer = (paiId: string | null, nivel: number) => {
+    for (const n of porPai.get(paiId) ?? []) {
+      // Guarda contra ciclo: `Empresa.parentId` não tem trigger anti-ciclo (o
+      // que existe é o da árvore de Parceiro). Sem isto, um ciclo em produção
+      // viraria recursão infinita numa tela de cadastro.
+      if (visitados.has(n.id)) continue;
+      visitados.add(n.id);
+      saida.push({ ...n, nivel });
+      descer(n.id, nivel + 1);
+    }
+  };
+  descer(null, 0);
+
+  // Nós órfãos (pai inexistente) entram no fim em vez de sumir: some-los
+  // esconderia justamente o nó que precisa de conserto.
+  for (const n of nos) {
+    if (!visitados.has(n.id)) saida.push({ ...n, nivel: 0 });
+  }
+  return saida;
 }

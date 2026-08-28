@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
   CATALOGO_EMPRESAS,
   IDS_LEGADOS,
   RAIZ_DO_GRUPO,
   arvoreDoCatalogo,
+  caminhoDe,
+  caminhoNoCatalogo,
+  rotuloComCaminho,
   divergencias,
   empresaDoGrupo,
   filhosDe,
@@ -36,10 +40,10 @@ test("o catálogo é uma árvore válida — estrutura E papéis", () => {
   });
 });
 
-test("são 20 nós: 1 holding, 6 empresas, 13 departamentos", () => {
+test("são 48 nós: 1 holding, 6 empresas, 41 departamentos", () => {
   // Fotografia proposital da estrutura declarada pelo Eduardo. Mudar a
   // contagem é decisão; este teste obriga a decisão a aparecer no diff.
-  assert.equal(CATALOGO_EMPRESAS.length, 20);
+  assert.equal(CATALOGO_EMPRESAS.length, 48);
   assert.deepEqual(idsPorTipo("holding"), [RAIZ_DO_GRUPO]);
   assert.deepEqual(idsPorTipo("empresa"), [
     "investimentos",
@@ -49,7 +53,7 @@ test("são 20 nós: 1 holding, 6 empresas, 13 departamentos", () => {
     "contabil",
     "tech",
   ]);
-  assert.equal(idsPorTipo("departamento").length, 13);
+  assert.equal(idsPorTipo("departamento").length, 41);
 });
 
 test("a árvore, escrita por extenso — pai a pai", () => {
@@ -66,6 +70,12 @@ test("a árvore, escrita por extenso — pai a pai", () => {
     "onix-co": [
       "onix-co-expansao",
       "onix-co-marketing",
+      // Os quatro consolidadores: mesmo rótulo das transversais das empresas,
+      // papel oposto — aqui se SOMA o que lá se FAZ.
+      "onix-co-adm",
+      "onix-co-juridico",
+      "onix-co-compliance",
+      "onix-co-clientes",
       "investimentos",
       "educacao",
       "corretora",
@@ -73,17 +83,25 @@ test("a árvore, escrita por extenso — pai a pai", () => {
       "contabil",
       "tech",
     ],
-    investimentos: ["agro", "investimentos-qualidade", "investimentos-investimentos"],
-    educacao: ["educacao-qualidade"],
+    // Cada empresa carrega as MESMAS 5 transversais. O que varia é o que vem
+    // antes delas — os departamentos próprios daquela casa.
+    investimentos: [
+      "agro",
+      "investimentos-qualidade",
+      "investimentos-investimentos",
+      "investimentos-adm", "investimentos-juridico", "investimentos-compliance", "investimentos-backoffice",
+    ],
+    educacao: ["educacao-qualidade", "educacao-adm", "educacao-juridico", "educacao-compliance", "educacao-backoffice"],
     corretora: [
       "planejamento",
       "corretora-corretora",
       "corporate",
       "corretora-qualidade",
+      "corretora-adm", "corretora-juridico", "corretora-compliance", "corretora-backoffice",
     ],
-    imobiliaria: ["imobiliaria-qualidade"],
-    contabil: ["contabil-qualidade"],
-    tech: ["tech-qualidade"],
+    imobiliaria: ["imobiliaria-qualidade", "imobiliaria-adm", "imobiliaria-juridico", "imobiliaria-compliance", "imobiliaria-backoffice"],
+    contabil: ["contabil-qualidade", "contabil-adm", "contabil-juridico", "contabil-compliance", "contabil-backoffice"],
+    tech: ["tech-qualidade", "tech-adm", "tech-juridico", "tech-compliance", "tech-backoffice"],
   });
 });
 
@@ -96,10 +114,14 @@ test("a holding é a raiz e NÃO é nó da órbita", () => {
   assert.equal(raiz.noHub, false);
 });
 
-test("só 8 nós penduram direto na holding", () => {
+test("12 nós penduram direto na holding: 2 próprios, 4 consolidadores, 6 empresas", () => {
   assert.deepEqual(idsFilhasDaRaiz(), [
     "onix-co-expansao",
     "onix-co-marketing",
+    "onix-co-adm",
+    "onix-co-juridico",
+    "onix-co-compliance",
+    "onix-co-clientes",
     "investimentos",
     "educacao",
     "corretora",
@@ -129,6 +151,12 @@ test("rótulo REPETE de propósito, e sempre com ids distintos", () => {
     [...porNome].filter(([, ids]) => ids.length > 1),
   );
   assert.deepEqual(repetidos, {
+    // Os 4 consolidadores da holding entram na frente da ocorrência das
+    // empresas: mesmo rótulo, papel oposto. É a repetição mais importante de
+    // travar, porque é a que parece erro para quem chega agora.
+    "ADM/Financeiro": ["onix-co-adm", "investimentos-adm", "educacao-adm", "corretora-adm", "imobiliaria-adm", "contabil-adm", "tech-adm"],
+    "Jurídico": ["onix-co-juridico", "investimentos-juridico", "educacao-juridico", "corretora-juridico", "imobiliaria-juridico", "contabil-juridico", "tech-juridico"],
+    "Compliance": ["onix-co-compliance", "investimentos-compliance", "educacao-compliance", "corretora-compliance", "imobiliaria-compliance", "contabil-compliance", "tech-compliance"],
     "Qualidade e Pós-venda": [
       "investimentos-qualidade",
       "educacao-qualidade",
@@ -136,6 +164,14 @@ test("rótulo REPETE de propósito, e sempre com ids distintos", () => {
       "imobiliaria-qualidade",
       "contabil-qualidade",
       "tech-qualidade",
+    ],
+    "Backoffice": [
+      "investimentos-backoffice",
+      "educacao-backoffice",
+      "corretora-backoffice",
+      "imobiliaria-backoffice",
+      "contabil-backoffice",
+      "tech-backoffice",
     ],
     "Onix Corretora": ["corretora", "corretora-corretora"],
   });
@@ -161,20 +197,52 @@ test("todo id legado carrega a nota que explica por que ele fica", () => {
 
 // ── TRANSVERSAL ───────────────────────────────────────────────────────────
 
-test("as 6 Qualidades são transversais — uma por empresa, nenhuma sobrando", () => {
+test("30 transversais — as MESMAS 5 funções em cada uma das 6 empresas", () => {
   const transversais = idsTransversais();
-  assert.equal(transversais.length, 6);
+  assert.equal(transversais.length, 30);
+
+  const FUNCOES = [
+    "ADM/Financeiro",
+    "Backoffice",
+    "Compliance",
+    "Jurídico",
+    "Qualidade e Pós-venda",
+  ];
 
   for (const id of transversais) {
     const e = empresaDoGrupo(id);
     assert.ok(e);
-    assert.equal(e.nome, "Qualidade e Pós-venda", `"${id}" é transversal com outro rótulo`);
+    assert.ok(FUNCOES.includes(e.nome), `"${id}" é transversal com rótulo fora da lista`);
     assert.equal(e.tipo, "departamento");
+    assert.equal(e.consolida !== true, true, `"${id}" é transversal E consolida`);
   }
 
-  // Uma por empresa, e a holding sem nenhuma: é a estrutura declarada.
-  const paisDasQualidades = transversais.map((id) => empresaDoGrupo(id)?.parentId);
-  assert.deepEqual([...paisDasQualidades].sort(), [...idsPorTipo("empresa")].sort());
+  // Cinco por empresa, as mesmas cinco, e a holding sem nenhuma.
+  for (const empresa of idsPorTipo("empresa")) {
+    const daEmpresa = transversais
+      .filter((id) => empresaDoGrupo(id)?.parentId === empresa)
+      .map((id) => empresaDoGrupo(id)!.nome)
+      .sort();
+    assert.deepEqual(daEmpresa, FUNCOES, `${empresa} não tem as 5 transversais`);
+  }
+  assert.equal(
+    transversais.filter((id) => empresaDoGrupo(id)?.parentId === RAIZ_DO_GRUPO).length,
+    0,
+    "a holding não tem transversal — ela tem consolidador",
+  );
+});
+
+test("4 consolidadores, todos na holding, nenhum transversal", () => {
+  const consolidadores = CATALOGO_EMPRESAS.filter((e) => e.consolida === true);
+  assert.deepEqual(
+    consolidadores.map((e) => e.id),
+    ["onix-co-adm", "onix-co-juridico", "onix-co-compliance", "onix-co-clientes"],
+  );
+  for (const e of consolidadores) {
+    assert.equal(e.parentId, RAIZ_DO_GRUPO, `${e.id} não pendura na holding`);
+    assert.equal(e.tipo, "departamento");
+    assert.notEqual(e.transversal, true, `${e.id} consolida E é transversal`);
+  }
 });
 
 test("toda ocorrência de 'Qualidade e Pós-venda' está marcada como transversal", () => {
@@ -244,7 +312,7 @@ test("as duas caixas de divergência ficaram VAZIAS — e isso é o resultado da
   assert.deepEqual(d.soNoHub, []);
   assert.deepEqual(d.foraDosDois, []);
   assert.equal(d.nosDois.length, 8);
-  assert.equal(d.soNoCadastro.length, 12);
+  assert.equal(d.soNoCadastro.length, 40);
 });
 
 // ── O SEED DERIVA DAQUI ───────────────────────────────────────────────────
@@ -283,4 +351,100 @@ test("os nomes, tipos e pais do seed vêm do catálogo, sem redigitação", () =
     assert.equal(s.parentId, cat.parentId, `pai de "${s.id}" divergiu`);
     assert.equal(s.transversal, cat.transversal === true, `transversal de "${s.id}" divergiu`);
   }
+});
+
+// ── O CAMINHO ATÉ O NÓ ────────────────────────────────────────────────────
+
+test("o caminho vai da raiz até o nó, pelos rótulos", () => {
+  assert.deepEqual(caminhoNoCatalogo("tech-qualidade"), [
+    "Onix Co",
+    "Onix Tech",
+    "Qualidade e Pós-venda",
+  ]);
+  assert.deepEqual(caminhoNoCatalogo(RAIZ_DO_GRUPO), ["Onix Co"]);
+});
+
+test("o caminho DESAMBIGUA os rótulos repetidos — que é para isso que ele existe", () => {
+  // As 6 Qualidades são indistinguíveis pelo rótulo; pelo caminho, não. Um
+  // seletor sem isso pede escolha no escuro, e escolher errado concede acesso
+  // à empresa errada em silêncio.
+  //
+  // Com a estrutura de 48 nós isso deixou de ser um caso de 6 e virou um de 30:
+  // são 5 funções transversais em CADA uma das 6 empresas, e agora existem sete
+  // "Jurídico" no grupo contando o consolidador da holding. Quanto mais rótulo
+  // repetido, mais o caminho é a única coisa que separa um do outro.
+  const rotulos = idsTransversais().map((id) =>
+    rotuloComCaminho(id, CATALOGO_EMPRESAS, { semRaiz: true }),
+  );
+  assert.equal(rotulos.length, 30);
+  assert.equal(new Set(rotulos).size, 30);
+  assert.ok(rotulos.includes("Onix Tech › Qualidade e Pós-venda"));
+
+  // E as duas "Onix Corretora": a empresa e o departamento dentro dela.
+  assert.equal(
+    rotuloComCaminho("corretora", CATALOGO_EMPRESAS, { semRaiz: true }),
+    "Onix Corretora",
+  );
+  assert.equal(
+    rotuloComCaminho("corretora-corretora", CATALOGO_EMPRESAS, { semRaiz: true }),
+    "Onix Corretora › Onix Corretora",
+  );
+});
+
+test("todo nó do catálogo tem rótulo-com-caminho único", () => {
+  // A propriedade que faz o seletor voltar a ser confiável: dois irmãos não
+  // podem ter o mesmo rótulo sem serem o mesmo nó, então o caminho identifica.
+  const rotulos = CATALOGO_EMPRESAS.map((e) =>
+    rotuloComCaminho(e.id, CATALOGO_EMPRESAS, { semRaiz: true }),
+  );
+  assert.equal(new Set(rotulos).size, CATALOGO_EMPRESAS.length);
+});
+
+test("semRaiz corta a holding, mas nunca some com o nó", () => {
+  // A holding aparece em TODOS os caminhos e vira ruído numa lista de opções.
+  // O caso limite é ela própria: cortar a raiz do caminho dela deixaria string
+  // vazia, e uma opção sem texto é pior que uma repetida.
+  assert.equal(rotuloComCaminho(RAIZ_DO_GRUPO, CATALOGO_EMPRESAS, { semRaiz: true }), "Onix Co");
+});
+
+test("id que não está na lista devolve o id cru, não string vazia", () => {
+  assert.deepEqual(caminhoDe("fantasma", CATALOGO_EMPRESAS), []);
+  assert.equal(rotuloComCaminho("fantasma", CATALOGO_EMPRESAS), "fantasma");
+});
+
+test("o caminho é montado sobre a lista RECEBIDA, não sobre o catálogo", () => {
+  // É o que permite a tela usar as linhas do banco: se banco e catálogo
+  // divergirem, quem manda é o banco — é ele que o RBAC consulta.
+  const doBanco = [
+    { id: "onix-co", nome: "Onix Co (renomeada na mão)", parentId: null },
+    { id: "tech", nome: "Tech", parentId: "onix-co" },
+  ];
+  assert.deepEqual(caminhoDe("tech", doBanco), ["Onix Co (renomeada na mão)", "Tech"]);
+});
+
+test("ciclo em parentId não trava — devolve o que deu para subir", () => {
+  // `parentId` é dado editável; A→B→A faria a subida rodar para sempre.
+  const ciclo = [
+    { id: "a", nome: "A", parentId: "b" },
+    { id: "b", nome: "B", parentId: "a" },
+  ];
+  const caminho = caminhoDe("a", ciclo);
+  assert.ok(caminho.length > 0 && caminho.length <= 2);
+});
+
+test("pai órfão corta o caminho em vez de sumir com o nó", () => {
+  const orfao = [{ id: "solto", nome: "Solto", parentId: "fantasma" }];
+  assert.deepEqual(caminhoDe("solto", orfao), ["Solto"]);
+});
+
+// ── A HERANÇA NÃO É MAIS O PADRÃO ─────────────────────────────────────────
+
+test("o schema declara incluiDescendentes com default false", () => {
+  // A decisão do item 4 mora no BANCO, não em código — então é o schema que
+  // este teste lê. Com 3 níveis, um default que herda concede mais do que foi
+  // pedido, e num campo de permissão essa é a forma errada de errar.
+  const schema = readFileSync("prisma/schema.prisma", "utf8");
+  const linha = /incluiDescendentes\s+Boolean\s+@default\((\w+)\)/.exec(schema);
+  assert.ok(linha, "campo incluiDescendentes não encontrado em prisma/schema.prisma");
+  assert.equal(linha[1], "false");
 });

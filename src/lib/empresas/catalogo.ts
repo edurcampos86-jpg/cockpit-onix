@@ -103,6 +103,19 @@ export type NoDoGrupo = {
    */
   transversal?: boolean;
   /**
+   * Departamento da HOLDING que consolida o trabalho das ocorrências
+   * transversais das empresas.
+   *
+   * "ADM/Financeiro" existe sete vezes no grupo: uma em cada empresa, fazendo
+   * o trabalho, e uma na holding, somando o das seis. Mesmo rótulo, papel
+   * diferente — e a diferença precisa estar NO DADO, não na cabeça de quem lê
+   * a tela, senão conceder acesso ao "Jurídico" vira escolha no escuro entre
+   * sete nós de mesmo nome.
+   *
+   * `transversal` e `consolida` são excludentes: um FAZ, o outro SOMA.
+   */
+  consolida?: boolean;
+  /**
    * Aparece como nó orbital no hub "Ecossistema Onix".
    *
    * Consequência de estar `false`: some da tela inicial. Quem chega pelo hub
@@ -160,6 +173,57 @@ export const CATALOGO_EMPRESAS: readonly NoDoGrupo[] = [
       "na navegação — este nó é o lugar delas no organograma.",
   },
 
+
+  /* ── Consolidadores da holding ─────────────────────────────────────────
+   * Mesmo rótulo das ocorrências nas empresas, papel diferente: aqui se SOMA
+   * o que lá se FAZ. É para isso que `consolida` existe como campo. */
+  {
+    id: "onix-co-adm",
+    nome: "ADM/Financeiro",
+    tipo: "departamento",
+    parentId: RAIZ_DO_GRUPO,
+    consolida: true,
+    noHub: false,
+    nota:
+      "Consolida o ADM/Financeiro das seis empresas: é o número do grupo, "
+      + "não o de uma casa.",
+  },
+  {
+    id: "onix-co-juridico",
+    nome: "Jurídico",
+    tipo: "departamento",
+    parentId: RAIZ_DO_GRUPO,
+    consolida: true,
+    noHub: false,
+    nota:
+      "Consolida o Jurídico das seis. O cofre de contratos "
+      + "(`/juridico/contratos`) já é do grupo inteiro — este é o nó dele.",
+  },
+  {
+    id: "onix-co-compliance",
+    nome: "Compliance",
+    tipo: "departamento",
+    parentId: RAIZ_DO_GRUPO,
+    consolida: true,
+    noHub: false,
+    nota:
+      "Consolida o Compliance das seis. Regulatório de corretora e de "
+      + "gestora não se misturam na execução, mas se somam no risco do grupo.",
+  },
+  {
+    id: "onix-co-clientes",
+    nome: "Clientes do Grupo",
+    tipo: "departamento",
+    parentId: RAIZ_DO_GRUPO,
+    consolida: true,
+    noHub: false,
+    nota:
+      "Base ÚNICA de pessoas do grupo, sem duplicidade entre empresas. NÃO "
+      + "cria identidade nova: lê o `PessoaGrupo` que já está em produção "
+      + "(2.476 pessoas, 2.613 vínculos). O nó existe para o RBAC ter onde "
+      + "conceder acesso à base consolidada.",
+  },
+
   /* ── Onix Capital ─────────────────────────────────────────────────────── */
   { id: "investimentos", nome: "Onix Capital", tipo: "empresa", parentId: RAIZ_DO_GRUPO, noHub: true },
   {
@@ -197,6 +261,11 @@ export const CATALOGO_EMPRESAS: readonly NoDoGrupo[] = [
       "parecidos — intencional.",
   },
 
+  { id: "investimentos-adm", nome: "ADM/Financeiro", tipo: "departamento", parentId: "investimentos", transversal: true, noHub: false },
+  { id: "investimentos-juridico", nome: "Jurídico", tipo: "departamento", parentId: "investimentos", transversal: true, noHub: false },
+  { id: "investimentos-compliance", nome: "Compliance", tipo: "departamento", parentId: "investimentos", transversal: true, noHub: false },
+  { id: "investimentos-backoffice", nome: "Backoffice", tipo: "departamento", parentId: "investimentos", transversal: true, noHub: false },
+
   /* ── Onix Educação ────────────────────────────────────────────────────── */
   {
     id: "educacao",
@@ -218,6 +287,11 @@ export const CATALOGO_EMPRESAS: readonly NoDoGrupo[] = [
     transversal: true,
     noHub: false,
   },
+
+  { id: "educacao-adm", nome: "ADM/Financeiro", tipo: "departamento", parentId: "educacao", transversal: true, noHub: false },
+  { id: "educacao-juridico", nome: "Jurídico", tipo: "departamento", parentId: "educacao", transversal: true, noHub: false },
+  { id: "educacao-compliance", nome: "Compliance", tipo: "departamento", parentId: "educacao", transversal: true, noHub: false },
+  { id: "educacao-backoffice", nome: "Backoffice", tipo: "departamento", parentId: "educacao", transversal: true, noHub: false },
 
   /* ── Onix Corretora ───────────────────────────────────────────────────── */
   { id: "corretora", nome: "Onix Corretora", tipo: "empresa", parentId: RAIZ_DO_GRUPO, noHub: true },
@@ -265,6 +339,11 @@ export const CATALOGO_EMPRESAS: readonly NoDoGrupo[] = [
     noHub: false,
   },
 
+  { id: "corretora-adm", nome: "ADM/Financeiro", tipo: "departamento", parentId: "corretora", transversal: true, noHub: false },
+  { id: "corretora-juridico", nome: "Jurídico", tipo: "departamento", parentId: "corretora", transversal: true, noHub: false },
+  { id: "corretora-compliance", nome: "Compliance", tipo: "departamento", parentId: "corretora", transversal: true, noHub: false },
+  { id: "corretora-backoffice", nome: "Backoffice", tipo: "departamento", parentId: "corretora", transversal: true, noHub: false },
+
   /* ── Onix Imob ────────────────────────────────────────────────────────── */
   {
     id: "imobiliaria",
@@ -286,6 +365,11 @@ export const CATALOGO_EMPRESAS: readonly NoDoGrupo[] = [
     transversal: true,
     noHub: false,
   },
+
+  { id: "imobiliaria-adm", nome: "ADM/Financeiro", tipo: "departamento", parentId: "imobiliaria", transversal: true, noHub: false },
+  { id: "imobiliaria-juridico", nome: "Jurídico", tipo: "departamento", parentId: "imobiliaria", transversal: true, noHub: false },
+  { id: "imobiliaria-compliance", nome: "Compliance", tipo: "departamento", parentId: "imobiliaria", transversal: true, noHub: false },
+  { id: "imobiliaria-backoffice", nome: "Backoffice", tipo: "departamento", parentId: "imobiliaria", transversal: true, noHub: false },
 
   /* ── Onix Contábil ────────────────────────────────────────────────────── */
   {
@@ -309,6 +393,11 @@ export const CATALOGO_EMPRESAS: readonly NoDoGrupo[] = [
     noHub: false,
   },
 
+  { id: "contabil-adm", nome: "ADM/Financeiro", tipo: "departamento", parentId: "contabil", transversal: true, noHub: false },
+  { id: "contabil-juridico", nome: "Jurídico", tipo: "departamento", parentId: "contabil", transversal: true, noHub: false },
+  { id: "contabil-compliance", nome: "Compliance", tipo: "departamento", parentId: "contabil", transversal: true, noHub: false },
+  { id: "contabil-backoffice", nome: "Backoffice", tipo: "departamento", parentId: "contabil", transversal: true, noHub: false },
+
   /* ── Onix Tech ────────────────────────────────────────────────────────── */
   { id: "tech", nome: "Onix Tech", tipo: "empresa", parentId: RAIZ_DO_GRUPO, noHub: true },
   {
@@ -319,6 +408,10 @@ export const CATALOGO_EMPRESAS: readonly NoDoGrupo[] = [
     transversal: true,
     noHub: false,
   },
+  { id: "tech-adm", nome: "ADM/Financeiro", tipo: "departamento", parentId: "tech", transversal: true, noHub: false },
+  { id: "tech-juridico", nome: "Jurídico", tipo: "departamento", parentId: "tech", transversal: true, noHub: false },
+  { id: "tech-compliance", nome: "Compliance", tipo: "departamento", parentId: "tech", transversal: true, noHub: false },
+  { id: "tech-backoffice", nome: "Backoffice", tipo: "departamento", parentId: "tech", transversal: true, noHub: false },
 ] as const;
 
 /**
@@ -403,6 +496,86 @@ export function idsFilhasDaRaiz(): string[] {
 /** Os filhos diretos de um nó, na ordem do catálogo. */
 export function filhosDe(id: string): NoDoGrupo[] {
   return CATALOGO_EMPRESAS.filter((e) => e.parentId === id);
+}
+
+/* ── O CAMINHO ATÉ O NÓ ──────────────────────────────────────────────────
+ *
+ * Com 48 nós e rótulos que repetem de propósito, "Qualidade e Pós-venda"
+ * deixou de identificar qualquer coisa: são SEIS. "Jurídico" são SETE — um em
+ * cada empresa mais o consolidador da holding — e "Onix Corretora" são DUAS. Um seletor que mostre só o rótulo pede uma escolha no escuro — e a
+ * escolha errada concede acesso à empresa errada, em silêncio, porque as duas
+ * opções são visualmente idênticas.
+ *
+ * O caminho ("Onix Tech › Qualidade e Pós-venda") é o menor identificador que
+ * volta a ser único, e é único por construção: dois irmãos não podem ter o
+ * mesmo rótulo sem serem o mesmo nó. */
+
+/** O mínimo para montar um caminho. Cabe tanto no catálogo quanto na linha do banco. */
+export type NoComPai = {
+  id: string;
+  nome: string;
+  parentId: string | null;
+};
+
+/**
+ * Os rótulos da raiz até `id`, inclusive. Lista vazia se o id não está na
+ * lista recebida.
+ *
+ * ── POR QUE RECEBE OS NÓS EM VEZ DE LER O CATÁLOGO ───────────────────────
+ * Quem chama de verdade é a tela de permissões, e ela trabalha com as linhas
+ * de `Empresa` — o que EXISTE, não o que está declarado. Se as duas divergirem
+ * (seed não rodado, nó criado à mão), o caminho tem de descrever o banco, que
+ * é quem o RBAC consulta. Montar a partir do catálogo mostraria um caminho
+ * bonito para uma árvore que não é a que decide acesso.
+ *
+ * A versão sobre o catálogo existe logo abaixo, para teste e para quem só
+ * precisa do declarado.
+ *
+ * À prova de ciclo: `parentId` é dado editável, e uma cadeia A→B→A faria a
+ * subida rodar para sempre. O conjunto `vistos` corta, e o caminho devolvido
+ * até ali continua útil.
+ */
+export function caminhoDe(id: string, nos: readonly NoComPai[]): string[] {
+  const porId = new Map(nos.map((n) => [n.id, n]));
+  let atual = porId.get(id);
+  if (!atual) return [];
+
+  const nomes = [atual.nome];
+  const vistos = new Set<string>([atual.id]);
+
+  while (atual.parentId !== null) {
+    if (vistos.has(atual.parentId)) break; // ciclo
+    const pai = porId.get(atual.parentId);
+    if (!pai) break; // pai órfão: o caminho para onde a cadeia quebra
+    vistos.add(pai.id);
+    nomes.unshift(pai.nome);
+    atual = pai;
+  }
+
+  return nomes;
+}
+
+/**
+ * O caminho como texto: `"Onix Co › Onix Tech › Qualidade e Pós-venda"`.
+ *
+ * `semRaiz` corta o primeiro nível. A holding aparece em TODOS os caminhos, e
+ * numa lista inteira de opções ela vira ruído que empurra a parte que
+ * distingue para fora do campo visível.
+ */
+export function rotuloComCaminho(
+  id: string,
+  nos: readonly NoComPai[],
+  opcoes?: { semRaiz?: boolean; separador?: string },
+): string {
+  const nomes = caminhoDe(id, nos);
+  if (nomes.length === 0) return id; // id órfão: melhor o id cru que string vazia
+  const visiveis = opcoes?.semRaiz && nomes.length > 1 ? nomes.slice(1) : nomes;
+  return visiveis.join(opcoes?.separador ?? " › ");
+}
+
+/** `caminhoDe` sobre o catálogo declarado. */
+export function caminhoNoCatalogo(id: string): string[] {
+  return caminhoDe(id, CATALOGO_EMPRESAS);
 }
 
 /* ── DIVERGÊNCIAS ENTRE CADASTRO E HUB ───────────────────────────────────── */

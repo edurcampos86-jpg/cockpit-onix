@@ -198,11 +198,40 @@ export const FLAGS_REGISTRADAS: readonly FlagRegistrada[] = [
     impacto: "normal",
   },
   {
+    key: "ORGANOGRAMA_HOME",
+    rotulo: "Organograma do grupo na rota raiz (vence o hub)",
+    onde: "src/lib/organograma/flag.ts",
+    tipo: "booleana",
+    dialeto: "amplo",
+    impacto: "normal",
+  },
+  {
+    key: "SIDEBAR_FILTRADA",
+    rotulo: "Sidebar filtrada por cargo e por nó do organograma",
+    onde: "src/lib/sidebar/flag.ts",
+    tipo: "booleana",
+    dialeto: "amplo",
+    impacto: "normal",
+  },
+  {
     key: "COCKPIT_REUNIAO",
     rotulo: "Aba Cockpit de Reunião na ficha do cliente",
     onde: "src/lib/cockpit-reuniao/flag.ts",
     tipo: "booleana",
     dialeto: "amplo",
+    impacto: "normal",
+  },
+  {
+    key: "CLIENTES_REGISTRO_RICO",
+    rotulo: "Registro rico na ficha do cliente (contato, grupos, drawer, revisão, preparar reunião)",
+    onde: "src/lib/clientes-registro/flag.ts",
+    tipo: "booleana",
+    dialeto: "amplo",
+    // `normal`, e não `alto`, apesar de as rotas escreverem: o gate é de UI e
+    // as rotas dele recusam com a flag OFF. Desligar de volta faz as telas
+    // sumirem e as rotas voltarem a 404 — nada do que foi gravado enquanto
+    // ligada some, mas nada continua acontecendo sozinho. Não há scheduler nem
+    // escrita automática por trás desta chave.
     impacto: "normal",
   },
   {

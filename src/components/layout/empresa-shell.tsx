@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -15,6 +16,7 @@ import {
   Repeat,
   Share2,
   Boxes,
+  Upload,
   Circle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -34,6 +36,7 @@ const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   Repeat,
   Share2,
   Boxes,
+  Upload,
 };
 
 export function EmpresaShell({
@@ -44,6 +47,27 @@ export function EmpresaShell({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+
+  /**
+   * Abas `soAdmin`. Default `false` — FAIL-CLOSED: até a resposta chegar, e se
+   * ela nunca chegar, a aba não aparece. Mesma postura da sidebar, e o mesmo
+   * endpoint. É gate cosmético: a página e a rota barram de verdade.
+   */
+  const [ehAdmin, setEhAdmin] = useState(false);
+  useEffect(() => {
+    let cancelado = false;
+    fetch("/api/auth/is-admin")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!cancelado && d?.isAdmin) setEhAdmin(true);
+      })
+      .catch(() => {});
+    return () => {
+      cancelado = true;
+    };
+  }, []);
+
+  const abas = config.abas.filter((a) => !a.soAdmin || ehAdmin);
 
   const isActive = (href?: string) =>
     !!href && (pathname === href || pathname.startsWith(href + "/"));
@@ -60,7 +84,7 @@ export function EmpresaShell({
           className="flex gap-1.5 overflow-x-auto px-3 py-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           aria-label={`Abas de ${config.nome}`}
         >
-          {config.abas.map((aba) => {
+          {abas.map((aba) => {
             const Icon = ICONS[aba.icon] ?? Circle;
 
             if (aba.emBreve) {

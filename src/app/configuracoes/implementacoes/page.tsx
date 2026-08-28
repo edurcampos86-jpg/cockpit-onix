@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getAuthContext, isAdmin } from "@/lib/auth-helpers";
+import { filtroDaMetrica, filtroDeDono, type QuemOlha } from "@/lib/implementacoes/escopo";
 import { opcoesFiltroEmpresa } from "@/lib/empresas-config";
 import { calcularMetricasBacklog } from "@/lib/implementacoes/metricas";
 import { implementacoesV2Habilitado } from "@/lib/implementacoes/v2-flag";
@@ -22,7 +23,19 @@ const MAX_LINHAS = 300;
 export default async function ImplementacoesPage() {
   const ctx = await getAuthContext().catch(() => null);
   if (!ctx) redirect("/login");
-  if (!isAdmin(ctx)) redirect("/");
+
+  /* A CENTRAL DEIXOU DE SER ADMIN-ONLY.
+   *
+   * Antes: `if (!isAdmin(ctx)) redirect("/")`. O efeito era o descrito em
+   * `actions/implementacao.ts:206` — a pessoa preenchia o formulário inteiro,
+   * salvava, e caía na home sem ver a própria sugestão em lugar nenhum.
+   *
+   * Agora quem não é admin ENTRA e vê APENAS o que criou. O gate binário virou
+   * recorte, e o recorte vale nos QUATRO lugares abaixo — listagem, as duas
+   * contagens do cabeçalho e a métrica. Ficar de fora em um só devolveria o
+   * texto de outra pessoa, ou o número dela, sem erro nenhum. */
+  const quem: QuemOlha = { userId: ctx.userId, ehAdmin: isAdmin(ctx) };
+  const doDono = filtroDeDono(quem);
 
   const v2 = await implementacoesV2Habilitado();
 
@@ -36,12 +49,13 @@ export default async function ImplementacoesPage() {
   // não o que o Postgres devolveu — então com a flag OFF o payload continua
   // idêntico ao de antes desta entrega.
   const [total, semRiceTotal, itens, paraMetrica] = await Promise.all([
-    prisma.implementacao.count(),
+    prisma.implementacao.count({ where: { ...doDono } }),
     // Quantas NUNCA foram pontuadas, na fila inteira. O recorte abaixo é
     // `score desc nulls last`: são exatamente estas que o teto corta primeiro,
     // e o banner precisa dizer isso em número, não em silêncio.
-    prisma.implementacao.count({ where: { score: null } }),
+    prisma.implementacao.count({ where: { score: null, ...doDono } }),
     prisma.implementacao.findMany({
+      where: { ...doDono },
       orderBy: [{ score: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
       take: MAX_LINHAS,
       select: {
@@ -78,6 +92,10 @@ export default async function ImplementacoesPage() {
     // truncada seria um número errado apresentado com cara de certo. São 4
     // campos escalares por linha — barato mesmo com a fila inteira.
     prisma.implementacao.findMany({
+      // MESMO recorte da listagem. "Quantas ideias viraram entrega" sobre a
+      // fila inteira, mostrado a quem tem duas sugestões, conta as sugestões
+      // do grupo — e conta sem exibir uma linha sequer.
+      where: { ...filtroDaMetrica(quem) },
       select: {
         createdAt: true,
         prNumero: true,

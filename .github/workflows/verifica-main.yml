@@ -1,0 +1,210 @@
+name: Verifica main
+
+# Os mesmos gates do CI, rodando DEPOIS do merge — sobre o commit que a `main`
+# realmente ficou.
+#
+# ── O BURACO QUE ISTO FECHA ─────────────────────────────────────────────────
+# Até aqui, NENHUM workflow do repositório rodava em `push` para a `main`
+# (o `post-deploy-smoke.yml` passou a rodar na #406, mas ele sonda PRODUÇÃO —
+# não roda teste, lint nem build). `ci.yml` dispara só em `pull_request`.
+#
+# Consequência: teste, lint e build existiam apenas enquanto a PR estava
+# aberta. O que entra na `main` depois disso — resolução de conflito no merge,
+# ou duas PRs verdes que se atropelam — não era verificado por nada, e a
+# primeira notícia vinha do deploy.
+#
+# Dois casos reais deste repositório:
+#   · #404 entrou verde e a #407 precisou existir para fechar o POST e o PATCH
+#     que ela deixou abertos;
+#   · #383 e #357 tocaram o mesmo arquivo em paralelo, o git fundiu limpo, e a
+#     combinação só não quebrou porque foi conferida à mão.
+#
+# ── ISTO DETECTA, NÃO PREVINE ───────────────────────────────────────────────
+# O commit já está na `main` quando este workflow roda. O que ele compra é
+# TEMPO DE DETECÇÃO: minutos, com aviso, em vez de "até alguém tropeçar".
+#
+# Admissão (merge queue) preveniria — mas exige configuração no painel, muda o
+# fluxo de merge e depende do plano do repositório. Está avaliada na PR que
+# trouxe este arquivo; foi decisão explícita começar pela detecção.
+#
+# A rede que torna isso aceitável já existe: build falho no Railway MANTÉM o
+# deploy anterior no ar, e o rollback é de um clique (ver `railway.toml`).
+
+on:
+  push:
+    branches: [main]
+  # Para reexecutar à mão sobre a main atual sem precisar de um commit novo.
+  workflow_dispatch:
+
+concurrency:
+  # Uma verificação por commit, mas SEM cancelar a anterior: cada push na main
+  # é um artefato distinto que alguém pode precisar auditar depois. Cancelar
+  # apagaria justamente o run do commit que quebrou.
+  group: verifica-main-${{ github.sha }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write # abre a issue de incidente quando reprova
+
+jobs:
+  verifica:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # O lint compara o commit anterior da main com o atual — precisa do
+          # histórico, que o checkout raso (default depth=1) não traz.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          # Mesma major do runtime de produção (Dockerfile: node:22-bookworm-slim).
+          node-version: '22'
+          cache: npm
+
+      - name: Install
+        id: install
+        # postinstall roda `prisma generate`, que cria src/generated/ (não
+        # versionado). Build e lint dependem disso.
+        run: npm ci
+
+      # Mesma disposição do ci.yml: os gates rodam mesmo se um anterior falhar,
+      # para um run só mostrar tudo que quebrou.
+
+      - name: Test
+        if: always() && steps.install.outcome == 'success'
+        run: npm test
+
+      - name: Lint (apenas o que este push mudou)
+        if: always() && steps.install.outcome == 'success'
+        env:
+          ANTES: ${{ github.event.before }}
+        run: |
+          # Mesmo critério do ci.yml, com a janela adaptada: lá é a PR contra
+          # seu merge-base, aqui é a main de antes contra a de agora.
+          #
+          # O lint global falha com dívida PRÉ-EXISTENTE (hoje 27 erros em 13
+          # arquivos). Ligá-lo inteiro aqui deixaria este workflow vermelho
+          # PARA SEMPRE, no primeiro run, e um gate que nasce vermelho não é
+          # gate — é ruído que se aprende a ignorar.
+          #
+          # `github.event.before` é tudo-zeros na criação da branch e não é
+          # confiável depois de force-push. Nos dois casos não há janela para
+          # comparar: avisa e sai, em vez de lintar o repositório inteiro e
+          # reprovar por dívida antiga.
+          if [ -z "${ANTES:-}" ] || [ "$ANTES" = "0000000000000000000000000000000000000000" ]; then
+            echo "::notice::Sem commit anterior para comparar (branch nova ou force-push) — lint desta janela pulado."
+            exit 0
+          fi
+          if ! git cat-file -e "$ANTES^{commit}" 2>/dev/null; then
+            echo "::notice::Commit anterior ($ANTES) não está neste clone — lint desta janela pulado."
+            exit 0
+          fi
+          # --diff-filter=d exclui arquivo deletado: lintar caminho que não
+          # existe mais aborta o eslint.
+          FILES=$(git diff --name-only --diff-filter=d "$ANTES" "$GITHUB_SHA" -- '*.ts' '*.tsx')
+          if [ -z "$FILES" ]; then
+            echo "Nenhum .ts/.tsx neste push — nada a lintar."
+            exit 0
+          fi
+          echo "Arquivos que este push mudou:"
+          echo "$FILES" | awk '{ print "  " $0 }'
+          echo "---"
+          echo "$FILES" | xargs npx eslint
+
+      - name: Build
+        if: always() && steps.install.outcome == 'success'
+        # O heap padrão do Node não basta para o build desta app.
+        run: NODE_OPTIONS=--max-old-space-size=8192 npm run build
+
+      # As duas guardas de migration do ci.yml, repetidas aqui pelo mesmo
+      # motivo do resto: o que elas protegem é a `main`, e até agora ninguém as
+      # rodava sobre ela. São find + awk, então não dependem do install.
+      - name: Guarda do índice FTS (PainelEmailAI)
+        if: always()
+        run: ./scripts/guarda-drift-fts.sh prisma/migrations
+
+      - name: Guarda de NOT NULL sem DEFAULT em coluna nova
+        if: always()
+        run: ./scripts/guarda-not-null-sem-default.sh prisma/migrations
+
+      # ─────────────────────────────────────────────────────────────────
+      # Falha na main: Slack + Issue
+      #
+      # Vermelho no Actions não avisa ninguém — a aba não é olhada, e o problema
+      # aqui é justamente que já está NA MAIN. O aviso segue a convenção que o
+      # post-deploy-smoke.yml já usa: webhook do Slack (opcional, pula se não
+      # houver secret) mais issue com label `incident`.
+      #
+      # Slack e não WhatsApp: mandar WhatsApp daqui exigiria as credenciais da
+      # Datacrazy como secret NOVO do Actions, e o canal individual da #396
+      # existe porque alertas de CLIENTE expõem nome, conta e saldo. Falha de
+      # build não tem dado de cliente — é aviso de time, e o canal do time
+      # serve. Nenhum segredo novo entra por este arquivo.
+      # ─────────────────────────────────────────────────────────────────
+
+      - name: Notify Slack on failure
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "SLACK_WEBHOOK_URL não configurado — pulando."
+            exit 0
+          fi
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          COMMIT_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
+          # jq monta o JSON com escaping seguro
+          PAYLOAD=$(jq -n \
+            --arg sha "${GITHUB_SHA:0:7}" \
+            --arg commit "$COMMIT_URL" \
+            --arg run "$RUN_URL" \
+            '{
+              text: ":rotating_light: A main do Cockpit Onix está quebrada",
+              blocks: [
+                { type: "header", text: { type: "plain_text", text: ":rotating_light: main QUEBRADA — Cockpit Onix" } },
+                { type: "section", fields: [
+                  { type: "mrkdwn", text: ("*Commit:*\n<" + $commit + "|" + $sha + ">") },
+                  { type: "mrkdwn", text: ("*Run:*\n<" + $run + "|Ver o que falhou>") }
+                ]},
+                { type: "context", elements: [
+                  { type: "mrkdwn", text: "Passou nos gates da PR e reprovou depois do merge. Reverter o merge restaura a main; o Railway mantém o deploy anterior no ar se o build falhar." }
+                ]}
+              ]
+            }')
+          curl -fsS -X POST -H 'Content-Type: application/json' \
+            -d "$PAYLOAD" "$SLACK_WEBHOOK_URL"
+
+      - name: Create incident issue on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          COMMIT_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
+          # O título sai do próprio jq abaixo, junto do corpo — uma fonte só.
+          # Garante que a label existe (idempotente — silencia se já existir)
+          curl -sS -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/labels" \
+            -d '{"name":"incident","color":"b60205","description":"Falha detectada por automação"}' \
+            > /dev/null || true
+
+          BODY=$(jq -n \
+            --arg commit "$COMMIT_URL" \
+            --arg run "$RUN_URL" \
+            --arg sha "${GITHUB_SHA:0:7}" \
+            '{
+              title: ("🚨 main quebrada em " + $sha),
+              labels: ["incident"],
+              body: ("## Os gates reprovaram DEPOIS do merge\n\n- **Commit:** " + $commit + "\n- **Run:** " + $run + "\n\nEste commit passou nos gates enquanto era PR e reprovou já na `main`. As causas típicas: resolução de conflito no merge, ou duas PRs verdes cuja combinação quebra.\n\n**Primeiro passo:** reverter o merge restaura a `main` de forma determinística; o conserto vem depois, a partir da base estável (ver a skill `onix-entrega-segura`, seção 6).\n\n**O ar:** se o que falhou foi o build, o Railway mantém o deploy anterior servindo — produção não caiu junto. Confirme no `post-deploy-smoke`, que roda no mesmo push.")
+            }')
+          curl -sS -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues" \
+            -d "$BODY" > /dev/null
+          echo "::error::Gates reprovaram na main em ${GITHUB_SHA:0:7}. Issue de incidente aberta."

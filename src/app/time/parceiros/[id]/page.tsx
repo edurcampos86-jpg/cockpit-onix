@@ -5,11 +5,16 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, CheckCircle2, FileSignature, Archive, RotateCcw } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { requireLideranca, canManageTeam } from "@/lib/auth-helpers";
-import { obterParceiro } from "@/lib/parceiros/consultas";
+import {
+  obterParceiro,
+  listarPessoasParaVinculo,
+  listarNosHierarquia,
+} from "@/lib/parceiros/consultas";
 import { alternarAtivoForm, salvarContratoForm } from "@/app/actions/parceiros";
 import { ConfirmarAcao } from "../_components/confirmar-acao";
 import { AcordosSection } from "../_components/acordos-section";
 import { ClientesSection } from "../_components/clientes-section";
+import { PessoaSection } from "../_components/pessoa-section";
 
 /* ──────────────────────────────────────────────────────────────
  * Ficha do parceiro. Nesta PR ela responde três perguntas:
@@ -44,6 +49,8 @@ export default async function ParceiroPage({
     acordo?: string;
     erroAcordo?: string;
     vinculo?: string;
+    pessoa?: string;
+    erroPessoa?: string;
     erroVinculo?: string;
     buscaCliente?: string;
   }>;
@@ -51,11 +58,20 @@ export default async function ParceiroPage({
   const ctx = await requireLideranca();
   const podeGerenciar = canManageTeam(ctx);
   const { id } = await params;
-  const { novo, acordo, erroAcordo, vinculo, erroVinculo, buscaCliente } =
+  const { novo, acordo, erroAcordo, vinculo, erroVinculo, buscaCliente, pessoa, erroPessoa } =
     await searchParams;
 
   const parceiro = await obterParceiro(id);
   if (!parceiro) notFound();
+
+  // Lista só é carregada quando há o que fazer com ela: parceiro já ligado não
+  // precisa do seletor, e quem não gerencia não vê o formulário.
+  const candidatosPessoa =
+    podeGerenciar && !parceiro.pessoa ? await listarPessoasParaVinculo() : [];
+
+  // A hierarquia só é carregada para quem pode gravar acordo — quem lê a ficha
+  // não precisa da lista de nós.
+  const nosHierarquia = podeGerenciar ? await listarNosHierarquia() : [];
 
   const clientesVigentes = parceiro.clientes.filter((c) => c.dataFim === null);
   const acordosVigentes = parceiro.acordos.filter((a) => a.dataFim === null);
@@ -167,6 +183,42 @@ export default async function ParceiroPage({
           parceiroId={parceiro.id}
           parceiroNome={parceiro.nome}
           acordos={parceiro.acordos}
+          nos={nosHierarquia}
+          podeGerenciar={podeGerenciar}
+        />
+
+        {erroPessoa && (
+          <div
+            role="alert"
+            className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-foreground"
+          >
+            {erroPessoa}
+          </div>
+        )}
+
+        {pessoa === "ligada" && (
+          <div
+            role="status"
+            className="rounded-lg border border-[var(--parceiro-borda)] bg-[var(--parceiro-faixa)] px-4 py-3 text-sm text-foreground"
+          >
+            Ligado ao cadastro do time. E-mail, telefone e cargo passam a vir de lá.
+          </div>
+        )}
+
+        {pessoa === "desligada" && (
+          <div
+            role="status"
+            className="rounded-lg border border-border bg-muted px-4 py-3 text-sm text-muted-foreground"
+          >
+            Desligado do cadastro do time. Acordos e clientes continuam como estavam.
+          </div>
+        )}
+
+        <PessoaSection
+          parceiroId={parceiro.id}
+          parceiroNome={parceiro.nome}
+          pessoa={parceiro.pessoa}
+          candidatos={candidatosPessoa}
           podeGerenciar={podeGerenciar}
         />
 

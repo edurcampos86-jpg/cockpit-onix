@@ -742,6 +742,10 @@ model ClienteBackoffice {
   feeFixoEditadoEm  DateTime?
   feeFixoEditadoPor String? // userId de quem alternou (sessao atual)
 
+  /// Série mensal de comissão do BTG por este cliente. Read-only para a ficha:
+  /// quem escreve é o enrich, e quem lê é o portal do parceiro e o histórico.
+  comissoesMensais ComissaoMensalCliente[] @relation("ComissaoMensalDoCliente")
+
   // Dados BTG sincronizados via API
   cpfCnpj                     String? // taxIdentification do holder (CPF ou CNPJ)
   perfilInvestidor            String? // Suitability: "conservador" | "moderado" | "sofisticado"
@@ -877,6 +881,15 @@ model ClienteBackoffice {
   reuniaoImports       ReuniaoImport[]
   pats                 Pat[]
   fatos                ClienteFato[]
+
+  // ── Registro rico do cliente (flag CLIENTES_REGISTRO_RICO) ──
+  // Todas as cinco são LISTAS e nascem vazias: nenhuma linha existente de
+  // ClienteBackoffice muda ao aplicar a migration.
+  gruposMembro     ClienteGrupoMembro[]
+  contatoHistorico RegistroContatoHistorico[]
+  sugestoes        SugestaoExtraida[]
+  tarefas          TarefaCliente[]
+  proveniencias    CampoProveniencia[]
 
   @@index([numeroConta])
   @@index([classificacao])
@@ -1088,6 +1101,11 @@ model ReuniaoEstruturada {
   imports    ReuniaoImport[]
   fatos      ClienteFato[]
 
+  // ── Registro rico (flag CLIENTES_REGISTRO_RICO) ──
+  sugestoes     SugestaoExtraida[]
+  tarefas       TarefaCliente[]
+  proveniencias CampoProveniencia[]
+
   @@index([clienteId, data])
   @@index([data])
 }
@@ -1114,6 +1132,10 @@ model ReuniaoImport {
 
   importadoPor String? // userId de quem importou (sessão)
   importadoEm  DateTime @default(now())
+
+  /// Lado inverso de `SugestaoExtraida.importacao`. Campo de RELAÇÃO: não vira
+  /// coluna nem altera a tabela `ReuniaoImport` no SQL.
+  sugestoes SugestaoExtraida[]
 
   @@index([clienteId, importadoEm])
 }
@@ -1377,6 +1399,27 @@ model Parceiro {
   clienteBackofficeId String?            @unique
   clienteBackoffice   ClienteBackoffice? @relation("ParceiroIdentidadeCliente", fields: [clienteBackofficeId], references: [id], onDelete: SetNull)
 
+  /// A PESSOA DO TIME que este parceiro é, quando ele também é do time.
+  ///
+  /// Gêmeo exato de `clienteBackofficeId` acima, e pelo mesmo motivo: parceiro
+  /// PODE ser do time e não precisa ser. O contador que indica clientes não
+  /// tem crachá; o sócio da Onix Imobiliária tem.
+  ///
+  /// @unique: uma pessoa do time representa no máximo um parceiro. Sem isso,
+  /// dois cadastros de parceiro poderiam reivindicar a mesma pessoa e nenhuma
+  /// leitura futura saberia qual vale — mesma razão do campo de cliente.
+  ///
+  /// onDelete: SetNull — arquivar a pessoa não pode apagar o parceiro. Ele
+  /// segue existindo como quem indica; só perde o elo com o cadastro do time.
+  ///
+  /// ⚠️ RISCO QUE ESTE CAMPO TORNA VISÍVEL, e não cria: com a pessoa ligada,
+  /// fica evidente que o mesmo humano pode ter `AcordoComercial` (o do time)
+  /// e `AcordoComercialParceiro` vigentes ao mesmo tempo. As duas tabelas não
+  /// se enxergam. Registrado em docs/onix-co-estado.md como pendência de
+  /// guarda — ver "RISCO DE PAGAMENTO DUPLO".
+  pessoaId String? @unique
+  pessoa   Pessoa? @relation("ParceiroPessoaTime", fields: [pessoaId], references: [id], onDelete: SetNull)
+
   /// NULL = sem contrato assinado. Será PRÉ-REQUISITO de ativação de acesso na
   /// Fase 3 — o parceiro só ganha login depois que isto tem data. Guardado
   /// como data (e não boolean) porque "desde quando" é a pergunta que aparece
@@ -1560,7 +1603,46 @@ model AcordoComercialParceiro {
   /// "seguro_resgatavel" | "assessoria" | … TEXTO LIVRE por ora, mesmo
   /// critério de `Parceiro.tipo`: a lista de produtos ainda muda, e um enum
   /// obrigaria migration a cada produto novo. Vira enum quando parar de mudar.
-  tipoProduto String
+  /// ⚠️ EM MIGRAÇÃO para `empresaId` — ver o campo abaixo. Continua aqui, e
+  /// agora NULLABLE, porque a troca é em duas PRs: esta acrescenta o caminho
+  /// novo, e uma futura remove a coluna. Linha antiga mantém o texto; linha
+  /// nova nasce com `empresaId` e este campo em NULL.
+  ///
+  /// NÃO confundir com `ContratoCorretora.tipoProduto`: aquele é o produto
+  /// VENDIDO pela corretora, tem catálogo próprio em
+  /// `src/lib/corretora/catalogo-produtos.ts` e alimenta a importação. Nome
+  /// igual, coisa diferente, e ele não é tocado.
+  tipoProduto String?
+
+  /// O NÓ da hierarquia Onix Co sobre o qual o acordo incide — "Onix
+  /// Corretora", "Planejamento Patrimonial", "Onix Imobiliária".
+  ///
+  /// Substitui o texto livre porque a pergunta real do negócio não é "qual
+  /// produto?", é "qual parte da casa?". `Empresa` já modela isso: nós tipados
+  /// (holding/empresa/departamento) com `parentId`.
+  ///
+  /// FK de verdade em vez de string: typo aqui viraria acordo pendurado num nó
+  /// fantasma, e o fechamento não teria como saber que ele existe.
+  ///
+  /// `onDelete: Restrict` — apagar um nó com acordo pendurado tem de doer. O
+  /// acordo é o registro de quanto se paga a alguém; sumir junto com o nó
+  /// apagaria a razão de um pagamento passado.
+  ///
+  /// Nullable NESTA PR por convivência com `tipoProduto`. Vira obrigatório
+  /// quando a coluna antiga sair.
+  empresaId String?
+  empresa   Empresa? @relation("AcordoParceiroEmpresa", fields: [empresaId], references: [id], onDelete: Restrict)
+
+  /// O acordo deste nó vale também para os nós ABAIXO dele?
+  ///
+  /// Cópia deliberada de `PessoaEmpresa.incluiDescendentes`, que resolve
+  /// exatamente a mesma pergunta no RBAC: quem concede escolhe se a concessão
+  /// desce. Aqui, quem combina escolhe se a comissão desce.
+  ///
+  /// `false` por padrão, ao contrário do RBAC (que usa `true`): dinheiro é o
+  /// caso em que o silêncio precisa significar o MENOS abrangente. Marcar é
+  /// decisão explícita de quem fecha o acordo.
+  incluiDescendentes Boolean @default(false)
 
   /// Percentual da comissão líquida que vai para o parceiro. Guardado como
   /// 0–100 (40.0000 = 40%), não como fração.
@@ -1605,6 +1687,11 @@ model AcordoComercialParceiro {
   /// "Quem tem acordo neste produto?" — a leitura que a régua de comissão faz
   /// ao fechar um tipo de produto inteiro.
   @@index([tipoProduto])
+  /// O mesmo, pelo caminho novo: "quem tem acordo NESTE nó?". Declarado aqui e
+  /// não só na migration — índice que existe no banco e não no schema é drift,
+  /// e a próxima `migrate dev` de qualquer sessão o emitiria como DROP INDEX.
+  /// É a mesma armadilha do índice FTS que `scripts/guarda-drift-fts.sh` tranca.
+  @@index([empresaId])
 }
 
 // ============================================
@@ -1716,6 +1803,114 @@ model StoryAnalogia {
 }
 
 // Lançamentos de receita por parceiro/produto/cliente (importados via planilha BTG)
+/// Comissão que o BTG paga à casa por um cliente, MÊS A MÊS.
+///
+/// ── POR QUE ESTA TABELA EXISTE ──────────────────────────────────────────
+/// O número já chegava e era jogado fora. `btg-enrich` chama
+/// `getCommissionReport()` (src/lib/integrations/btg.ts:207), monta um mapa
+/// `numeroConta -> comissão do mês`, e então multiplica por 12 e grava um
+/// único Float em `ClienteBackoffice.receitaAnual`. A linha mensal morria ali.
+///
+/// O próprio código admitia: "TODO: receitaAnual aqui é estimativa = mes × 12.
+/// Evoluir pra média móvel quando tivermos histórico." O histórico nunca
+/// chegou porque ninguém guardava o que já vinha.
+///
+/// Esta tabela é só isso: parar de jogar fora. Nenhuma integração nova,
+/// nenhuma planilha nova.
+///
+/// ── NÃO CONFUNDIR COM `ReceitaItem` ─────────────────────────────────────
+/// `ReceitaItem` vem de planilha subida à mão, casa cliente por NOME e não
+/// tem uma FK sequer. Esta vem da API, casa por FK, e é por competência. As
+/// duas convivem: a antiga não é migrada nem removida nesta PR.
+model ComissaoMensalCliente {
+  id String @id @default(cuid())
+
+  /// FK REAL, não `numeroConta` solto. É a diferença central para o
+  /// `ReceitaItem`, que casa por nome e por isso tem um fallback que aceita
+  /// "primeiro nome" e atribui receita de um cliente à ficha de outro.
+  ///
+  /// `Restrict`, não `Cascade`: apagar um cliente não pode apagar o registro
+  /// de quanto ele gerou. Mesmo contrato de reter de
+  /// `ContratoCorretora.pessoaGrupo`.
+  ///
+  /// ⚠️ CONSEQUÊNCIA CONHECIDA, e ela é deliberada:
+  /// `src/lib/backoffice/merge-leading-zeros.ts` deduplica clientes que
+  /// diferem por zero à esquerda e, no passo 6, APAGA o antigo. O guarda do
+  /// passo 5 só enxerga filhos `ON DELETE CASCADE` — a consulta filtra
+  /// `confdeltype = 'c'` (linha 65) —, então uma FK `Restrict` fica invisível
+  /// para ele e o DELETE falha com violação de chave estrangeira.
+  ///
+  /// Isso é o modo de falha SEGURO: a transação inteira reverte, nada é
+  /// destruído, e o operador vê o erro. O contrário — `Cascade` — apagaria
+  /// histórico financeiro em silêncio no meio de uma rotina de manutenção.
+  ///
+  /// A tabela nasce VAZIA, então nada quebra hoje. Religar as linhas no merge
+  /// é PR própria e precisa de uma decisão que ninguém tomou ainda: quando os
+  /// dois lados do par têm a MESMA competência, isso é o mesmo dinheiro
+  /// contado duas vezes ou duas contas distintas? Somar, escolher uma ou
+  /// abortar são respostas diferentes, e nenhuma delas cabe num palpite.
+  clienteId String
+  cliente   ClienteBackoffice @relation("ComissaoMensalDoCliente", fields: [clienteId], references: [id], onDelete: Restrict)
+
+  /// Competência no formato `"AAAA-MM"` — ex.: `"2026-08"`.
+  ///
+  /// String e não DateTime, por dois motivos. Primeiro, precedente da casa:
+  /// `PainelPrioridade.data` já guarda `"YYYY-MM-DD"` como texto, pelo mesmo
+  /// motivo. Segundo, e mais forte: competência é um RÓTULO de mês, não um
+  /// instante. Guardar como `DateTime` obrigaria a escolher um dia e um fuso
+  /// que ninguém quis dizer, e este projeto já pagou por isso — `TIMESTAMP(3)`
+  /// arredonda para cima e meia-noite UTC cai no dia anterior a oeste.
+  ///
+  /// `"AAAA-MM"` ordena lexicograficamente na mesma ordem cronológica, então
+  /// `ORDER BY` e `BETWEEN` funcionam sem conversão. O formato é imposto por
+  /// CHECK na migration, não por confiança em quem escreve.
+  competencia String
+
+  /// DECIMAL, NUNCA Float. Mesma razão da #318 e do `ContratoCorretora`: este
+  /// número vai ser SOMADO (12 meses, uma carteira inteira, um nó da
+  /// hierarquia) e comparado. `float8` erra em soma e em igualdade, e o erro
+  /// aparece justamente no total, que é o número que alguém lê.
+  ///
+  /// `(14,2)` é o mesmo de `ContratoCorretora.premio`/`comissao` — a casa já
+  /// escolheu essa precisão para dinheiro.
+  comissao Decimal @db.Decimal(14, 2)
+
+  /// De ONDE veio o número. Validado em código, não enum de banco — mesma
+  /// postura de `ContratoCorretora.tipoProduto`: a lista de relatórios cresce
+  /// por decisão comercial, e relatório novo não pode custar migration de
+  /// faixa vermelha.
+  ///
+  /// Hoje só `"btg_rm_reports"`. Entra na chave única porque duas fontes
+  /// podem reportar a MESMA competência com números diferentes, e apagar uma
+  /// com a outra perderia justamente a divergência que precisa ser vista.
+  fonte String
+
+  /// Quando o dado foi trazido — distinto de `criadoEm`. Reimportar a mesma
+  /// competência atualiza o valor e MOVE este carimbo; `criadoEm` guarda a
+  /// primeira vez. Sem os dois, "esse número é de quando?" não tem resposta.
+  importadoEm DateTime @default(now())
+
+  /// `BtgSyncLog.id` da execução que trouxe a linha, quando houver. String
+  /// solta de propósito: o log tem retenção própria e não pode segurar o
+  /// histórico financeiro por FK.
+  origemSyncId String?
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  /// IDEMPOTÊNCIA. Reimportar o mesmo mês NÃO duplica: o upsert casa por esta
+  /// chave e atualiza o valor. Sem ela, rodar o enrich duas vezes no mesmo dia
+  /// dobraria a receita do mês — e o erro só apareceria na soma.
+  @@unique([clienteId, competencia, fonte])
+
+  /// "Quanto esta carteira gerou neste mês?" — a leitura que o portal do
+  /// parceiro faz. Competência primeiro porque o filtro por mês é sempre o
+  /// mais seletivo.
+  @@index([competencia])
+  /// A série de um cliente, em ordem.
+  @@index([clienteId, competencia])
+}
+
 model ReceitaItem {
   id                 String   @id @default(cuid())
   data               DateTime
@@ -2016,6 +2211,18 @@ model Empresa {
   /// a separação por empresa.
   transversal Boolean @default(false)
 
+  /// Departamento da HOLDING que consolida o trabalho das ocorrências
+  /// transversais das empresas.
+  ///
+  /// "ADM/Financeiro" existe sete vezes no grupo: uma em cada empresa, fazendo
+  /// o trabalho, e uma na holding, somando o das seis. Mesmo rótulo, papel
+  /// diferente. Sem esta coluna, conceder acesso ao "Jurídico" seria escolher
+  /// no escuro entre sete linhas de mesmo nome — e o RBAC concede por id.
+  ///
+  /// Excludente com `transversal`: um FAZ, o outro SOMA. O default `false`
+  /// vale para as 20 linhas que já existem: nenhuma delas consolida nada.
+  consolida Boolean @default(false)
+
   /// NULL = raiz. Só a holding "Onix Co" é raiz; empresas penduram nela e
   /// departamentos penduram na holding ou numa empresa.
   parentId String?
@@ -2029,6 +2236,9 @@ model Empresa {
   /// Lados inversos das FKs novas. Campos de RELAÇÃO: nenhum SQL na
   /// tabela `Empresa`.
   contratosCorretora ContratoCorretora[]
+  /// Acordos de parceiro que incidem sobre este nó (lado inverso de
+  /// `AcordoComercialParceiro.empresaId`).
+  acordosParceiro AcordoComercialParceiro[] @relation("AcordoParceiroEmpresa")
   perfisImportacao   PerfilImportacao[]
 
   @@index([parentId])
@@ -2060,11 +2270,22 @@ model PessoaEmpresa {
   empresaId String
   empresa   Empresa @relation(fields: [empresaId], references: [id], onDelete: Cascade)
 
-  /// Estende a concessão às empresas abaixo desta na árvore. `true` é a
-  /// leitura intuitiva de holding (acesso à Onix Co alcança o grupo); `false`
-  /// concede só a empresa exata. A escolha é POR CONCESSÃO porque "herda ou
-  /// não?" é decisão de produto e as duas respostas precisam caber.
-  incluiDescendentes Boolean @default(true)
+  /// Estende a concessão aos nós abaixo deste na árvore. A escolha é POR
+  /// CONCESSÃO porque "herda ou não?" é decisão de produto e as duas respostas
+  /// precisam caber.
+  ///
+  /// O DEFAULT ERA `true` e passou a ser `false`. O motivo é o terceiro nível:
+  /// com 2 níveis, herdar de uma empresa não alcançava nada (as empresas eram
+  /// folhas) e herdar da holding era a leitura intuitiva dela. Com 3, conceder
+  /// "Onix Capital" com herança passou a arrastar Agro, Qualidade e Onix
+  /// Investimentos — a semântica não mudou, o alcance dobrou. Um default que
+  /// concede mais do que foi pedido é a forma errada de errar num campo de
+  /// permissão: o padrão passa a ser concessão nó a nó, e herdar vira ato
+  /// explícito.
+  ///
+  /// Linhas JÁ EXISTENTES não são tocadas — mudar DEFAULT não reescreve dado,
+  /// e reescrever seria revogar acesso que alguém concedeu de propósito.
+  incluiDescendentes Boolean @default(false)
 
   criadoEm DateTime @default(now())
 
@@ -2170,6 +2391,10 @@ model Pessoa {
   equipeId       String?
   equipe         Equipe?      @relation(fields: [equipeId], references: [id])
 
+  /// Lado inverso de `Parceiro.pessoaId`. Null é o caso comum: a maioria do
+  /// time não é parceiro comercial.
+  parceiro Parceiro? @relation("ParceiroPessoaTime")
+
   // A quem se reporta (self-relation)
   lideradoPorId String?
   lideradoPor   Pessoa?  @relation("HierarquiaPessoa", fields: [lideradoPorId], references: [id])
@@ -2200,6 +2425,7 @@ model Pessoa {
   // Fase 0 — Cockpit de Reunião (quem conduziu)
   reunioesEstruturadasConduzidas ReuniaoEstruturada[]
   interacoesConduzidas           InteracaoCliente[]
+  tarefasCliente                 TarefaCliente[]
 
   // RBAC — Fase 1 (fundação; aditivo, sem enforcement ainda). papelId NULLABLE:
   // Pessoas existentes ficam sem papel até o seed de uma fase futura.
@@ -3305,7 +3531,7 @@ model PerfilImportacao {
   formatosValor Json
 
   /// campo de destino → { rótulo do parceiro → valor canônico }.
-  ///   {"tipoProduto": {"VIDA PREMIADA PLUS": "vida", "AUTO FÁCIL": "auto_residencial"},
+  ///   {"tipoProduto": {"VIDA PREMIADA PLUS": "vida", "AUTO FÁCIL": "auto"},
   ///    "status":      {"EM VIGOR": "ativo", "CANCELADA": "cancelado"}}
   ///
   /// É AQUI que mora a normalização de vocabulário por parceiro, e não
@@ -3335,4 +3561,270 @@ model PerfilImportacao {
   @@unique([empresaId, nome])
   /// Lista de perfis da empresa, filtrando os desligados. Cobre a FK.
   @@index([empresaId, ativo])
+}
+
+// ============================================
+// REGISTRO RICO DO CLIENTE — flag CLIENTES_REGISTRO_RICO (default OFF)
+// ============================================
+// Seis tabelas NOVAS, todas nascendo VAZIAS. Nenhuma coluna de tabela
+// existente é alterada, renomeada ou removida por esta migration — o único
+// efeito no schema atual são campos de RELAÇÃO (lados inversos), que o Prisma
+// resolve no client e não emitem SQL.
+//
+// O que NÃO nasce aqui, de propósito, porque já existe e seria duplicata:
+//   • "RegistroContato" → é `InteracaoCliente` (tipo ligacao/reuniao/revisao/
+//     email/whatsapp/evento, com canal, duração e rcaNotas). As rotas novas
+//     de registro de ligação e de reunião escrevem NELA.
+//   • "RegistroReuniao"  → é `ReuniaoEstruturada` (pauta, pendências por lado,
+//     próximos passos, dataRetorno, textoBruto), já com UI e flag própria.
+// Criar tabelas paralelas para as duas partiria o histórico do cliente em
+// dois lugares e quebraria o Cockpit de Reunião, que já está em produção.
+
+/// Grupo de contas que se atendem juntas (uma família, um casal, um grupo
+/// empresarial visto pela ótica do atendimento).
+///
+/// DISTINTO das três agregações que já existem, e por isso não reusa nenhuma:
+///   • `PessoaGrupo`  agrupa por DOCUMENTO (mesmo CPF/CNPJ = mesma pessoa);
+///   • `GrupoCliente` é o grupo de WhatsApp da Datacrazy;
+///   • `Empresa`      é a hierarquia societária do grupo Onix.
+/// Este agrupa por DECISÃO DE ATENDIMENTO — contas sem documento em comum e
+/// sem grupo de WhatsApp podem ser atendidas juntas, e é isso que a
+/// propagação de contato precisa saber.
+model ClienteGrupo {
+  id        String  @id @default(cuid())
+  nome      String
+  descricao String? @db.Text
+
+  criadoPor    String? // userId da sessão que criou
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  membros ClienteGrupoMembro[]
+
+  @@index([nome])
+}
+
+/// Vínculo conta↔grupo. `viaGrupo` é a regra inteira da propagação:
+///
+///   contato registrado NO GRUPO      → propaga para os membros com viaGrupo=true
+///   contato registrado NO INDIVÍDUO  → NUNCA propaga, nem para o grupo
+///
+/// O default é `true` porque quem cria um grupo de atendimento está dizendo
+/// que falar com um é falar com todos; `false` é a exceção declarada (o filho
+/// que exige contato próprio, o sócio que não participa das conversas).
+model ClienteGrupoMembro {
+  id String @id @default(cuid())
+
+  grupoId String
+  grupo   ClienteGrupo @relation(fields: [grupoId], references: [id], onDelete: Cascade)
+
+  clienteId String
+  cliente   ClienteBackoffice @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  /// Recebe a propagação de contato do grupo?
+  viaGrupo Boolean @default(true)
+
+  adicionadoPor String?
+  adicionadoEm  DateTime @default(now())
+
+  /// A mesma conta não entra duas vezes no mesmo grupo. Sem isto, uma segunda
+  /// inclusão faria a propagação escrever o mesmo contato N vezes no histórico.
+  @@unique([grupoId, clienteId])
+  @@index([clienteId])
+}
+
+/// Extrato APPEND-ONLY de toda mudança em `ultimoContatoAt` / `proximoContatoAt`.
+///
+/// Existe porque hoje esses dois campos são sobrescritos por quatro caminhos
+/// diferentes (import, poll Datacrazy, registro manual, recompute) e o valor
+/// de "hoje" não diz por qual deles passou. Com a propagação por grupo isso
+/// deixa de ser curiosidade: um contato registrado na mãe move a data de três
+/// filhos, e sem esta tabela ninguém consegue responder "por que a data do
+/// João mudou se eu não falei com ele?".
+///
+/// Nada aqui é atualizado ou apagado — mesmo contrato de `ContratoAcessoLog`.
+model RegistroContatoHistorico {
+  id String @id @default(cuid())
+
+  clienteId String
+  cliente   ClienteBackoffice @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  /// "ultimoContatoAt" | "proximoContatoAt"
+  campo         String
+  valorAnterior DateTime?
+  valorNovo     DateTime?
+
+  /// "manual" | "ligacao" | "reuniao" | "grupo"
+  /// "grupo" = esta linha é EFEITO de um contato registrado no grupo, não um
+  /// contato próprio. É o que separa "falei com ele" de "falei com a família".
+  origem String
+
+  /// Preenchido só quando origem = "grupo": qual grupo propagou.
+  grupoId String?
+
+  /// A interação que originou (quando houve uma). Sem FK de propósito: o
+  /// histórico é imutável e precisa sobreviver à remoção da interação.
+  interacaoId String?
+
+  motivo      String? @db.Text
+  autorUserId String?
+  criadoEm    DateTime @default(now())
+
+  @@index([clienteId, criadoEm])
+  @@index([grupoId])
+}
+
+/// Fila de revisão da transcrição: o que a extração ACHOU, ainda não aplicado.
+///
+/// A regra que justifica a tabela: importar transcrição NÃO escreve em campo
+/// de cliente. Cada achado vira uma linha `pendente` aqui e só chega à ficha
+/// quando alguém aceita (ou edita e aceita) uma por uma.
+///
+/// DISTINTA de `ClienteFato`, e por isso não reusa: `ClienteFato` é o ledger
+/// append-only do que JÁ VALE (tem `fonte`, `valorAnterior`, alimenta a aba
+/// Perfil). Esta é a antessala — texto que ainda pode ser descartado sem
+/// deixar rastro no perfil do cliente. Misturar as duas obrigaria a filtrar
+/// "não confirmado" em toda leitura de perfil, e um esquecimento colocaria
+/// palpite de IA na ficha como se fosse fato conferido.
+model SugestaoExtraida {
+  id String @id @default(cuid())
+
+  clienteId String
+  cliente   ClienteBackoffice @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  /// Cascade (e não SetNull): sugestão pendente sem a reunião de origem é
+  /// texto órfão que ninguém consegue julgar — o revisor precisa do contexto.
+  reuniaoId String
+  reuniao   ReuniaoEstruturada @relation(fields: [reuniaoId], references: [id], onDelete: Cascade)
+
+  /// Qual importação a produziu. SetNull: a sugestão sobrevive à limpeza do
+  /// histórico de importações.
+  importacaoId String?
+  importacao   ReuniaoImport? @relation(fields: [importacaoId], references: [id], onDelete: SetNull)
+
+  /// Onde ela cai se for aceita:
+  /// "perfilEmocional" | "observacoes" | "descoberta" | "meta" | "eventoVida" | "tarefa"
+  destino String
+  /// Campo exato dentro do destino (ex.: "medos", "sonhos", "titulo").
+  campo   String
+  /// Como aparece na tela de revisão (ex.: "Medos financeiros").
+  rotulo  String
+
+  valorSugerido String  @db.Text
+  /// Preenchido quando o revisor EDITA antes de aceitar. Null em aceite direto
+  /// — o valor que valeu é o sugerido. Guardar os dois é o que permite medir
+  /// depois quanto a extração acerta sem revisão.
+  valorEditado  String? @db.Text
+
+  /// Trecho da transcrição que embasou o achado. É o que torna a revisão
+  /// possível sem reler a reunião inteira.
+  trecho    String? @db.Text
+  confianca Float?
+
+  /// "pendente" | "aceita" | "descartada"
+  /// Não existe status "editada": editar e aceitar é ACEITAR — o que mudou
+  /// fica em `valorEditado`. Um quarto status faria toda contagem de
+  /// "quantas aceitei" ter que somar duas colunas.
+  status      String    @default("pendente")
+  decididoPor String?
+  decididoEm  DateTime?
+
+  criadoEm DateTime @default(now())
+
+  @@index([clienteId, status])
+  @@index([reuniaoId])
+}
+
+/// Tarefa nascida do atendimento a UM cliente, com lado responsável declarado.
+///
+/// DISTINTA de `Task`, e por isso não reusa: `Task` exige `assigneeId` de
+/// `User` (só quem tem login) e não conhece cliente. Metade das pendências de
+/// reunião são do CLIENTE ("mandar o extrato do INSS") — em `Task` elas não
+/// teriam a quem ser atribuídas, e é justamente essa metade que o briefing de
+/// preparação precisa cobrar.
+model TarefaCliente {
+  id String @id @default(cuid())
+
+  clienteId String
+  cliente   ClienteBackoffice @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  /// Reunião que gerou. SetNull: a tarefa sobrevive à reunião.
+  reuniaoId String?
+  reuniao   ReuniaoEstruturada? @relation(fields: [reuniaoId], references: [id], onDelete: SetNull)
+
+  /// Sugestão de transcrição aceita que virou esta tarefa. UNIQUE: aceitar a
+  /// mesma sugestão duas vezes não pode gerar duas tarefas.
+  sugestaoId String? @unique
+
+  titulo    String
+  descricao String? @db.Text
+
+  /// "assessor" | "cliente" — o LADO. É o eixo do briefing ("o que eu devo" x
+  /// "o que ele deve") e existe independente de haver pessoa nomeada.
+  responsavel String
+
+  /// Quem do time, quando o lado é "assessor" e há dono. SetNull preserva a
+  /// tarefa se a Pessoa sair.
+  responsavelPessoaId String?
+  responsavelPessoa   Pessoa? @relation(fields: [responsavelPessoaId], references: [id], onDelete: SetNull)
+
+  prazo       DateTime?
+  /// "aberta" | "concluida" | "cancelada"
+  status      String    @default("aberta")
+  concluidaEm DateTime?
+
+  criadoPor    String?
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  @@index([clienteId, status])
+  @@index([prazo])
+}
+
+/// De onde veio o valor que está HOJE em cada campo editável da ficha.
+///
+/// Uma linha viva por (cliente, campo) — UPSERT, não append. O extrato
+/// histórico já existe em `ClienteFato` e em `RegistroContatoHistorico`; esta
+/// tabela responde a pergunta da TELA, que é outra: "este texto de 'medos' foi
+/// você que escreveu, veio da reunião de março ou foi a IA que sugeriu?".
+///
+/// Sem ela o selo de origem teria que ser inferido no render, e campos que não
+/// passam por `ClienteFato` (perfilEmocional, metas, eventos, descoberta)
+/// simplesmente não teriam resposta.
+model CampoProveniencia {
+  id String @id @default(cuid())
+
+  clienteId String
+  cliente   ClienteBackoffice @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  /// Endereço do campo, estável e legível:
+  ///   "perfilEmocional" · "observacoes"
+  ///   "descoberta.medos" · "descoberta.sonhos" · …
+  ///   "meta:<id>" · "eventoVida:<id>"
+  campo String
+
+  /// "manual" | "reuniao" | "ia" | "base_btg" | "informacoes" | "api"
+  /// Mesmo vocabulário de `ClienteFato.fonte` de propósito: dois vocabulários
+  /// para "de onde veio" acabariam divergindo, e a ficha mostraria rótulos
+  /// diferentes para a mesma origem em duas abas.
+  origem String
+
+  /// Primeiros caracteres do valor gravado — só para a tela conseguir dizer
+  /// "mudou desde então" sem carregar o texto inteiro.
+  valorResumo String?
+
+  /// Reunião de origem, quando origem = "reuniao" ou "ia".
+  reuniaoId String?
+  reuniao   ReuniaoEstruturada? @relation(fields: [reuniaoId], references: [id], onDelete: SetNull)
+
+  /// Sugestão aceita que produziu este valor. Sem FK: a proveniência é o
+  /// estado atual do campo e não pode ser apagada junto com a fila de revisão.
+  sugestaoId String?
+
+  autorUserId  String?
+  registradoEm DateTime @default(now())
+
+  /// Uma linha por campo: o selo mostra a ÚLTIMA origem, não a lista.
+  @@unique([clienteId, campo])
+  @@index([clienteId])
 }

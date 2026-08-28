@@ -163,6 +163,13 @@ export function ReceitaUpload() {
         setMsg({ type: "success", text: "Dados removidos" });
         clear();
         await fetchSumario();
+      } else if (r.status === 403) {
+        /* Apagar a receita passou a ser só de administrador. Sem esta linha o
+         * botão respondia com silêncio absoluto — o mesmo "salvou, mas parece
+         * que não" que já custou caro na central de implementações. */
+        setMsg({ type: "error", text: "Só administradores podem remover a receita importada." });
+      } else {
+        setMsg({ type: "error", text: "Não foi possível remover os dados." });
       }
     } finally {
       setDeleting(false);
