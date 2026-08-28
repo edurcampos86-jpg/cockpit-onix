@@ -102,12 +102,29 @@ notificação do celular. A conversa inteira continua no ManyChat.
 | `200 {"enviado": true}` | aviso enviado | nada |
 | `200 {"enviado": false, "motivo": "flag desligada"}` | rota certa, flag OFF | ligar `MANYCHAT_LEAD_ALERT` |
 | `400` | corpo não é JSON, ou os quatro campos do lead vieram vazios | conferir as variáveis do Body no painel |
-| `401` (sem corpo) | header `X-Onix-Secret` ausente, errado, ou segredo não configurado no Railway | conferir o header e a variável |
+| `401` **sem corpo** | header `X-Onix-Secret` ausente, errado, ou segredo não configurado no Railway | conferir o header e a variável |
+| `401` **com** `{"error":"Not authenticated"}` | a rota não está na allowlist do middleware — a requisição nem chegou ao endpoint | não adianta trocar o segredo; ver abaixo |
 | `502` | header e corpo certos, a Z-API é que recusou | conferir a integração DataCrazy/Z-API em `/integracoes` |
 
 `502` em vez de `200` é deliberado: devolver sucesso quando o WhatsApp não saiu
 esconderia a queda do canal atrás de um "Success" verde no painel do ManyChat,
 e o aviso perdido não apareceria em lugar nenhum.
+
+### Os dois 401 são de lugares diferentes
+
+Todas as rotas do Cockpit passam por um middleware que exige sessão
+(`src/proxy.ts`). Webhook nenhum tem sessão, então cada um precisa estar na
+allowlist `ROTAS_PUBLICAS` (`src/lib/proxy-rotas.ts`) — é lá que
+`/api/manychat/lead` é liberada, e é por isso que a liberação vem com o
+segredo obrigatório na mesma PR: a rota é pública para a internet e quem a
+autentica é o `X-Onix-Secret`, mais ninguém.
+
+Na prática, olhe o **corpo** da resposta:
+
+- **401 vazio** → chegou ao endpoint e o segredo não conferiu. Problema de
+  header ou de variável.
+- **401 com `{"error":"Not authenticated"}`** → parou no middleware, antes do
+  endpoint. A rota saiu da allowlist. Nenhuma troca de segredo resolve.
 
 ## 6. Logs
 
