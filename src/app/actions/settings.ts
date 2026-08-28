@@ -3,6 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import bcrypt from "bcryptjs";
+import { SENHA_CURTA_ERRO, senhaAtendeAoMinimo } from "@/lib/senha";
 
 export type ChangePasswordState = {
   success?: boolean;
@@ -21,8 +22,8 @@ export async function changePassword(
     return { error: "Preencha todos os campos." };
   }
 
-  if (newPassword.length < 6) {
-    return { error: "A nova senha deve ter pelo menos 6 caracteres." };
+  if (!senhaAtendeAoMinimo(newPassword)) {
+    return { error: SENHA_CURTA_ERRO };
   }
 
   if (newPassword !== confirmPassword) {

@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import bcrypt from "bcryptjs";
 import { randomBytes } from "node:crypto";
 import { prisma } from "@/lib/prisma";
+import { SENHA_CURTA_ERRO, senhaAtendeAoMinimo } from "@/lib/senha";
 import { requireAdmin } from "@/lib/auth-helpers";
 import { createSession } from "@/lib/session";
 
@@ -109,7 +110,7 @@ export async function concluirOnboarding(formData: FormData): Promise<void> {
   const senhaConfirm = s(formData.get("senhaConfirm"));
 
   if (!token) throw new Error("Token ausente");
-  if (senha.length < 8) throw new Error("Senha deve ter pelo menos 8 caracteres");
+  if (!senhaAtendeAoMinimo(senha)) throw new Error(SENHA_CURTA_ERRO);
   if (senha !== senhaConfirm) throw new Error("Senhas não coincidem");
 
   const convite = await prisma.conviteOnboarding.findUnique({

@@ -3,11 +3,41 @@ import { PrismaClient } from "../src/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import bcrypt from "bcryptjs";
 import { seedTime } from "./seed-time";
+import { SENHA_CURTA_ERRO, senhaAtendeAoMinimo } from "../src/lib/senha";
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
 const prisma = new PrismaClient({ adapter });
 
 async function main() {
+  // ── Senhas do seed: exigidas, nunca embutidas ─────────────────────────
+  //
+  // Antes, admin e suporte nasciam com senha literal escrita aqui. Todo banco
+  // criado por este script nascia com uma fechadura cuja chave estava
+  // publicada no repositório — e quem rodasse o seed nem precisava ler o
+  // tutorial para saber a senha.
+  //
+  // Não há valor padrão de propósito. Um padrão seria a mesma falha com outro
+  // nome: alguém roda sem definir a variável, o seed funciona, e o banco nasce
+  // com a senha que está no código. Falhar cedo e alto é o comportamento certo
+  // para um script que cria a conta de administrador.
+  function exigirSenha(nome: "SEED_ADMIN_PASSWORD" | "SEED_SUPPORT_PASSWORD"): string {
+    const valor = process.env[nome];
+    if (!valor) {
+      throw new Error(
+        `${nome} não está definida. O seed não cria usuário com senha padrão — ` +
+          `defina a variável no .env.local (que o .gitignore já cobre) antes de rodar. ` +
+          `Nunca commite esse valor.`,
+      );
+    }
+    if (!senhaAtendeAoMinimo(valor)) {
+      throw new Error(`${nome}: ${SENHA_CURTA_ERRO}`);
+    }
+    return valor;
+  }
+
+  const senhaAdmin = exigirSenha("SEED_ADMIN_PASSWORD");
+  const senhaSuporte = exigirSenha("SEED_SUPPORT_PASSWORD");
+
   // Limpar dados existentes
   await prisma.task.deleteMany();
   await prisma.scriptVersion.deleteMany();
@@ -25,7 +55,7 @@ async function main() {
       name: "Eduardo Campos",
       cpf: "01536247529",
       email: "eduardo@onixcapital.com.br",
-      password: bcrypt.hashSync("Edu@203028", 10),
+      password: bcrypt.hashSync(senhaAdmin, 10),
       role: "admin",
     },
   });
@@ -35,7 +65,7 @@ async function main() {
       name: "Suporte",
       cpf: "00000000000",
       email: "suporte@onixcapital.com.br",
-      password: bcrypt.hashSync("suporte123", 10),
+      password: bcrypt.hashSync(senhaSuporte, 10),
       role: "support",
     },
   });
@@ -115,8 +145,8 @@ async function main() {
   await seedTime(prisma);
 
   console.log("Seed completed!");
-  console.log("Login: 015.362.475-29 / Edu@203028");
-  console.log("Suporte: 000.000.000-00 / suporte123");
+  console.log("Admin CPF: 015.362.475-29 (senha via SEED_ADMIN_PASSWORD)");
+  console.log("Suporte CPF: 000.000.000-00 (senha via SEED_SUPPORT_PASSWORD)");
 }
 
 main()
