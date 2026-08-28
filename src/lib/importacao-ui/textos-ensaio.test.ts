@@ -54,15 +54,51 @@ test("o rótulo de palavras não reconhecidas não promete cobrir todas", () => 
   assert.equal(EXPLICACOES.rotulosNaoMapeados.rotulo, "Palavras não reconhecidas no perfil");
 });
 
-test("o aviso de sobrescrita não inventa quantos valores somem", () => {
+test("sem campos não cobertos, o aviso cita só o número que o motor devolve", () => {
   const t = avisoDeSobrescrita(2610);
   assert.ok(t.includes("2.610"));
-  assert.ok(
-    t.includes("não diz quantos"),
-    "o texto precisa admitir que o ensaio não lê os valores atuais",
-  );
-  // nenhum número além do único que o motor devolve
+  // Nenhum número além do único que o motor devolve. Continua sendo a regra do
+  // arquivo: o texto não inventa contagem — mudou de onde ela vem, não se ela
+  // pode ser inventada.
   assert.deepEqual(t.match(/\d[\d.]*/g), ["2.610"]);
+});
+
+test("com campos não cobertos, o aviso diz quantos e que eles ficam como estão", () => {
+  const t = avisoDeSobrescrita(2610, [
+    { campo: "fimVigencia", contratos: 37 },
+    { campo: "comissao", contratos: 4 },
+  ]);
+  assert.ok(t.includes("37 fim de vigência"), "o campo aparece pelo nome de tela");
+  assert.ok(t.includes("4 comissão"));
+  assert.ok(t.includes("ficam como estão"), "precisa dizer que o valor é preservado");
+  assert.ok(
+    t.includes("mapeamento do perfil está incompleto"),
+    "o aviso só é útil se apontar o que fazer",
+  );
+  // Os números são exatamente os três que o motor devolveu — nem um a mais.
+  assert.deepEqual(t.match(/\d[\d.]*/g), ["2.610", "37", "4"]);
+});
+
+test("o aviso NUNCA lista campo com zero — zero que ninguém contou é invenção", () => {
+  // O motor só devolve campo que tem contagem. Se a frase completasse a lista
+  // dos cinco escrevendo "0" nos ausentes, estaria afirmando ter medido o que
+  // não mediu — a mesma família de erro do número inventado.
+  const t = avisoDeSobrescrita(10, [{ campo: "premio", contratos: 3 }]);
+  // `\b0` e não `"0 "`: "10 contratos" tem um zero dentro, e a asserção
+  // ingênua reprovaria o texto certo. O que não pode existir é um zero
+  // ISOLADO, que só apareceria se a frase completasse a lista dos cinco.
+  assert.equal(/\b0\s/.test(t), false, "nenhuma contagem zerada na lista");
+  assert.equal(t.includes("comissão"), true, "a primeira frase cita os cinco campos por nome");
+  assert.deepEqual(t.match(/\d[\d.]*/g), ["10", "3"]);
+});
+
+test("o aviso não promete mais que coluna ausente apaga — a trava mudou isso", () => {
+  const t = avisoDeSobrescrita(10);
+  assert.equal(
+    t.includes("não diz quantos"),
+    false,
+    "o motor passou a ler os valores atuais; a ressalva antiga virou mentira",
+  );
 });
 
 test("o aviso de antiguidade diz que o que falta continua sendo criado", () => {
