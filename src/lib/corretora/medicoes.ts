@@ -243,9 +243,16 @@ export function pareceContato(coluna: string): boolean {
  * que o código não entrega. `RepeatableRead` tira um snapshot só, no primeiro
  * statement, e as cinco leem dele.
  *
- * Custo: nenhum bloqueio (leitura pura não conflita) e nenhum risco de
- * serialization failure, que é problema de `Serializable` — este nível não
- * precisa ser tentado de novo.
+ * Custo: nenhum risco de serialization failure (40001). `RepeatableRead`
+ * TAMBÉM a levanta — a generalização de que ela seria exclusiva de
+ * `Serializable` é falsa —, mas só em statement de ESCRITA: `UPDATE`,
+ * `DELETE`, `SELECT ... FOR UPDATE`. Um conjunto de `SELECT` puros nunca a
+ * dispara, então esta função não precisa de retentativa.
+ *
+ * E nenhum bloqueio contra o import: leitura não conflita com leitura nem com
+ * escrita. Um `ALTER TABLE` concorrente ainda bloquearia, por tomar
+ * `ACCESS EXCLUSIVE` — mas migration rodando no meio de uma medição é outro
+ * problema, e não este.
  */
 export async function coletarMedicoes(db: ClienteLeitura): Promise<Medicoes> {
   const [vigRows, nomeRows, colunaRows, atendenteRows, cruzRows] = await db.$transaction([
