@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { guardAdminApi } from "@/lib/api-admin-guard";
+import { guardAdminApi, guardAdminMasterApi } from "@/lib/api-admin-guard";
 import { getAuthContext } from "@/lib/auth-helpers";
 import { checkRateLimit, rateLimitHeaders } from "@/lib/rate-limit";
 import { resolverEstadoDasFlags, ultimasMudancas } from "@/lib/flags/estado";
@@ -82,7 +82,11 @@ export async function GET() {
  * `RBAC_ENFORCEMENT` on/off.
  */
 export async function POST(request: Request) {
-  const negado = await guardAdminApi("POST /api/configuracoes/flags");
+  /* SÓ ADMIN MASTER. Ligar e desligar flag muda o comportamento do sistema para
+   * todo mundo de uma vez, sem deploy e sem revisão — é dos quatro poderes que
+   * a regra do Eduardo tirou do admin comum. O GET continua em admin: ver a
+   * lista de flags não liga nenhuma. */
+  const negado = await guardAdminMasterApi("POST /api/configuracoes/flags");
   if (negado) return negado;
 
   // Depois do gate: só quem passou tem userId para servir de chave do balde.

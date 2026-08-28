@@ -18,15 +18,68 @@
  * puros possam decidir sem arrastar a dependência de sessão junto.
  */
 export type PerfilAcesso = {
-  /** `User.role` — "admin" | "support". */
+  /** `User.role` — "admin" | "support" | "master". */
   role: string;
+  /**
+   * `User.email`. OPCIONAL porque `SessionPayload` (o JWT do cookie) não carrega
+   * e-mail — só `AuthContext` tem. Enquanto o fallback de bootstrap existir, é
+   * ele que permite reconhecer o Admin Master antes do `UPDATE` no banco; onde
+   * o e-mail não está disponível, `isAdminMaster` cai para `role === "master"`.
+   */
+  email?: string | null;
   /** Registro de time, quando existe. `teamRole`: "admin" | "lideranca" | "colaborador". */
   pessoa: { teamRole: string } | null;
 };
 
-/** Admin é quem tem `User.role === "admin"` OU `Pessoa.teamRole === "admin"`. */
+/**
+ * O e-mail do único Admin Master — FALLBACK TEMPORÁRIO DE BOOTSTRAP.
+ *
+ * ── POR QUE ELE EXISTE ───────────────────────────────────────────────────
+ * O Admin Master é guardado em `User.role = "master"`, que é um dado, não
+ * código. Se o gate fosse estritamente `role === "master"` e o `UPDATE` ainda
+ * não tivesse rodado, o merge desta mudança removeria NA HORA a capacidade de
+ * conceder acesso e ligar flags — de todo mundo, inclusive de quem deveria ser
+ * o master. E o procedimento de quebra-vidro está adiado por decisão do
+ * Eduardo, então não haveria caminho de volta pela tela.
+ *
+ * Com o fallback, a ORDEM entre o `UPDATE` e o merge deixa de importar. É a
+ * escolha dele, nestas palavras: "escolho o FALLBACK... sem quebra-vidro, não
+ * vou correr risco de lockout."
+ *
+ * ── POR QUE ELE PRECISA SAIR ─────────────────────────────────────────────
+ * Identidade em constante é autorização que não se revoga sem deploy. Assim que
+ * o `UPDATE User SET role = 'master'` estiver confirmado no banco, sai daqui em
+ * PR própria e o gate fica estrito. A pendência está registrada no corpo da PR
+ * que introduziu isto.
+ */
+const EMAIL_MASTER = "edurcampos86@gmail.com";
+
+/**
+ * Admin Master — o nível acima de admin, com poderes que NENHUM admin comum
+ * tem: exportar dados, conceder e revogar acesso, ligar e desligar flags,
+ * apagar em massa.
+ *
+ * Reconhece por `User.role === "master"` OU pelo e-mail do titular único (o
+ * fallback acima). A comparação de e-mail normaliza caixa e espaços porque o
+ * cadastro não garante nenhum dos dois.
+ */
+export function isAdminMaster(ctx: PerfilAcesso): boolean {
+  if (ctx.role === "master") return true;
+  const email = (ctx.email ?? "").trim().toLowerCase();
+  return email !== "" && email === EMAIL_MASTER;
+}
+
+/**
+ * Admin é quem tem `User.role === "admin"` OU `Pessoa.teamRole === "admin"` —
+ * **ou é Admin Master**.
+ *
+ * O master entra aqui porque é SUPERCONJUNTO, não papel paralelo: quem pode
+ * conceder acesso a todo mundo tem, por definição, o que um admin comum tem.
+ * Sem esta linha, criar o master REMOVERIA acesso de quem o recebesse — o papel
+ * novo passaria a falhar em todo `isAdmin` do sistema, e são 76 chamadas.
+ */
 export function isAdmin(ctx: PerfilAcesso): boolean {
-  return ctx.role === "admin" || ctx.pessoa?.teamRole === "admin";
+  return isAdminMaster(ctx) || ctx.role === "admin" || ctx.pessoa?.teamRole === "admin";
 }
 
 /** Liderança = admin OU pessoa com `teamRole === "lideranca"`. */
