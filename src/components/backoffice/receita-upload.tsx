@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Upload, FileSpreadsheet, Trash2, AlertCircle, CheckCircle2, Loader2, TrendingUp, RefreshCw, Filter } from "lucide-react";
+import { Upload, FileSpreadsheet, Trash2, AlertCircle, CheckCircle2, Loader2, TrendingUp, Filter } from "lucide-react";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 declare global {
@@ -48,7 +48,6 @@ export function ReceitaUpload() {
   const [sumario, setSumario] = useState<Sumario | null>(null);
   const [uploading, setUploading] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [syncing, setSyncing] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [xlsxReady, setXlsxReady] = useState(false);
   const [msg, setMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -82,19 +81,6 @@ export function ReceitaUpload() {
   }, [fCliente, fAssessor, fAno, fPeriodo]);
 
   useEffect(() => { fetchSumario(); }, [fetchSumario]);
-
-  const handleSync = async () => {
-    setSyncing(true);
-    try {
-      const r = await fetch("/api/backoffice/receita", { method: "PATCH" });
-      const d = await r.json();
-      if (r.ok) setMsg({ type: "success", text: `Receita atualizada em ${d.atualizados}/${d.total} clientes` });
-      else setMsg({ type: "error", text: d.error || "Erro" });
-      clear();
-    } finally {
-      setSyncing(false);
-    }
-  };
 
   const handleUpload = async (file: File, replace: boolean) => {
     if (!xlsxReady || !window.XLSX) {
@@ -206,14 +192,6 @@ export function ReceitaUpload() {
           </div>
           {sumario && sumario.total > 0 && (
             <div className="flex items-center gap-2">
-              <button
-                onClick={handleSync}
-                disabled={syncing}
-                className="flex items-center gap-2 px-3 py-2 text-sm rounded-lg border hover:bg-muted disabled:opacity-50"
-              >
-                {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                Atualizar receita dos clientes
-              </button>
               <button
                 onClick={handleDelete}
                 disabled={deleting}
