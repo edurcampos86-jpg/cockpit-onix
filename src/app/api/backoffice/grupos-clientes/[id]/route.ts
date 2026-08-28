@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
+import { isAdmin } from "@/lib/rbac-papeis";
 
 /**
  * DELETE /api/backoffice/grupos-clientes/[id]
@@ -12,7 +13,7 @@ export async function DELETE(
 ) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
-  if (session.role !== "admin") {
+  if (!isAdmin({ role: session.role, pessoa: null })) {
     return NextResponse.json({ error: "Apenas admin" }, { status: 403 });
   }
 

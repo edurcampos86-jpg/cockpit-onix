@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
+import { isAdmin } from "@/lib/rbac-papeis";
 import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/layout/page-header";
 import { IndicacoesBoard } from "@/components/backoffice/indicacoes-board";
@@ -17,7 +18,7 @@ export default async function IndicacoesPage() {
   // no dropdown de "quem indicou". Independente do RBAC (que filtra LINHAS sob flag).
   const session = await getSession();
   if (!session) redirect("/login");
-  if (session.role !== "admin") redirect("/empresas/investimentos");
+  if (!isAdmin({ role: session.role, pessoa: null })) redirect("/empresas/investimentos");
 
   type IndicacaoView = {
     id: string;
