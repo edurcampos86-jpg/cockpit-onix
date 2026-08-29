@@ -55,6 +55,11 @@ function mascarar(email: string): string {
   return `${visivel}${"*".repeat(Math.max(1, local.length - 2))}@${dominio}`;
 }
 
+/** Mostra o CPF sem publicá-lo por extenso — mesmo motivo da máscara de e-mail. */
+function mascararCpf(cpf: string): string {
+  return `${cpf.slice(0, 3)}${"*".repeat(6)}${cpf.slice(-2)}`;
+}
+
 async function main(): Promise<number> {
   const url = process.env.DATABASE_URL;
   if (!url) {
@@ -64,18 +69,41 @@ async function main(): Promise<number> {
 
   const args = process.argv.slice(2);
   const aplicar = args.includes("--aplicar");
-  const alvo = (args.find((a) => a.startsWith("--email="))?.slice("--email=".length) ?? "")
+  const email = (args.find((a) => a.startsWith("--email="))?.slice("--email=".length) ?? "")
     .trim()
     .toLowerCase();
+  /* O CPF chega como o humano digita — com pontos e traço ou sem. Normaliza
+   * para só dígitos ANTES de validar e de consultar, porque `User.cpf` é
+   * gravado sem máscara (ver `src/app/actions/auth.ts`). O CPF existe como
+   * alternativa porque o e-mail da conta pode ser o gerado pelo bootstrap
+   * (`admin+<cpf>-<timestamp>@onixcapital.local`) — 48 caracteres que ninguém
+   * acerta de cabeça; o CPF o titular sabe. */
+  const cpf = (args.find((a) => a.startsWith("--cpf="))?.slice("--cpf=".length) ?? "").replace(
+    /\D/g,
+    "",
+  );
 
-  if (!alvo) {
-    console.error("Falta --email=<endereço>. Nada foi lido nem escrito.");
+  if (!email && !cpf) {
+    console.error("Falta --email=<endereço> ou --cpf=<11 dígitos>. Nada foi lido nem escrito.");
+    return RECUSADO;
+  }
+  if (email && cpf) {
+    /* Os dois juntos: RECUSADO em vez de "um desempata o outro". Se apontarem
+     * para contas diferentes, qualquer regra de desempate promoveria a errada
+     * em silêncio — e silêncio é o oposto do que este script promete. */
+    console.error("--email e --cpf juntos: RECUSADO. Passe UM identificador só.");
+    return RECUSADO;
+  }
+  if (cpf && cpf.length !== 11) {
+    console.error(
+      `CPF com ${cpf.length} dígito(s) depois de remover a máscara — precisa de 11. Nada foi lido nem escrito.`,
+    );
     return RECUSADO;
   }
 
   console.log("PROMOVER A ADMIN MASTER");
   console.log(`Destino: ${descreverDestino(url)}`);
-  console.log(`Alvo:    ${mascarar(alvo)}`);
+  console.log(`Alvo:    ${email ? mascarar(email) : `CPF ${mascararCpf(cpf)}`}`);
   console.log(`Modo:    ${aplicar ? "APLICAR (escreve)" : "DRY-RUN (não escreve)"}\n`);
 
   const { prisma } = await import("../src/lib/prisma");
@@ -83,29 +111,39 @@ async function main(): Promise<number> {
 
   /* ── 1. QUEM É O ALVO ────────────────────────────────────────────────── */
 
-  /* Casa por e-mail normalizado. `citext` não está em uso, então a comparação
-   * é feita em minúsculas nos dois lados — senão um cadastro com maiúscula
-   * faria o script dizer "não existe" sobre um usuário que existe. */
-  const candidatos = await prisma.$queryRaw<Array<{ id: string; role: string; email: string }>>`
-    SELECT "id", "role", "email"
-    FROM "User"
-    WHERE lower("email") = ${alvo}
-  `;
+  /* Casa por e-mail normalizado OU por CPF só-dígitos. `citext` não está em
+   * uso, então a comparação de e-mail é feita em minúsculas nos dois lados —
+   * senão um cadastro com maiúscula faria o script dizer "não existe" sobre um
+   * usuário que existe. O CPF é `@unique` no schema, mas a guarda de duplicata
+   * abaixo fica para os dois caminhos: constraint é dado, guarda é promessa. */
+  const candidatos = email
+    ? await prisma.$queryRaw<Array<{ id: string; role: string; email: string }>>`
+        SELECT "id", "role", "email"
+        FROM "User"
+        WHERE lower("email") = ${email}
+      `
+    : await prisma.$queryRaw<Array<{ id: string; role: string; email: string }>>`
+        SELECT "id", "role", "email"
+        FROM "User"
+        WHERE "cpf" = ${cpf}
+      `;
 
+  const rotuloAlvo = email ? "este e-mail" : "este CPF";
   if (candidatos.length === 0) {
-    console.error(`NENHUM usuário com este e-mail. Nada a fazer.`);
-    console.error("Confira o endereço — o script não cria usuário.");
+    console.error(`NENHUM usuário com ${rotuloAlvo}. Nada a fazer.`);
+    console.error("Confira o identificador — o script não cria usuário.");
     return RECUSADO;
   }
   if (candidatos.length > 1) {
-    console.error(`${candidatos.length} usuários com o MESMO e-mail. RECUSADO.`);
+    console.error(`${candidatos.length} usuários com o MESMO identificador. RECUSADO.`);
     console.error("Promover dois é pior que não promover nenhum — resolva a duplicata antes.");
     return RECUSADO;
   }
 
   const alvoUnico = candidatos[0];
   console.log("── ANTES ──");
-  console.log(`  usuários com este e-mail   1`);
+  console.log(`  usuários com ${rotuloAlvo}   1`);
+  console.log(`  e-mail da conta            ${mascarar(alvoUnico.email ?? "")}`);
   console.log(`  role atual                 ${alvoUnico.role}`);
 
   if (alvoUnico.role === "master") {
