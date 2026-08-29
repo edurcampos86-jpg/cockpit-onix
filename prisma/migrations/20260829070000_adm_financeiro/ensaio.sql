@@ -43,8 +43,52 @@ VALUES
   ('ensaio-com-2', 'ensaio-cli-1', '2026-08',    0.07, 'btg_rm_reports', now(), now(), now()),
   ('ensaio-com-3', 'ensaio-cli-2', '2026-08',  987.65, 'btg_rm_reports', now(), now(), now());
 
+-- ── VOLUME, PARA O TEMPO MEDIDO SIGNIFICAR ALGUMA COISA ──────────────────
+--
+-- Os três registros acima provam a ARITMÉTICA. Não provam nada sobre TEMPO:
+-- com 97 linhas no banco, qualquer migration passa em 1 segundo.
+--
+-- E tempo importa aqui mais do que na maioria dos projetos: `prisma migrate
+-- deploy` roda dentro do `startCommand`, então o tempo da migration é tempo de
+-- SITE FORA DO AR a cada deploy. Um `ALTER TABLE` que reescreve tabela passa
+-- em milissegundos num banco vazio e trava minutos nas 2.716 linhas reais de
+-- `ClienteBackoffice`.
+--
+-- Então o fixture infla até a ordem de grandeza da produção:
+--   3.000 clientes  (produção tinha 2.716 em 28/08)
+--   9.000 comissões (3 competências por cliente)
+--
+-- As chaves estrangeiras que esta migration acrescenta apontam para
+-- `ClienteBackoffice`, `Empresa`, `Parceiro`, `Pessoa`, `PessoaGrupo` e
+-- `ContratoCorretora` — e cada uma pega SHARE ROW EXCLUSIVE na tabela apontada
+-- e instala um gatilho. Com a tabela cheia, isso deixa de ser instantâneo.
+--
+-- O backfill também deixa de ser trivial: passa a copiar 9.003 linhas, e o
+-- bloco de conferência a somar 9.003 valores em DECIMAL.
+
+INSERT INTO "ClienteBackoffice" ("id", "nome", "numeroConta", "createdAt", "updatedAt")
+SELECT 'ensaio-vol-' || i,
+       'Cliente Volume ' || i,
+       '95' || lpad(i::text, 6, '0'),
+       now(), now()
+FROM generate_series(1, 3000) AS i;
+
+-- 1,00 exato por linha: 9.000 linhas somam 9.000,00 em DECIMAL, e com os três
+-- registros de centavos acima o total fica 11.222,28. Se algum dia alguém
+-- trocar a coluna para float8, a conferência da migration reprova aqui — que é
+-- o serviço que ela presta.
+INSERT INTO "ComissaoMensalCliente"
+  ("id", "clienteId", "competencia", "comissao", "fonte", "importadoEm", "criadoEm", "atualizadoEm")
+SELECT 'ensaio-vol-' || i || '-' || m,
+       'ensaio-vol-' || i,
+       '2026-' || lpad(m::text, 2, '0'),
+       1.00,
+       'btg_rm_reports',
+       now(), now(), now()
+FROM generate_series(1, 3000) AS i, generate_series(1, 3) AS m;
+
 -- O que a migration TEM de produzir a partir daqui:
---   3 linhas em ParcelaReceita, origem 'apuracao', empresaId 'investimentos'
---   soma de valorLiquido = 2222.28
+--   9.003 linhas em ParcelaReceita, origem 'apuracao', empresaId 'investimentos'
+--   soma de valorLiquido = 11222.28  (2.222,28 dos centavos + 9.000,00 do volume)
 -- Se não bater, o bloco DO $$ da migration levanta EXCEPTION com os quatro
 -- números e a transação inteira reverte — sem deixar tabela pela metade.
