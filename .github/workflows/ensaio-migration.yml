@@ -139,6 +139,13 @@ jobs:
       # `schema.prisma` — coluna com outro tipo, índice que o schema pede e a
       # migration não cria. É o drift que derruba o `PainelEmailAI_tsv_idx` a
       # cada migration nova, visto ANTES de virar dor.
+      #
+      # NOTA DE SINTAXE, para a próxima edição não repetir: o `actionlint` roda
+      # shellcheck em todo bloco `run:`, e dentro de aspas SIMPLES um backtick
+      # abraçando um nome é lido como substituição de comando (SC2016). Onde o
+      # backtick é markdown para o resumo do job, a linha usa aspas DUPLAS com
+      # o backtick escapado. As cercas de bloco (três backticks seguidos) não
+      # disparam o aviso e ficam como estão.
       - name: Drift — migrations × schema (não bloqueia)
         continue-on-error: true
         run: |
@@ -152,7 +159,7 @@ jobs:
           set -e
           {
             echo
-            echo '## Drift — o banco do ensaio × `schema.prisma`'
+            echo "## Drift — o banco do ensaio × \`schema.prisma\`"
             echo
             if grep -q 'This is an empty migration' "${RUNNER_TEMP}/drift.sql"; then
               echo 'Sem diferença: as migrations produzem exatamente o schema declarado.'
@@ -204,7 +211,7 @@ jobs:
               echo
               echo '## Ensaio B — não executado'
               echo
-              echo 'A migration nova não trouxe `ensaio.sql`. Migration puramente'
+              echo "A migration nova não trouxe \`ensaio.sql\`. Migration puramente"
               echo 'estrutural não precisa; **migration com backfill precisa** — sem'
               echo 'fixture, o backfill e o bloco de conferência nunca são exercitados.'
             } >> "$GITHUB_STEP_SUMMARY"
