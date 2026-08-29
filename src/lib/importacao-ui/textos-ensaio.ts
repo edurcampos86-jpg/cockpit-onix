@@ -5,15 +5,24 @@
  * ── A REGRA QUE ORGANIZA ESTE ARQUIVO ───────────────────────────────────
  * Nenhuma frase aqui cita número que o motor não devolva. Parece óbvio e não
  * é: a primeira versão deste texto dizia "340 contratos perdem o prêmio
- * atual" — número que o motor NÃO tem como produzir, porque `carregarEstado`
- * (`executar-importacao.ts`) traz do contrato existente apenas `id`, `status`,
- * `parceiro`, `numeroContrato`, `tipoProduto` e `importadoEm`. Prêmio,
- * comissão, fim de vigência, atendente e CGE nunca são lidos do banco, e
- * nenhuma comparação entre gravado e arquivo existe no código.
+ * atual" — número que o motor não tinha como produzir, porque `carregarEstado`
+ * não lia do banco nenhum dos campos sobrescrevíveis.
  *
  * Um aviso vago ("dá para desfazer") é ruim. Um número inventado é pior: é
- * auditável, e falso. Por isso o aviso de sobrescrita é qualitativo e diz, em
- * voz alta, que o ensaio NÃO sabe quantos.
+ * auditável, e falso. Por isso o aviso de sobrescrita nasceu qualitativo,
+ * dizendo em voz alta que o ensaio NÃO sabia quantos.
+ *
+ * ── O QUE MUDOU, E POR QUE O NÚMERO AGORA É LEGÍTIMO ────────────────────
+ * `carregarEstado` passou a trazer os cinco sobrescrevíveis (`fimVigencia`,
+ * `premio`, `comissao`, `atendenteCorretora`, `assessorCge`), e o plano devolve
+ * `camposNaoCobertos`. A regra do arquivo não mudou — o motor é que passou a
+ * saber a resposta.
+ *
+ * E a pergunta que o número responde mudou junto. O update deixou de escrever
+ * coluna que o relatório não trouxe, então `camposNaoCobertos` não é mais
+ * "quanto vai ser apagado": é "quanto a base tem que este perfil não cobre".
+ * Chamá-lo de perda seria a mesma família de erro do número inventado — a
+ * frase precisa dizer o que o motor faz HOJE.
  *
  * Os parâmetros de cada função são exatamente os campos de
  * `ResultadoImportacao` — se um número não está no tipo, não entra na frase.
@@ -106,17 +115,49 @@ export function avisoDeAntiguidade(quantas: number): string {
 
 /* ── Sobrescrita ──────────────────────────────────────────────────────── */
 
+/** Como cada campo sobrescrevível se chama para quem lê a tela. */
+const NOME_DO_CAMPO: Readonly<Record<string, string>> = {
+  fimVigencia: "fim de vigência",
+  premio: "prêmio",
+  comissao: "comissão",
+  atendenteCorretora: "atendente",
+  assessorCge: "CGE",
+};
+
 /**
- * O aviso é qualitativo de propósito. Ver o comentário do topo do arquivo:
- * o motor não lê do banco os campos que seriam apagados, então qualquer
- * número aqui seria invenção.
+ * O que o relatório sobrescreve nos contratos que já existem.
+ *
+ * Duas frases, e a segunda só aparece quando há o que dizer. A primeira é o
+ * que continua valendo: célula em branco numa coluna MAPEADA é a fonte
+ * afirmando "está vazio", e apaga. A segunda é o que a trava passou a
+ * garantir: coluna que o perfil não mapeia não é afirmação nenhuma, e não
+ * toca no que está gravado.
+ *
+ * A contagem é por CAMPO e não somada: "37 fins de vigência e 4 comissões" diz
+ * onde o perfil está furado; "41 valores" não diz nada acionável.
  */
-export function avisoDeSobrescrita(contratosAAtualizar: number): string {
-  return (
+export function avisoDeSobrescrita(
+  contratosAAtualizar: number,
+  camposNaoCobertos: readonly { readonly campo: string; readonly contratos: number }[] = [],
+): string {
+  const base =
     `Atualizar sobrescreve. Nos ${contratosAAtualizar.toLocaleString("pt-BR")} contratos que ` +
-    "serão atualizados, cada campo em branco no relatório apaga o que está gravado — prêmio, " +
-    "comissão, fim de vigência, atendente e CGE. O ensaio não diz quantos: ele não lê os " +
-    "valores atuais."
+    "serão atualizados, célula em branco numa coluna que o perfil mapeia apaga o que está " +
+    "gravado — prêmio, comissão, fim de vigência, atendente e CGE.";
+
+  if (camposNaoCobertos.length === 0) return base;
+
+  // Só entram os campos que o motor devolveu: nada de listar os cinco e
+  // escrever zero ao lado dos que não aparecem. Zero que ninguém contou é a
+  // mesma invenção que esta regra existe para impedir.
+  const lista = camposNaoCobertos
+    .map((c) => `${c.contratos.toLocaleString("pt-BR")} ${NOME_DO_CAMPO[c.campo] ?? c.campo}`)
+    .join(", ");
+
+  return (
+    `${base} Colunas que este perfil NÃO traz ficam como estão: ${lista}. ` +
+    "Esses valores são preservados — mas se você esperava que o relatório os " +
+    "atualizasse, o mapeamento do perfil está incompleto."
   );
 }
 
@@ -236,7 +277,11 @@ export function textoDaConfirmacao(r: {
     titulo: `Gravar ${n(r.contratosACriar + r.contratosAAtualizar)} contratos na base da Corretora?`,
     linhas: [
       `Entram ${n(r.pessoasACriar)} clientes novos e ${n(r.contratosACriar)} contratos novos.`,
-      `${n(r.contratosAAtualizar)} contratos existentes passam a valer pelos dados deste relatório, e cada campo em branco no arquivo apaga o valor que está gravado.`,
+      // "campo em branco" e não "campo ausente": desde a trava do update, a
+      // coluna que o perfil não mapeia NÃO apaga nada. Manter a frase antiga
+      // faria a confirmação avisar de um risco que o motor não corre mais —
+      // aviso falso gasta a atenção que o aviso verdadeiro vai precisar.
+      `${n(r.contratosAAtualizar)} contratos existentes passam a valer pelos dados deste relatório, e cada campo em branco numa coluna que o perfil mapeia apaga o valor que está gravado.`,
       "Depois de gravar, não há como voltar atrás por aqui. O caminho de volta é reimportar o relatório do mês certo.",
       `Mês do relatório: ${r.competencia}.`,
     ],
