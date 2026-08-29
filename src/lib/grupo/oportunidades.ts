@@ -62,6 +62,9 @@ export type OfertaDoGrupo = {
 
 export type Situacao = "possui" | "nao_possui" | "nao_rastreado";
 
+/** Por que uma chave de posse não entrou na conta. Ver `naoComputado`. */
+export type MotivoNaoComputado = "fora-do-catalogo" | "quantidade-invalida";
+
 export type OfertaAvaliada = OfertaDoGrupo & {
   readonly situacao: Situacao;
   /**
@@ -153,17 +156,24 @@ export type ResultadoOportunidades = {
   readonly lacunas: readonly OfertaAvaliada[];
   readonly naoRastreado: readonly OfertaAvaliada[];
   /**
-   * Chaves da posse que não existem no catálogo, com a quantidade.
+   * Posse que a tela precisa mostrar como NÃO COMPUTADA, com o motivo.
    *
-   * Não é enfeite: `catalogo-produtos.ts` registra que quatro ids foram
+   * Duas famílias, e nenhuma delas pode virar lacuna em silêncio:
+   *
+   * `fora-do-catalogo` — `catalogo-produtos.ts` registra que quatro ids foram
    * APOSENTADOS em ago/2026 (`auto_residencial`, `consorcio`,
-   * `fianca_rc_profissional`, `saude_odonto`). Um contrato antigo com um
-   * desses chega aqui e, sem este campo, produziria duas afirmações erradas de
-   * uma vez: sumiria de `possui` E as famílias que o substituíram apareceriam
-   * como lacuna. A tela precisa poder dizer "1 contrato com produto fora do
-   * catálogo" em vez de mentir duas vezes em silêncio.
+   * `fianca_rc_profissional`, `saude_odonto`). Um contrato antigo com um desses
+   * sumiria de `possui` E faria as famílias que o substituíram aparecerem como
+   * lacuna — duas afirmações erradas de uma vez, sem nada na tela dizendo que
+   * houve um contrato.
+   *
+   * `quantidade-invalida` — o valor chegou num tipo que não dá para contar.
+   * BigInt é o caso real: `COUNT(*)` do Postgres chega assim neste repositório.
    */
-  readonly posseNaoReconhecida: readonly { readonly id: string; readonly quantidade: number }[];
+  readonly naoComputado: readonly {
+    readonly id: string;
+    readonly motivo: MotivoNaoComputado;
+  }[];
   /**
    * A frase que produz o efeito. `null` quando não há o que dizer — e é
    * melhor não dizer nada do que encher a tela com uma observação óbvia.
@@ -182,43 +192,110 @@ export function calcularOportunidades(
   posse: PossePessoa,
   catalogo: readonly OfertaDoGrupo[] = CATALOGO_DO_GRUPO,
 ): ResultadoOportunidades {
-  // Dedup por id ANTES de avaliar. Catálogo com id repetido — dois consumidores
-  // declarando a mesma oferta, por exemplo — faria a mesma linha aparecer duas
-  // vezes em `possui`, com "Auto (1)" repetido na tela e o total inflado. A
-  // primeira declaração vence, e a segunda é ignorada em silêncio: erro de
-  // catálogo não pode derrubar a ficha de um cliente.
+  const invalidas: { id: string; motivo: MotivoNaoComputado }[] = [];
+
+  // Dedup por id. Catálogo com id repetido — dois consumidores declarando a
+  // mesma oferta — faria a mesma linha aparecer duas vezes na tela, com o
+  // total inflado. A primeira declaração vence, e a segunda é ignorada em
+  // silêncio: erro de catálogo não pode derrubar a ficha de um cliente.
+  //
+  // Qual delas vence deixou de importar para a correção do resultado, porque
+  // `rastreada` passou a governar SÓ a negativa — ver abaixo.
   const vistos = new Set<string>();
   const unicas = catalogo.filter((o) => (vistos.has(o.id) ? false : (vistos.add(o.id), true)));
 
   const avaliadas: OfertaAvaliada[] = unicas.map((oferta) => {
-    // `!== true` e não `!oferta.rastreada`: o catálogo pode chegar de JSON, e
-    // ali `"false"` é uma string TRUTHY. Com a negação simples, uma oferta
-    // marcada como não rastreada num arquivo de configuração viraria afirmação
-    // — o único caminho conhecido de "não sabemos" virar "não tem".
-    if (oferta.rastreada !== true) {
+    const q = quantidadeDe(posse.posse, oferta.id, invalidas);
+
+    // Quantidade que não dá para contar suprime a NEGATIVA. É a mesma régua do
+    // módulo aplicada ao valor e não ao catálogo: se o número chegou num tipo
+    // que não sabemos ler, não sabemos se a pessoa tem — e "não sabemos" não
+    // pode virar "não tem". Reportar em `naoComputado` E afirmar lacuna seria
+    // dizer as duas coisas ao mesmo tempo.
+    if (q === INVALIDA) {
       return { ...oferta, situacao: "nao_rastreado" as const, quantidade: 0 };
     }
-    const bruta = posse.posse[oferta.id];
-    const quantidade = typeof bruta === "number" && Number.isFinite(bruta) && bruta > 0 ? bruta : 0;
-    return {
-      ...oferta,
-      situacao: quantidade > 0 ? ("possui" as const) : ("nao_possui" as const),
-      quantidade,
-    };
+
+    // ── A REGRA, e ela é assimétrica de propósito ───────────────────────
+    // Posse informada é CONHECIMENTO: se o chamador diz que a pessoa tem
+    // duas apólices, ela tem duas apólices, e nenhum campo de catálogo
+    // desmente isso. `rastreada` governa apenas a NEGATIVA — ela responde
+    // "dá para afirmar que NÃO tem?", não "dá para saber se tem".
+    //
+    // A primeira versão fazia `rastreada` decidir os dois lados, e por isso
+    // uma oferta marcada como não rastreada engolia a posse informada. A
+    // assimetria é o que faz "ausência de dado" nunca virar "ausência de
+    // produto", sem custar a informação positiva que alguém já tinha.
+    if (q > 0) return { ...oferta, situacao: "possui" as const, quantidade: q };
+    if (oferta.rastreada !== true) {
+      // `!== true` e não `!oferta.rastreada`: o catálogo pode chegar de JSON,
+      // e ali `"false"` é uma string TRUTHY.
+      return { ...oferta, situacao: "nao_rastreado" as const, quantidade: 0 };
+    }
+    return { ...oferta, situacao: "nao_possui" as const, quantidade: 0 };
   });
 
-  // Chave de posse que o catálogo não conhece. Ver `posseNaoReconhecida`.
-  const naoReconhecida = Object.entries(posse.posse)
-    .filter(([id, q]) => !vistos.has(id) && typeof q === "number" && q > 0)
-    .map(([id, quantidade]) => ({ id, quantidade }));
+  // Chave de posse que o catálogo não conhece — produto aposentado, por
+  // exemplo. Ver `naoComputado`.
+  for (const [id, bruta] of Object.entries(posse.posse)) {
+    if (vistos.has(id)) continue;
+    if (ehQuantidade(bruta) && bruta > 0) {
+      invalidas.push({ id, motivo: "fora-do-catalogo" });
+    } else if (!ehQuantidade(bruta)) {
+      invalidas.push({ id, motivo: "quantidade-invalida" });
+    }
+    // Chave desconhecida com quantidade ZERO não é notícia: é o chamador
+    // dizendo que a pessoa não tem algo que o catálogo também não conhece.
+  }
 
   return {
     possui: avaliadas.filter((o) => o.situacao === "possui"),
     lacunas: avaliadas.filter((o) => o.situacao === "nao_possui"),
     naoRastreado: avaliadas.filter((o) => o.situacao === "nao_rastreado"),
-    posseNaoReconhecida: naoReconhecida,
+    naoComputado: invalidas,
     destaque: montarDestaque(posse, avaliadas),
   };
+}
+
+/** Quantidade utilizável: inteiro finito não negativo. */
+function ehQuantidade(v: unknown): v is number {
+  return typeof v === "number" && Number.isInteger(v) && v >= 0;
+}
+
+/**
+ * Sentinela para "veio um valor e não dá para contá-lo".
+ *
+ * `-1` e não `null`: o retorno é `number` e o chamador compara com `> 0`, então
+ * um sentinela negativo nunca é confundido com posse. E é constante nomeada, e
+ * não `-1` solto, porque o dia em que alguém ler `if (q === -1)` sem contexto é
+ * o dia em que a regra volta a se perder.
+ */
+const INVALIDA = -1;
+
+/**
+ * Lê a quantidade de uma oferta, reportando o que não der para usar.
+ *
+ * O valor NÃO utilizável não pode virar lacuna em silêncio, e é aqui que isso
+ * quase aconteceu: `COUNT(*)` do Postgres chega como BigInt neste repositório
+ * — é assim que `radar-renovacoes.ts` já lê contrato. O primeiro chamador que
+ * montar a posse com `GROUP BY … COUNT(*)` num `$queryRaw` entregaria
+ * `{auto: 2n}`, e uma guarda de `typeof === "number"` transformaria o cliente
+ * com duas apólices numa lacuna de auto. Silenciosamente, e na direção que
+ * afirma.
+ *
+ * Fracionário também cai aqui: "Auto (1,5)" na tela não é contagem de apólice,
+ * é sintoma de que o chamador somou a coisa errada.
+ */
+function quantidadeDe(
+  posse: Readonly<Record<string, number>>,
+  id: string,
+  invalidas: { id: string; motivo: MotivoNaoComputado }[],
+): number {
+  const bruta: unknown = posse[id];
+  if (bruta === undefined) return 0;
+  if (ehQuantidade(bruta)) return bruta;
+  invalidas.push({ id, motivo: "quantidade-invalida" });
+  return INVALIDA;
 }
 
 /** Formata em reais sem centavos — a frase é de impacto, não de extrato. */
@@ -250,9 +327,13 @@ function reais(v: number): string {
  */
 function montarDestaque(posse: PossePessoa, avaliadas: readonly OfertaAvaliada[]): string | null {
   const falta = (id: string) => avaliadas.some((o) => o.id === id && o.situacao === "nao_possui");
-  const temConta = avaliadas.some(
-    (o) => o.id === OFERTA_CONTA_INVESTIMENTOS && o.situacao === "possui",
-  );
+  // A conta vem da POSSE, não do catálogo. Derivar de `avaliadas` fazia o
+  // módulo afirmar "não tem conta de investimentos na Onix" quando a oferta
+  // estivesse ausente ou marcada como não rastreada no catálogo injetado — com
+  // o saldo de R$ 5 milhões chegando no MESMO argumento. Catálogo é a régua do
+  // que dá para afirmar; quem tem a informação é o chamador.
+  const bruta: unknown = posse.posse[OFERTA_CONTA_INVESTIMENTOS];
+  const temConta = typeof bruta === "number" && Number.isFinite(bruta) && bruta > 0;
 
   if (temConta) {
     const s = posse.saldoInvestimentos;
