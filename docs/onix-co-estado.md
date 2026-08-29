@@ -611,6 +611,55 @@ com dias de intervalo.
   começar por um `SELECT` de diagnóstico e decidir o que fazer com as
   duplicatas — decisão de negócio, não de código. PR própria, tier 🔴 RED.
 
+### Sem registro de login e sem revogação de sessão
+
+- 📋 **O Cockpit não sabe dizer quem entrou, nem consegue expulsar ninguém.**
+  Registrado como dívida por decisão do Eduardo em 29/08/2026, ao decidir o
+  que fazer com a conta de suporte. **Não corrigir sem ordem dele.**
+
+  São duas ausências, e cada uma tem consequência própria:
+
+  **1. Nada registra login.** `User` não tem coluna de último acesso, não
+  existe tabela de sessão, e `login` (`src/app/actions/auth.ts:46`) não grava
+  nada — só chama `createSession`, que assina um JWT e o põe num cookie
+  (`src/lib/session.ts:35`). Não é "o dado é difícil de achar": não existe
+  onde achar. Nenhuma consulta ao banco responde "quando esta conta entrou
+  pela última vez", com ou sem script.
+
+  ⚠️ **A consequência apareceu num caso concreto.** A senha da conta de
+  suporte ficou legível num repositório PÚBLICO de maio a agosto de 2026. Se
+  alguém usou aquela conta nesse período, **não há como descobrir** — nem
+  agora, nem depois, nem com perícia. A ausência de registro transforma "foi
+  usada?" numa pergunta permanentemente sem resposta, e obriga a tratar toda
+  credencial vazada como se tivesse sido usada.
+
+  **2. Nada revoga sessão.** O cookie é assinado uma vez e vale sozinho por
+  **7 dias** (`session.ts:36`); o servidor não consulta mais nada depois. Não
+  há contador de versão no usuário, não há lista de sessões ativas.
+
+  ⚠️ **Trocar a senha NÃO expulsa quem já está dentro.** Fecha a porta para
+  quem está fora e deixa quem entrou circulando por até uma semana. Isso muda
+  o que "contive o vazamento" significa: rotação sozinha não é contenção, é
+  contenção com uma semana de atraso.
+
+  **E não existe desativar.** `User` não tem campo de ativo, bloqueado nem
+  data de saída. Hoje só dá para trocar a senha ou apagar a linha — e apagar
+  é a pior opção: das 22 relações que apontam para `User`, **12 são
+  `Cascade`**, então um DELETE levaria junto, em silêncio, `Implementacao`,
+  `ReuniaoCliente`, `PainelEmailAI`, `PainelPrioridade`, `AcaoPainel`,
+  `SyncRequest`, `UsuarioPermissao` e os vínculos de Google e Microsoft.
+
+  **O conserto tem três peças, e nenhuma é urgente sozinha:** carimbo de
+  último login no `User`; um campo de ativo conferido no login e nas
+  requisições (é o que de fato desativa, e corta a sessão de quem já está
+  dentro); e um contador de versão da sessão que invalide os cookies antigos.
+  As três mexem em `prisma/schema.prisma` — faixa 🔴, PR própria, com ele
+  presente.
+
+  Ferramenta que já existe para medir antes de decidir:
+  `scripts/auditoria-conta.ts` e o workflow `auditoria-conta`, somente
+  leitura, no molde do `promover-master`.
+
 ### Empréstimo de campo — a terceira ocorrência
 
 `ContratoCorretora.importadoEm` foi **reaproveitado**: era o relógio da máquina
