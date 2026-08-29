@@ -177,6 +177,20 @@ export const REF_INDICACOES: Referencia[] = [
     explicacao:
       "Supernova argumenta que a melhor fonte de novos clientes A são os próprios clientes A existentes. Pedir indicações é parte do processo de reunião trimestral.",
   },
+  {
+    livro: "The Art of Selling to the Affluent",
+    autor: "Matt Oechsli",
+    conceito: "O ambiente social é o canal",
+    explicacao:
+      "A pesquisa do Oechsli Institute mostra que o afluente decide por confiança construída em ambiente social, não comercial. Na prática: o convite para treinar, ir à praia, almoçar ou ir ao teatro é etapa registrável do funil — cada convívio move o cartão adiante.",
+  },
+  {
+    livro: "Radical Relevance",
+    autor: "Bill Cates",
+    conceito: "Introdução, não indicação",
+    explicacao:
+      "Cates demonstra que o pedido certo não é um nome solto, e sim uma introdução: o cliente apresenta a pessoa em contexto que faz sentido para ela. Na prática: registre quem apresentou e o contexto da relação, e faça o primeiro contato como continuação desse convívio — nunca como abordagem fria.",
+  },
 ];
 
 export const REF_KPI_EXCELENCIA: Referencia[] = [
