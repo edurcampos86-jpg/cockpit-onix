@@ -201,7 +201,16 @@ jobs:
           fi
 
           # As migrations que ESTA PR acrescenta.
-          NOVAS=$(git diff --name-only --diff-filter=A "$BASE_SHA" "$HEAD_SHA" \
+          #
+          # Contra o MERGE-BASE, e não contra `base.sha` — o mesmo que o
+          # `ci.yml` faz, e pela mesma razão. `base.sha` é o commit da base
+          # QUANDO A PR NASCEU; depois de a branch ser atualizada com a main, o
+          # diff contra ele traz também as migrations que OUTRAS sessões
+          # acrescentaram nesse intervalo. Elas seriam movidas para fora do
+          # caminho junto com as desta PR, e o "estado anterior" ficaria com
+          # buraco no meio.
+          MERGE_BASE=$(git merge-base "$BASE_SHA" "$HEAD_SHA")
+          NOVAS=$(git diff --name-only --diff-filter=A "$MERGE_BASE" "$HEAD_SHA" \
             -- 'prisma/migrations/*/migration.sql' \
             | xargs -r -n1 dirname | sort -u)
 
@@ -215,9 +224,20 @@ jobs:
           # Fixture? Sem ele o ensaio B roda contra banco vazio e não prova
           # nada além do que o A já provou. Então ele não roda — e o relatório
           # diz que não rodou, em vez de dar verde por ausência.
+          # COPIA o fixture para fora ANTES de mover o diretório.
+          #
+          # Ele mora DENTRO da pasta da migration, e a pasta sai do caminho
+          # logo abaixo — na primeira execução real (PR #432) o `psql` foi
+          # procurar um arquivo que já tinha sido movido e o ensaio morreu em
+          # três segundos, por defeito deste workflow e não da migration.
+          mkdir -p "${RUNNER_TEMP}/fixtures"
           FIXTURES=''
           for dir in $NOVAS; do
-            [ -f "$dir/ensaio.sql" ] && FIXTURES="$FIXTURES $dir/ensaio.sql"
+            if [ -f "$dir/ensaio.sql" ]; then
+              destino="${RUNNER_TEMP}/fixtures/$(basename "$dir").sql"
+              cp "$dir/ensaio.sql" "$destino"
+              FIXTURES="$FIXTURES $destino"
+            fi
           done
           if [ -z "$FIXTURES" ]; then
             {
