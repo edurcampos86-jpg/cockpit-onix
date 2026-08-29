@@ -394,6 +394,15 @@ function reais(v: number): string {
  * vendidos — e isso a tela já mostra em `lacunas`, sem fingir que é insight.
  */
 function montarDestaque(posse: PossePessoa, avaliadas: readonly OfertaAvaliada[]): string | null {
+  // `=== "nao_possui"`, e não `!== "possui"`. É a mesma assimetria da conta,
+  // aplicada às três frases de proteção: só se nega o que o catálogo permite
+  // afirmar. Tratar `nao_rastreado` como ausência faria o módulo dizer "nenhum
+  // seguro de vida pela Onix" sobre um produto que ele acabou de declarar que
+  // não consegue medir.
+  //
+  // A regra estava certa aqui e não estava travada: uma mutação desta linha
+  // passava nos 44 testes, porque a invariante do teste de propriedade guardava
+  // só a conta de investimentos. Agora ela vale para toda oferta.
   const falta = (id: string) => avaliadas.some((o) => o.id === id && o.situacao === "nao_possui");
   const conta = situacaoDaConta(posse.posse);
   const temConta = conta === "possui";
@@ -447,7 +456,7 @@ function montarDestaque(posse: PossePessoa, avaliadas: readonly OfertaAvaliada[]
  * Lista curta e fechada de propósito: destaque que tenta cobrir os onze
  * produtos vira parágrafo, e parágrafo não é destaque.
  */
-const PRIORIDADE_DE_PROTECAO: ReadonlyArray<readonly [string, string]> = [
+export const PRIORIDADE_DE_PROTECAO: ReadonlyArray<readonly [string, string]> = [
   // TODA frase é qualificada com "pela Onix". O módulo só enxerga contratos em
   // vigor da Onix Corretora — dizer "nenhum seguro de vida", sem qualificar,
   // afirma sobre o mercado inteiro. O atendente leria em voz alta que o cliente

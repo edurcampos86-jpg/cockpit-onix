@@ -13,6 +13,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   CATALOGO_DO_GRUPO,
+  PRIORIDADE_DE_PROTECAO,
   calcularOportunidades,
   type OfertaDoGrupo,
   type PossePessoa,
@@ -528,28 +529,48 @@ test("invariantes do módulo, sobre 2.000 combinações geradas", () => {
   // sorteio. A semente fixa faz a falha ser reproduzível pelo número do caso.
   let semente = 20260829;
   const proximo = () => (semente = (semente * 1103515245 + 12345) & 0x7fffffff);
-  const escolher = <T,>(xs: readonly T[]): T => xs[proximo() % xs.length];
+  // BIT ALTO, e isto é correção de um defeito medido no próprio gerador: neste
+  // LCG o bit 0 tem período 2, então `proximo() % 2` quase nunca alternava. Em
+  // 2.000 casos a versão anterior gerou `rastreada: false` 29 vezes em 7.986
+  // ofertas, e o par (`rastreada:false` E quantidade zero) — que é o único que
+  // a invariante 1 existe para pegar — saiu ZERO vezes. A invariante era linha
+  // morta, e o teste inteiro parecia estar guardando algo que não guardava.
+  const moeda = () => ((proximo() >>> 16) & 1) === 0;
+  const escolher = <T,>(xs: readonly T[]): T => xs[(proximo() >>> 16) % xs.length];
 
   const IDS = ["auto", "vida", "conta-investimentos", "imovel", "seguro_de_dragao", "toString"];
   const VALORES: unknown[] = [0, 1, 2, -1, 1.5, NaN, Infinity, "2", true, {}, BigInt(2)];
   const EMPRESAS = ["corretora", "investimentos", "imobiliaria"];
 
+  // `rastreada` sorteia valores NÃO booleanos também: o catálogo pode chegar de
+  // JSON, e `"false"` truthy foi defeito real. Sem isto, essa família fica fora
+  // do espaço gerado.
+  const RASTREADA: unknown[] = [true, false, "false", "true", undefined, 1, 0, null];
+
   for (let caso = 0; caso < 2000; caso++) {
     const posse: Record<string, unknown> = {};
-    for (const id of IDS) if (proximo() % 2 === 0) posse[id] = escolher(VALORES);
+    for (const id of IDS) if (moeda()) posse[id] = escolher(VALORES);
 
-    const catalogo: OfertaDoGrupo[] = IDS.filter(() => proximo() % 3 !== 0).map((id) => ({
+    const base = IDS.filter(() => (proximo() >>> 16) % 3 !== 0).map((id) => ({
       id,
       nome: id,
       empresaId: escolher(EMPRESAS),
-      rastreada: proximo() % 2 === 0,
+      rastreada: escolher(RASTREADA),
     }));
+    // Duplicata DELIBERADA: `IDS.filter` nunca repete, então a família inteira
+    // do dedup — dois consumidores declarando a mesma oferta — era invisível
+    // para o gerador, e a invariante 2 nunca via um id repetido. Catálogo vazio
+    // e "tudo não rastreado" também entram por aqui.
+    const duplicadas = base.filter(() => moeda()).map((o) => ({
+      ...o,
+      empresaId: escolher(EMPRESAS),
+      rastreada: escolher(RASTREADA),
+    }));
+    const catalogo = [...base, ...duplicadas] as OfertaDoGrupo[];
 
+    const saldo = escolher([null, 0, 1_000_000, 2_500_000, -5, NaN, 1234]) as number | null;
     const r = calcularOportunidades(
-      {
-        posse: posse as Record<string, number>,
-        saldoInvestimentos: escolher([null, 0, 1_000_000, -5, NaN]) as number | null,
-      },
+      { posse: posse as Record<string, number>, saldoInvestimentos: saldo },
       catalogo,
     );
     const ctx = `caso ${caso}`;
@@ -573,14 +594,29 @@ test("invariantes do módulo, sobre 2.000 combinações geradas", () => {
       assert.ok(Number.isInteger(o.quantidade), `${ctx}: quantidade fracionária em possui`);
     }
 
-    // 4. A frase nunca nega o que o módulo declarou não saber.
-    const naoSabeDaConta = r.naoRastreado.some((o) => o.id === "conta-investimentos");
-    const contaForaDoCatalogo = !catalogo.some((o) => o.id === "conta-investimentos");
-    if (naoSabeDaConta || contaForaDoCatalogo) {
+    // 4. A frase nunca nega o que o módulo declarou não saber — para TODA
+    //    oferta, não só para a conta. A versão anterior guardava só
+    //    `conta-investimentos`, e por isso uma mutação que fazia o módulo
+    //    afirmar "nenhum seguro de vida pela Onix" sobre um produto marcado
+    //    como não mensurável passava nos 44 testes.
+    const frase = r.destaque ?? "";
+    const naoAfirmavel = new Set([
+      ...r.naoRastreado.map((o) => o.id),
+      ...IDS.filter((id) => !catalogo.some((o) => o.id === id)),
+    ]);
+    for (const [id, negativa] of PRIORIDADE_DE_PROTECAO) {
+      if (!naoAfirmavel.has(id)) continue;
       assert.equal(
-        (r.destaque ?? "").includes("não tem conta de investimentos"),
+        frase.includes(negativa),
         false,
-        `${ctx}: negou a conta sem poder — ${r.destaque}`,
+        `${ctx}: negou "${id}" sem poder afirmar — ${frase}`,
+      );
+    }
+    if (naoAfirmavel.has("conta-investimentos")) {
+      assert.equal(
+        frase.includes("não tem conta de investimentos"),
+        false,
+        `${ctx}: negou a conta sem poder — ${frase}`,
       );
     }
 
@@ -589,10 +625,17 @@ test("invariantes do módulo, sobre 2.000 combinações geradas", () => {
       assert.ok(o.quantidade >= 0, `${ctx}: quantidade negativa vazou — ${o.id}`);
     }
 
-    // 6. A frase nunca cita número quando o saldo não é um valor utilizável.
-    const s = r.destaque ?? "";
-    if (/\d/.test(s)) {
-      assert.ok(s.includes("investidos pela Onix"), `${ctx}: número fora do lugar — ${s}`);
+    // 6. O número da frase é O SALDO, não um parente dele. A versão anterior
+    //    checava só ONDE o número aparecia: mutar `reais()` para multiplicar
+    //    por mil passava em todas as seis invariantes.
+    if (/\d/.test(frase)) {
+      assert.ok(frase.includes("investidos pela Onix"), `${ctx}: número fora do lugar — ${frase}`);
+      const impresso = frase.match(/R\$\s*([\d.]+)/)?.[1]?.replace(/\./g, "");
+      assert.equal(
+        impresso,
+        String(Math.round(saldo as number)),
+        `${ctx}: o número impresso não é o saldo (${String(saldo)}) — ${frase}`,
+      );
     }
   }
 });
