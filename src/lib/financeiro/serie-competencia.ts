@@ -120,3 +120,94 @@ export function montarSerie(
     ultimaComDado: presentes.length === 0 ? null : presentes[presentes.length - 1].competencia,
   };
 }
+
+/* ── POR QUE O MÊS ESTÁ VAZIO ─────────────────────────────────────────────
+ *
+ * A série já marca o buraco. Ela não diz o MOTIVO — e quem abre a tela em
+ * janeiro e vê dezembro vazio não sabe se o BTG não mandou ou se a
+ * sincronização caiu. É linha em branco no extrato: o susto não é o valor, é
+ * não saber o que houve.
+ *
+ * O `BtgSyncLog` responde, e o cruzamento é o que transforma "sem dado" em uma
+ * frase. Três casos, e eles preveem coisas diferentes:
+ *
+ *   sincronização NUNCA rodou no mês  → falha de agendamento; ninguém tentou
+ *   rodou e FALHOU                    → erro a investigar, com data
+ *   rodou, teve SUCESSO, e mesmo assim
+ *   não há comissão                   → o BTG não trouxe comissão naquele mês.
+ *                                       É fato do negócio, não falha nossa
+ *
+ * O terceiro é o mais importante e o menos óbvio: sem ele, todo mês vazio
+ * pareceria defeito, e o time perderia tempo caçando um erro que não existe.
+ */
+
+export interface ExecucaoSync {
+  /** Competência `"AAAA-MM"` em que a execução começou. */
+  competencia: string;
+  sucesso: boolean;
+}
+
+export type MotivoVazio =
+  | { tipo: "nunca_rodou" }
+  | { tipo: "rodou_e_falhou"; tentativas: number }
+  | { tipo: "rodou_sem_comissao"; execucoes: number }
+  | { tipo: "mes_futuro" };
+
+/**
+ * Por que este mês não tem comissão? Função PURA — recebe as execuções já
+ * lidas e a competência de hoje, e não olha o relógio.
+ *
+ * `mes_futuro` vem primeiro porque é o caso que não é falha de nada: a janela
+ * de 12 meses termina no mês corrente, mas se alguém olhar a série no dia 1º,
+ * o mês ainda mal começou. Chamar isso de "nunca rodou" seria alarme falso.
+ */
+export function motivoDoMesVazio(
+  competencia: string,
+  execucoes: readonly ExecucaoSync[],
+  hoje: string,
+): MotivoVazio {
+  if (competencia > hoje) return { tipo: "mes_futuro" };
+
+  const doMes = execucoes.filter((e) => e.competencia === competencia);
+  if (doMes.length === 0) return { tipo: "nunca_rodou" };
+
+  const comSucesso = doMes.filter((e) => e.sucesso);
+  if (comSucesso.length === 0) {
+    return { tipo: "rodou_e_falhou", tentativas: doMes.length };
+  }
+  return { tipo: "rodou_sem_comissao", execucoes: comSucesso.length };
+}
+
+/** A frase que a tela mostra na linha do mês. Curta: cabe numa célula. */
+export function fraseDoMotivo(motivo: MotivoVazio): string {
+  switch (motivo.tipo) {
+    case "mes_futuro":
+      return "mês ainda em curso";
+    case "nunca_rodou":
+      return "sincronização não rodou";
+    case "rodou_e_falhou":
+      return motivo.tentativas === 1
+        ? "sincronização falhou"
+        : `sincronização falhou ${motivo.tentativas}×`;
+    case "rodou_sem_comissao":
+      return "sincronizou, sem comissão";
+  }
+}
+
+/**
+ * Há quantos dias foi a última coleta bem-sucedida?
+ *
+ * `null` = nunca houve. E `null` NÃO é "hoje" nem "muito tempo": é ausência de
+ * resposta, a mesma distinção que o resto deste módulo carrega.
+ *
+ * `agora` é ARGUMENTO pela razão de sempre — função que lê o relógio não se
+ * testa duas vezes com o mesmo resultado.
+ */
+export function diasDesde(ultima: Date | null, agora: Date): number | null {
+  if (ultima === null) return null;
+  const ms = agora.getTime() - ultima.getTime();
+  /* Piso, não arredondamento: uma coleta de 30 horas atrás é "1 dia", não 1
+   * dia arredondado para 1. E negativo (relógio do banco à frente) vira 0 em
+   * vez de "-1 dia", que ninguém sabe ler. */
+  return Math.max(0, Math.floor(ms / 86_400_000));
+}
