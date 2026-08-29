@@ -149,6 +149,15 @@ test("status sem etapa concluída devolve null, não lista vazia", () => {
   assert.equal(etapasConcluidasPor("qualquer_coisa"), null);
 });
 
+test("chave do protótipo não vira status válido", () => {
+  // O status chega de fora (body de rota, payload do Zapier). Uma busca
+  // ingênua no objeto acha "toString" no protótipo e devolve `[]`, que quem
+  // chama lê como "nada concluído" em vez de "status inválido".
+  for (const chave of ["toString", "constructor", "hasOwnProperty", "__proto__"]) {
+    assert.equal(etapasConcluidasPor(chave), null, chave);
+  }
+});
+
 test("ETAPAS é a ordem da esteira, e é ela que define o cumulativo", () => {
   assert.deepEqual([...ETAPAS], ["roteiro", "gravacao", "edicao", "publicacao"]);
   assert.deepEqual(etapasConcluidasPor("publicado"), [...ETAPAS]);
