@@ -33,6 +33,18 @@
  *
  * `CREATE TABLE` de tabela que nasce agora vai aparecer como "não existe no
  * banco", e está certo: é a resposta, não um erro.
+ *
+ * ── E `REFERENCES`, QUE FALTAVA ──────────────────────────────────────────
+ * Uma tabela NOVA que aponta para uma ANTIGA por chave estrangeira toca a
+ * antiga: o Postgres pega `SHARE ROW EXCLUSIVE` nela e instala um gatilho de
+ * verificação. Em tabela grande sob carga, isso é evento — e a linha
+ * `REFERENCES "X"` é a única menção a X numa migration puramente aditiva.
+ *
+ * Descoberto usando a própria ferramenta, na PR da migration do
+ * ADM/Financeiro: ela cria `ParcelaReceita` apontando para
+ * `ContratoCorretora`, e a contagem daquela tabela era EXATAMENTE o número
+ * que decidia a PR seguinte. Sem este padrão, ela não aparecia no destaque —
+ * a ferramenta calava justamente sobre o caso que a motivou.
  */
 
 /** Instruções que caracterizam "esta migration mexe nesta tabela". */
@@ -45,6 +57,7 @@ const PADROES: readonly RegExp[] = [
   /\bUPDATE\s+(?:ONLY\s+)?"([^"]+)"/gi,
   /\bDELETE\s+FROM\s+(?:ONLY\s+)?"([^"]+)"/gi,
   /\bCREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?[^\s]+\s+ON\s+(?:ONLY\s+)?"([^"]+)"/gi,
+  /\bREFERENCES\s+"([^"]+)"/gi,
 ];
 
 /**
