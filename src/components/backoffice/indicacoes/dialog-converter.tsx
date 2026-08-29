@@ -39,7 +39,7 @@ export function DialogConverter({
   clientes: ClienteOpcao[];
   onOpenChange: (open: boolean) => void;
   /** Lança erro (com mensagem para o usuário) quando o vínculo falha. */
-  onVincular: (indicacao: Indicacao, clienteId: string, nomeCliente: string) => Promise<void>;
+  onVincular: (indicacao: Indicacao, clienteId: string) => Promise<void>;
 }) {
   const [clienteId, setClienteId] = React.useState<string | null>(null);
   const [emVoo, setEmVoo] = React.useState(false);
@@ -50,8 +50,7 @@ export function DialogConverter({
     setEmVoo(true);
     setErro(null);
     try {
-      const cliente = clientes.find((c) => c.id === clienteId);
-      await onVincular(indicacao, clienteId, cliente ? getNomeRelacionamento(cliente) : "cliente");
+      await onVincular(indicacao, clienteId);
       setClienteId(null);
       onOpenChange(false);
     } catch (e) {

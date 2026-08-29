@@ -53,11 +53,13 @@ const CONVITES: readonly {
 
 /**
  * Telefone livre → deep link wa.me. Sanitiza dígitos e prefixa 55 quando o
- * número parece nacional (10–11 dígitos sem DDI).
+ * número parece nacional: 10–11 dígitos é DDD+número (com DDI seriam 12–13).
+ * Decidir por comprimento, e não por `startsWith("55")` — DDD 55 existe
+ * (região de Santa Maria/RS) e um "(55) 99999-0000" precisa do prefixo.
  */
 export function montarLinkWhatsApp(telefone: string, mensagem: string): string {
   let digits = telefone.replace(/\D/g, "");
-  if (!digits.startsWith("55") && digits.length >= 10 && digits.length <= 11) {
+  if (digits.length >= 10 && digits.length <= 11) {
     digits = `55${digits}`;
   }
   return `https://wa.me/${digits}?text=${encodeURIComponent(mensagem)}`;

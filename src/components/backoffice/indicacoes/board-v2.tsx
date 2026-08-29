@@ -185,22 +185,38 @@ export function IndicacoesBoardV2({
     }
   };
 
+  /* fetch cujo fracasso — rede caída OU !res.ok — vira Error com mensagem
+   * amigável, porque os dialogs exibem `e.message` inline. Sem isto, uma
+   * queda de rede mostraria "Failed to fetch" cru para o usuário. */
+  const fetchOuErro = async (url: string, init: RequestInit, mensagem: string) => {
+    let res: Response | null = null;
+    try {
+      res = await fetch(url, init);
+    } catch {
+      // rede caiu — res fica null e cai na mensagem amigável abaixo
+    }
+    if (!res || !res.ok) throw new Error(mensagem);
+    return res;
+  };
+
   /** Chamado pelo DialogConverter; lançar erro mantém o dialog aberto com a
    * mensagem inline. A rota /converter grava vínculo E status numa escrita só. */
   const vincular = async (i: Indicacao, clienteId: string) => {
-    if (salvandoIds.has(i.id)) return;
+    if (salvandoIds.has(i.id)) {
+      // Retornar em silêncio fecharia o dialog como se tivesse dado certo.
+      throw new Error("Outra ação neste cartão ainda está salvando. Aguarde um instante e confirme de novo.");
+    }
     marcarSalvando(i.id, true);
     try {
-      const res = await fetch(`/api/backoffice/indicacoes/${i.id}/converter`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clienteId }),
-      });
-      if (!res.ok) {
-        throw new Error(
-          "A conversão não foi salva. Escolha o cliente e confirme outra vez; se o cadastro ainda não existe, crie-o antes em Clientes."
-        );
-      }
+      await fetchOuErro(
+        `/api/backoffice/indicacoes/${i.id}/converter`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ clienteId }),
+        },
+        "A conversão não foi salva. Escolha o cliente e confirme outra vez; se o cadastro ainda não existe, crie-o antes em Clientes."
+      );
       setIndicacoes((prev) =>
         prev.map((x) =>
           x.id === i.id ? { ...x, clienteConvertidoId: clienteId, status: "convertida" } : x
@@ -217,14 +233,15 @@ export function IndicacoesBoardV2({
     if (!i) return;
     marcarSalvando(i.id, true);
     try {
-      const res = await fetch(`/api/backoffice/indicacoes/${i.id}/converter`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clienteId: null }),
-      });
-      if (!res.ok) {
-        throw new Error("A conversão não foi desfeita e o vínculo continua. Tente de novo.");
-      }
+      await fetchOuErro(
+        `/api/backoffice/indicacoes/${i.id}/converter`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ clienteId: null }),
+        },
+        "A conversão não foi desfeita e o vínculo continua. Tente de novo."
+      );
       // A rota devolve o status para "reuniao" junto com o vínculo — o estado
       // local segue o servidor.
       setIndicacoes((prev) =>
@@ -242,12 +259,11 @@ export function IndicacoesBoardV2({
   const remover = async () => {
     const i = removerAlvo;
     if (!i) return;
-    const res = await fetch(`/api/backoffice/indicacoes/${i.id}`, { method: "DELETE" });
-    if (!res.ok) {
-      throw new Error(
-        "A remoção falhou — a introdução continua no quadro. Tente de novo em alguns segundos."
-      );
-    }
+    await fetchOuErro(
+      `/api/backoffice/indicacoes/${i.id}`,
+      { method: "DELETE" },
+      "A remoção falhou — a introdução continua no quadro. Tente de novo em alguns segundos."
+    );
     setIndicacoes((prev) => prev.filter((x) => x.id !== i.id));
     anunciar("Introdução removida.");
     setRemoverAlvo(null);
