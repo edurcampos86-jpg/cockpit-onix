@@ -35,8 +35,12 @@
  * verificou, e o atendente ligaria oferecendo algo que o cliente já comprou.
  *
  * Por isso existe `nao_rastreado`, e por isso ele aparece na tela em bloco
- * separado. Quando a Imobiliária ganhar sua tabela, a oferta migra de
- * `nao_rastreado` para rastreada mudando UMA linha do catálogo.
+ * separado.
+ *
+ * Quando a Imobiliária ganhar sua tabela, rastrear passa a ser DUAS coisas:
+ * virar `rastreada: true` no catálogo E o chamador passar a preencher a posse
+ * daquela oferta. As duas, sempre — virar só a chave faria o módulo afirmar
+ * que ninguém tem imóvel, que é a mentira que ele existe para impedir.
  */
 import { CATALOGO_PRODUTOS } from "@/lib/corretora/catalogo-produtos";
 
@@ -110,29 +114,56 @@ export const CATALOGO_DO_GRUPO: readonly OfertaDoGrupo[] = [
 /**
  * O que a pessoa possui, já carregado por quem chamou.
  *
- * Tipos deliberadamente frouxos — `readonly string[]`, não entidades do
- * Prisma. É o que permite a Imobiliária chamar isto amanhã sem que este módulo
- * saiba que ela existe, e é o que faz cada teste aqui rodar sem banco.
+ * ── POR QUE UM MAPA, E NÃO UM CAMPO POR EMPRESA ──────────────────────────
+ * A primeira versão tinha `produtosCorretora: string[]` e
+ * `temContaInvestimentos: boolean`. Parecia inofensivo e destruía a premissa
+ * do módulo: com campos nomeados por empresa, não havia como informar posse de
+ * uma oferta da Imobiliária. Consequência — bastava trocar `rastreada: false`
+ * por `true` no catálogo para o sistema AFIRMAR que a pessoa não tem o imóvel
+ * que ela comprou pela Onix Imob. O caminho de migração que o cabeçalho
+ * promete produzia exatamente a mentira que o módulo existe para impedir.
+ *
+ * Agora a posse é `ofertaId → quantidade`, e o módulo não conhece empresa
+ * nenhuma. Rastrear a Imobiliária passa a ser: virar a chave no catálogo E
+ * passar a preencher o mapa. As duas coisas, e é assim que tem de ser — a
+ * segunda é justamente o que faltava.
  */
 export type PossePessoa = {
   /**
-   * `tipoProduto` de cada contrato EM VIGOR na Corretora. Repetido de
-   * propósito: duas apólices de auto são dois carros, e a contagem conta.
+   * `ofertaId → quantidade`. Ausente e zero significam a MESMA coisa aqui
+   * ("não possui"), e quem não sabe não deve chamar: para isso existe
+   * `rastreada: false` no catálogo.
+   *
+   * A quantidade importa: duas apólices de auto são dois carros, e isso muda
+   * a conversa.
    */
-  readonly produtosCorretora: readonly string[];
-  /** A pessoa tem conta de investimentos no grupo? */
-  readonly temContaInvestimentos: boolean;
+  readonly posse: Readonly<Record<string, number>>;
   /**
-   * Saldo da conta, quando houver. Só entra no `destaque` — nenhuma decisão
-   * deste módulo depende dele.
+   * Saldo da conta de investimentos, quando houver. Só entra no `destaque` —
+   * nenhuma decisão de classificação deste módulo depende dele.
    */
   readonly saldoInvestimentos: number | null;
 };
+
+/** A oferta que representa a conta de Investimentos no catálogo do grupo. */
+export const OFERTA_CONTA_INVESTIMENTOS = "conta-investimentos";
 
 export type ResultadoOportunidades = {
   readonly possui: readonly OfertaAvaliada[];
   readonly lacunas: readonly OfertaAvaliada[];
   readonly naoRastreado: readonly OfertaAvaliada[];
+  /**
+   * Chaves da posse que não existem no catálogo, com a quantidade.
+   *
+   * Não é enfeite: `catalogo-produtos.ts` registra que quatro ids foram
+   * APOSENTADOS em ago/2026 (`auto_residencial`, `consorcio`,
+   * `fianca_rc_profissional`, `saude_odonto`). Um contrato antigo com um
+   * desses chega aqui e, sem este campo, produziria duas afirmações erradas de
+   * uma vez: sumiria de `possui` E as famílias que o substituíram apareceriam
+   * como lacuna. A tela precisa poder dizer "1 contrato com produto fora do
+   * catálogo" em vez de mentir duas vezes em silêncio.
+   */
+  readonly posseNaoReconhecida: readonly { readonly id: string; readonly quantidade: number }[];
   /**
    * A frase que produz o efeito. `null` quando não há o que dizer — e é
    * melhor não dizer nada do que encher a tela com uma observação óbvia.
@@ -151,21 +182,24 @@ export function calcularOportunidades(
   posse: PossePessoa,
   catalogo: readonly OfertaDoGrupo[] = CATALOGO_DO_GRUPO,
 ): ResultadoOportunidades {
-  const contagem = new Map<string, number>();
-  for (const p of posse.produtosCorretora) {
-    contagem.set(p, (contagem.get(p) ?? 0) + 1);
-  }
+  // Dedup por id ANTES de avaliar. Catálogo com id repetido — dois consumidores
+  // declarando a mesma oferta, por exemplo — faria a mesma linha aparecer duas
+  // vezes em `possui`, com "Auto (1)" repetido na tela e o total inflado. A
+  // primeira declaração vence, e a segunda é ignorada em silêncio: erro de
+  // catálogo não pode derrubar a ficha de um cliente.
+  const vistos = new Set<string>();
+  const unicas = catalogo.filter((o) => (vistos.has(o.id) ? false : (vistos.add(o.id), true)));
 
-  const avaliadas: OfertaAvaliada[] = catalogo.map((oferta) => {
-    if (!oferta.rastreada) {
+  const avaliadas: OfertaAvaliada[] = unicas.map((oferta) => {
+    // `!== true` e não `!oferta.rastreada`: o catálogo pode chegar de JSON, e
+    // ali `"false"` é uma string TRUTHY. Com a negação simples, uma oferta
+    // marcada como não rastreada num arquivo de configuração viraria afirmação
+    // — o único caminho conhecido de "não sabemos" virar "não tem".
+    if (oferta.rastreada !== true) {
       return { ...oferta, situacao: "nao_rastreado" as const, quantidade: 0 };
     }
-    const quantidade =
-      oferta.id === "conta-investimentos"
-        ? posse.temContaInvestimentos
-          ? 1
-          : 0
-        : (contagem.get(oferta.id) ?? 0);
+    const bruta = posse.posse[oferta.id];
+    const quantidade = typeof bruta === "number" && Number.isFinite(bruta) && bruta > 0 ? bruta : 0;
     return {
       ...oferta,
       situacao: quantidade > 0 ? ("possui" as const) : ("nao_possui" as const),
@@ -173,10 +207,16 @@ export function calcularOportunidades(
     };
   });
 
+  // Chave de posse que o catálogo não conhece. Ver `posseNaoReconhecida`.
+  const naoReconhecida = Object.entries(posse.posse)
+    .filter(([id, q]) => !vistos.has(id) && typeof q === "number" && q > 0)
+    .map(([id, quantidade]) => ({ id, quantidade }));
+
   return {
     possui: avaliadas.filter((o) => o.situacao === "possui"),
     lacunas: avaliadas.filter((o) => o.situacao === "nao_possui"),
     naoRastreado: avaliadas.filter((o) => o.situacao === "nao_rastreado"),
+    posseNaoReconhecida: naoReconhecida,
     destaque: montarDestaque(posse, avaliadas),
   };
 }
@@ -210,12 +250,14 @@ function reais(v: number): string {
  */
 function montarDestaque(posse: PossePessoa, avaliadas: readonly OfertaAvaliada[]): string | null {
   const falta = (id: string) => avaliadas.some((o) => o.id === id && o.situacao === "nao_possui");
+  const temConta = avaliadas.some(
+    (o) => o.id === OFERTA_CONTA_INVESTIMENTOS && o.situacao === "possui",
+  );
 
-  if (posse.temContaInvestimentos) {
-    const valor =
-      posse.saldoInvestimentos !== null && posse.saldoInvestimentos > 0
-        ? reais(posse.saldoInvestimentos)
-        : null;
+  if (temConta) {
+    const s = posse.saldoInvestimentos;
+    // `Number.isFinite` além do `> 0`: `Infinity` imprimiria "R$ ∞ investidos".
+    const valor = s !== null && Number.isFinite(s) && s > 0 ? reais(s) : null;
     const patrimonio = valor ? `${valor} investidos pela Onix` : "conta de investimentos na Onix";
 
     for (const [id, oQueFalta] of PRIORIDADE_DE_PROTECAO) {
@@ -228,7 +270,7 @@ function montarDestaque(posse: PossePessoa, avaliadas: readonly OfertaAvaliada[]
   const temAlgumSeguro = avaliadas.some(
     (o) => o.empresaId === "corretora" && o.situacao === "possui",
   );
-  if (temAlgumSeguro && !posse.temContaInvestimentos) {
+  if (temAlgumSeguro && !temConta) {
     return "É cliente da Corretora e não tem conta de investimentos na Onix.";
   }
 
@@ -242,7 +284,12 @@ function montarDestaque(posse: PossePessoa, avaliadas: readonly OfertaAvaliada[]
  * produtos vira parágrafo, e parágrafo não é destaque.
  */
 const PRIORIDADE_DE_PROTECAO: ReadonlyArray<readonly [string, string]> = [
-  ["vida", "nenhum seguro de vida"],
+  // TODA frase é qualificada com "pela Onix". O módulo só enxerga contratos em
+  // vigor da Onix Corretora — dizer "nenhum seguro de vida", sem qualificar,
+  // afirma sobre o mercado inteiro. O atendente leria em voz alta que o cliente
+  // não tem seguro de vida, o cliente responderia que tem na concorrência, e a
+  // conversa acabaria na primeira frase.
+  ["vida", "nenhum seguro de vida pela Onix"],
   ["saude", "nenhum plano de saúde pela Onix"],
-  ["dit", "nenhuma proteção de renda por afastamento"],
+  ["dit", "nenhuma proteção de renda por afastamento pela Onix"],
 ];
