@@ -84,6 +84,19 @@ jobs:
       # este workflow pode aplicar migration sem pedir autorização a ninguém.
       DATABASE_URL: postgresql://ensaio:ensaio@127.0.0.1:5432/ensaio
 
+      # TETO DE TEMPO da migration nova, em segundos.
+      #
+      # Não é higiene: com `prisma migrate deploy` dentro do `startCommand`, o
+      # tempo da migration é tempo de SITE FORA DO AR a cada deploy. Um
+      # `ALTER TABLE` que reescreve tabela passa em milissegundos num banco
+      # vazio e trava minutos nas 2.716 linhas de `ClienteBackoffice`.
+      #
+      # 30s é a régua: acima disso o deploy deixa de ser uma piscada e vira
+      # janela que alguém percebe. Migration que precise de mais não está
+      # proibida — está obrigada a subir este número no MESMO commit, o que faz
+      # a decisão aparecer no diff em vez de aparecer no domingo.
+      ENSAIO_TETO_SEGUNDOS: '30'
+
     steps:
       - uses: actions/checkout@v4
         with:
@@ -247,14 +260,23 @@ jobs:
           done
 
           echo "── aplicando a migration NOVA, agora com dado no banco ──"
+          INICIO=$(date +%s)
           set +e
           npx prisma migrate deploy > "${RUNNER_TEMP}/depois.txt" 2>&1
           CODIGO=$?
           set -e
+          DUROU=$(( $(date +%s) - INICIO ))
           cat "${RUNNER_TEMP}/depois.txt"
+
+          # Quanto dado o fixture deixou no banco. Sem este número, "durou 2s"
+          # não diz nada: pode ter sido rápido por não haver o que migrar.
+          LINHAS=$(psql "$DATABASE_URL" -tAc \
+            'SELECT coalesce(sum(n_live_tup), 0) FROM pg_stat_user_tables' || echo '?')
           {
             echo
             echo '## Ensaio B — com dado'
+            echo
+            echo "Levou **${DUROU}s** (teto ${ENSAIO_TETO_SEGUNDOS}s), com ~${LINHAS} linhas no banco."
             echo
             echo '```'
             cat "${RUNNER_TEMP}/depois.txt"
@@ -265,4 +287,11 @@ jobs:
             echo "::error::A migration nova FALHOU contra um banco com dado. Em produção isto derrubaria o serviço."
             exit 1
           fi
-          echo "::notice::Ensaio B: a migration nova aplicou sobre dado existente."
+
+          # O TETO. Com o migrate dentro do `start`, este número é tempo de
+          # site fora do ar a cada deploy.
+          if [ "$DUROU" -gt "$ENSAIO_TETO_SEGUNDOS" ]; then
+            echo "::error::A migration levou ${DUROU}s, acima do teto de ${ENSAIO_TETO_SEGUNDOS}s. Com o migrate dentro do startCommand isso e o site fora do ar por ${DUROU}s a cada deploy. Ou a migration fica mais barata, ou o teto sobe no mesmo commit, com o motivo escrito."
+            exit 1
+          fi
+          echo "::notice::Ensaio B: aplicou sobre ~${LINHAS} linhas em ${DUROU}s (teto ${ENSAIO_TETO_SEGUNDOS}s)."
