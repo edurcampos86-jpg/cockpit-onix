@@ -1,0 +1,662 @@
+/**
+ * Guardas do cálculo de oportunidades do grupo.
+ *
+ * Tudo aqui é puro, então tudo é testável — e o que se testa é o que erra em
+ * silêncio: uma lacuna que não devia existir manda o atendente oferecer o que
+ * o cliente já tem, e uma que some deixa dinheiro na mesa sem ninguém saber.
+ *
+ * O caso mais caro tem teste próprio: afirmar "não possui" sobre uma empresa
+ * do grupo que não tem fonte de dado. Ninguém verificou, e a ligação sai
+ * errada.
+ */
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import {
+  CATALOGO_DO_GRUPO,
+  PRIORIDADE_DE_PROTECAO,
+  calcularOportunidades,
+  type OfertaDoGrupo,
+  type PossePessoa,
+} from "./oportunidades.ts";
+import { CATALOGO_PRODUTOS, tiposProdutoValidos } from "@/lib/corretora/catalogo-produtos.ts";
+
+const VAZIA: PossePessoa = { posse: {}, saldoInvestimentos: null };
+
+/** Açúcar dos testes: lista de produtos da Corretora vira mapa de posse. */
+const posseDe = (...ids: string[]): PossePessoa["posse"] => {
+  const m: Record<string, number> = {};
+  for (const id of ids) m[id] = (m[id] ?? 0) + 1;
+  return m;
+};
+
+// ── O catálogo do grupo ───────────────────────────────────────────────────
+
+test("as onze ofertas da Corretora vêm do catálogo, não de uma cópia", () => {
+  // Copiar criaria a segunda lista que ninguém lembra de atualizar. Se alguém
+  // acrescentar produto ao catálogo da Corretora, ele aparece aqui sozinho —
+  // e este teste é o que garante que continue assim.
+  const daCorretora = CATALOGO_DO_GRUPO.filter((o) => o.empresaId === "corretora").map((o) => o.id);
+  assert.deepEqual([...daCorretora].sort(), [...tiposProdutoValidos()].sort());
+  assert.equal(daCorretora.length, CATALOGO_PRODUTOS.length);
+});
+
+test("nenhum id repetido no catálogo do grupo", () => {
+  // Id repetido faria a mesma oferta aparecer em `possui` e em `lacunas`.
+  const ids = CATALOGO_DO_GRUPO.map((o) => o.id);
+  assert.equal(new Set(ids).size, ids.length);
+});
+
+test("toda oferta declara uma empresa do grupo", () => {
+  const empresas = new Set([
+    "investimentos",
+    "corretora",
+    "planejamento",
+    "imobiliaria",
+    "educacao",
+    "corporate",
+    "tech",
+  ]);
+  for (const o of CATALOGO_DO_GRUPO) {
+    assert.ok(empresas.has(o.empresaId), `oferta "${o.id}" aponta para empresa desconhecida`);
+  }
+});
+
+// ── possui × não possui ───────────────────────────────────────────────────
+
+test("o que a pessoa tem entra em possui, com a contagem", () => {
+  // Duas apólices de auto são dois carros, e isso muda a conversa.
+  const r = calcularOportunidades({
+    posse: { ...posseDe("auto", "auto", "vida"), "conta-investimentos": 1 },
+    saldoInvestimentos: 2_000_000,
+  });
+  const auto = r.possui.find((o) => o.id === "auto");
+  assert.equal(auto?.quantidade, 2);
+  assert.equal(r.possui.find((o) => o.id === "vida")?.quantidade, 1);
+  assert.equal(r.possui.find((o) => o.id === "conta-investimentos")?.quantidade, 1);
+});
+
+test("o que ela não tem entra em lacunas", () => {
+  const r = calcularOportunidades({ ...VAZIA, posse: posseDe("auto") });
+  assert.equal(r.lacunas.some((o) => o.id === "residencial"), true);
+  assert.equal(r.lacunas.some((o) => o.id === "auto"), false);
+});
+
+test("sem conta de investimentos, ela é lacuna e não some", () => {
+  const r = calcularOportunidades(VAZIA);
+  assert.equal(r.lacunas.some((o) => o.id === "conta-investimentos"), true);
+});
+
+test("possui e lacunas são disjuntos e cobrem tudo que é rastreado", () => {
+  const r = calcularOportunidades({ ...VAZIA, posse: posseDe("vida") });
+  const rastreadas = CATALOGO_DO_GRUPO.filter((o) => o.rastreada).length;
+  assert.equal(r.possui.length + r.lacunas.length, rastreadas);
+  const idsPossui = new Set(r.possui.map((o) => o.id));
+  assert.equal(r.lacunas.some((o) => idsPossui.has(o.id)), false);
+});
+
+test("a ordem segue o catálogo, não o volume nem o alfabeto", () => {
+  // Ordem que muda de ficha para ficha obriga a reler tudo toda vez.
+  const r = calcularOportunidades(VAZIA);
+  const esperada = CATALOGO_DO_GRUPO.filter((o) => o.rastreada).map((o) => o.id);
+  assert.deepEqual(r.lacunas.map((o) => o.id), esperada);
+});
+
+// ── "não sabemos" nunca vira "não tem" ────────────────────────────────────
+
+test("empresa sem fonte de dado NUNCA vira lacuna", () => {
+  // É o caso mais caro do módulo: afirmar que a pessoa não tem imóvel pela
+  // Onix Imob, quando ninguém tem como verificar, manda o atendente oferecer
+  // o que o cliente talvez já tenha comprado.
+  const r = calcularOportunidades(VAZIA);
+  for (const id of ["imovel", "curso", "consultoria-corporate", "produto-tech", "plano-patrimonial"]) {
+    assert.equal(r.lacunas.some((o) => o.id === id), false, `"${id}" não pode ser afirmado`);
+    assert.equal(r.naoRastreado.some((o) => o.id === id), true, `"${id}" precisa aparecer à parte`);
+    assert.equal(r.possui.some((o) => o.id === id), false);
+  }
+});
+
+test("não rastreado tem quantidade zero e situação própria", () => {
+  const r = calcularOportunidades(VAZIA);
+  for (const o of r.naoRastreado) {
+    assert.equal(o.situacao, "nao_rastreado");
+    assert.equal(o.quantidade, 0);
+  }
+});
+
+test("rastrear uma empresa nova exige as DUAS coisas, e a posse é uma delas", () => {
+  // Este teste existia e afirmava o defeito como correto: com o catálogo
+  // virado para `rastreada: true`, o módulo dizia que a pessoa NÃO tem imóvel
+  // — sem que ninguém tivesse como informar que ela tem. A posse era um campo
+  // com nome de empresa (`produtosCorretora`), então a Imobiliária não cabia.
+  //
+  // Agora a posse é `ofertaId → quantidade`, e o mesmo catálogo produz as duas
+  // respostas conforme o chamador informe ou não a posse. É essa a diferença
+  // entre "não tem" e "não sabemos".
+  const catalogo: OfertaDoGrupo[] = [
+    { id: "imovel", nome: "Imóvel", empresaId: "imobiliaria", rastreada: true },
+  ];
+
+  const semInformar = calcularOportunidades(VAZIA, catalogo);
+  assert.equal(semInformar.lacunas.length, 1, "sem posse informada, é lacuna");
+
+  const informando = calcularOportunidades({ ...VAZIA, posse: { imovel: 2 } }, catalogo);
+  assert.equal(informando.possui[0]?.quantidade, 2, "com posse informada, ela aparece");
+  assert.equal(informando.lacunas.length, 0);
+});
+
+// ── O destaque: a frase que faz pegar o telefone ──────────────────────────
+
+test("patrimônio investido sem seguro de vida vira a frase do produto", () => {
+  // É o exemplo que originou esta aba.
+  const r = calcularOportunidades({
+    posse: { ...posseDe("auto"), "conta-investimentos": 1 },
+    saldoInvestimentos: 2_000_000,
+  });
+  assert.ok(r.destaque?.includes("nenhum seguro de vida"), r.destaque ?? "sem destaque");
+  assert.ok(r.destaque?.includes("2.000.000"), r.destaque ?? "");
+});
+
+test("com vida, o destaque desce para a próxima ausência de proteção", () => {
+  const r = calcularOportunidades({
+    posse: { ...posseDe("vida"), "conta-investimentos": 1 },
+    saldoInvestimentos: 500_000,
+  });
+  assert.ok(r.destaque?.includes("plano de saúde"), r.destaque ?? "sem destaque");
+});
+
+test("com toda a proteção, não há destaque — silêncio é melhor que obviedade", () => {
+  const r = calcularOportunidades({
+    posse: { ...posseDe("vida", "saude", "dit"), "conta-investimentos": 1 },
+    saldoInvestimentos: 1_000_000,
+  });
+  assert.equal(r.destaque, null);
+});
+
+test("sem saldo conhecido, a frase não inventa número", () => {
+  // Saldo null é "não sei", e a régua deste repositório é não citar número que
+  // o motor não devolve.
+  const r = calcularOportunidades({
+    posse: { "conta-investimentos": 1 },
+    saldoInvestimentos: null,
+  });
+  assert.ok(r.destaque?.includes("conta de investimentos na Onix"), r.destaque ?? "");
+  assert.equal(/\d/.test(r.destaque ?? ""), false, "nenhum dígito sem saldo conhecido");
+});
+
+test("saldo zero também não vira número na frase", () => {
+  // Conta aberta e zerada não é patrimônio; dizer "R$ 0 investidos" seria
+  // usar como argumento de venda um número que enfraquece o argumento.
+  const r = calcularOportunidades({
+    posse: { "conta-investimentos": 1 },
+    saldoInvestimentos: 0,
+  });
+  assert.equal(/\d/.test(r.destaque ?? ""), false);
+});
+
+test("cliente só da Corretora tem o destaque inverso", () => {
+  const r = calcularOportunidades({ ...VAZIA, posse: posseDe("auto") });
+  assert.ok(r.destaque?.includes("não tem conta de investimentos"), r.destaque ?? "");
+});
+
+test("pessoa sem nada não tem destaque", () => {
+  // Sem lado cheio da balança não há desequilíbrio a apontar — só uma lista de
+  // produtos ainda não vendidos, que `lacunas` já mostra sem fingir insight.
+  assert.equal(calcularOportunidades(VAZIA).destaque, null);
+});
+
+test("produto fora do catálogo é REPORTADO, não engolido", () => {
+  // `catalogo-produtos.ts` registra quatro ids APOSENTADOS em ago/2026. Um
+  // contrato antigo com um desses chega aqui, e antes produzia duas afirmações
+  // erradas de uma vez: sumia de `possui` E as famílias que o substituíram
+  // apareciam como lacuna, sem nada na tela dizendo que houve um contrato.
+  const r = calcularOportunidades({ ...VAZIA, posse: { auto_residencial: 1 } });
+  assert.equal(r.possui.length, 0);
+  assert.equal(r.lacunas.some((o) => o.id === "auto_residencial"), false);
+  assert.deepEqual(r.naoComputado, [{ id: "auto_residencial", motivo: "fora-do-catalogo" }]);
+});
+
+test("posse com quantidade zero ou negativa não vira possui", () => {
+  const r = calcularOportunidades({ ...VAZIA, posse: { auto: 0, vida: -1 } });
+  assert.equal(r.possui.length, 0);
+  assert.equal(r.lacunas.some((o) => o.id === "auto"), true, "zero é ausência afirmável");
+  // Negativo NÃO é ausência afirmável: é valor que não dá para contar, e vai
+  // para `naoComputado` em vez de virar lacuna.
+  assert.deepEqual(r.naoComputado, [{ id: "vida", motivo: "quantidade-invalida" }]);
+  assert.equal(r.lacunas.some((o) => o.id === "vida"), false);
+});
+
+test("`rastreada` como STRING não vira afirmação", () => {
+  // O catálogo pode chegar de JSON, e ali `"false"` é uma string truthy. Com a
+  // negação simples (`!oferta.rastreada`), esta oferta viraria lacuna — o
+  // único caminho conhecido de "não sabemos" virar "não tem".
+  const catalogo = [
+    { id: "imovel", nome: "Imóvel", empresaId: "imobiliaria", rastreada: "false" },
+  ] as unknown as OfertaDoGrupo[];
+  const r = calcularOportunidades(VAZIA, catalogo);
+  assert.equal(r.naoRastreado.length, 1);
+  assert.equal(r.lacunas.length, 0);
+});
+
+test("id repetido no catálogo não duplica a linha na tela", () => {
+  const catalogo: OfertaDoGrupo[] = [
+    { id: "auto", nome: "Auto", empresaId: "corretora", rastreada: true },
+    { id: "auto", nome: "Auto (de novo)", empresaId: "imobiliaria", rastreada: true },
+  ];
+  const r = calcularOportunidades({ ...VAZIA, posse: { auto: 1 } }, catalogo);
+  assert.equal(r.possui.length, 1, "a primeira declaração vence");
+  assert.equal(r.possui[0].nome, "Auto");
+});
+
+test("saldo Infinity não vira 'R$ ∞' na frase", () => {
+  const r = calcularOportunidades({
+    posse: { "conta-investimentos": 1 },
+    saldoInvestimentos: Number.POSITIVE_INFINITY,
+  });
+  assert.equal(r.destaque?.includes("∞"), false, r.destaque ?? "");
+  assert.ok(r.destaque?.includes("conta de investimentos na Onix"), r.destaque ?? "");
+});
+
+test("toda frase do destaque é qualificada com 'pela Onix'", () => {
+  // `saldoInvestimentos: null` DE PROPÓSITO. Com saldo, o prefixo da frase é
+  // "Tem R$ 100.000 investidos pela Onix e …" — e a asserção passaria pelo
+  // prefixo, nunca pelo qualificador sob teste. Foi exatamente assim que a
+  // primeira versão deste guarda passou verde com "pela Onix" removido de dois
+  // dos três produtos. Teste de frase que não falha quando a frase muda não é
+  // teste, é decoração.
+  for (const jaTem of [[], ["vida"], ["vida", "saude"]]) {
+    const r = calcularOportunidades({
+      posse: { ...posseDe(...jaTem), "conta-investimentos": 1 },
+      saldoInvestimentos: null,
+    });
+    assert.ok(r.destaque, `sem destaque com ${JSON.stringify(jaTem)}`);
+    assert.ok(
+      r.destaque.includes("pela Onix"),
+      `frase sem qualificador: ${r.destaque}`,
+    );
+  }
+});
+
+test("a frase inversa também é qualificada", () => {
+  // Ela não passava pelo loop acima, e é a que o atendente lê para o cliente
+  // que só tem seguro.
+  const r = calcularOportunidades({ ...VAZIA, posse: posseDe("auto") });
+  assert.ok(r.destaque?.includes("na Onix"), r.destaque ?? "sem destaque");
+});
+
+// ── Posse é conhecimento; `rastreada` governa só a negativa ───────────────
+
+test("posse informada vence o catálogo — nem ausência nem `rastreada:false` a engolem", () => {
+  // A correção anterior derivava tudo do catálogo, e com isso uma oferta
+  // marcada como não rastreada ENGOLIA a posse que o chamador informou. Posse
+  // informada é conhecimento: se o chamador diz que a pessoa tem, ela tem, e
+  // nenhum campo de catálogo desmente isso.
+  const catalogo: OfertaDoGrupo[] = [
+    { id: "imovel", nome: "Imóvel", empresaId: "imobiliaria", rastreada: false },
+  ];
+  const r = calcularOportunidades({ ...VAZIA, posse: { imovel: 2 } }, catalogo);
+  assert.equal(r.possui[0]?.quantidade, 2);
+  assert.equal(r.naoRastreado.length, 0);
+});
+
+test("id duplicado com `rastreada` conflitante não engole a posse informada", () => {
+  const catalogo: OfertaDoGrupo[] = [
+    { id: "auto", nome: "Auto", empresaId: "tech", rastreada: false },
+    { id: "auto", nome: "Auto (de novo)", empresaId: "corretora", rastreada: true },
+  ];
+  const r = calcularOportunidades({ ...VAZIA, posse: { auto: 1 } }, catalogo);
+  assert.equal(r.possui.length, 1, "a pessoa tem auto, e o chamador informou");
+  assert.equal(r.naoRastreado.length, 0);
+});
+
+test("a conta de investimentos vem da POSSE, não do catálogo", () => {
+  // O módulo afirmava "não tem conta de investimentos na Onix" quando a oferta
+  // estava fora do catálogo — recebendo o saldo de R$ 5 milhões no MESMO
+  // argumento. Catálogo é a régua do que dá para AFIRMAR; quem tem a
+  // informação é o chamador.
+  const semAOferta: OfertaDoGrupo[] = [
+    { id: "auto", nome: "Auto", empresaId: "corretora", rastreada: true },
+  ];
+  const r = calcularOportunidades(
+    { posse: { auto: 1, "conta-investimentos": 1 }, saldoInvestimentos: 5_000_000 },
+    semAOferta,
+  );
+  assert.equal(
+    (r.destaque ?? "").includes("não tem conta de investimentos"),
+    false,
+    r.destaque ?? "(sem destaque)",
+  );
+});
+
+// ── Quantidade que não dá para contar ─────────────────────────────────────
+
+test("BigInt do Postgres não vira lacuna silenciosa", () => {
+  // `COUNT(*)` chega como BigInt neste repositório — é assim que o radar já lê
+  // contrato. O cliente com duas apólices de auto viraria lacuna de auto, em
+  // silêncio e na direção que afirma.
+  const r = calcularOportunidades({
+    ...VAZIA,
+    // `BigInt(2)` e não `2n`: o literal exige target ES2020 e o projeto
+    // compila em ES2017 — o teste passaria e o `tsc` acusaria.
+    posse: { auto: BigInt(2) } as unknown as Record<string, number>,
+  });
+  assert.equal(r.lacunas.some((o) => o.id === "auto"), false, "não pode virar lacuna");
+  assert.equal(r.naoRastreado.some((o) => o.id === "auto"), true, "vira 'não sabemos'");
+  assert.deepEqual(r.naoComputado, [{ id: "auto", motivo: "quantidade-invalida" }]);
+});
+
+test("string, negativo e fracionário também são reportados", () => {
+  const r = calcularOportunidades({
+    ...VAZIA,
+    posse: { auto: "2", vida: -1, saude: 1.5 } as unknown as Record<string, number>,
+  });
+  const porId = new Map(r.naoComputado.map((n) => [n.id, n.motivo]));
+  assert.equal(porId.get("auto"), "quantidade-invalida");
+  assert.equal(porId.get("vida"), "quantidade-invalida");
+  assert.equal(porId.get("saude"), "quantidade-invalida", "Auto (1,5) não é contagem de apólice");
+  assert.equal(r.possui.length, 0);
+  // E nenhuma das três vira lacuna: valor ilegível não afirma ausência.
+  for (const id of ["auto", "vida", "saude"]) {
+    assert.equal(r.lacunas.some((o) => o.id === id), false, `${id} não pode virar lacuna`);
+  }
+});
+
+test("chave desconhecida com quantidade inválida não desaparece", () => {
+  // Antes: nem `possui`, nem lacuna, nem reportada — o oposto do que o campo
+  // foi criado para fazer.
+  const r = calcularOportunidades({
+    ...VAZIA,
+    posse: { seguro_de_dragao: "3" } as unknown as Record<string, number>,
+  });
+  assert.deepEqual(r.naoComputado, [{ id: "seguro_de_dragao", motivo: "quantidade-invalida" }]);
+});
+
+test("chave desconhecida com quantidade ZERO não é notícia", () => {
+  // É o chamador dizendo que a pessoa não tem algo que o catálogo também não
+  // conhece. Reportar isso seria ruído.
+  const r = calcularOportunidades({ ...VAZIA, posse: { seguro_de_dragao: 0 } });
+  assert.deepEqual(r.naoComputado, []);
+});
+
+test("chave não reconhecida NÃO afeta as lacunas", () => {
+  // Asserção que a rodada anterior apagou sem querer.
+  const r = calcularOportunidades({ ...VAZIA, posse: { auto_residencial: 1 } });
+  assert.equal(r.lacunas.length, CATALOGO_DO_GRUPO.filter((o) => o.rastreada).length);
+});
+
+// ── A régua da conta é UMA só ─────────────────────────────────────────────
+
+test("quantidade ilegível da conta NÃO vira 'não tem conta'", () => {
+  // Terceira aparição do mesmo padrão: a frase lia a posse por um caminho e o
+  // cálculo por outro. O mesmo retorno dizia "não consegui ler esse valor" e
+  // "ela não tem conta" ao mesmo tempo.
+  for (const ilegivel of [BigInt(2), "1", -1, NaN, Infinity, true, {}, []]) {
+    const r = calcularOportunidades({
+      ...VAZIA,
+      posse: { auto: 1, "conta-investimentos": ilegivel } as unknown as Record<string, number>,
+    });
+    assert.equal(
+      (r.destaque ?? "").includes("não tem conta de investimentos"),
+      false,
+      `com ${String(ilegivel)}: ${r.destaque}`,
+    );
+    assert.equal(
+      r.naoComputado.some((n) => n.id === "conta-investimentos"),
+      true,
+      "e o valor ilegível precisa continuar reportado",
+    );
+  }
+});
+
+test("a frase e o cálculo concordam em 1,5 — um predicado só", () => {
+  // As duas guardas divergiam exatamente aqui: `Number.isFinite` aceitava,
+  // `ehQuantidade` recusava. A tela mostrava a conta como não computada
+  // enquanto a frase dizia "Tem R$ 5.000.000 investidos pela Onix".
+  const r = calcularOportunidades({
+    posse: { "conta-investimentos": 1.5 },
+    saldoInvestimentos: 5_000_000,
+  });
+  assert.equal((r.destaque ?? "").includes("investidos"), false, r.destaque ?? "");
+  assert.equal(r.naoComputado.some((n) => n.id === "conta-investimentos"), true);
+});
+
+// ── O balde do "não sabemos" diz por quê ──────────────────────────────────
+
+test("nao_rastreado distingue 'o grupo não mede' de 'valor ilegível'", () => {
+  // Sem o motivo, a tela rotularia "ainda não medimos isto" um produto da
+  // Corretora, que é medido.
+  const r = calcularOportunidades({
+    ...VAZIA,
+    posse: { auto: BigInt(2) } as unknown as Record<string, number>,
+  });
+  const porId = new Map(r.naoRastreado.map((o) => [o.id, o.motivoNaoRastreado]));
+  assert.equal(porId.get("auto"), "quantidade-invalida");
+  assert.equal(porId.get("imovel"), "sem-fonte");
+});
+
+test("possui e lacunas não carregam motivo de não rastreado", () => {
+  const r = calcularOportunidades({ ...VAZIA, posse: posseDe("auto") });
+  for (const o of [...r.possui, ...r.lacunas]) {
+    assert.equal(o.motivoNaoRastreado, undefined, `${o.id} não é não rastreada`);
+  }
+});
+
+test("a invariante possui+lacunas === rastreadas vale SÓ com posse legível", () => {
+  // Declarar a condição em vez de deixá-la implícita: com um valor ilegível, a
+  // oferta sai dos dois baldes de propósito, e a soma passa a ser menor.
+  const rastreadas = CATALOGO_DO_GRUPO.filter((o) => o.rastreada).length;
+  const limpa = calcularOportunidades({ ...VAZIA, posse: posseDe("auto") });
+  assert.equal(limpa.possui.length + limpa.lacunas.length, rastreadas);
+
+  const suja = calcularOportunidades({
+    ...VAZIA,
+    posse: { auto: BigInt(1) } as unknown as Record<string, number>,
+  });
+  assert.equal(suja.possui.length + suja.lacunas.length, rastreadas - 1);
+});
+
+test("`__proto__` na posse não vira linha de produto na tela", () => {
+  // Chave própria depois de `JSON.parse`, e ninguém consegue explicar
+  // "__proto__: produto fora do catálogo" para o atendente.
+  const daJson = JSON.parse('{"__proto__": 3, "auto": 1}') as Record<string, number>;
+  const r = calcularOportunidades({ ...VAZIA, posse: daJson });
+  assert.equal(r.naoComputado.some((n) => n.id === "__proto__"), false);
+  assert.equal(r.possui.some((o) => o.id === "auto"), true);
+  assert.equal(({} as Record<string, unknown>).x, undefined, "e nada polui o protótipo");
+});
+
+// ── A assimetria vale nos dois lugares ────────────────────────────────────
+
+test("com a conta NÃO rastreada, a frase não afirma que ela não existe", () => {
+  // Um campo dizia "não dá para afirmar" e o outro afirmava, no mesmo retorno.
+  // E não é hipótese de catálogo injetado: no dia em que a integração com o
+  // BTG sair do ar, `rastreada: false` na conta é o caminho normal — e é
+  // justamente o dia em que ninguém pode dizer que o cliente não tem conta.
+  const catalogo: OfertaDoGrupo[] = [
+    { id: "auto", nome: "Auto", empresaId: "corretora", rastreada: true },
+    {
+      id: "conta-investimentos",
+      nome: "Conta de investimentos",
+      empresaId: "investimentos",
+      rastreada: false,
+    },
+  ];
+  const r = calcularOportunidades({ ...VAZIA, posse: { auto: 1 } }, catalogo);
+  assert.equal(
+    (r.destaque ?? "").includes("não tem conta de investimentos"),
+    false,
+    r.destaque ?? "",
+  );
+  assert.equal(
+    r.naoRastreado.some((o) => o.id === "conta-investimentos"),
+    true,
+    "e ela continua declarada como não afirmável",
+  );
+});
+
+test("com a conta FORA do catálogo, a frase também não afirma", () => {
+  const semAConta: OfertaDoGrupo[] = [
+    { id: "auto", nome: "Auto", empresaId: "corretora", rastreada: true },
+  ];
+  const r = calcularOportunidades({ ...VAZIA, posse: { auto: 1 } }, semAConta);
+  assert.equal((r.destaque ?? "").includes("não tem conta"), false, r.destaque ?? "");
+});
+
+test("com a conta rastreada e ausente da posse, a frase afirma — é o caso legítimo", () => {
+  // A correção não pode ter matado a frase inversa, que é a razão de ela existir.
+  const r = calcularOportunidades({ ...VAZIA, posse: posseDe("auto") });
+  assert.ok(r.destaque?.includes("não tem conta de investimentos"), r.destaque ?? "");
+});
+
+test("chave herdada de Object.prototype não vira produto — a classe inteira", () => {
+  // A lista pegava três nomes; o problema é a classe. Filtro que pega três
+  // tickers e não a regra deixa o resto passar.
+  const daJson = JSON.parse(
+    '{"toString":3,"valueOf":2,"hasOwnProperty":1,"__proto__":9,"auto":1}',
+  ) as Record<string, number>;
+  const r = calcularOportunidades({ ...VAZIA, posse: daJson });
+  assert.deepEqual(r.naoComputado, [], "nenhuma delas é produto");
+  assert.equal(r.possui.some((o) => o.id === "auto"), true, "e o produto de verdade sobrevive");
+});
+
+// ── Invariantes: o guarda que não depende de eu lembrar do caso ───────────
+//
+// Quatro rodadas, quatro defeitos, todos da mesma família e todos achados à
+// mão, um caso por vez. As invariantes são poucas e nomeáveis — travá-las sobre
+// entrada gerada pega a próxima variação sem que ninguém precise imaginá-la.
+
+test("invariantes do módulo, sobre 2.000 combinações geradas", () => {
+  // Gerador determinístico: teste que falha só às vezes não é guarda, é
+  // sorteio. A semente fixa faz a falha ser reproduzível pelo número do caso.
+  let semente = 20260829;
+  const proximo = () => (semente = (semente * 1103515245 + 12345) & 0x7fffffff);
+  // BIT ALTO, e isto é correção de um defeito medido no próprio gerador: neste
+  // LCG o bit 0 tem período 2, então `proximo() % 2` quase nunca alternava. Em
+  // 2.000 casos a versão anterior gerou `rastreada: false` 29 vezes em 7.986
+  // ofertas, e o par (`rastreada:false` E quantidade zero) — que é o único que
+  // a invariante 1 existe para pegar — saiu ZERO vezes. A invariante era linha
+  // morta, e o teste inteiro parecia estar guardando algo que não guardava.
+  const moeda = () => ((proximo() >>> 16) & 1) === 0;
+  const escolher = <T,>(xs: readonly T[]): T => xs[(proximo() >>> 16) % xs.length];
+
+  // `saude` e `dit` estão aqui porque SEM eles o guarda mentia sobre o próprio
+  // alcance: `naoAfirmavel` é montado a partir de `IDS`, então a invariante 4
+  // checava `vida` 1.787 vezes em 2.000 casos e `saude`/`dit` ZERO. Um defeito
+  // que alcançasse só essas duas passava em 44/44 — e a frase que o atendente
+  // leria é "nenhum plano de saúde pela Onix" sobre um produto que o módulo
+  // acabou de declarar que não mede. Alarme instalado numa das três portas.
+  const IDS = [
+    "auto",
+    "vida",
+    "saude",
+    "dit",
+    "conta-investimentos",
+    "imovel",
+    "seguro_de_dragao",
+    "toString",
+  ];
+  const VALORES: unknown[] = [0, 1, 2, -1, 1.5, NaN, Infinity, "2", true, {}, BigInt(2)];
+  const EMPRESAS = ["corretora", "investimentos", "imobiliaria"];
+
+  // `rastreada` sorteia valores NÃO booleanos também: o catálogo pode chegar de
+  // JSON, e `"false"` truthy foi defeito real. Sem isto, essa família fica fora
+  // do espaço gerado.
+  const RASTREADA: unknown[] = [true, false, "false", "true", undefined, 1, 0, null];
+
+  for (let caso = 0; caso < 2000; caso++) {
+    const posse: Record<string, unknown> = {};
+    for (const id of IDS) if (moeda()) posse[id] = escolher(VALORES);
+
+    // Catálogo VAZIO sorteado explicitamente. Era a única região que continuava
+    // em zero depois do conserto do gerador: os tamanhos iam de 1 a 11, porque
+    // o filtro precisaria derrubar todos os ids de uma vez. É o estado em que o
+    // módulo fica se o catálogo passar a vir de configuração e ela falhar ao
+    // carregar — raro, e justamente quando ninguém testou a tela.
+    const vazio = (proximo() >>> 16) % 20 === 0;
+    const base = (vazio ? [] : IDS.filter(() => (proximo() >>> 16) % 3 !== 0)).map((id) => ({
+      id,
+      nome: id,
+      empresaId: escolher(EMPRESAS),
+      rastreada: escolher(RASTREADA),
+    }));
+    // Duplicata DELIBERADA: `IDS.filter` nunca repete, então a família inteira
+    // do dedup — dois consumidores declarando a mesma oferta — era invisível
+    // para o gerador, e a invariante 2 nunca via um id repetido. Catálogo vazio
+    // e "tudo não rastreado" também entram por aqui.
+    const duplicadas = base.filter(() => moeda()).map((o) => ({
+      ...o,
+      empresaId: escolher(EMPRESAS),
+      rastreada: escolher(RASTREADA),
+    }));
+    const catalogo = [...base, ...duplicadas] as OfertaDoGrupo[];
+
+    const saldo = escolher([null, 0, 1_000_000, 2_500_000, -5, NaN, 1234]) as number | null;
+    const r = calcularOportunidades(
+      { posse: posse as Record<string, number>, saldoInvestimentos: saldo },
+      catalogo,
+    );
+    const ctx = `caso ${caso}`;
+
+    // 1. Nada é afirmado como ausente sem que o catálogo permita afirmar.
+    for (const o of r.lacunas) {
+      assert.equal(o.rastreada, true, `${ctx}: lacuna sobre oferta não rastreada — ${o.id}`);
+      assert.equal(o.quantidade, 0, `${ctx}: lacuna com quantidade`);
+    }
+
+    // 2. Os três baldes são disjuntos: nenhuma oferta em dois lugares.
+    const todos = [...r.possui, ...r.lacunas, ...r.naoRastreado].map((o) => o.id);
+    assert.equal(new Set(todos).size, todos.length, `${ctx}: oferta repetida entre os baldes`);
+
+    // 3. O que está em `possui` nunca aparece como não computado — dizer que
+    //    tem e que não deu para contar é dizer as duas coisas.
+    const naoComputados = new Set(r.naoComputado.map((n) => n.id));
+    for (const o of r.possui) {
+      assert.equal(naoComputados.has(o.id), false, `${ctx}: ${o.id} em possui e naoComputado`);
+      assert.ok(o.quantidade > 0, `${ctx}: possui com quantidade ${o.quantidade}`);
+      assert.ok(Number.isInteger(o.quantidade), `${ctx}: quantidade fracionária em possui`);
+    }
+
+    // 4. A frase nunca nega o que o módulo declarou não saber — para TODA
+    //    oferta, não só para a conta. A versão anterior guardava só
+    //    `conta-investimentos`, e por isso uma mutação que fazia o módulo
+    //    afirmar "nenhum seguro de vida pela Onix" sobre um produto marcado
+    //    como não mensurável passava nos 44 testes.
+    const frase = r.destaque ?? "";
+    const naoAfirmavel = new Set([
+      ...r.naoRastreado.map((o) => o.id),
+      ...IDS.filter((id) => !catalogo.some((o) => o.id === id)),
+    ]);
+    for (const [id, negativa] of PRIORIDADE_DE_PROTECAO) {
+      if (!naoAfirmavel.has(id)) continue;
+      assert.equal(
+        frase.includes(negativa),
+        false,
+        `${ctx}: negou "${id}" sem poder afirmar — ${frase}`,
+      );
+    }
+    if (naoAfirmavel.has("conta-investimentos")) {
+      assert.equal(
+        frase.includes("não tem conta de investimentos"),
+        false,
+        `${ctx}: negou a conta sem poder — ${frase}`,
+      );
+    }
+
+    // 5. O sentinela de quantidade inválida nunca vaza para o retorno.
+    for (const o of [...r.possui, ...r.lacunas, ...r.naoRastreado]) {
+      assert.ok(o.quantidade >= 0, `${ctx}: quantidade negativa vazou — ${o.id}`);
+    }
+
+    // 6. O número da frase é O SALDO, não um parente dele. A versão anterior
+    //    checava só ONDE o número aparecia: mutar `reais()` para multiplicar
+    //    por mil passava em todas as seis invariantes.
+    if (/\d/.test(frase)) {
+      assert.ok(frase.includes("investidos pela Onix"), `${ctx}: número fora do lugar — ${frase}`);
+      const impresso = frase.match(/R\$\s*([\d.]+)/)?.[1]?.replace(/\./g, "");
+      assert.equal(
+        impresso,
+        String(Math.round(saldo as number)),
+        `${ctx}: o número impresso não é o saldo (${String(saldo)}) — ${frase}`,
+      );
+    }
+  }
+});

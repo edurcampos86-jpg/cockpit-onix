@@ -11,19 +11,23 @@ import { randomUUID, createHash } from "crypto";
  *
  *   POST  → `createMany` de lançamentos de receita: qualquer logado injeta
  *           números na única base de receita do grupo.
- *   PATCH → `recomputeReceitaClientes()`, que roda um `update` em CADA
- *           `ClienteBackoffice` reescrevendo `receitaAnual` — a base inteira,
- *           num clique, sem corpo de requisição.
+ *   PATCH → `recomputeReceitaClientes()`, que rodava um `update` em CADA
+ *           `ClienteBackoffice` reescrevendo `receitaAnual`.
  *
- * Fechar só o `DELETE` deixa a tela parecendo protegida enquanto duas portas
- * seguem abertas ao lado. O gate é o mesmo predicado e a mesma resposta 403 da
- * #404; o que muda é que agora ele mora numa função e cobre os três verbos, em
- * vez de repetido em um.
+ * Fechar só o `DELETE` deixava a tela parecendo protegida enquanto duas portas
+ * seguiam abertas ao lado. O gate é o mesmo predicado e a mesma resposta 403 da
+ * #404; o que mudou é que ele passou a morar numa função.
  *
- * `GET` fica aberto a qualquer logado, de propósito: a tela
- * `/empresas/investimentos/receita` é leitura, e fechá-la apagaria capacidade
- * real de quem precisa consultar sem poder mexer — mesmo critério registrado
- * para `/integracoes` no AGENTS.md.
+ * O `PATCH` NÃO EXISTE MAIS — e por um motivo mais forte que o gate: ele
+ * escrevia receita da Onix em `receitaAnual`, que é a renda DECLARADA do
+ * cliente. O campo é do cliente; a receita da Onix mora em
+ * `ComissaoMensalCliente`. Ver o bloco no fim deste arquivo.
+ *
+ * `GET` fica aberto a qualquer logado, de propósito: fechá-lo apagaria
+ * capacidade real de quem precisa consultar sem poder mexer — mesmo critério
+ * registrado para `/integracoes` no AGENTS.md. Ele serve hoje o resumo da tela
+ * de importação (`receita/importar`); a aba de leitura da Receita não passa por
+ * ele — lê `ComissaoMensalCliente` direto, no servidor.
  */
 async function exigirAdmin(): Promise<NextResponse | null> {
   const ctx = await getAuthContext().catch(() => null);
@@ -77,39 +81,6 @@ const norm = (s: string | null | undefined) =>
     .toUpperCase()
     .replace(/\s+/g, " ")
     .trim();
-
-/** Recalcula Cliente.receitaAnual com base na soma dos últimos 12 meses do ReceitaItem (match por nome). */
-async function recomputeReceitaClientes() {
-  const items = await prisma.receitaItem.findMany({ select: { data: true, faturamentoLiquido: true, nomeCliente: true } });
-  if (!items.length) return { atualizados: 0, total: 0 };
-  const maxData = items.reduce((m, r) => (r.data > m ? r.data : m), items[0].data);
-  const cutoff = new Date(maxData);
-  cutoff.setFullYear(cutoff.getFullYear() - 1);
-
-  const somaPorNome = new Map<string, number>();
-  for (const r of items) {
-    if (!r.nomeCliente || r.data < cutoff) continue;
-    const k = norm(r.nomeCliente);
-    somaPorNome.set(k, (somaPorNome.get(k) || 0) + r.faturamentoLiquido);
-  }
-
-  const clientes = await prisma.clienteBackoffice.findMany({ select: { id: true, nome: true } });
-  let atualizados = 0;
-  for (const c of clientes) {
-    const k = norm(c.nome);
-    let valor = somaPorNome.get(k) || 0;
-    if (!valor) {
-      // tenta primeiro nome
-      const first = k.split(" ")[0];
-      for (const [nk, v] of somaPorNome) {
-        if (nk.startsWith(first + " ") || nk === first) { valor = v; break; }
-      }
-    }
-    await prisma.clienteBackoffice.update({ where: { id: c.id }, data: { receitaAnual: valor } });
-    if (valor > 0) atualizados++;
-  }
-  return { atualizados, total: clientes.length };
-}
 
 /** GET /api/backoffice/receita -> sumário + últimos lotes (com filtros) */
 export async function GET(req: NextRequest) {
@@ -245,31 +216,16 @@ export async function POST(req: NextRequest) {
     const result = await prisma.receitaItem.createMany({ data: uniq, skipDuplicates: true });
     const inseridos = result.count;
     const ignorados = data.length - inseridos;
-
-    const sync = await recomputeReceitaClientes();
     const totalAgora = await prisma.receitaItem.count();
 
     return NextResponse.json({
       success: true,
-      message: `${inseridos} novo(s) · ${ignorados} duplicado(s) ignorado(s) · base com ${totalAgora} lançamentos · receita atualizada em ${sync.atualizados}/${sync.total} clientes`,
+      message: `${inseridos} novo(s) · ${ignorados} duplicado(s) ignorado(s) · base com ${totalAgora} lançamentos ·`,
       loteId,
       inseridos,
       ignorados,
-      total: totalAgora,
-      sync,
+      total: totalAgora
     });
-  } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : "erro" }, { status: 500 });
-  }
-}
-
-/** PATCH /api/backoffice/receita -> apenas re-sincroniza receita anual nos clientes */
-export async function PATCH() {
-  const negado = await exigirAdmin();
-  if (negado) return negado;
-  try {
-    const sync = await recomputeReceitaClientes();
-    return NextResponse.json({ success: true, ...sync });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "erro" }, { status: 500 });
   }
@@ -285,9 +241,14 @@ export async function PATCH() {
  * `skipDuplicates`), nunca limpa antes.
  *
  * Até aqui a única barreira era o proxy exigir sessão (`src/proxy.ts`), e a
- * página que expõe o botão (`/empresas/investimentos/receita`) não tem gate de
- * papel: qualquer uma das 22 pessoas logadas abria a tela e apagava. O
- * `confirm()` do navegador não é barreira — some com uma chamada direta.
+ * página que expunha o botão não tinha gate de papel: qualquer uma das 22
+ * pessoas logadas abria a tela e apagava. O `confirm()` do navegador não é
+ * barreira — some com uma chamada direta.
+ *
+ * O botão MUDOU DE ENDEREÇO: a aba `/empresas/investimentos/receita` virou
+ * leitura, e a importação (com este botão dentro) foi para
+ * `/empresas/investimentos/receita/importar`. Nenhuma das duas tem gate de
+ * papel, e continua sem precisar: quem barra é este handler, no servidor.
  *
  * 403 e não 404: a rota é conhecida e o próprio menu leva até ela; esconder a
  * existência dela não protege nada, e um 404 aqui só faria o operador legítimo
@@ -305,3 +266,22 @@ export async function DELETE() {
     return NextResponse.json({ error: e instanceof Error ? e.message : "erro" }, { status: 500 });
   }
 }
+
+/*
+ * ── POR QUE NÃO EXISTE MAIS UM `PATCH` AQUI ──────────────────────────────
+ * Ele chamava `recomputeReceitaClientes()`: somava `faturamentoLiquido` dos
+ * últimos 12 meses por nome e ESCREVIA em `ClienteBackoffice.receitaAnual`.
+ *
+ * Esse campo é a renda anual DECLARADA do cliente, vinda do Base BTG — a
+ * `FIELD_SOURCE_POLICY` declara `base_btg` como dono único, e o `PATCH`
+ * passava por cima. As duas grandezas nem se comparam: em 28/08/2026 a renda
+ * declarada somava R$ 10,5 bilhões em 2.706 clientes; a receita da Onix nos
+ * mesmos clientes seria alguns milhões. Na primeira importação de receita que
+ * rodasse, o KPI despencaria mil vezes, sem explicação.
+ *
+ * A receita da Onix tem lugar próprio desde a #408: `ComissaoMensalCliente`,
+ * por competência mensal, com `fonte` distinguindo estimado de realizado.
+ * Quando o Financeiro existir, o `PATCH` nasce de novo — apontando para lá, e
+ * com propósito. Ressuscitá-lo apontando para `receitaAnual` seria refazer
+ * exatamente este defeito.
+ */

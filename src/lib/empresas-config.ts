@@ -38,7 +38,7 @@ const investimentos: EmpresaConfig = {
     { label: "Rotina", icon: "CalendarCheck", href: "/empresas/investimentos/painel-do-dia" },
     { label: "KPIs", icon: "Gauge", href: "/empresas/investimentos/performance" },
     { label: "Saldo & Relacionamento", icon: "Handshake", href: "/empresas/investimentos/clientes" },
-    { label: "ROI", icon: "DollarSign", href: "/empresas/investimentos/receita" },
+    { label: "Receita", icon: "DollarSign", href: "/empresas/investimentos/receita" },
     { label: "Treinamento", icon: "GraduationCap", href: "/empresas/investimentos/storyselling" },
     { label: "Time/Pessoas", icon: "UsersRound", emBreve: true },
     { label: "Melhorias", icon: "Sparkles", href: "/configuracoes/implementacoes/nova?empresa=investimentos" },
@@ -63,7 +63,21 @@ function abasPadrao(slug: string): AbaEmpresa[] {
     { label: "Rotina", icon: "CalendarCheck", href: `/empresas/${slug}/rotina` },
     { label: "KPIs", icon: "Gauge", href: `/empresas/${slug}/kpis` },
     { label: "Negócios", icon: "Handshake", href: `/empresas/${slug}/negocios` },
-    { label: "ROI", icon: "DollarSign", href: `/empresas/${slug}/roi` },
+    /* "Receita", NÃO "ROI" — e a diferença não é preferência de palavra.
+     *
+     * ROI compara retorno com INVESTIMENTO, e o sistema não tem despesa: um
+     * `grep` por despesa/custo no schema devolve zero. A aba só sabe o
+     * numerador, e um rótulo que promete a divisão inteira é a mesma classe
+     * de erro do KPI "Receita anual", que mostrava a renda declarada do
+     * cliente e foi corrigido na #414.
+     *
+     * A rota acompanha o rótulo (`/receita`, não `/roi`): senão o endereço
+     * segue dizendo ROI e quem for construir a tela de verdade cai numa pasta
+     * com o nome errado.
+     *
+     * O rótulo volta a ser ROI quando `LancamentoDespesa` tiver dado —
+     * `docs/onix-financeiro-modelo.md`, seção 6. */
+    { label: "Receita", icon: "DollarSign", href: `/empresas/${slug}/receita` },
     { label: "Treinamento", icon: "GraduationCap", href: `/empresas/${slug}/treinamento` },
     { label: "Time/Pessoas", icon: "UsersRound", emBreve: true },
     { label: "Melhorias", icon: "Sparkles", href: `/configuracoes/implementacoes/nova?empresa=${slug}` },
