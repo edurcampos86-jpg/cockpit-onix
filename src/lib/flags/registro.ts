@@ -259,6 +259,16 @@ export const FLAGS_REGISTRADAS: readonly FlagRegistrada[] = [
     impacto: "normal",
   },
   {
+    key: "INDICACOES_V2",
+    rotulo: "Círculo de Introduções — refino V2 do CRM de indicações (kanban DnD, convites WhatsApp, conversão)",
+    onde: "src/app/empresas/investimentos/indicacoes/page.tsx",
+    tipo: "booleana",
+    dialeto: "amplo",
+    // Gate de UI puro: OFF renderiza o board antigo byte a byte; a V2 só chama
+    // as 3 rotas de indicação que JÁ existem. Liga, olha, desliga.
+    impacto: "normal",
+  },
+  {
     /* O nome sugere um número, mas é booleana: liga/desliga a 2ª linha
      * "parado há Xd" na coluna Saldo Conta. Registrado assim de propósito —
      * é justamente o tipo de chave que alguém tentaria preencher com "30". */
