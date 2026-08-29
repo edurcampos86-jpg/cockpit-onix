@@ -127,3 +127,89 @@ test("caso conferido à mão: 12 meses, 3 com dado", () => {
   assert.equal(s.ultimaComDado, "2026-08");
   assert.ok(s.meses.every((m) => m.variacao === null));
 });
+
+/* ── POR QUE O MÊS ESTÁ VAZIO ──────────────────────────────────────────── */
+
+import { motivoDoMesVazio, fraseDoMotivo, diasDesde, type ExecucaoSync } from "./serie-competencia";
+
+const execs: ExecucaoSync[] = [
+  { competencia: "2026-06", sucesso: true },
+  { competencia: "2026-06", sucesso: true },
+  { competencia: "2026-07", sucesso: false },
+  { competencia: "2026-07", sucesso: false },
+];
+
+test("mês sem execução nenhuma: ninguém tentou", () => {
+  assert.deepEqual(motivoDoMesVazio("2026-05", execs, "2026-08"), { tipo: "nunca_rodou" });
+});
+
+test("mês com execuções e nenhuma bem-sucedida: falhou, e diz quantas vezes", () => {
+  assert.deepEqual(motivoDoMesVazio("2026-07", execs, "2026-08"), {
+    tipo: "rodou_e_falhou",
+    tentativas: 2,
+  });
+});
+
+test("rodou COM SUCESSO e mesmo assim não há comissão — fato do negócio, não falha", () => {
+  // O caso menos óbvio e o mais importante: sem ele, todo mês vazio pareceria
+  // defeito e o time caçaria um erro que não existe.
+  assert.deepEqual(motivoDoMesVazio("2026-06", execs, "2026-08"), {
+    tipo: "rodou_sem_comissao",
+    execucoes: 2,
+  });
+});
+
+test("mês futuro não é falha de nada", () => {
+  // A janela termina no mês corrente. Quem abrir a tela no dia 1º veria "não
+  // rodou" para um mês que mal começou — alarme falso.
+  assert.deepEqual(motivoDoMesVazio("2026-09", execs, "2026-08"), { tipo: "mes_futuro" });
+});
+
+test("o mês CORRENTE não é futuro — ele já pode ter coleta", () => {
+  assert.deepEqual(motivoDoMesVazio("2026-08", execs, "2026-08"), { tipo: "nunca_rodou" });
+});
+
+test("uma falha só não vira '1×' na frase", () => {
+  assert.equal(fraseDoMotivo({ tipo: "rodou_e_falhou", tentativas: 1 }), "sincronização falhou");
+  assert.equal(fraseDoMotivo({ tipo: "rodou_e_falhou", tentativas: 3 }), "sincronização falhou 3×");
+});
+
+test("toda frase é curta e não vazia — ela cabe numa célula da tabela", () => {
+  const todos: Parameters<typeof fraseDoMotivo>[0][] = [
+    { tipo: "mes_futuro" },
+    { tipo: "nunca_rodou" },
+    { tipo: "rodou_e_falhou", tentativas: 1 },
+    { tipo: "rodou_sem_comissao", execucoes: 1 },
+  ];
+  for (const m of todos) {
+    const f = fraseDoMotivo(m);
+    assert.ok(f.length > 0 && f.length <= 32, `frase fora do limite: "${f}" (${f.length})`);
+  }
+});
+
+/* ── HÁ QUANTOS DIAS FOI A ÚLTIMA COLETA ───────────────────────────────── */
+
+test("nunca houve coleta devolve null, não zero", () => {
+  // Zero significaria "hoje". Ausência de resposta e resposta zero são coisas
+  // diferentes — a mesma regra do resto deste módulo.
+  assert.equal(diasDesde(null, new Date("2026-08-29T12:00:00Z")), null);
+});
+
+test("30 horas atrás é 1 dia, não 2 — piso, não arredondamento", () => {
+  const agora = new Date("2026-08-29T12:00:00Z");
+  const ontem = new Date("2026-08-28T06:00:00Z");
+  assert.equal(diasDesde(ontem, agora), 1);
+});
+
+test("mesma hora de hoje é 0 dias", () => {
+  const agora = new Date("2026-08-29T12:00:00Z");
+  assert.equal(diasDesde(new Date("2026-08-29T11:59:00Z"), agora), 0);
+});
+
+test("relógio do banco à frente não vira '-1 dia'", () => {
+  // Acontece: o carimbo vem do Postgres e o `now` do runtime. Um número
+  // negativo na tela ninguém sabe ler.
+  const agora = new Date("2026-08-29T12:00:00Z");
+  const futuro = new Date("2026-08-30T12:00:00Z");
+  assert.equal(diasDesde(futuro, agora), 0);
+});
