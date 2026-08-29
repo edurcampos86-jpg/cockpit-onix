@@ -12,6 +12,7 @@ import { test } from "node:test";
 import {
   REGUA_PADRAO,
   antecedenciaDe,
+  contarSemContato,
   diaCivil,
   diasAte,
   escolherContraparte,
@@ -283,4 +284,36 @@ test("diaCivil ancora ao meio-dia UTC, como o motor grava vigência", () => {
   // Mesma âncora de `montarData` — é o que mantém a comparação entre as duas
   // datas livre de borda de fuso.
   assert.equal(diaCivil(new Date("2026-08-28T13:00:00Z")).getUTCHours(), 12);
+});
+
+// ── semContato: quantas ligações são impossíveis hoje ─────────────────────
+
+const linhaDaFila = (telefone: string | null): Parameters<typeof contarSemContato>[0][number] => ({
+  contratoId: `c_${telefone ?? "nulo"}`,
+  faixa: "atrasado",
+  dias: -5,
+  nome: null,
+  telefone,
+  cpfCnpj: "09714600510",
+  tipoProduto: "auto",
+  parceiro: "Porto",
+  numeroContrato: "AP-1",
+  fimVigencia: new Date(),
+  status: "ativo",
+  atendenteCorretora: null,
+});
+
+test("semContato conta quem não tem telefone em lugar nenhum do grupo", () => {
+  const fila = [linhaDaFila("71-90000-0001"), linhaDaFila(null), linhaDaFila(null)];
+  assert.equal(contarSemContato(fila), 2);
+});
+
+test("telefone em branco conta como ausente — quem vai discar não disca espaço", () => {
+  // Contá-lo como contato faria o número mentir para baixo, na direção que
+  // esconde o problema.
+  assert.equal(contarSemContato([linhaDaFila(""), linhaDaFila("   ")]), 2);
+});
+
+test("fila vazia não tem ligação impossível", () => {
+  assert.equal(contarSemContato([]), 0);
 });
