@@ -237,6 +237,21 @@ export type Radar = {
     readonly vencendo: number;
     readonly semData: number;
     readonly adiante: number;
+    /**
+     * Linhas da FILA sem telefone em lugar nenhum do grupo.
+     *
+     * É o número que diz quantas ligações são impossíveis hoje. Conta só a
+     * fila (atrasado e vencendo), porque contrato que não está na fila não é
+     * ligação pendente — somá-lo aqui inflaria o problema e tiraria a
+     * credibilidade do número.
+     *
+     * O contato é buscado em `ClienteBackoffice` pelos dois caminhos (vínculo
+     * e documento), então `semContato` só sobra para quem não tem contraparte
+     * em NENHUMA empresa do grupo. Se a pessoa vem de outra empresa, o
+     * telefone já está lá — e é por isso que este número é pequeno e
+     * acionável, em vez de ser "quantos contratos não trouxeram telefone".
+     */
+    readonly semContato: number;
   };
   /** Atrasados e vencendo, os mais urgentes primeiro. Sem data vem à parte. */
   readonly fila: readonly LinhaDoRadar[];
@@ -401,6 +416,17 @@ async function carregarContrapartes(
   }));
 }
 
+/**
+ * Quantas linhas da fila não têm telefone em lugar nenhum do grupo.
+ *
+ * `trim()` porque telefone vazio gravado como espaço é o mesmo que ausente
+ * para quem vai discar, e contá-lo como contato faria o número mentir para
+ * baixo — na direção que esconde o problema.
+ */
+export function contarSemContato(fila: readonly LinhaDoRadar[]): number {
+  return fila.filter((l) => (l.telefone ?? "").trim() === "").length;
+}
+
 /** Ordena a fila por urgência: quem venceu há mais tempo vem primeiro. */
 function porUrgencia(a: LinhaDoRadar, b: LinhaDoRadar): number {
   // `dias` nunca é null aqui — a fila só tem atrasado e vencendo —, mas o
@@ -478,6 +504,7 @@ export async function coletarRadar(
       vencendo: linhas.filter((l) => l.faixa === "vencendo").length,
       semData: semData.length,
       adiante: linhas.filter((l) => l.faixa === "adiante").length,
+      semContato: contarSemContato(fila),
     },
     fila,
     semData,

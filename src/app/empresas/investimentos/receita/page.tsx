@@ -4,7 +4,14 @@ import Link from "next/link";
 import { Upload, TriangleAlert } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { prisma } from "@/lib/prisma";
-import { montarSerie, type LinhaCompetencia } from "@/lib/financeiro/serie-competencia";
+import {
+  montarSerie,
+  motivoDoMesVazio,
+  fraseDoMotivo,
+  diasDesde,
+  type LinhaCompetencia,
+  type ExecucaoSync,
+} from "@/lib/financeiro/serie-competencia";
 
 /**
  * A aba "Receita" da Onix Capital ABRE A LEITURA.
@@ -50,6 +57,8 @@ function competenciaDeHoje(): string {
 
 export default async function ReceitaCapitalPage() {
   let linhas: LinhaCompetencia[] = [];
+  let execucoes: ExecucaoSync[] = [];
+  let ultimaColeta: Date | null = null;
   let falhou = false;
 
   try {
@@ -66,6 +75,29 @@ export default async function ReceitaCapitalPage() {
       valor: Number(l.valor ?? 0),
       clientes: Number(l.clientes),
     }));
+
+    /* AS EXECUÇÕES DA SINCRONIZAÇÃO — é o que transforma "sem dado" numa
+     * frase. `tipo = 'enrich'` é a rotina que grava comissão; as outras
+     * (import, movements, balances) não escrevem em `ComissaoMensalCliente` e
+     * incluí-las diria que rodou quando nada de comissão rodou.
+     *
+     * A competência sai do `iniciado` em UTC, o mesmo fuso em que a
+     * competência foi gravada. */
+    const sync = await prisma.$queryRaw<Array<{ competencia: string; sucesso: boolean }>>`
+      SELECT to_char("iniciado" AT TIME ZONE 'UTC', 'YYYY-MM') AS competencia,
+             "sucesso"
+      FROM "BtgSyncLog"
+      WHERE "tipo" = 'enrich'
+        AND "iniciado" >= (now() - interval '13 months')
+    `;
+    execucoes = sync.map((e) => ({ competencia: e.competencia, sucesso: e.sucesso }));
+
+    const [ultima] = await prisma.$queryRaw<Array<{ quando: Date | null }>>`
+      SELECT max("iniciado") AS quando
+      FROM "BtgSyncLog"
+      WHERE "tipo" = 'enrich' AND "sucesso" = true
+    `;
+    ultimaColeta = ultima?.quando ?? null;
   } catch {
     /* Banco fora do ar não pode virar "receita zero" na tela — é a mesma
      * distinção entre ausência de resposta e resposta zero que o
@@ -73,8 +105,10 @@ export default async function ReceitaCapitalPage() {
     falhou = true;
   }
 
-  const serie = montarSerie(linhas, competenciaDeHoje(), 12);
+  const hoje = competenciaDeHoje();
+  const serie = montarSerie(linhas, hoje, 12);
   const maior = Math.max(1, ...serie.meses.map((m) => m.valor));
+  const diasSemColeta = diasDesde(ultimaColeta, new Date());
 
   return (
     <div className="space-y-6">
@@ -144,15 +178,35 @@ export default async function ReceitaCapitalPage() {
                   {moeda(serie.meses.find((m) => m.competencia === serie.ultimaComDado)?.valor ?? 0)}
                 </p>
               </div>
+              {/* A ÚLTIMA COLETA, e não a contagem de buracos.
+                *
+                * A comissão está gravada por cliente e por mês desde a #408 e
+                * nenhuma tela lia até a #430. Se a sincronização parar, ninguém
+                * percebe: não há alarme, só uma tabela que deixa de crescer.
+                * É dividendo que cai na conta sem aviso — e deixa de cair sem
+                * aviso também.
+                *
+                * `null` é ausência de resposta, não "hoje": quando nunca houve
+                * coleta bem-sucedida, o card DIZ isso em vez de mostrar 0. */}
               <div className="rounded-xl border border-border bg-card p-4">
                 <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Meses sem dado
+                  Última coleta do BTG
                 </p>
-                <p className="mt-1 text-2xl font-semibold tabular-nums">
-                  {serie.meses.length - serie.mesesComDado}
+                <p
+                  className={`mt-1 text-2xl font-semibold tabular-nums ${
+                    diasSemColeta !== null && diasSemColeta > 2 ? "text-amber-600" : ""
+                  }`}
+                >
+                  {diasSemColeta === null
+                    ? "nunca"
+                    : diasSemColeta === 0
+                      ? "hoje"
+                      : `há ${diasSemColeta} ${diasSemColeta === 1 ? "dia" : "dias"}`}
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Buraco de coleta, não mês de receita zero.
+                  {diasSemColeta === null
+                    ? "Nenhuma sincronização de comissão bem-sucedida registrada."
+                    : `${serie.meses.length - serie.mesesComDado} dos 12 meses sem dado.`}
                 </p>
               </div>
             </div>
@@ -176,7 +230,13 @@ export default async function ReceitaCapitalPage() {
                         {m.presente ? (
                           moeda(m.valor)
                         ) : (
-                          <span className="text-muted-foreground">sem dado</span>
+                          /* O motivo, e não só o buraco. Quem abre em janeiro e
+                           * vê dezembro vazio não sabe se o BTG não mandou ou se
+                           * a sincronização caiu — é linha em branco no extrato:
+                           * o susto não é o valor, é não saber o que houve. */
+                          <span className="text-muted-foreground">
+                            {fraseDoMotivo(motivoDoMesVazio(m.competencia, execucoes, hoje))}
+                          </span>
                         )}
                       </td>
                       <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">
@@ -211,8 +271,11 @@ export default async function ReceitaCapitalPage() {
             </div>
 
             <p className="text-xs text-muted-foreground">
-              A barra tracejada marca mês sem coleta. Um mês ausente não vira base de comparação
-              para o seguinte — senão a tela mostraria alta de 100% logo depois de uma falha.
+              A barra tracejada marca mês sem coleta, e a coluna do valor diz o motivo:
+              “sincronização não rodou” é falha de agendamento, “sincronização falhou” é erro a
+              investigar, e <strong>“sincronizou, sem comissão” é fato do negócio, não defeito</strong>.
+              Um mês ausente não vira base de comparação para o seguinte — senão a tela mostraria
+              alta de 100% logo depois de uma falha.
             </p>
           </>
         )}

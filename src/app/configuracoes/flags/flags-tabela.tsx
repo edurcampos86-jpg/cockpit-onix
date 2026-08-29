@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
-  CircleDashed,
+  CircleOff,
   Database,
   HardDrive,
   History,
@@ -846,11 +846,23 @@ function LinhaFlag({
  * De onde veio o valor. Importa porque a precedência do `getConfig` é banco →
  * env, e flag de origem `env` fica com o toggle TRAVADO: sem este selo, a
  * chave cadeada pareceria um bug em vez de uma decisão.
+ *
+ * ── POR QUE O ÍCONE DE "AUSENTE" NÃO É MAIS UM CÍRCULO TRACEJADO ─────────
+ * Era `CircleDashed`, e um círculo tracejado é o desenho universal de
+ * "carregando". Só as flags que NUNCA foram ligadas caem em `ausente` — não há
+ * linha em `Config` nem variável de ambiente —, então o selo aparecia
+ * exatamente nas duas chaves que alguém estava tentando ligar pela primeira
+ * vez, ao lado do interruptor, parecendo um spinner eterno.
+ *
+ * Relatado assim em produção (ago/2026): "o toggle não liga, fica com ícone de
+ * carregamento". O estado não era de carregamento: era o selo dizendo que a
+ * chave ainda não existe. O ícone de carregamento de verdade é o `Loader2`
+ * girando, e ele SUBSTITUI o interruptor enquanto a gravação está em voo.
  */
 function Origem({ flag }: { flag: EstadoFlag }) {
   const rotulo =
     flag.origem === "db" ? "banco" : flag.origem === "env" ? "env" : "não definida";
-  const Icone = flag.origem === "db" ? Database : flag.origem === "env" ? HardDrive : CircleDashed;
+  const Icone = flag.origem === "db" ? Database : flag.origem === "env" ? HardDrive : CircleOff;
 
   return (
     <Tooltip>
@@ -860,7 +872,7 @@ function Origem({ flag }: { flag: EstadoFlag }) {
           "flex h-6 w-6 items-center justify-center rounded-md",
           flag.origem === "env" ? "text-primary" : "text-muted-foreground",
         )}
-        aria-label={`Origem do valor: ${rotulo}`}
+        aria-label={`Origem do valor: ${rotulo} (informativo — quem liga a flag é o interruptor)`}
       >
         <Icone className="h-3.5 w-3.5" />
       </TooltipTrigger>
@@ -869,7 +881,7 @@ function Origem({ flag }: { flag: EstadoFlag }) {
           ? "Valor vem de variável de ambiente — o toggle fica travado. Mudar só editando a variável no Railway."
           : flag.origem === "db"
             ? "Valor gravado na tabela Config."
-            : "Sem linha no banco e sem env — vale o default (desligada)."}
+            : "Ainda não existe: sem linha em Config e sem variável de ambiente, então vale o default (desligada). Vire o interruptor à direita para criar a chave — este selo não é botão nem indicador de carregamento."}
       </TooltipContent>
     </Tooltip>
   );
