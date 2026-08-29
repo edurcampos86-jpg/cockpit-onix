@@ -538,7 +538,22 @@ test("invariantes do módulo, sobre 2.000 combinações geradas", () => {
   const moeda = () => ((proximo() >>> 16) & 1) === 0;
   const escolher = <T,>(xs: readonly T[]): T => xs[(proximo() >>> 16) % xs.length];
 
-  const IDS = ["auto", "vida", "conta-investimentos", "imovel", "seguro_de_dragao", "toString"];
+  // `saude` e `dit` estão aqui porque SEM eles o guarda mentia sobre o próprio
+  // alcance: `naoAfirmavel` é montado a partir de `IDS`, então a invariante 4
+  // checava `vida` 1.787 vezes em 2.000 casos e `saude`/`dit` ZERO. Um defeito
+  // que alcançasse só essas duas passava em 44/44 — e a frase que o atendente
+  // leria é "nenhum plano de saúde pela Onix" sobre um produto que o módulo
+  // acabou de declarar que não mede. Alarme instalado numa das três portas.
+  const IDS = [
+    "auto",
+    "vida",
+    "saude",
+    "dit",
+    "conta-investimentos",
+    "imovel",
+    "seguro_de_dragao",
+    "toString",
+  ];
   const VALORES: unknown[] = [0, 1, 2, -1, 1.5, NaN, Infinity, "2", true, {}, BigInt(2)];
   const EMPRESAS = ["corretora", "investimentos", "imobiliaria"];
 
@@ -551,7 +566,13 @@ test("invariantes do módulo, sobre 2.000 combinações geradas", () => {
     const posse: Record<string, unknown> = {};
     for (const id of IDS) if (moeda()) posse[id] = escolher(VALORES);
 
-    const base = IDS.filter(() => (proximo() >>> 16) % 3 !== 0).map((id) => ({
+    // Catálogo VAZIO sorteado explicitamente. Era a única região que continuava
+    // em zero depois do conserto do gerador: os tamanhos iam de 1 a 11, porque
+    // o filtro precisaria derrubar todos os ids de uma vez. É o estado em que o
+    // módulo fica se o catálogo passar a vir de configuração e ela falhar ao
+    // carregar — raro, e justamente quando ninguém testou a tela.
+    const vazio = (proximo() >>> 16) % 20 === 0;
+    const base = (vazio ? [] : IDS.filter(() => (proximo() >>> 16) % 3 !== 0)).map((id) => ({
       id,
       nome: id,
       empresaId: escolher(EMPRESAS),
