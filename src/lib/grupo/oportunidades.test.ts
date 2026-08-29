@@ -334,7 +334,9 @@ test("BigInt do Postgres não vira lacuna silenciosa", () => {
   // silêncio e na direção que afirma.
   const r = calcularOportunidades({
     ...VAZIA,
-    posse: { auto: 2n } as unknown as Record<string, number>,
+    // `BigInt(2)` e não `2n`: o literal exige target ES2020 e o projeto
+    // compila em ES2017 — o teste passaria e o `tsc` acusaria.
+    posse: { auto: BigInt(2) } as unknown as Record<string, number>,
   });
   assert.equal(r.lacunas.some((o) => o.id === "auto"), false, "não pode virar lacuna");
   assert.equal(r.naoRastreado.some((o) => o.id === "auto"), true, "vira 'não sabemos'");
@@ -378,4 +380,85 @@ test("chave não reconhecida NÃO afeta as lacunas", () => {
   // Asserção que a rodada anterior apagou sem querer.
   const r = calcularOportunidades({ ...VAZIA, posse: { auto_residencial: 1 } });
   assert.equal(r.lacunas.length, CATALOGO_DO_GRUPO.filter((o) => o.rastreada).length);
+});
+
+// ── A régua da conta é UMA só ─────────────────────────────────────────────
+
+test("quantidade ilegível da conta NÃO vira 'não tem conta'", () => {
+  // Terceira aparição do mesmo padrão: a frase lia a posse por um caminho e o
+  // cálculo por outro. O mesmo retorno dizia "não consegui ler esse valor" e
+  // "ela não tem conta" ao mesmo tempo.
+  for (const ilegivel of [BigInt(2), "1", -1, NaN, Infinity, true, {}, []]) {
+    const r = calcularOportunidades({
+      ...VAZIA,
+      posse: { auto: 1, "conta-investimentos": ilegivel } as unknown as Record<string, number>,
+    });
+    assert.equal(
+      (r.destaque ?? "").includes("não tem conta de investimentos"),
+      false,
+      `com ${String(ilegivel)}: ${r.destaque}`,
+    );
+    assert.equal(
+      r.naoComputado.some((n) => n.id === "conta-investimentos"),
+      true,
+      "e o valor ilegível precisa continuar reportado",
+    );
+  }
+});
+
+test("a frase e o cálculo concordam em 1,5 — um predicado só", () => {
+  // As duas guardas divergiam exatamente aqui: `Number.isFinite` aceitava,
+  // `ehQuantidade` recusava. A tela mostrava a conta como não computada
+  // enquanto a frase dizia "Tem R$ 5.000.000 investidos pela Onix".
+  const r = calcularOportunidades({
+    posse: { "conta-investimentos": 1.5 },
+    saldoInvestimentos: 5_000_000,
+  });
+  assert.equal((r.destaque ?? "").includes("investidos"), false, r.destaque ?? "");
+  assert.equal(r.naoComputado.some((n) => n.id === "conta-investimentos"), true);
+});
+
+// ── O balde do "não sabemos" diz por quê ──────────────────────────────────
+
+test("nao_rastreado distingue 'o grupo não mede' de 'valor ilegível'", () => {
+  // Sem o motivo, a tela rotularia "ainda não medimos isto" um produto da
+  // Corretora, que é medido.
+  const r = calcularOportunidades({
+    ...VAZIA,
+    posse: { auto: BigInt(2) } as unknown as Record<string, number>,
+  });
+  const porId = new Map(r.naoRastreado.map((o) => [o.id, o.motivoNaoRastreado]));
+  assert.equal(porId.get("auto"), "quantidade-invalida");
+  assert.equal(porId.get("imovel"), "sem-fonte");
+});
+
+test("possui e lacunas não carregam motivo de não rastreado", () => {
+  const r = calcularOportunidades({ ...VAZIA, posse: posseDe("auto") });
+  for (const o of [...r.possui, ...r.lacunas]) {
+    assert.equal(o.motivoNaoRastreado, undefined, `${o.id} não é não rastreada`);
+  }
+});
+
+test("a invariante possui+lacunas === rastreadas vale SÓ com posse legível", () => {
+  // Declarar a condição em vez de deixá-la implícita: com um valor ilegível, a
+  // oferta sai dos dois baldes de propósito, e a soma passa a ser menor.
+  const rastreadas = CATALOGO_DO_GRUPO.filter((o) => o.rastreada).length;
+  const limpa = calcularOportunidades({ ...VAZIA, posse: posseDe("auto") });
+  assert.equal(limpa.possui.length + limpa.lacunas.length, rastreadas);
+
+  const suja = calcularOportunidades({
+    ...VAZIA,
+    posse: { auto: BigInt(1) } as unknown as Record<string, number>,
+  });
+  assert.equal(suja.possui.length + suja.lacunas.length, rastreadas - 1);
+});
+
+test("`__proto__` na posse não vira linha de produto na tela", () => {
+  // Chave própria depois de `JSON.parse`, e ninguém consegue explicar
+  // "__proto__: produto fora do catálogo" para o atendente.
+  const daJson = JSON.parse('{"__proto__": 3, "auto": 1}') as Record<string, number>;
+  const r = calcularOportunidades({ ...VAZIA, posse: daJson });
+  assert.equal(r.naoComputado.some((n) => n.id === "__proto__"), false);
+  assert.equal(r.possui.some((o) => o.id === "auto"), true);
+  assert.equal(({} as Record<string, unknown>).x, undefined, "e nada polui o protótipo");
 });

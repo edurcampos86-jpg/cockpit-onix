@@ -35,7 +35,10 @@
  * verificou, e o atendente ligaria oferecendo algo que o cliente já comprou.
  *
  * Por isso existe `nao_rastreado`, e por isso ele aparece na tela em bloco
- * separado.
+ * separado. Ele tem DUAS causas, distinguidas por `motivoNaoRastreado`: a
+ * empresa que o grupo ainda não mede (`sem-fonte`) e o produto que ele mede
+ * cujo valor chegou ilegível (`quantidade-invalida`). São coisas diferentes, e
+ * a tela precisa poder separá-las.
  *
  * Quando a Imobiliária ganhar sua tabela, rastrear passa a ser DUAS coisas:
  * virar `rastreada: true` no catálogo E o chamador passar a preencher a posse
@@ -67,6 +70,16 @@ export type MotivoNaoComputado = "fora-do-catalogo" | "quantidade-invalida";
 
 export type OfertaAvaliada = OfertaDoGrupo & {
   readonly situacao: Situacao;
+  /**
+   * Por que a oferta caiu em `nao_rastreado`. Ausente nas demais situações.
+   *
+   * O balde passou a misturar duas coisas incomparáveis: a empresa que o grupo
+   * ainda não mede (`sem-fonte`) e o produto que ele MEDE, cujo valor chegou
+   * ilegível (`quantidade-invalida`). Sem este campo, a tela rotularia "ainda
+   * não medimos isto" um produto da Corretora — e só conseguiria separá-los
+   * cruzando com `naoComputado` por id.
+   */
+  readonly motivoNaoRastreado?: MotivoNaoComputado | "sem-fonte";
   /**
    * Quantos contratos/contas sustentam o `possui`. `0` nos demais casos.
    *
@@ -213,7 +226,12 @@ export function calcularOportunidades(
     // pode virar "não tem". Reportar em `naoComputado` E afirmar lacuna seria
     // dizer as duas coisas ao mesmo tempo.
     if (q === INVALIDA) {
-      return { ...oferta, situacao: "nao_rastreado" as const, quantidade: 0 };
+      return {
+        ...oferta,
+        situacao: "nao_rastreado" as const,
+        quantidade: 0,
+        motivoNaoRastreado: "quantidade-invalida" as const,
+      };
     }
 
     // ── A REGRA, e ela é assimétrica de propósito ───────────────────────
@@ -230,7 +248,12 @@ export function calcularOportunidades(
     if (oferta.rastreada !== true) {
       // `!== true` e não `!oferta.rastreada`: o catálogo pode chegar de JSON,
       // e ali `"false"` é uma string TRUTHY.
-      return { ...oferta, situacao: "nao_rastreado" as const, quantidade: 0 };
+      return {
+        ...oferta,
+        situacao: "nao_rastreado" as const,
+        quantidade: 0,
+        motivoNaoRastreado: "sem-fonte" as const,
+      };
     }
     return { ...oferta, situacao: "nao_possui" as const, quantidade: 0 };
   });
@@ -239,6 +262,10 @@ export function calcularOportunidades(
   // exemplo. Ver `naoComputado`.
   for (const [id, bruta] of Object.entries(posse.posse)) {
     if (vistos.has(id)) continue;
+    // `__proto__` vindo de `JSON.parse` é chave própria e apareceria na tela
+    // como "produto fora do catálogo". Não polui protótipo (a posse nunca é
+    // alvo de atribuição), mas é uma linha que ninguém explica ao atendente.
+    if (CHAVES_RECUSADAS.has(id)) continue;
     if (ehQuantidade(bruta) && bruta > 0) {
       invalidas.push({ id, motivo: "fora-do-catalogo" });
     } else if (!ehQuantidade(bruta)) {
@@ -257,9 +284,35 @@ export function calcularOportunidades(
   };
 }
 
+/** Chaves que nunca são produto, venham de onde vierem. */
+const CHAVES_RECUSADAS = new Set(["__proto__", "constructor", "prototype"]);
+
 /** Quantidade utilizável: inteiro finito não negativo. */
 function ehQuantidade(v: unknown): v is number {
   return typeof v === "number" && Number.isInteger(v) && v >= 0;
+}
+
+/**
+ * A situação da conta de investimentos, pela MESMA régua do cálculo.
+ *
+ * Existe porque a frase e o cálculo liam a mesma informação por caminhos
+ * diferentes, com predicados diferentes — `Number.isFinite` de um lado,
+ * `ehQuantidade` do outro —, e divergiam em `1.5` e em todo tipo ilegível.
+ * Dois predicados para o mesmo fato é como o módulo passou a dizer duas coisas
+ * contraditórias no mesmo retorno.
+ *
+ * Independe do CATÁLOGO de propósito: catálogo é a régua do que dá para
+ * afirmar sobre ausência; quem tem a informação de posse é o chamador. Derivar
+ * isto de `avaliadas` fazia o módulo negar a conta quando a oferta estivesse
+ * fora do catálogo injetado, recebendo o saldo no mesmo argumento.
+ */
+type SituacaoConta = "possui" | "nao_possui" | "ilegivel";
+
+function situacaoDaConta(posse: Readonly<Record<string, number>>): SituacaoConta {
+  const bruta: unknown = posse[OFERTA_CONTA_INVESTIMENTOS];
+  if (bruta === undefined) return "nao_possui";
+  if (!ehQuantidade(bruta)) return "ilegivel";
+  return bruta > 0 ? "possui" : "nao_possui";
 }
 
 /**
@@ -327,13 +380,8 @@ function reais(v: number): string {
  */
 function montarDestaque(posse: PossePessoa, avaliadas: readonly OfertaAvaliada[]): string | null {
   const falta = (id: string) => avaliadas.some((o) => o.id === id && o.situacao === "nao_possui");
-  // A conta vem da POSSE, não do catálogo. Derivar de `avaliadas` fazia o
-  // módulo afirmar "não tem conta de investimentos na Onix" quando a oferta
-  // estivesse ausente ou marcada como não rastreada no catálogo injetado — com
-  // o saldo de R$ 5 milhões chegando no MESMO argumento. Catálogo é a régua do
-  // que dá para afirmar; quem tem a informação é o chamador.
-  const bruta: unknown = posse.posse[OFERTA_CONTA_INVESTIMENTOS];
-  const temConta = typeof bruta === "number" && Number.isFinite(bruta) && bruta > 0;
+  const conta = situacaoDaConta(posse.posse);
+  const temConta = conta === "possui";
 
   if (temConta) {
     const s = posse.saldoInvestimentos;
@@ -351,7 +399,13 @@ function montarDestaque(posse: PossePessoa, avaliadas: readonly OfertaAvaliada[]
   const temAlgumSeguro = avaliadas.some(
     (o) => o.empresaId === "corretora" && o.situacao === "possui",
   );
-  if (temAlgumSeguro && !temConta) {
+  // `=== "nao_possui"` e não `!temConta`: com a quantidade ILEGÍVEL, negar
+  // seria afirmar o que o módulo acabou de dizer que não conseguiu ler — o
+  // mesmo retorno carregaria `naoComputado: [conta-investimentos]` e a frase
+  // "ela não tem conta". Foi o terceiro lugar em que este padrão apareceu, e
+  // as três vezes pela mesma razão: a régua aplicada num ponto do módulo e não
+  // no outro que lê a mesma informação. Por isso a régua virou UMA função.
+  if (temAlgumSeguro && conta === "nao_possui") {
     return "É cliente da Corretora e não tem conta de investimentos na Onix.";
   }
 
