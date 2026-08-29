@@ -103,3 +103,32 @@ test("só o migration.sql do Prisma conta como migration", () => {
   assert.equal(ehMigrationSql("scripts/algum.sql"), false);
   assert.equal(ehMigrationSql("prisma/migrations/20260828_x/outro.sql"), false);
 });
+
+/* ── FK PARA TABELA ANTIGA É TOCAR A TABELA ANTIGA ─────────────────────── */
+
+test("REFERENCES traz a tabela apontada — ela leva lock e ganha gatilho", () => {
+  // O caso que revelou a falta: uma migration puramente aditiva cria a tabela
+  // nova e a única menção à antiga é o REFERENCES. Sem este padrão, o destaque
+  // calava justamente sobre a tabela cuja contagem decidia a PR seguinte.
+  const sql = `
+    CREATE TABLE "ParcelaReceita" ("id" TEXT NOT NULL, "contratoId" TEXT);
+    ALTER TABLE "ParcelaReceita" ADD CONSTRAINT "ParcelaReceita_contratoId_fkey"
+      FOREIGN KEY ("contratoId") REFERENCES "ContratoCorretora"("id")
+      ON DELETE RESTRICT ON UPDATE CASCADE;
+  `;
+  assert.deepEqual(tabelasDeMigrations([sql]), ["ContratoCorretora", "ParcelaReceita"]);
+});
+
+test("REFERENCES em comentário continua não contando", () => {
+  const sql = `-- REFERENCES "Fantasma"("id")
+    CREATE TABLE "Real" ("id" TEXT);`;
+  assert.deepEqual(tabelasDeMigrations([sql]), ["Real"]);
+});
+
+test("auto-referência não duplica a tabela na lista", () => {
+  const sql = `
+    ALTER TABLE "Parceiro" ADD CONSTRAINT "p_fkey"
+      FOREIGN KEY ("indicadoPorParceiroId") REFERENCES "Parceiro"("id");
+  `;
+  assert.deepEqual(tabelasDeMigrations([sql]), ["Parceiro"]);
+});
