@@ -9,6 +9,31 @@ const nextConfig: NextConfig = {
       // falha ANTES da action rodar, com a mesma mensagem genérica.
       bodySizeLimit: "55mb",
     },
+
+    // O teto que REALMENTE corta primeiro. Só existe porque existe `src/proxy.ts`:
+    // com proxy no caminho, o Next clona o corpo da requisição com um limite
+    // próprio, default 10 MiB (`next/dist/server/body-streams.js` →
+    // DEFAULT_BODY_CLONE_SIZE_LIMIT). Estourado o limite, o corpo chega
+    // TRUNCADO e o leitor de multipart morre com "Unexpected end of form" —
+    // como `uncaughtException`, FORA da action. Nenhum try/catch da aplicação
+    // alcança, e o usuário leva 500 sem texto em vez da mensagem tratada.
+    //
+    // Foi o que derrubou o upload de PAT em produção (29/08/2026, digest
+    // 3916280396): a guarda do app estava em 20 MB, o `bodySizeLimit` em 55 MB,
+    // e nenhum dos dois chegava a rodar porque o corte acontecia em 10 MiB.
+    //
+    // ⚠️ O NOME É ARMADILHA. A mensagem de erro do Next cita
+    // `middlewareClientMaxBodySize` — que existe no schema e NÃO é lida pelo
+    // runtime. Quem o runtime lê é esta:
+    //   node_modules/next/dist/server/next-server.js:1274
+    //   nextConfig.experimental.proxyClientMaxBodySize
+    // Reconferir essa linha a cada bump de versão do Next.
+    //
+    // A REGRA que este número serve: o proxy tem de ficar ACIMA de toda guarda
+    // de aplicação, para que quem recuse seja sempre quem sabe explicar.
+    // Inventário das cinco camadas e das guardas de cada fluxo:
+    //   docs/onix-limites-de-upload.md
+    proxyClientMaxBodySize: "25mb",
   },
   // Fase 4 (piloto) — namespacing de rotas por empresa.
   // /backoffice/* → /empresas/investimentos/* (Onix Investimentos).
