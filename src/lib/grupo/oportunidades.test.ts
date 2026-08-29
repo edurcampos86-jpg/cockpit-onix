@@ -462,3 +462,137 @@ test("`__proto__` na posse não vira linha de produto na tela", () => {
   assert.equal(r.possui.some((o) => o.id === "auto"), true);
   assert.equal(({} as Record<string, unknown>).x, undefined, "e nada polui o protótipo");
 });
+
+// ── A assimetria vale nos dois lugares ────────────────────────────────────
+
+test("com a conta NÃO rastreada, a frase não afirma que ela não existe", () => {
+  // Um campo dizia "não dá para afirmar" e o outro afirmava, no mesmo retorno.
+  // E não é hipótese de catálogo injetado: no dia em que a integração com o
+  // BTG sair do ar, `rastreada: false` na conta é o caminho normal — e é
+  // justamente o dia em que ninguém pode dizer que o cliente não tem conta.
+  const catalogo: OfertaDoGrupo[] = [
+    { id: "auto", nome: "Auto", empresaId: "corretora", rastreada: true },
+    {
+      id: "conta-investimentos",
+      nome: "Conta de investimentos",
+      empresaId: "investimentos",
+      rastreada: false,
+    },
+  ];
+  const r = calcularOportunidades({ ...VAZIA, posse: { auto: 1 } }, catalogo);
+  assert.equal(
+    (r.destaque ?? "").includes("não tem conta de investimentos"),
+    false,
+    r.destaque ?? "",
+  );
+  assert.equal(
+    r.naoRastreado.some((o) => o.id === "conta-investimentos"),
+    true,
+    "e ela continua declarada como não afirmável",
+  );
+});
+
+test("com a conta FORA do catálogo, a frase também não afirma", () => {
+  const semAConta: OfertaDoGrupo[] = [
+    { id: "auto", nome: "Auto", empresaId: "corretora", rastreada: true },
+  ];
+  const r = calcularOportunidades({ ...VAZIA, posse: { auto: 1 } }, semAConta);
+  assert.equal((r.destaque ?? "").includes("não tem conta"), false, r.destaque ?? "");
+});
+
+test("com a conta rastreada e ausente da posse, a frase afirma — é o caso legítimo", () => {
+  // A correção não pode ter matado a frase inversa, que é a razão de ela existir.
+  const r = calcularOportunidades({ ...VAZIA, posse: posseDe("auto") });
+  assert.ok(r.destaque?.includes("não tem conta de investimentos"), r.destaque ?? "");
+});
+
+test("chave herdada de Object.prototype não vira produto — a classe inteira", () => {
+  // A lista pegava três nomes; o problema é a classe. Filtro que pega três
+  // tickers e não a regra deixa o resto passar.
+  const daJson = JSON.parse(
+    '{"toString":3,"valueOf":2,"hasOwnProperty":1,"__proto__":9,"auto":1}',
+  ) as Record<string, number>;
+  const r = calcularOportunidades({ ...VAZIA, posse: daJson });
+  assert.deepEqual(r.naoComputado, [], "nenhuma delas é produto");
+  assert.equal(r.possui.some((o) => o.id === "auto"), true, "e o produto de verdade sobrevive");
+});
+
+// ── Invariantes: o guarda que não depende de eu lembrar do caso ───────────
+//
+// Quatro rodadas, quatro defeitos, todos da mesma família e todos achados à
+// mão, um caso por vez. As invariantes são poucas e nomeáveis — travá-las sobre
+// entrada gerada pega a próxima variação sem que ninguém precise imaginá-la.
+
+test("invariantes do módulo, sobre 2.000 combinações geradas", () => {
+  // Gerador determinístico: teste que falha só às vezes não é guarda, é
+  // sorteio. A semente fixa faz a falha ser reproduzível pelo número do caso.
+  let semente = 20260829;
+  const proximo = () => (semente = (semente * 1103515245 + 12345) & 0x7fffffff);
+  const escolher = <T,>(xs: readonly T[]): T => xs[proximo() % xs.length];
+
+  const IDS = ["auto", "vida", "conta-investimentos", "imovel", "seguro_de_dragao", "toString"];
+  const VALORES: unknown[] = [0, 1, 2, -1, 1.5, NaN, Infinity, "2", true, {}, BigInt(2)];
+  const EMPRESAS = ["corretora", "investimentos", "imobiliaria"];
+
+  for (let caso = 0; caso < 2000; caso++) {
+    const posse: Record<string, unknown> = {};
+    for (const id of IDS) if (proximo() % 2 === 0) posse[id] = escolher(VALORES);
+
+    const catalogo: OfertaDoGrupo[] = IDS.filter(() => proximo() % 3 !== 0).map((id) => ({
+      id,
+      nome: id,
+      empresaId: escolher(EMPRESAS),
+      rastreada: proximo() % 2 === 0,
+    }));
+
+    const r = calcularOportunidades(
+      {
+        posse: posse as Record<string, number>,
+        saldoInvestimentos: escolher([null, 0, 1_000_000, -5, NaN]) as number | null,
+      },
+      catalogo,
+    );
+    const ctx = `caso ${caso}`;
+
+    // 1. Nada é afirmado como ausente sem que o catálogo permita afirmar.
+    for (const o of r.lacunas) {
+      assert.equal(o.rastreada, true, `${ctx}: lacuna sobre oferta não rastreada — ${o.id}`);
+      assert.equal(o.quantidade, 0, `${ctx}: lacuna com quantidade`);
+    }
+
+    // 2. Os três baldes são disjuntos: nenhuma oferta em dois lugares.
+    const todos = [...r.possui, ...r.lacunas, ...r.naoRastreado].map((o) => o.id);
+    assert.equal(new Set(todos).size, todos.length, `${ctx}: oferta repetida entre os baldes`);
+
+    // 3. O que está em `possui` nunca aparece como não computado — dizer que
+    //    tem e que não deu para contar é dizer as duas coisas.
+    const naoComputados = new Set(r.naoComputado.map((n) => n.id));
+    for (const o of r.possui) {
+      assert.equal(naoComputados.has(o.id), false, `${ctx}: ${o.id} em possui e naoComputado`);
+      assert.ok(o.quantidade > 0, `${ctx}: possui com quantidade ${o.quantidade}`);
+      assert.ok(Number.isInteger(o.quantidade), `${ctx}: quantidade fracionária em possui`);
+    }
+
+    // 4. A frase nunca nega o que o módulo declarou não saber.
+    const naoSabeDaConta = r.naoRastreado.some((o) => o.id === "conta-investimentos");
+    const contaForaDoCatalogo = !catalogo.some((o) => o.id === "conta-investimentos");
+    if (naoSabeDaConta || contaForaDoCatalogo) {
+      assert.equal(
+        (r.destaque ?? "").includes("não tem conta de investimentos"),
+        false,
+        `${ctx}: negou a conta sem poder — ${r.destaque}`,
+      );
+    }
+
+    // 5. O sentinela de quantidade inválida nunca vaza para o retorno.
+    for (const o of [...r.possui, ...r.lacunas, ...r.naoRastreado]) {
+      assert.ok(o.quantidade >= 0, `${ctx}: quantidade negativa vazou — ${o.id}`);
+    }
+
+    // 6. A frase nunca cita número quando o saldo não é um valor utilizável.
+    const s = r.destaque ?? "";
+    if (/\d/.test(s)) {
+      assert.ok(s.includes("investidos pela Onix"), `${ctx}: número fora do lugar — ${s}`);
+    }
+  }
+});

@@ -262,10 +262,7 @@ export function calcularOportunidades(
   // exemplo. Ver `naoComputado`.
   for (const [id, bruta] of Object.entries(posse.posse)) {
     if (vistos.has(id)) continue;
-    // `__proto__` vindo de `JSON.parse` é chave própria e apareceria na tela
-    // como "produto fora do catálogo". Não polui protótipo (a posse nunca é
-    // alvo de atribuição), mas é uma linha que ninguém explica ao atendente.
-    if (CHAVES_RECUSADAS.has(id)) continue;
+    if (ehChaveDePrototipo(id)) continue;
     if (ehQuantidade(bruta) && bruta > 0) {
       invalidas.push({ id, motivo: "fora-do-catalogo" });
     } else if (!ehQuantidade(bruta)) {
@@ -284,8 +281,26 @@ export function calcularOportunidades(
   };
 }
 
-/** Chaves que nunca são produto, venham de onde vierem. */
-const CHAVES_RECUSADAS = new Set(["__proto__", "constructor", "prototype"]);
+/**
+ * A chave da posse é herdada de `Object.prototype`?
+ *
+ * REGRA, e não lista, porque a lista pegava três nomes e o problema é a classe
+ * inteira: `toString`, `valueOf`, `hasOwnProperty` e `__defineGetter__` vindos
+ * de `JSON.parse` continuavam virando linha "produto fora do catálogo" na tela
+ * do atendente. Filtro que pega três tickers e não a regra deixa o resto
+ * passar.
+ *
+ * Não é proteção de segurança — `ehQuantidade` já cobre o lado da leitura, e a
+ * posse nunca é alvo de atribuição. É higiene de tela: ninguém explica
+ * "toString: produto fora do catálogo" para quem vai ligar para o cliente.
+ *
+ * Vale só para a POSSE, que vem de dado. Id de catálogo é declaração
+ * deliberada de quem escreveu o catálogo, e recusá-lo esconderia um erro em
+ * vez de mostrá-lo.
+ */
+function ehChaveDePrototipo(id: string): boolean {
+  return Object.prototype.hasOwnProperty.call(Object.prototype, id);
+}
 
 /** Quantidade utilizável: inteiro finito não negativo. */
 function ehQuantidade(v: unknown): v is number {
@@ -399,13 +414,27 @@ function montarDestaque(posse: PossePessoa, avaliadas: readonly OfertaAvaliada[]
   const temAlgumSeguro = avaliadas.some(
     (o) => o.empresaId === "corretora" && o.situacao === "possui",
   );
-  // `=== "nao_possui"` e não `!temConta`: com a quantidade ILEGÍVEL, negar
-  // seria afirmar o que o módulo acabou de dizer que não conseguiu ler — o
-  // mesmo retorno carregaria `naoComputado: [conta-investimentos]` e a frase
-  // "ela não tem conta". Foi o terceiro lugar em que este padrão apareceu, e
-  // as três vezes pela mesma razão: a régua aplicada num ponto do módulo e não
-  // no outro que lê a mesma informação. Por isso a régua virou UMA função.
-  if (temAlgumSeguro && conta === "nao_possui") {
+  // A NEGATIVA precisa das DUAS metades da assimetria, e essa é a lição que
+  // custou quatro rodadas:
+  //
+  //   • a posse governa o positivo — o chamador informou, então a pessoa tem, e
+  //     nenhum campo de catálogo desmente;
+  //   • o CATÁLOGO governa a negativa — só dá para afirmar ausência de uma
+  //     oferta que o grupo consegue medir.
+  //
+  // `situacaoDaConta` aplica só a primeira metade, de propósito. Usá-la sozinha
+  // aqui estendia à negativa uma regra escrita para o positivo: com a conta
+  // marcada `rastreada: false`, o mesmo retorno dizia "não dá para afirmar
+  // sobre a conta" em `naoRastreado` e "ela não tem conta" na frase.
+  //
+  // Não é hipótese de catálogo injetado: no dia em que a integração com o BTG
+  // sair do ar, `rastreada: false` na conta é o caminho NORMAL — e é justamente
+  // o dia em que ninguém pode afirmar que o cliente não tem conta.
+  const podeNegarAConta = avaliadas.some(
+    (o) => o.id === OFERTA_CONTA_INVESTIMENTOS && o.situacao === "nao_possui",
+  );
+
+  if (temAlgumSeguro && podeNegarAConta) {
     return "É cliente da Corretora e não tem conta de investimentos na Onix.";
   }
 
