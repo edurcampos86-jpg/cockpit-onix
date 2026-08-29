@@ -745,6 +745,10 @@ model ClienteBackoffice {
   /// Série mensal de comissão do BTG por este cliente. Read-only para a ficha:
   /// quem escreve é o enrich, e quem lê é o portal do parceiro e o histórico.
   comissoesMensais ComissaoMensalCliente[] @relation("ComissaoMensalDoCliente")
+  /// A MESMA série, na tabela que a sucede. Enquanto as duas convivem, o dado
+  /// é idêntico: a migration copiou linha a linha e conferiu contagem E soma.
+  /// `ComissaoMensalCliente` fica congelada até o `DROP`, em PR própria.
+  parcelasReceita  ParcelaReceita[]        @relation("ParcelaDoCliente")
 
   // Dados BTG sincronizados via API
   cpfCnpj                     String? // taxIdentification do holder (CPF ou CNPJ)
@@ -941,6 +945,8 @@ model PessoaGrupo {
   /// Lado inverso de `ContratoCorretora.pessoaGrupo`. Campo de RELAÇÃO:
   /// não vira coluna nem altera a tabela `PessoaGrupo` no SQL.
   contratosCorretora ContratoCorretora[]
+  /// Quem PAGOU a parcela. Lado inverso, nenhum SQL nesta tabela.
+  parcelasPagas ParcelaReceita[] @relation("ParcelaDoPagador")
 
   @@index([tipoDocumento])
 }
@@ -1488,6 +1494,9 @@ model Parceiro {
   /// Lado inverso de `ContratoCorretora.parceiroIndicador` — os contratos da
   /// Corretora cuja indicação veio deste parceiro. Campo de RELAÇÃO, sem SQL.
   contratosCorretora ContratoCorretora[] @relation("ParceiroContratoCorretora")
+  /// ADM/Financeiro — lados inversos, nenhum SQL na tabela `Parceiro`.
+  parcelas   ParcelaReceita[] @relation("ParcelaDoParceiro")
+  premiacoes Premiacao[]      @relation("PremiacaoDoParceiro")
 
   @@index([ativo])
   @@index([tipo])
@@ -2241,6 +2250,14 @@ model Empresa {
   acordosParceiro AcordoComercialParceiro[] @relation("AcordoParceiroEmpresa")
   perfisImportacao   PerfilImportacao[]
 
+  /// ADM/Financeiro. Lados inversos: campos de RELAÇÃO, nenhum SQL na tabela
+  /// `Empresa`. É o nó em que receita e despesa penduram — e a recursão por
+  /// `parentId` sobre eles é o consolidador da Onix Co.
+  regrasReceita   RegraReceita[]      @relation("RegraDaEmpresa")
+  parcelasReceita ParcelaReceita[]    @relation("ParcelaDaEmpresa")
+  premiacoes      Premiacao[]         @relation("PremiacaoDaEmpresa")
+  despesas        LancamentoDespesa[] @relation("DespesaDaEmpresa")
+
   @@index([parentId])
   /// Para a consulta cruzada de `transversal` não varrer a tabela inteira.
   @@index([transversal])
@@ -2434,6 +2451,13 @@ model Pessoa {
   carteirasComoDono Carteira[]       @relation("CarteiraDono")
   acessosCarteira   AcessoCarteira[]
   acessosEmpresa    PessoaEmpresa[]
+
+  /// ADM/Financeiro — lados inversos, nenhum SQL na tabela `Pessoa`.
+  /// `parcelasGeradas` é o eixo da apuração de premiação: parcela sem
+  /// `pessoaId` fica de fora do prêmio EM SILÊNCIO, e é por isso que a tela
+  /// mostra "R$ X sem pessoa atribuída".
+  parcelasGeradas    ParcelaReceita[]    @relation("ParcelaDaPessoa")
+  apuracoesPremiacao PremiacaoApuracao[] @relation("ApuracaoDaPessoa")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -3462,6 +3486,9 @@ model ContratoCorretora {
   @@index([perfilImportacaoId])
   /// Desfazer/auditar uma importação inteira.
   @@index([loteImportacao])
+
+  /// O cronograma deste contrato. Lado inverso — nenhum SQL nesta tabela.
+  parcelas ParcelaReceita[] @relation("ParcelaDoContrato")
 }
 
 /// Mapeamento de UM arquivo de UMA fonte para campos canônicos.
@@ -3554,6 +3581,20 @@ model PerfilImportacao {
   updatedAt DateTime @updatedAt
 
   contratos ContratoCorretora[]
+  parcelas  ParcelaReceita[] @relation("ParcelaDoPerfil")
+
+  /// PARA QUAL TABELA este perfil traduz.
+  ///
+  /// O model foi escrito deliberadamente IGNORANTE da tabela de destino — é o
+  /// que o mantém reutilizável fora da Corretora, e está dito no cabeçalho
+  /// dele. Só que agora há mais de um destino, e o importador precisa saber
+  /// qual: contrato de seguro e lançamento de receita se leem do mesmo jeito e
+  /// gravam em lugares diferentes.
+  ///
+  /// `String` validada em código e com DEFAULT, para as linhas existentes
+  /// continuarem apontando para onde já apontavam. Destino novo não custa
+  /// migration.
+  destino String @default("contrato_corretora")
 
   /// Um nome por empresa — o que impede duas versões do "Porto Seguro"
   /// convivendo sem ninguém saber qual está valendo. A `versao` cobre a
@@ -3827,4 +3868,404 @@ model CampoProveniencia {
   /// Uma linha por campo: o selo mostra a ÚLTIMA origem, não a lista.
   @@unique([clienteId, campo])
   @@index([clienteId])
+}
+
+// ============================================
+// ADM/FINANCEIRO — receita de todas as empresas
+// ============================================
+//
+// Desenho aprovado pelo Eduardo em 29/08/2026. O documento que ele leu está em
+// `docs/onix-financeiro-modelo.md` e explica CADA decisão; aqui fica só o que
+// não cabe lá — o porquê de cada campo, ao lado do campo.
+//
+// ── O QUE ESTA MIGRATION NÃO FAZ, DE PROPÓSITO ───────────────────────────
+//
+// 1. NÃO renomeia `ContratoCorretora` para `Contrato`. A proposta previa, e
+//    fica para PR PRÓPRIA. O motivo é o mecanismo de deploy deste projeto:
+//    `prisma migrate deploy` roda dentro do `startCommand` (`railway.toml`,
+//    bloco `[deploy]`), então durante a janela de deploy o container ANTIGO
+//    ainda serve requisições enquanto o novo migra. Renomear a tabela nessa
+//    janela derruba toda leitura do código velho. Com a tabela vazia ninguém
+//    lê e a janela é inofensiva; com dado dentro, são 500s.
+//
+//    É por isso que a contagem de `ContratoCorretora` decide o rename — e é
+//    por isso que ela NÃO decide nada nesta migration, que é puramente
+//    aditiva. `ParcelaReceita.contratoId` aponta para `ContratoCorretora`
+//    hoje; o `ALTER TABLE ... RENAME` leva as chaves estrangeiras junto,
+//    então a PR do rename não precisa tocar nesta relação.
+//
+// 2. NÃO mexe em `MetaMensal`. A proposta sugeria acrescentar `empresaId` e
+//    trocar o `@@unique([mes, ano])` por `[empresaId, mes, ano]`. Está errado
+//    e o erro é sutil: no Postgres, NULL é DISTINTO de NULL em índice único,
+//    então as linhas legadas (`empresaId` nulo) deixariam de ser protegidas —
+//    duas metas para o mesmo mês passariam as duas. O conserto seria um índice
+//    único PARCIAL, que o Prisma não declara no schema e que viraria drift em
+//    toda migration seguinte (a dor conhecida do `PainelEmailAI_tsv_idx`).
+//    `MetaMensal` continua servindo o painel semanal da Corretora, e a meta do
+//    ADM/Financeiro mora em `Premiacao.metaGrupo`.
+//
+// 3. NÃO apaga `ComissaoMensalCliente` nem `ReceitaItem`. A primeira tem o
+//    dado MIGRADO para `ParcelaReceita` logo abaixo, e fica congelada como
+//    testemunha até o caminho novo rodar em produção. A segunda está vazia. Os
+//    dois `DROP` são PR separada, faixa vermelha.
+
+/// A RÉGUA que transforma um contrato em cronograma de parcelas.
+///
+/// É a peça que resolve, sem uma coluna por caso: o seguro resgatável de 10
+/// anos com percentual DIFERENTE a cada ano, o consórcio parcelado em até 8x
+/// que varia por parceiro, o plano de saúde com entrada maior e mensal até
+/// cancelar, e a administração de aluguel com percentual fixo todo mês.
+model RegraReceita {
+  id String @id @default(cuid())
+
+  /// De quem é a régua. FK REAL — o padrão da `PessoaEmpresa`, não a `String`
+  /// solta da `Implementacao`, que admite empresa fantasma.
+  empresaId String
+  empresa   Empresa @relation("RegraDaEmpresa", fields: [empresaId], references: [id], onDelete: Restrict)
+
+  /// Nome humano: "Seguro resgatável 10 anos — Icatu", "Consórcio 8x —
+  /// Rodobens".
+  nome String
+
+  /// "percentual_por_parcela" | "valor_por_parcela" | "percentual_fixo"
+  ///
+  /// `String` validada em código, NÃO enum de banco — mesma postura do
+  /// `ContratoCorretora.tipoProduto`: régua nova é decisão comercial, e
+  /// decisão comercial não pode custar migration de faixa vermelha.
+  tipo String
+
+  /// "mensal" | "anual" | "unica". Também validada em código.
+  periodicidade String
+
+  /// `null` = INDEFINIDO — o plano de saúde que corre até o cliente cancelar.
+  /// Com `null`, a projeção usa um horizonte rolante e é reprojetada; sem
+  /// teto, "mensal até cancelar" geraria linha até o fim dos tempos.
+  quantidadeParcelas Int?
+
+  /// A ESCADA, degrau a degrau:
+  ///   [{"ordem":1,"percentual":"0.6500"}, {"ordem":2,"percentual":"0.1200"}, …]
+  ///   [{"ordem":1,"valor":"900.00"}, {"ordem":2,"valor":"180.00","repete":true}]
+  ///
+  /// POR QUE Json e não tabela filha: a escada é lida INTEIRA, junto com o
+  /// contrato, para gerar as parcelas — e nunca é filtrada nem agregada entre
+  /// regras. Ninguém vai perguntar "quais réguas têm 3% no ano 7". É
+  /// exatamente a régua que o `ContratoCorretora.dadosProduto` já escreveu:
+  /// *"a régua para promover qualquer chave daqui a coluna é uma só: alguém
+  /// precisou dela num `WHERE`."*
+  ///
+  /// As parcelas GERADAS, essas sim, são colunas com índice — porque elas
+  /// entram em `WHERE`, `SUM` e `ORDER BY`.
+  ///
+  /// `repete: true` no último degrau é como se escreve "até cancelar".
+  escada Json
+
+  /// De qual parceiro é esta régua — o consórcio da Rodobens tem escada
+  /// diferente do da Embracon. Texto, igual a `ContratoCorretora.parceiro`
+  /// (de ONDE o produto vem), e distinto de `parceiroId` (quem INDICOU).
+  parceiro String?
+
+  /// Régua muda; contrato antigo mantém a que o gerou. Sem estas duas datas,
+  /// renegociar a comissão com um parceiro reescreveria o passado.
+  vigenteDe  DateTime  @default(now())
+  vigenteAte DateTime?
+
+  ativa Boolean @default(true)
+
+  criadoPor    String?
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  parcelas ParcelaReceita[]
+
+  /// Duas réguas com o mesmo nome e a mesma vigência na mesma empresa seriam
+  /// indistinguíveis na hora de escolher qual aplicar.
+  @@unique([empresaId, nome, vigenteDe])
+  @@index([empresaId, ativa])
+}
+
+/// TODA linha de dinheiro do grupo — projetada ou apurada, com contrato ou
+/// avulsa. É a única tabela que o consolidador da Onix Co soma.
+model ParcelaReceita {
+  id String @id @default(cuid())
+
+  /// O NÓ que ganhou. NOT NULL: receita sem dono é o erro que a #416 mediu em
+  /// outro campo. É o eixo do consolidador — somar as 6 empresas é subir por
+  /// `Empresa.parentId` até a holding, e por isso Planejamento e Corporate
+  /// (departamentos da Corretora) rolam para dentro dela sem regra especial.
+  empresaId String
+  empresa   Empresa @relation("ParcelaDaEmpresa", fields: [empresaId], references: [id], onDelete: Restrict)
+
+  /// `null` = LANÇAMENTO AVULSO.
+  ///
+  /// Esta única coluna opcional é o que faz o modelo MISTO caber numa tabela
+  /// só: venda de imóvel e comissão de alocação nascem sem contrato;
+  /// administração mensal e consórcio nascem com. As duas somam na mesma
+  /// consulta, sem `UNION`.
+  ///
+  /// Aponta para `ContratoCorretora` porque o rename para `Contrato` é PR
+  /// própria (ver o bloco no topo desta seção). `ALTER TABLE ... RENAME` leva
+  /// a chave estrangeira junto — esta relação não precisa mudar lá.
+  ///
+  /// `Restrict`, não `Cascade`: apagar um contrato não pode apagar em silêncio
+  /// o registro do que ele já rendeu. Mesmo contrato de reter da
+  /// `ComissaoMensalCliente`.
+  contratoId String?
+  contrato   ContratoCorretora? @relation("ParcelaDoContrato", fields: [contratoId], references: [id], onDelete: Restrict)
+
+  /// Qual régua gerou esta linha, quando veio de projeção. `SetNull` para a
+  /// parcela sobreviver à régua.
+  regraReceitaId String?
+  regraReceita   RegraReceita? @relation(fields: [regraReceitaId], references: [id], onDelete: SetNull)
+
+  /// Competência no formato `"AAAA-MM"`, com CHECK na migration.
+  ///
+  /// Precedente já em produção: `ComissaoMensalCliente.competencia`, e pela
+  /// mesma razão — competência é RÓTULO de mês, não instante. `DateTime`
+  /// obrigaria a escolher um dia e um fuso que ninguém quis dizer, e este
+  /// projeto já pagou por isso. `"AAAA-MM"` ordena lexicograficamente na mesma
+  /// ordem cronológica, então `ORDER BY` e `BETWEEN` funcionam sem conversão.
+  competencia String
+
+  /// O dia dentro da competência, quando o contrato o fixa. Alimenta "o que
+  /// vence esta semana" e ordena dentro do mês.
+  vencimento DateTime?
+
+  /// Qual degrau da escada — 1..8 no consórcio, 1..10 no seguro. `null` para
+  /// avulso, que não tem cronograma.
+  ordem Int?
+
+  /// "projecao" | "apuracao" | "manual" — e entra na chave única.
+  ///
+  /// Projeção e apuração da MESMA competência COEXISTEM, de propósito: a
+  /// diferença entre as duas é o número que o ADM quer ver. Apagar uma com a
+  /// outra perderia justamente a divergência. É a decisão que a
+  /// `ComissaoMensalCliente.fonte` já carrega.
+  origem String
+
+  /// "prevista" | "recebida" | "cancelada" | "inadimplente".
+  ///
+  /// CANCELAMENTO NUNCA APAGA: encerrar um contrato marca as parcelas
+  /// projetadas futuras como `cancelada`, e elas continuam na tabela. É o que
+  /// torna "quanto deixamos de ganhar com churn este ano" uma consulta em vez
+  /// de arqueologia. Parcela `recebida` não é tocada nunca.
+  status String @default("prevista")
+
+  /// DECIMAL, NUNCA Float. Estes números vão ser SOMADOS — 12 meses, uma
+  /// carteira, um nó inteiro da hierarquia — e comparados. `float8` erra em
+  /// soma e em igualdade, e o erro aparece no total, que é o número que
+  /// alguém lê. `(14,2)` é a precisão que a casa já escolheu para dinheiro.
+  valorBruto   Decimal @db.Decimal(14, 2)
+  imposto      Decimal @default(0) @db.Decimal(14, 2)
+  valorLiquido Decimal @db.Decimal(14, 2)
+
+  /// QUEM PAGOU, por DOCUMENTO. É o que a `ReceitaItem` errou: ela casa por
+  /// NOME, com um fallback que aceita primeiro nome e atribui receita de um
+  /// cliente à ficha de outro.
+  pessoaGrupoId String?
+  pessoaGrupo   PessoaGrupo? @relation("ParcelaDoPagador", fields: [pessoaGrupoId], references: [id], onDelete: Restrict)
+
+  /// O cliente de Investimentos, quando a linha é dele. É o que permite a
+  /// `ComissaoMensalCliente` ser absorvida sem perder o detalhe por cliente.
+  clienteId String?
+  cliente   ClienteBackoffice? @relation("ParcelaDoCliente", fields: [clienteId], references: [id], onDelete: Restrict)
+
+  /// QUEM DO TIME ganhou — o eixo da apuração de premiação.
+  ///
+  /// Opcional, e a lacuna que isso abre é conhecida e tem de aparecer na tela:
+  /// parcela importada que não casou com ninguém do time fica de fora da
+  /// apuração EM SILÊNCIO. A tela de premiação mostra "R$ X sem pessoa
+  /// atribuída" por isso — senão a soma das pessoas nunca bate com o total do
+  /// parceiro e ninguém sabe por quê.
+  pessoaId String?
+  pessoa   Pessoa? @relation("ParcelaDaPessoa", fields: [pessoaId], references: [id], onDelete: SetNull)
+
+  /// Qual parceiro — o outro eixo da premiação.
+  parceiroId String?
+  parceiro   Parceiro? @relation("ParcelaDoParceiro", fields: [parceiroId], references: [id], onDelete: SetNull)
+
+  produto String?
+
+  /// "projecao_regra" | "importacao" | "manual" | "btg_rm_reports".
+  /// `btg_rm_reports` é o valor que veio da `ComissaoMensalCliente` no
+  /// backfill — o mesmo rótulo que ela já usava, para a procedência não se
+  /// perder na mudança de tabela.
+  fonte String
+
+  // ── Rastro da importação: as mesmas colunas de `ContratoCorretora` ──────
+  perfilImportacaoId String?
+  perfilImportacao   PerfilImportacao? @relation("ParcelaDoPerfil", fields: [perfilImportacaoId], references: [id], onDelete: SetNull)
+  loteImportacao     String?
+  arquivoOrigem      String?
+  linhaOrigem        Int?
+  importadoEm        DateTime?
+
+  /// Dedupe do AVULSO, que não tem (contrato, ordem) para casar. sha1 de
+  /// empresa+competência+valor+pagador+produto+origem — a mesma técnica do
+  /// `ReceitaItem.hash`, que funcionou: reimportar o mesmo arquivo insere zero
+  /// linhas.
+  hashOrigem String? @unique
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  /// IDEMPOTÊNCIA do cronograma. Reprojetar não duplica; reimportar o mesmo
+  /// mês atualiza. Sem ela, rodar a projeção duas vezes dobraria o cronograma
+  /// e o erro só apareceria na soma.
+  ///
+  /// NÃO cobre o avulso: `contratoId` e `ordem` nulos deixam a chave inteira
+  /// nula, e no Postgres NULL é distinto de NULL em índice único. É por isso
+  /// que o avulso tem `hashOrigem @unique` próprio, e não por redundância.
+  @@unique([contratoId, competencia, ordem, origem])
+
+  /// A consulta do ADM: "quanto esta empresa fez neste mês, e quanto ainda
+  /// vem". Empresa primeiro — menor cardinalidade e sempre presente.
+  @@index([empresaId, competencia, status])
+  /// O consolidador atravessa empresas por competência.
+  @@index([competencia, origem])
+  /// Apuração de premiação por pessoa.
+  @@index([pessoaId, competencia])
+  /// A visão do parceiro.
+  @@index([parceiroId, competencia])
+  /// O cronograma de um contrato, em ordem.
+  @@index([contratoId, ordem])
+  /// "o que venceu e não entrou" — a varredura de inadimplência.
+  @@index([status, vencimento])
+  /// FKs restantes: o Postgres NÃO indexa chave estrangeira sozinho, e sem
+  /// isto todo `DELETE` no lado pai vira varredura desta tabela.
+  @@index([pessoaGrupoId])
+  @@index([clienteId])
+  @@index([regraReceitaId])
+  @@index([perfilImportacaoId])
+  @@index([loteImportacao])
+}
+
+/// PREMIAÇÃO de parceiro — meta, período e régua de prêmio.
+///
+/// O nome é decisão nominal do Eduardo (29/08/2026): **"Campanha" fica
+/// reservado para tráfego pago**, que já ocupa a palavra em
+/// `AdCampaignSnapshot` e na tela `/pixel-trafego`. Duas coisas com o mesmo
+/// nome no mesmo menu é ticker repetido na mesma corretora.
+model Premiacao {
+  id String @id @default(cuid())
+
+  parceiroId String
+  parceiro   Parceiro @relation("PremiacaoDoParceiro", fields: [parceiroId], references: [id], onDelete: Restrict)
+
+  /// `null` = vale para o grupo inteiro.
+  empresaId String?
+  empresa   Empresa? @relation("PremiacaoDaEmpresa", fields: [empresaId], references: [id], onDelete: Restrict)
+
+  nome      String
+  descricao String? @db.Text
+
+  inicio DateTime
+  fim    DateTime
+
+  /// "valor_liquido" | "valor_bruto" | "quantidade_contratos".
+  metrica String
+
+  /// Restringe quais linhas contam. `null` = todas do parceiro.
+  tipoProduto String?
+
+  metaGrupo     Decimal? @db.Decimal(14, 2)
+  metaPorPessoa Decimal? @db.Decimal(14, 2)
+
+  /// A RÉGUA DE PRÊMIO, em degraus:
+  ///   [{"degrau":1,"de":"0","ate":"50000","premio":"500.00","rotulo":"Bronze"},
+  ///    {"degrau":2,"de":"50000","ate":null,"premio":"1500.00","rotulo":"Ouro"}]
+  ///
+  /// Json pela mesma razão da escada da régua: lida inteira, nunca filtrada
+  /// entre premiações.
+  reguaPremio Json
+
+  ativa Boolean @default(true)
+
+  criadoPor    String?
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  apuracoes PremiacaoApuracao[]
+
+  @@index([parceiroId, inicio])
+  @@index([ativa, fim])
+  @@index([empresaId])
+}
+
+/// Quanto CADA PESSOA já fez numa premiação, e a quanto já tem direito.
+model PremiacaoApuracao {
+  id String @id @default(cuid())
+
+  premiacaoId String
+  premiacao   Premiacao @relation(fields: [premiacaoId], references: [id], onDelete: Cascade)
+
+  pessoaId String
+  pessoa   Pessoa @relation("ApuracaoDaPessoa", fields: [pessoaId], references: [id], onDelete: Restrict)
+
+  /// Só conta parcela `origem = 'apuracao'` E `status = 'recebida'`.
+  /// Projeção NÃO paga prêmio: sem essa regra, alguém cadastra um contrato
+  /// projetado em dezembro e ganha a premiação com dinheiro que não entrou.
+  /// É o stop loss da apuração.
+  realizado  Decimal @db.Decimal(14, 2)
+  quantidade Int     @default(0)
+
+  degrauAtingido Int?
+  premioDevido   Decimal? @db.Decimal(14, 2)
+
+  apuradoEm DateTime @default(now())
+
+  /// CONGELAMENTO. Enquanto `null`, a linha é recalculada a cada leitura da
+  /// tela. Preenchida, ninguém recalcula: o prêmio foi PAGO sobre este número,
+  /// e recalcular depois mudaria o passado.
+  congeladaEm  DateTime?
+  congeladaPor String?
+
+  @@unique([premiacaoId, pessoaId])
+  /// O ranking da premiação — a tela que o time abre.
+  @@index([premiacaoId, realizado(sort: Desc)])
+  @@index([pessoaId])
+}
+
+/// DESPESA — estrutura pronta, SEM tela nesta versão.
+///
+/// Mínima de propósito: só o que torna o ROI possível depois sem refatorar
+/// nada. Carrega os MESMOS DOIS EIXOS da `ParcelaReceita` (`empresaId` e
+/// `competencia`), e é isso — e só isso — que faz o ROI futuro ser um
+/// `FULL OUTER JOIN` em vez de uma reforma.
+///
+/// TABELA SEPARADA, e não uma coluna `natureza` na `ParcelaReceita`: juntar as
+/// duas obrigaria TODA consulta de receita a carregar `WHERE natureza =
+/// 'receita'`, e esquecer isso uma vez somaria despesa como se fosse receita.
+/// É o erro do `receitaAnual` que a #414 e a #421 desfizeram, vestido de roupa
+/// nova.
+///
+/// É por isso que as abas se chamam "Receita" e não "ROI" desde a #426: o nome
+/// muda quando esta tabela tiver dado.
+model LancamentoDespesa {
+  id String @id @default(cuid())
+
+  empresaId String
+  empresa   Empresa @relation("DespesaDaEmpresa", fields: [empresaId], references: [id], onDelete: Restrict)
+
+  /// `"AAAA-MM"`, com o MESMO CHECK da `ParcelaReceita`. É o que permite o
+  /// `JOIN` do ROI sem conversão de tipo.
+  competencia String
+
+  vencimento DateTime?
+
+  /// Validada em código, como todo vocabulário deste schema.
+  categoria  String
+  descricao  String?
+  fornecedor String?
+
+  valor  Decimal @db.Decimal(14, 2)
+  status String  @default("prevista")
+
+  fonte      String
+  hashOrigem String? @unique
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  @@index([empresaId, competencia, status])
+  @@index([competencia])
 }
