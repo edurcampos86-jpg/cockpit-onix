@@ -62,6 +62,13 @@ const INDETERMINADO = 2;
  * NÃO é a lista do que se conta — conta-se tudo. É a lista do que ganha
  * destaque no topo do relatório, para a resposta não se perder entre cem
  * linhas. Entrar aqui é barato e sair também.
+ *
+ * ── ELA É O SEGUNDO DESTAQUE, NÃO O PRIMEIRO ─────────────────────────────
+ * Esta lista é escrita à mão e envelhece — é o defeito que o cabeçalho deste
+ * arquivo já recusa para a CONTAGEM. Por isso, quando a execução informa
+ * `--tocadas`, o destaque principal passa a ser derivado do SQL de migration
+ * da própria PR (`src/lib/ci/tabelas-tocadas.ts`), e esta lista vira o
+ * segundo bloco: serve à execução local, sem PR, onde não há diff para ler.
  */
 const EM_DESTAQUE: readonly string[] = [
   "Empresa", // #301 apostou em "vazia" e havia 6 linhas
@@ -69,6 +76,41 @@ const EM_DESTAQUE: readonly string[] = [
   "PerfilImportacao", // sem perfil não há importação: é o gate da anterior
   "PessoaEmpresa", // filtro de acesso: vazia = todo mundo vê tudo
 ];
+
+/**
+ * As tabelas que ESTA execução recebeu como "tocadas pela PR".
+ *
+ * `--tocadas=A,B,C`, vazio quando a PR não traz migration. Fora do CI o
+ * argumento não é passado e o relatório cai no destaque fixo acima.
+ */
+function tocadasDoArgumento(): string[] {
+  const bruto = process.argv
+    .slice(2)
+    .find((a) => a.startsWith("--tocadas="))
+    ?.slice("--tocadas=".length);
+  if (!bruto) return [];
+  return [...new Set(bruto.split(",").map((t) => t.trim()).filter(Boolean))].sort();
+}
+
+/**
+ * Sobe uma linha para o TOPO da execução do GitHub, como anotação.
+ *
+ * O resumo do job já recebe o relatório inteiro, e é onde ele foi se perder:
+ * em 28/08/2026 tentei recuperar uma contagem no log de uma execução três
+ * vezes, por `tail` crescente, e desisti. Anotação aparece acima de tudo, na
+ * própria PR, sem abrir log — é o único lugar onde "está vazia?" é lida antes
+ * de alguém decidir.
+ *
+ * `::warning::` e não `::error::` de propósito: tabela cheia NÃO reprova nada.
+ * A PR pode ser exatamente sobre mexer numa tabela cheia. O que ela não pode é
+ * ser mergeada por alguém que ACHAVA que estava vazia.
+ *
+ * Silencioso fora do CI, para não sujar a saída local com sintaxe de runner.
+ */
+function anotar(nivel: "warning" | "notice", mensagem: string): void {
+  if (process.env.GITHUB_ACTIONS !== "true") return;
+  console.log(`::${nivel}::${mensagem.replace(/\n/g, " ")}`);
+}
 
 /** Host de destino SEM credencial — a URL do Postgres carrega usuário e senha. */
 function descreverDestino(url: string): string {
@@ -150,7 +192,69 @@ async function main(): Promise<number> {
       : await prisma.$queryRawUnsafe<Array<{ tabela: string; linhas: number }>>(uniao);
   const porTabela = new Map(contagens.map((c) => [c.tabela, c.linhas]));
 
-  // ── Destaque ────────────────────────────────────────────────────────────
+  // ── DESTAQUE 1: as tabelas que ESTA PR toca ─────────────────────────────
+  //
+  // Primeiro bloco do relatório, e o único que também vira anotação. É a
+  // pergunta que decide uma PR de migration — "o que eu vou mexer já tem
+  // dado?" — e ela não pode depender de alguém achar a resposta no meio de
+  // cem linhas de log.
+  const tocadas = tocadasDoArgumento();
+  if (tocadas.length > 0) {
+    console.log("=== Tabelas que ESTA PR toca ===");
+
+    const comDado: string[] = [];
+    const nascendo: string[] = [];
+    const semResposta: string[] = [];
+
+    for (const nome of tocadas) {
+      if (!noBanco.has(nome)) {
+        // Tabela que a migration CRIA. Não existir é a resposta certa.
+        nascendo.push(nome);
+        console.log(`  ${nome.padEnd(30)} ${"—".padStart(9)}  não existe ainda (a migration cria)`);
+        continue;
+      }
+      const linhas = porTabela.get(nome);
+      if (linhas === undefined) {
+        // Mesma distinção do bloco fixo: ausência de resposta não é zero.
+        semResposta.push(nome);
+        console.log(`  ${nome.padEnd(30)} ${"?".padStart(9)}  existe e ficou FORA da contagem`);
+        continue;
+      }
+      if (linhas === 0) {
+        console.log(`  ${nome.padEnd(30)} ${"0".padStart(9)}  VAZIA`);
+        continue;
+      }
+      comDado.push(`${nome} (${linhas})`);
+      console.log(`  ${nome.padEnd(30)} ${String(linhas).padStart(9)}  ⚠ TEM DADO`);
+    }
+
+    if (comDado.length > 0) {
+      anotar(
+        "warning",
+        `Esta PR toca ${comDado.length} tabela(s) que NÃO estão vazias: ${comDado.join(", ")}. ` +
+          "Confira se a migration prevê o dado que já está lá.",
+      );
+    } else {
+      anotar(
+        "notice",
+        `As ${tocadas.length} tabela(s) que esta PR toca estão vazias ou nascem nesta migration` +
+          (nascendo.length > 0 ? ` (${nascendo.length} nasce(m) agora)` : "") +
+          ".",
+      );
+    }
+    if (semResposta.length > 0) {
+      anotar(
+        "warning",
+        `Não consegui contar ${semResposta.join(", ")} — isto NÃO é "está vazia".`,
+      );
+    }
+    console.log("");
+  } else {
+    console.log("=== Tabelas que ESTA PR toca ===");
+    console.log("  (nenhuma migration nesta PR — nada a destacar por diff)\n");
+  }
+
+  // ── DESTAQUE 2: a lista fixa ────────────────────────────────────────────
   console.log("=== Tabelas em destaque ===");
   for (const nome of EM_DESTAQUE) {
     if (!noBanco.has(nome)) {

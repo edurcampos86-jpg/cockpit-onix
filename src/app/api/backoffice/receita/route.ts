@@ -23,10 +23,11 @@ import { randomUUID, createHash } from "crypto";
  * cliente. O campo é do cliente; a receita da Onix mora em
  * `ComissaoMensalCliente`. Ver o bloco no fim deste arquivo.
  *
- * `GET` fica aberto a qualquer logado, de propósito: a tela
- * `/empresas/investimentos/receita` é leitura, e fechá-la apagaria capacidade
- * real de quem precisa consultar sem poder mexer — mesmo critério registrado
- * para `/integracoes` no AGENTS.md.
+ * `GET` fica aberto a qualquer logado, de propósito: fechá-lo apagaria
+ * capacidade real de quem precisa consultar sem poder mexer — mesmo critério
+ * registrado para `/integracoes` no AGENTS.md. Ele serve hoje o resumo da tela
+ * de importação (`receita/importar`); a aba de leitura da Receita não passa por
+ * ele — lê `ComissaoMensalCliente` direto, no servidor.
  */
 async function exigirAdmin(): Promise<NextResponse | null> {
   const ctx = await getAuthContext().catch(() => null);
@@ -240,9 +241,14 @@ export async function POST(req: NextRequest) {
  * `skipDuplicates`), nunca limpa antes.
  *
  * Até aqui a única barreira era o proxy exigir sessão (`src/proxy.ts`), e a
- * página que expõe o botão (`/empresas/investimentos/receita`) não tem gate de
- * papel: qualquer uma das 22 pessoas logadas abria a tela e apagava. O
- * `confirm()` do navegador não é barreira — some com uma chamada direta.
+ * página que expunha o botão não tinha gate de papel: qualquer uma das 22
+ * pessoas logadas abria a tela e apagava. O `confirm()` do navegador não é
+ * barreira — some com uma chamada direta.
+ *
+ * O botão MUDOU DE ENDEREÇO: a aba `/empresas/investimentos/receita` virou
+ * leitura, e a importação (com este botão dentro) foi para
+ * `/empresas/investimentos/receita/importar`. Nenhuma das duas tem gate de
+ * papel, e continua sem precisar: quem barra é este handler, no servidor.
  *
  * 403 e não 404: a rota é conhecida e o próprio menu leva até ela; esconder a
  * existência dela não protege nada, e um 404 aqui só faria o operador legítimo
