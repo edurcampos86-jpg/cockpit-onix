@@ -333,6 +333,16 @@ export const FLAGS_REGISTRADAS: readonly FlagRegistrada[] = [
     aviso:
       "Abre a rota de backfill, que varre a API da DataCrazy e ESCREVE conversas e mensagens em massa. Rodada indevida polui a base e consome cota da API.",
   },
+  {
+    key: "MANYCHAT_LEAD_ALERT",
+    rotulo: "Aviso no WhatsApp quando o ManyChat detecta palavra-gatilho",
+    onde: "src/lib/manychat-lead/flag.ts",
+    tipo: "booleana",
+    dialeto: "amplo",
+    // `normal`: só faz SAIR mensagem, não grava nada. Desligar volta ao estado
+    // anterior sem resíduo — a rota passa a responder 200 sem enviar.
+    impacto: "normal",
+  },
 
   // ── Dialeto ESTRITO: não aceitam `yes` nem `sim` ─────────────
   {

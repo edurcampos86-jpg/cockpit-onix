@@ -60,9 +60,28 @@ test("as rotas públicas conhecidas são reconhecidas", () => {
     "/api/health",
     "/api/webhooks/btg",
     "/api/integracoes/meta/ingest",
+    "/api/manychat/lead",
   ]) {
     assert.equal(ehRotaPublica(p), true, p);
   }
+});
+
+test("liberar o webhook do ManyChat não liberou o resto do ManyChat", () => {
+  // As rotas administrativas de ManyChat leem e importam assinantes; elas
+  // continuam exigindo sessão.
+  assert.equal(ehRotaPublica("/api/integracoes/manychat/sync"), false);
+  assert.equal(ehRotaPublica("/api/integracoes/manychat/test"), false);
+});
+
+test("ARMADILHA: `/api/manychat/lead` é PREFIXO, não caminho exato", () => {
+  // `ehRotaPublica` usa `startsWith`, então qualquer rota futura cujo caminho
+  // COMECE com `/api/manychat/lead` nasce pública sem ninguém decidir isso —
+  // `/api/manychat/leads` seria o nome mais natural do mundo para uma listagem
+  // de leads, e ela sairia sem sessão. Este teste não conserta a régua (é a
+  // mesma dos outros 9 prefixos da lista); ele DOCUMENTA o comportamento real,
+  // para que quem criar essa rota veja o aviso antes de descobrir na produção.
+  assert.equal(ehRotaPublica("/api/manychat/leads"), true, "prefixo colado ARRASTA");
+  assert.equal(ehRotaPublica("/api/manychat/outra"), false, "irmã de nome diferente NÃO");
 });
 
 test("rota administrativa não é pública", () => {
