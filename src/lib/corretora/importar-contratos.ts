@@ -53,6 +53,23 @@ export function ehTerminal(status: string): boolean {
   return STATUS_TERMINAIS.includes(status);
 }
 
+/**
+ * As colunas OPCIONAIS de `ContratoCorretora` que um relatório pode preencher.
+ *
+ * São exatamente as que somem quando o perfil não mapeia a coluna — e por isso
+ * são as únicas que precisam da distinção entre "veio vazio" e "não veio".
+ * `tipoProduto`, `status`, `parceiro`, `numeroContrato` e `inicioVigencia`
+ * ficam de fora porque `montarRegistro` REJEITA a linha sem elas: não existe
+ * registro em que estejam ausentes.
+ */
+export const CAMPOS_SOBRESCREVIVEIS: readonly string[] = [
+  "fimVigencia",
+  "premio",
+  "comissao",
+  "atendenteCorretora",
+  "assessorCge",
+];
+
 /** O registro que vira (ou atualiza) uma linha de `ContratoCorretora`. */
 export type RegistroContrato = {
   readonly cpfCnpj: string;
@@ -69,6 +86,24 @@ export type RegistroContrato = {
   readonly assessorCge: string | null;
   /** Tudo que o perfil trouxe e o model não tem coluna para guardar. */
   readonly dadosProduto: Readonly<Record<string, unknown>>;
+  /**
+   * Os campos de destino que este relatório REALMENTE trouxe.
+   *
+   * É a distinção que faltava, e sem ela o motor apagava dado em silêncio:
+   * `fimVigencia: null` significava as duas coisas ao mesmo tempo — "a célula
+   * veio vazia" e "o perfil não mapeia essa coluna". A primeira é uma
+   * afirmação da fonte e pode gravar null; a segunda é AUSÊNCIA DE
+   * INFORMAÇÃO, e escrever null a partir dela é inventar um fato.
+   *
+   * O efeito era pior do que parece: `fimVigencia` é o campo que diz quando
+   * ligar para o cliente. Um perfil que não mapeasse a coluna zerava a data de
+   * todo contrato que atualizasse — e o cliente vencia sem ninguém ligar.
+   *
+   * Vem de `Object.keys(linha.campos)`, que por construção
+   * (`aplicar-perfil.ts:84-115`) só tem chave para coluna que o perfil mapeia
+   * E que existe no arquivo. Array e não Set porque o plano é serializado.
+   */
+  readonly camposDoRelatorio: readonly string[];
   readonly linhaOrigem: number;
   readonly origemExtracao: OrigemExtracao;
   /**
@@ -105,6 +140,16 @@ export type EstadoAtual = {
        * importação de toda base existente.
        */
       readonly dataReferencia: Date | null;
+      /**
+       * Quais dos `CAMPOS_SOBRESCREVIVEIS` já têm valor gravado nesta linha.
+       *
+       * Serve a UMA pergunta, e é a que o ensaio não sabia responder: quantos
+       * valores a base tem hoje que este perfil não cobre. Antes da trava,
+       * esses valores eram apagados; depois dela, são preservados — mas o
+       * operador continua precisando saber que o perfil está incompleto,
+       * senão a preservação vira silêncio no lugar do estrago.
+       */
+      readonly preenchidos: readonly string[];
     }
   >;
 };
@@ -164,6 +209,18 @@ export type Plano = {
     readonly referenciaGravada: Date;
   }[];
   readonly grafiasAtendente: readonly GrafiaAtendente[];
+  /**
+   * Campos que a base tem preenchidos e que ESTE perfil não traz, por campo.
+   *
+   * Não é uma lista de estrago: desde a trava, esses valores são PRESERVADOS.
+   * É o diagnóstico de perfil incompleto — "a base tem 107 fins de vigência e
+   * o seu relatório não traz essa coluna" —, que é a informação que faz
+   * alguém corrigir o mapeamento em vez de descobrir o buraco meses depois.
+   *
+   * Só conta contratos que este lote realmente atualizaria: campo não coberto
+   * num contrato que o lote nem toca não é notícia.
+   */
+  readonly camposNaoCobertos: readonly { readonly campo: string; readonly contratos: number }[];
 };
 
 /**
@@ -319,6 +376,7 @@ export function montarRegistro(
       atendenteCorretora: texto(c.atendenteCorretora),
       assessorCge: texto(c.assessorCge),
       dadosProduto,
+      camposDoRelatorio: Object.keys(c).sort(),
       linhaOrigem: linha.numero,
       origemExtracao: linha.origem,
       dataReferencia,
@@ -420,6 +478,8 @@ export function planejar(
     referenciaGravada: Date;
   }[] = [];
   const vistasNoLote = new Set<string>();
+  /** campo → em quantos contratos deste lote a base tem valor e o perfil não traz. */
+  const naoCobertos = new Map<string, number>();
 
   for (const registro of registros) {
     const chave = chaveNegocio(registro);
@@ -465,6 +525,14 @@ export function planejar(
       continue;
     }
 
+    // O que a base tem e este relatório não traz. Contado AQUI, e não na
+    // escrita, porque o ensaio precisa da resposta sem gravar nada.
+    const trazidos = new Set(registro.camposDoRelatorio);
+    for (const campo of existente.preenchidos) {
+      if (trazidos.has(campo)) continue;
+      naoCobertos.set(campo, (naoCobertos.get(campo) ?? 0) + 1);
+    }
+
     acoes.push({ acao: "atualizar", chave, id: existente.id, registro });
   }
 
@@ -479,5 +547,12 @@ export function planejar(
     duplicadasNoLote,
     ignoradasPorAntiguidade,
     grafiasAtendente: diagnosticarGrafias(registros),
+    // Ordem fixa pelo catálogo, não por volume: a lista é curta e a leitura é
+    // comparativa entre importações. Ordenar por contagem faria os campos
+    // trocarem de lugar entre um ensaio e o seguinte.
+    camposNaoCobertos: CAMPOS_SOBRESCREVIVEIS.filter((c) => naoCobertos.has(c)).map((campo) => ({
+      campo,
+      contratos: naoCobertos.get(campo) ?? 0,
+    })),
   };
 }
