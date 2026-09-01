@@ -170,38 +170,58 @@ jobs:
               ;;
           esac
 
-      # ── POR QUE OS PASSOS ABAIXO TÊM `always()` ────────────────────────
+      # ── POR QUE ESTA CORRENTE TEM `!cancelled()` ───────────────────────
       #
       # O "Gate de migration destrutiva", acima, sai 1 quando a PR traz DROP
       # sem a label. Passo sem `if:` é PULADO quando um anterior falha, então
-      # esse gate apagava todo o diagnóstico que vem depois — justamente na PR
-      # em que ele é mais caro de perder: a que mexe destrutivamente no banco.
-      # Quem abria essa PR via o "🛑" e nenhuma das respostas que decidiriam o
-      # que fazer com ele.
+      # esse gate apagava o diagnóstico que vem depois — justamente na PR em
+      # que ele é mais caro de perder: a que mexe destrutivamente no banco.
+      # Quem abria essa PR via o "🛑" e nenhuma das duas respostas que decidem
+      # o que fazer com o DROP: quantas linhas tem a tabela, e o que ainda está
+      # pendente de aplicar.
       #
-      # O gate CONTINUA primeiro e continua derrubando o job: o comentário dele
-      # explica que é análise de diff, não precisa de secret e por isso falha
-      # rápido mesmo com o banco fora do ar. Nada disso muda — o job segue
-      # vermelho. O que muda é que o diagnóstico não morre junto.
+      # `!cancelled()` E NÃO `always()`. A diferença é o motivo desta linha
+      # existir: `always()` vale TAMBÉM em job cancelado, e este workflow tem
+      # `cancel-in-progress: true` (acima). Com `always()`, todo push numa PR
+      # de migration cancelaria o run anterior e ele mesmo assim rodaria
+      # `npm ci` e DUAS leituras do banco de produção — cancelamento que não
+      # cancela. `!cancelled()` cobre sucesso e falha, que é exatamente o que
+      # se quer aqui, e devolve o cancelamento ao seu significado.
       #
-      # A cadeia é guardada em etapas, não em `always()` solto:
-      #   • o PRÓPRIO passo do secret precisa de `always()` — ele é o primeiro
-      #     elo, e sem isso o gate o pularia, seu `outcome` viraria `skipped`,
-      #     e toda a corrente abaixo (que exige `success`) morreria junto. É o
-      #     erro que a primeira tentativa desta mudança cometeu: guardar os
-      #     elos de baixo e deixar o de cima cair;
-      #   • setup-node e npm ci só seguem se o SECRET existe — sem
-      #     DATABASE_URL nenhuma leitura tem o que fazer;
+      # A corrente é guardada elo a elo, e a ORDEM dos guardas importa:
+      #   • o passo do secret é o PRIMEIRO elo e precisa do seu próprio
+      #     `!cancelled()`. Sem isso o gate o pularia, o `outcome` viraria
+      #     `skipped`, e tudo abaixo (que exige `success`) morreria junto —
+      #     guardar os elos de baixo e deixar o de cima cair não sustenta nada;
+      #   • setup-node só segue se o SECRET existe — sem DATABASE_URL nenhuma
+      #     leitura tem o que fazer;
+      #   • `npm ci` só segue se o SETUP-NODE deu certo (e não apenas o
+      #     secret): checkout ou setup falhando deixariam o `npm ci` rodar sem
+      #     Node nem árvore, que é o vermelho ilegível que estes guardas
+      #     existem para evitar;
       #   • os leitores só seguem se o `npm ci` deu certo — sem ele não há
       #     `npx prisma`, e rodar assim trocaria um passo pulado (legível) por
       #     um vermelho com "command not found".
+      #
+      # ── O ALCANCE, DITO SEM EXAGERO ────────────────────────────────────
+      # Sobrevivem ao gate DOIS leitores: a contagem de tabelas e o status das
+      # migrations — os que respondem à pergunta daquela PR. `Estado de
+      # "Empresa"`, `Incidente` e `Contas duplicadas` continuam na cadeia
+      # normal, e continuam sendo pulados. Não é esquecimento: eles respondem a
+      # outras perguntas, e ressuscitar o job inteiro para uma PR que já está
+      # vermelha custaria minutos de consulta a produção sem decidir nada.
+      #
+      # ── O QUE ISTO CUSTA ───────────────────────────────────────────────
+      # O gate perde parte do "falha rápido" que o comentário dele promete: numa
+      # PR barrada, o job agora roda `npm ci` e vai ao banco antes de fechar em
+      # vermelho. É o preço de ter a resposta, e ele foi aceito conscientemente.
       #
       # O que isto NÃO conserta, e não precisava: a "Contagem de todas as
       # tabelas" já tem `continue-on-error: true` e nunca suprimiu o passo
       # seguinte. O supressor sempre foi o gate.
       - name: Conferir que o secret existe
         id: secret
-        if: always()
+        if: ${{ !cancelled() }}
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
@@ -213,14 +233,15 @@ jobs:
           echo "secrets.DATABASE_URL presente."
 
       - uses: actions/setup-node@v4
-        if: always() && steps.secret.outcome == 'success'
+        id: node
+        if: ${{ !cancelled() && steps.secret.outcome == 'success' }}
         with:
           node-version: '22'
           cache: npm
 
       - name: npm ci
         id: install
-        if: always() && steps.secret.outcome == 'success'
+        if: ${{ !cancelled() && steps.node.outcome == 'success' }}
         run: npm ci
 
       # ── CONTAGEM DE TODAS AS TABELAS ───────────────────────────────────
@@ -266,7 +287,7 @@ jobs:
       # estava vazia.
       - name: Contagem de todas as tabelas
         continue-on-error: true
-        if: always() && steps.install.outcome == 'success'
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -313,10 +334,10 @@ jobs:
       # pendente, o que é o estado NORMAL de uma PR que acrescenta uma — por
       # isso o código é capturado, e não deixado derrubar o job.
       #
-      # `always()` pelo motivo explicado na cadeia acima: numa PR barrada pelo
+      # `!cancelled()` pelo motivo explicado na corrente acima: numa PR barrada pelo
       # gate destrutivo, esta é a resposta que decide o que fazer com o DROP.
       - name: Migrations pendentes
-        if: always() && steps.install.outcome == 'success'
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
