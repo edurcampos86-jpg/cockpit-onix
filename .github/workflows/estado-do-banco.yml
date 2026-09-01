@@ -205,11 +205,12 @@ jobs:
       #
       # ── O ALCANCE, DITO SEM EXAGERO ────────────────────────────────────
       # Sobrevivem ao gate DOIS leitores: a contagem de tabelas e o status das
-      # migrations — os que respondem à pergunta daquela PR. `Estado de
-      # "Empresa"`, `Incidente` e `Contas duplicadas` continuam na cadeia
-      # normal, e continuam sendo pulados. Não é esquecimento: eles respondem a
-      # outras perguntas, e ressuscitar o job inteiro para uma PR que já está
-      # vermelha custaria minutos de consulta a produção sem decidir nada.
+      # migrations — os que respondem à pergunta daquela PR. Os outros OITO
+      # continuam na cadeia normal e continuam sendo pulados: `Estado de
+      # "Empresa"`, `Incidente` e `Contas duplicadas`, mais os cinco que já
+      # trazem `if:` próprio de PR. Não é esquecimento: eles respondem a outras
+      # perguntas, e ressuscitar o job inteiro para uma PR que já está vermelha
+      # custaria minutos de consulta a produção sem decidir nada.
       #
       # ── O QUE ISTO CUSTA ───────────────────────────────────────────────
       # O gate perde parte do "falha rápido" que o comentário dele promete: numa
