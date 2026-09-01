@@ -27,17 +27,29 @@ name: promover-master
 # `Pessoa`, não concede carteira, não toca em nenhum outro papel. Rodar duas
 # vezes é seguro: a segunda diz "já é master" e não escreve.
 #
-# ── O E-MAIL NÃO FICA NO REPOSITÓRIO ─────────────────────────────────────
-# Ele é INPUT, não constante — e o script o mascara no log, porque este
-# repositório é público e o resumo do job também.
+# ── O IDENTIFICADOR NÃO FICA NO REPOSITÓRIO ──────────────────────────────
+# E-mail ou CPF são INPUT, não constante — e o script mascara os dois no log,
+# porque este repositório é público e o resumo do job também.
+#
+# ── POR QUE CPF ALÉM DE E-MAIL ───────────────────────────────────────────
+# A conta real do titular pode ter o e-mail gerado pelo bootstrap
+# (`admin+<cpf>-<timestamp>@onixcapital.local`) — 48 caracteres que ninguém
+# acerta digitando. O CPF o titular sabe de cabeça, e `User.cpf` é @unique.
+# O script recusa os dois juntos: se divergirem, promoveria a conta errada.
 
 on:
   workflow_dispatch:
     inputs:
       email:
-        description: 'E-mail do usuário a promover a Admin Master.'
+        description: 'E-mail do usuário a promover. Deixe vazio para usar o CPF.'
         type: string
-        required: true
+        required: false
+        default: ''
+      cpf:
+        description: 'CPF do usuário a promover (com ou sem pontos/traço). Deixe vazio para usar o e-mail.'
+        type: string
+        required: false
+        default: ''
       confirmar:
         description: 'Digite "promover" para gravar. Qualquer outra coisa = só dry-run.'
         type: string
@@ -76,9 +88,13 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           EMAIL_ALVO: ${{ inputs.email }}
+          CPF_ALVO: ${{ inputs.cpf }}
         run: |
           set -euo pipefail
-          npx tsx scripts/promover-master.ts --email="$EMAIL_ALVO" \
+          ARGS=()
+          if [ -n "$EMAIL_ALVO" ]; then ARGS+=(--email="$EMAIL_ALVO"); fi
+          if [ -n "$CPF_ALVO" ]; then ARGS+=(--cpf="$CPF_ALVO"); fi
+          npx tsx scripts/promover-master.ts "${ARGS[@]}" \
             | tee "${RUNNER_TEMP}/plano.txt"
           {
             echo '## Plano — nada foi escrito ainda'
@@ -93,9 +109,13 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           EMAIL_ALVO: ${{ inputs.email }}
+          CPF_ALVO: ${{ inputs.cpf }}
         run: |
           set -euo pipefail
-          npx tsx scripts/promover-master.ts --email="$EMAIL_ALVO" --aplicar \
+          ARGS=()
+          if [ -n "$EMAIL_ALVO" ]; then ARGS+=(--email="$EMAIL_ALVO"); fi
+          if [ -n "$CPF_ALVO" ]; then ARGS+=(--cpf="$CPF_ALVO"); fi
+          npx tsx scripts/promover-master.ts "${ARGS[@]}" --aplicar \
             | tee "${RUNNER_TEMP}/aplicado.txt"
           {
             echo
@@ -114,9 +134,13 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           EMAIL_ALVO: ${{ inputs.email }}
+          CPF_ALVO: ${{ inputs.cpf }}
         run: |
           set -euo pipefail
-          npx tsx scripts/promover-master.ts --email="$EMAIL_ALVO" \
+          ARGS=()
+          if [ -n "$EMAIL_ALVO" ]; then ARGS+=(--email="$EMAIL_ALVO"); fi
+          if [ -n "$CPF_ALVO" ]; then ARGS+=(--cpf="$CPF_ALVO"); fi
+          npx tsx scripts/promover-master.ts "${ARGS[@]}" \
             | tee "${RUNNER_TEMP}/depois.txt"
           {
             echo
