@@ -1018,7 +1018,7 @@ function MetasTab({
         prazoData: form.prazoData || null,
       }),
     );
-    if (!nova) return;
+    if (nova === null) return;
     const novas = [nova, ...metas];
     setMetas(novas);
     onChange(novas);
@@ -1042,7 +1042,7 @@ function MetasTab({
     const atualizada = await gravacao.executar(() =>
       gravarJson<Meta>(`/api/backoffice/metas/${m.id}`, "PATCH", { status: novoStatus }),
     );
-    if (!atualizada) return;
+    if (atualizada === null) return;
     const novas = metas.map((x) => (x.id === m.id ? atualizada : x));
     setMetas(novas);
     onChange(novas);
@@ -1239,7 +1239,7 @@ function EventosTab({
     const novo = await gravacao.executar(() =>
       gravarJson<EventoVida>(`/api/backoffice/clientes/${clienteId}/eventos`, "POST", form),
     );
-    if (!novo) return;
+    if (novo === null) return;
     const novos = [...eventos, novo].sort(
       (a, b) => new Date(a.data).getTime() - new Date(b.data).getTime()
     );
@@ -1508,7 +1508,7 @@ function RcaTab({
     const nova = await gravacao.executar(() =>
       gravarJson<Interacao>(`/api/backoffice/clientes/${clienteId}/interacoes`, "POST", form),
     );
-    if (!nova) return;
+    if (nova === null) return;
     const novas = [nova, ...interacoes];
     setInteracoes(novas);
     onChange(novas);

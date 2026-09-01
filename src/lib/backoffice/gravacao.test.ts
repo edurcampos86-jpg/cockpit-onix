@@ -129,6 +129,33 @@ test("sucesso devolve os dados já em JSON", async () => {
   );
 });
 
+test("200 com corpo ilegível é DÚVIDA, não sucesso", async () => {
+  // Proxy truncando, HTML no lugar do JSON, conexão cortada no meio da
+  // resposta. O status diz que o servidor aceitou; o corpo ilegível diz que
+  // não dá para saber COM O QUÊ ele ficou.
+  //
+  // Se isto voltasse a contar como sucesso, o botão diria "Salvo!", nenhuma
+  // faixa apareceria e a meta nova não entraria na lista — exatamente o bug
+  // que este módulo existe para matar, com outra roupa.
+  await comFetch(
+    async () => new Response("{ truncad", { status: 200 }),
+    async () => {
+      const r = await gravar("/api/qualquer");
+      assert.equal(r.ok, false);
+      assert.match(r.ok === false ? r.motivo : "", /não dá para confirmar se gravou/);
+    },
+  );
+});
+
+test("200 com Content-Length zero é sucesso sem corpo", async () => {
+  await comFetch(
+    async () => new Response(null, { status: 200, headers: { "content-length": "0" } }),
+    async () => {
+      assert.equal((await gravar("/api/qualquer")).ok, true);
+    },
+  );
+});
+
 test("DELETE sem corpo é sucesso, não falha de parsing", async () => {
   // Os dois DELETE da ficha (metas e eventos) respondem sem JSON. Antes de
   // existir este ramo, ler o corpo lançaria e o apagar pareceria ter falhado.

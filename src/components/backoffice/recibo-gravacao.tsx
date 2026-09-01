@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertTriangle, Check, Loader2 } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { type Gravacao } from "@/lib/backoffice/gravacao";
 
@@ -31,8 +31,14 @@ export function useGravacao() {
 
   const executar = useCallback(
     async <T,>(chamada: () => Promise<Gravacao<T>>): Promise<T | null> => {
+      // O erro anterior NÃO é apagado aqui. Um componente serve vários botões
+      // (Metas de vida tem três), e apagar ao INICIAR faz o aviso de uma falha
+      // sumir porque a pessoa clicou em outro botão — sem ninguém ter lido.
+      //
+      // A regra "o aviso de falha não se apaga sozinho" vale também para isto:
+      // ele sai quando algo dá certo, ou quando a pessoa fecha. Não por ter
+      // começado outra tentativa.
       setEstado("gravando");
-      setErro(null);
 
       const r = await chamada();
 
@@ -42,6 +48,7 @@ export function useGravacao() {
         return null;
       }
 
+      setErro(null);
       setEstado("gravado");
       // Só o "gravado" se apaga sozinho. O "falhou" fica.
       setTimeout(() => setEstado((atual) => (atual === "gravado" ? "parado" : atual)), 2000);
@@ -74,10 +81,27 @@ export function rotuloGravacao(estado: EstadoGravacao, padrao: string): string {
  * precisa ser anunciada por leitor de tela sem que ela vá procurá-la.
  */
 export function ReciboGravacao({ erro, aoFechar }: { erro: string | null; aoFechar?: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  // A faixa mora no topo da aba; os botões de apagar de Metas e Eventos moram
+  // no fim de uma lista que pode ter quinze itens. Sem isto, a falha do
+  // décimo quinto item renderiza acima da dobra e a pessoa não vê nada —
+  // aviso que não é visto é o mesmo que aviso que não existe, que é o bug
+  // original com outra roupa.
+  useEffect(() => {
+    if (!erro) return;
+    const semAnimacao = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    ref.current?.scrollIntoView({
+      block: "nearest",
+      behavior: semAnimacao ? "auto" : "smooth",
+    });
+  }, [erro]);
+
   if (!erro) return null;
 
   return (
     <div
+      ref={ref}
       role="alert"
       className="flex items-start gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100"
     >

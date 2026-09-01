@@ -72,6 +72,35 @@ test("todo componente que grava tem uma faixa de falha montada", () => {
   assert.ok(hooks.length >= 7, `esperava ao menos 7 pontos de gravação, achei ${hooks.length}`);
 });
 
+test("começar outra ação não apaga o aviso da falha anterior", () => {
+  // Um componente serve vários botões: Metas de vida tem criar, apagar e
+  // marcar como atingida, os três no mesmo `useGravacao`. Se `executar`
+  // limpasse o erro ao INICIAR, a falha de apagar a meta A sumiria porque a
+  // pessoa clicou em marcar a meta B — sem ninguém ter lido.
+  //
+  // O erro sai quando algo dá certo, ou quando a pessoa fecha. Nunca só por
+  // ter começado outra tentativa.
+  const recibo = readFileSync(join(AQUI, "recibo-gravacao.tsx"), "utf8");
+  const inicio = recibo.indexOf('setEstado("gravando")');
+  const sucesso = recibo.indexOf('setEstado("gravado")');
+  assert.ok(inicio > 0 && sucesso > inicio, "a forma de executar() mudou — revise esta guarda");
+  const entre = recibo.slice(inicio, sucesso);
+  const limpezaAntesDaChamada = entre.slice(0, entre.indexOf("await chamada()"));
+  assert.doesNotMatch(
+    limpezaAntesDaChamada,
+    /setErro\(null\)/,
+    "voltou a limpar o erro ao iniciar: o aviso some quando a pessoa clica em outro botão",
+  );
+});
+
+test("a faixa de erro se traz para a vista quando aparece", () => {
+  // Ela mora no topo da aba; os botões de apagar moram no fim de uma lista que
+  // pode ter quinze itens. Aviso que não é visto é aviso que não existe.
+  const recibo = readFileSync(join(AQUI, "recibo-gravacao.tsx"), "utf8");
+  assert.match(recibo, /scrollIntoView/, "a faixa perdeu o scroll — pode nascer fora da vista");
+  assert.match(recibo, /prefers-reduced-motion/, "o scroll deixou de respeitar reduced-motion");
+});
+
 test("o aviso de falha não se apaga sozinho", () => {
   // Regra de produto, não de estilo: "Salvo!" pode sumir em 2s porque perder
   // esse aviso não custa nada. Perder o aviso de FALHA custa o texto que a

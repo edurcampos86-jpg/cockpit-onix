@@ -132,11 +132,28 @@ export async function gravar<T>(url: string, init?: RequestInit): Promise<Gravac
     return { ok: false, motivo: mensagemDeFalha(res.status, await motivoDoCorpo(res)) };
   }
 
-  // 204 e DELETE sem corpo: sucesso legítimo sem JSON para ler.
+  // Resposta sem corpo por contrato: 204, ou 200 com Content-Length zero.
+  // Os dois DELETE da ficha caem aqui.
+  const semCorpo = res.status === 204 || res.headers.get("content-length") === "0";
+  if (semCorpo) return { ok: true, dados: undefined as T };
+
   try {
     return { ok: true, dados: (await res.json()) as T };
   } catch {
-    return { ok: true, dados: undefined as T };
+    // 200 cujo corpo não é JSON legível: proxy truncando, HTML no lugar do
+    // JSON, conexão cortada no meio da resposta.
+    //
+    // Tratar isto como sucesso seria refazer o bug que este módulo existe para
+    // matar: o botão diria "Salvo!", nenhuma faixa apareceria, e a meta nova
+    // não entraria na lista. O status HTTP diz que o servidor aceitou; o corpo
+    // ilegível diz que não dá para saber COM O QUÊ ele ficou. Na dúvida entre
+    // afirmar sucesso e afirmar dúvida, esta ficha afirma dúvida.
+    return {
+      ok: false,
+      motivo:
+        "O servidor respondeu, mas a resposta veio incompleta — não dá para confirmar se gravou. " +
+        "Recarregue a ficha para conferir antes de tentar de novo.",
+    };
   }
 }
 
