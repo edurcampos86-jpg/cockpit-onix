@@ -184,7 +184,12 @@ jobs:
       # rápido mesmo com o banco fora do ar. Nada disso muda — o job segue
       # vermelho. O que muda é que o diagnóstico não morre junto.
       #
-      # A cadeia é guardada em duas etapas, não em `always()` solto:
+      # A cadeia é guardada em etapas, não em `always()` solto:
+      #   • o PRÓPRIO passo do secret precisa de `always()` — ele é o primeiro
+      #     elo, e sem isso o gate o pularia, seu `outcome` viraria `skipped`,
+      #     e toda a corrente abaixo (que exige `success`) morreria junto. É o
+      #     erro que a primeira tentativa desta mudança cometeu: guardar os
+      #     elos de baixo e deixar o de cima cair;
       #   • setup-node e npm ci só seguem se o SECRET existe — sem
       #     DATABASE_URL nenhuma leitura tem o que fazer;
       #   • os leitores só seguem se o `npm ci` deu certo — sem ele não há
@@ -196,6 +201,7 @@ jobs:
       # seguinte. O supressor sempre foi o gate.
       - name: Conferir que o secret existe
         id: secret
+        if: always()
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
