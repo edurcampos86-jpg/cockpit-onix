@@ -287,6 +287,16 @@ export const FLAGS_REGISTRADAS: readonly FlagRegistrada[] = [
     dialeto: "amplo",
     impacto: "normal",
   },
+  {
+    key: "QUESTIONARIO_PAT_TIME",
+    rotulo: "Questionário de incentivo personalizado pelo PAT na ficha do time",
+    onde: "src/lib/time/questionario-pat-flag.ts",
+    tipo: "booleana",
+    dialeto: "amplo",
+    // UI e actions consultam a mesma flag. OFF torna o recurso indistinguível
+    // de inexistente e interrompe toda escrita nova, sem apagar o histórico.
+    impacto: "normal",
+  },
 
   // ── Comportamento de backend ─────────────────────────────────
   {
