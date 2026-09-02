@@ -15,6 +15,7 @@ import {
   ChevronDown,
   ChevronRight,
   Undo2,
+  FileCode2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -34,6 +35,7 @@ import {
   vincularPr,
 } from "@/app/actions/implementacao";
 import { RiceHelp } from "./rice-help";
+import { PromptEntregaModal } from "./prompt-entrega-modal";
 import {
   Popover,
   PopoverContent,
@@ -743,6 +745,9 @@ export function ImplementacoesList({
   // Recortes do refino (v2). Inertes com a flag OFF: nada os lê nem os renderiza.
   const [busca, setBusca] = useState("");
   const [ordem, setOrdem] = useState<Ordem>("score");
+  // Um único modal para a tabela inteira. Guardar só o alvo evita montar até
+  // 300 árvores de diálogo, uma por linha, quando nenhuma está aberta.
+  const [promptAlvo, setPromptAlvo] = useState<ImplementacaoDTO | null>(null);
   /** Erro devolvido pelo servidor por linha, depois de desfazer a gravação. */
   const [erroSalvar, setErroSalvar] = useState<
     Record<string, { mensagem: string; eixos: RiceEixo[] } | null>
@@ -1698,6 +1703,16 @@ export function ImplementacoesList({
                           <span className="font-semibold">Por quê:</span> {r.porQue}
                         </p>
                       )}
+                      {v2 && (
+                        <button
+                          type="button"
+                          onClick={() => setPromptAlvo(r)}
+                          className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/5 px-2.5 py-1 text-[11px] font-semibold text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        >
+                          <FileCode2 className="h-3 w-3" aria-hidden="true" />
+                          Preparar prompt
+                        </button>
+                      )}
                       {/* A região viva fica SEMPRE montada, vazia quando não há
                         * erro. Criar o `role="status"` no mesmo instante em que
                         * o texto entra costuma não ser anunciado por leitor de
@@ -1946,6 +1961,14 @@ export function ImplementacoesList({
           </table>
         </div>
       )}
+      <PromptEntregaModal
+        implementacaoId={promptAlvo?.id ?? null}
+        titulo={promptAlvo?.oQue ?? null}
+        open={promptAlvo !== null}
+        onOpenChange={(aberto) => {
+          if (!aberto) setPromptAlvo(null);
+        }}
+      />
     </div>
   );
 }
