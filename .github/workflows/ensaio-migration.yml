@@ -259,8 +259,13 @@ jobs:
 
           # Tira as novas do caminho, aplica o PASSADO, devolve as novas.
           mkdir -p "${RUNNER_TEMP}/guardadas"
+          FIXTURES_GUARDADOS=''
           for dir in $NOVAS; do
-            mv "$dir" "${RUNNER_TEMP}/guardadas/$(basename "$dir")"
+            NOME_DIR=$(basename "$dir")
+            mv "$dir" "${RUNNER_TEMP}/guardadas/$NOME_DIR"
+            if [ -f "${RUNNER_TEMP}/guardadas/$NOME_DIR/ensaio.sql" ]; then
+              FIXTURES_GUARDADOS="$FIXTURES_GUARDADOS ${RUNNER_TEMP}/guardadas/$NOME_DIR/ensaio.sql"
+            fi
           done
           echo "── aplicando o estado ANTERIOR a esta PR ──"
           npx prisma migrate deploy > "${RUNNER_TEMP}/antes.txt" 2>&1 || {
@@ -270,7 +275,7 @@ jobs:
           }
 
           echo "── carregando o fixture ──"
-          for f in $FIXTURES; do
+          for f in $FIXTURES_GUARDADOS; do
             echo "  $f"
             psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f"
           done
