@@ -13,11 +13,23 @@
 > O teto de WIP da skill `onix-entrega-segura` (3 frentes) só é verificável
 > contra esta lista.
 
-**Estado corrente levantado em 2026-08-26 22:14Z, contra a `main` em `3e87f10`.**
+**Estado corrente levantado em 2026-09-02, contra a `main` em `3a571c2`.**
+
+## Frentes ativas — teto 3/3
+
+| vaga | frente | estado |
+|---:|---|---|
+| 1 | **#454** — impedir restore drill no Postgres de produção | ativa |
+| 2 | **#432 → #433** — ADM/Financeiro + gates de receita | pilha ativa |
+| 3 | **`feat/questionario-pat-time`** — questionário e acompanhamento por PAT | 🔴 em implementação; parar antes do merge |
+
+As demais PRs abertas foram marcadas `congelada` em 02/09, com autorização
+do Eduardo. Nenhuma foi fechada ou apagada. A fotografia de 26/08 abaixo fica
+preservada como histórico e não representa o WIP atual.
 
 ---
 
-## Frentes abertas — 17
+## Fotografia anterior: frentes abertas em 26/08 — 17
 
 Ordenadas da mais recente para a mais antiga. "Parada há" conta desde a última
 movimentação da PR.
