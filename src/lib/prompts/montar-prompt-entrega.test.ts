@@ -129,5 +129,35 @@ test("o prompt não acumula linhas em branco de blocos vazios", () => {
 });
 
 test("a versão da metodologia é legível a partir do .md", () => {
-  assert.ok(versaoTemplate() >= 1);
+  assert.ok(versaoTemplate() >= 2);
+});
+
+test("PAT localizado calibra o prompt sem carregar o PDF inteiro", () => {
+  const out = montarPromptEntrega({
+    ...base,
+    perfilPat: {
+      arquetipoCodigo: 76,
+      arquetipoNome: "Promocional de Ação Livre",
+      orientacao: "Social",
+      principaisCompetencias: ["Comunicação", "Iniciativa"],
+      estiloComunicacao: "Visual e direto",
+    },
+  });
+  assert.match(out, /76 · Promocional de Ação Livre/);
+  assert.match(out, /Visual e direto/);
+  assert.equal(out.includes("pdfBase64"), false);
+});
+
+test("PAT ausente instrui pedir o anexo só quando a personalização importar", () => {
+  const out = montarPromptEntrega({ ...base, perfilPat: null });
+  assert.match(out, /Perfil PAT vigente do solicitante não foi localizado/);
+  assert.match(out, /peça que ele anexe o PAT/);
+});
+
+test("o template traz time virtual, gauntlet e aceita Codex ou Claude Code", () => {
+  const out = montarPromptEntrega(base);
+  assert.match(out, /Agente Master/);
+  assert.match(out, /Codex ou Claude Code/);
+  assert.match(out, /Gauntlet Loop/);
+  assert.match(out, /no máximo cinco ciclos/);
 });
