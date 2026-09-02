@@ -17,7 +17,7 @@ export default async function BackupsPage() {
   if (!ctx) redirect("/login");
   if (!isAdmin(ctx)) redirect("/");
 
-  const [historico, ultimoBanco, ultimoRestoreTest, pgDump] = await Promise.all([
+  const [historico, ultimoBanco, pgDump] = await Promise.all([
     prisma.backupExecucao.findMany({
       orderBy: { executadoEm: "desc" },
       take: 50,
@@ -26,19 +26,12 @@ export default async function BackupsPage() {
       where: { tipo: "banco", sucesso: true },
       orderBy: { executadoEm: "desc" },
     }),
-    prisma.backupExecucao.findFirst({
-      where: { tipo: "restore_test" },
-      orderBy: { executadoEm: "desc" },
-    }),
     pgDumpAvailable(),
   ]);
 
+  const agora = new Date();
   const horasUltimoBanco = ultimoBanco
-    ? Math.round((Date.now() - ultimoBanco.executadoEm.getTime()) / 1000 / 3600)
-    : null;
-
-  const diasUltimoRestoreTest = ultimoRestoreTest
-    ? Math.round((Date.now() - ultimoRestoreTest.executadoEm.getTime()) / 1000 / 86400)
+    ? Math.round((agora.getTime() - ultimoBanco.executadoEm.getTime()) / 1000 / 3600)
     : null;
 
   return (
@@ -46,9 +39,9 @@ export default async function BackupsPage() {
       <PageHeader title="Backups" description="Status, histórico e ações manuais do backup do Cockpit." />
       <div className="p-8 space-y-6 max-w-6xl">
         <ComoFunciona
-          proposito="Pipeline completo de backup do Postgres + restore test mensal. Dumps vão pro Backblaze B2 (bucket onix-cockpit-backups), retenção 30 daily + 12 monthly + 5 yearly (GFS)."
-          comoUsar="Backup automático em dois destinos: GitHub Actions → R2 (diário 03h Bahia, cifrado, restore drill semanal) e app → B2 (diário 04h Bahia via cron.yml, retenção GFS, restore test mensal). 'Rodar agora' dispara um backup B2 manual."
-          comoAjuda="Backup que não foi testado não é backup. O restore test é a única garantia real de que o pipeline funciona. Se o sanity check falhar, Slack + WhatsApp alertam imediatamente."
+          proposito="Backups diários do Postgres em dois destinos independentes, com restauração validada fora da produção. O B2 mantém retenção de 30 diários + 12 mensais + 5 anuais (GFS)."
+          comoUsar="GitHub Actions → R2 (diário 03h Bahia, cifrado) e app → B2 (diário 04h Bahia via cron.yml). O restore drill semanal usa um Postgres temporário no GitHub Actions. 'Rodar agora' dispara um backup B2 manual."
+          comoAjuda="O teste de restauração nunca cria bancos ou cópias no Postgres de produção. Se o sanity check externo falhar, Slack + WhatsApp alertam imediatamente."
         />
 
         {/* Status checks */}
@@ -75,43 +68,6 @@ export default async function BackupsPage() {
         </div>
 
         <BackupActions disabled={!b2BackupsConfigurado() || !pgDump.ok} />
-
-        {/* Restore test */}
-        <div className="rounded-xl border border-border bg-card p-4">
-          <h3 className="text-sm font-semibold mb-2">Último restore test</h3>
-          {ultimoRestoreTest ? (
-            <div className="text-sm space-y-1">
-              <div>
-                <span
-                  className={cn(
-                    "inline-block rounded px-2 py-0.5 text-xs font-medium mr-2",
-                    ultimoRestoreTest.sucesso
-                      ? "bg-green-500/15 text-green-700 dark:text-green-300"
-                      : "bg-destructive/15 text-destructive"
-                  )}
-                >
-                  {ultimoRestoreTest.sucesso ? "OK" : "FAILED"}
-                </span>
-                <span className="text-muted-foreground">
-                  {diasUltimoRestoreTest} dias atrás (
-                  {new Date(ultimoRestoreTest.executadoEm).toLocaleString("pt-BR")})
-                </span>
-              </div>
-              {ultimoRestoreTest.erro && (
-                <div className="text-xs text-destructive">{ultimoRestoreTest.erro}</div>
-              )}
-              {ultimoRestoreTest.metadata != null && (
-                <pre className="text-[10px] bg-muted rounded p-2 mt-2 overflow-x-auto">
-                  {JSON.stringify(ultimoRestoreTest.metadata, null, 2)}
-                </pre>
-              )}
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              Nunca rodou. Aguarda o cron mensal (1º do mês, 05h Bahia).
-            </p>
-          )}
-        </div>
 
         {/* Histórico */}
         <div className="rounded-xl border border-border bg-card overflow-hidden">

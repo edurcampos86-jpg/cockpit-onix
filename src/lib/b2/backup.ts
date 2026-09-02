@@ -10,7 +10,8 @@ import { getB2ClientBackups, bucketBackups } from "./client";
 
 /**
  * I/O do bucket de BACKUPS (cliente B2 separado do contratos — least privilege).
- * Usado pela Fase 1C: cron de backup diário, restore test mensal.
+ * Usado pelo cron de backup diário. Testes de restauração rodam somente em
+ * Postgres descartável no GitHub Actions, fora da infraestrutura de produção.
  */
 
 export type BackupUploadResult = {

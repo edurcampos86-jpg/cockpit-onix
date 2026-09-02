@@ -26,13 +26,14 @@ on:
     - cron: '0 7 * * 0'     # btg-cadastral-poll (dom 04:00 Bahia / 07:00 UTC — off-peak, incremental)
     - cron: '0 11 * * *'    # alertas-clientes (diário 08:00 Bahia / 11:00 UTC — após saldos)
     - cron: '0 7 * * *'     # backup-daily → B2 (diário 04:00 Bahia / 07:00 UTC)
-    - cron: '0 8 1 * *'     # backup-restore-test → B2 (dia 1 do mês, 05:00 Bahia / 08:00 UTC)
+    - cron: '0 8 1 * *'     # config-audit-retencao (dia 1 do mês, 05:00 Bahia / 08:00 UTC)
     - cron: '0 13 * * 1-5'  # btg-freshness (seg-sex 10:00 Bahia / 13:00 UTC — heartbeat de dados BTG, após balances-poll)
     - cron: '30 3 * * *'    # meta-sync (diário 00:30 Bahia / 03:30 UTC — snapshots Marketing API D-1 + matriz CAC)
     # Backup do Postgres roda em DOIS destinos independentes (regra 3-2-1):
-    # .github/workflows/db-backup.yml (06:00 UTC diário, pg_dump direto → R2,
-    # restore drill semanal em restore-drill.yml) e os schedules 0 7 * * * /
-    # 0 8 1 * * acima (app → B2: backup diário + restore test mensal, GFS).
+    # .github/workflows/db-backup.yml (06:00 UTC diário, pg_dump direto → R2)
+    # e o schedule 0 7 * * * acima (app → B2, GFS). A restauração é validada
+    # exclusivamente em Postgres descartável no restore-drill.yml — nunca no
+    # banco ou no volume de produção.
   workflow_dispatch:
     inputs:
       paths:
@@ -124,10 +125,9 @@ jobs:
               # Faxina mensal. Aproveita o schedule que já existe em vez de
               # criar um novo: mesma cadência, mesma natureza (housekeeping
               # off-peak), e cada `cron:` novo dispara o workflow inteiro.
-              # config-audit-retencao termina em milissegundos — não estica a
-              # janela do restore-test, que é quem manda no timeout deste job.
+              # config-audit-retencao termina em milissegundos.
               "0 8 1 * *")
-                PATHS="/api/cron/backup-restore-test /api/cron/config-audit-retencao"
+                PATHS="/api/cron/config-audit-retencao"
                 ;;
               "0 13 * * 1-5")
                 PATHS="/api/cron/btg-freshness"
