@@ -280,6 +280,14 @@ export const FLAGS_REGISTRADAS: readonly FlagRegistrada[] = [
     impacto: "normal",
   },
   {
+    key: "PAINEL_ABERTURA_CAPITAL",
+    rotulo: "Tela de abertura da Onix Capital (/empresas/investimentos/abertura)",
+    onde: "src/lib/backoffice/painel-abertura-flag.ts",
+    tipo: "booleana",
+    dialeto: "amplo",
+    impacto: "normal",
+  },
+  {
     key: "CLIENTES_ATENCAO_INLINE",
     rotulo: "Fusão do estado de atenção na coluna Presença",
     onde: "src/lib/painel-atencao/service.ts",
