@@ -2414,7 +2414,8 @@ model Pessoa {
   conviteOnboarding     ConviteOnboarding?
 
   // Fase 3 — PAT (perfil comportamental Criativa Humana)
-  pats Pat[]
+  pats            Pat[]
+  questionarioPat QuestionarioPatPessoa?
 
   // Fase 4 — Reuniões do time (timeline tipo CRM)
   participacoesReuniao ReuniaoTimeParticipante[]
@@ -2700,9 +2701,74 @@ model Pat {
   uploadedAt DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
+  // Questionários de incentivo que usaram este PAT como referência. A relação
+  // é SetNull no lado do questionário: excluir um laudo não apaga as respostas
+  // nem o snapshot das perguntas feitas à pessoa.
+  questionariosIncentivo QuestionarioPatPessoa[]
+
   @@index([pessoaId, dataPat])
   @@index([pessoaId, uploadedAt])
   @@index([clienteId, dataPat])
+}
+
+// ============================================
+// TIME — QUESTIONÁRIO DE INCENTIVO PERSONALIZADO PELO PAT
+// ============================================
+// Uma fotografia atual por pessoa, mais acompanhamentos append-only. As
+// perguntas exatas ficam em JSON para que uma mudança futura no gerador não
+// reescreva retroativamente o que foi perguntado.
+model QuestionarioPatPessoa {
+  id String @id @default(cuid())
+
+  pessoaId String @unique
+  pessoa   Pessoa @relation(fields: [pessoaId], references: [id], onDelete: Cascade)
+
+  // PAT vigente usado na geração. SetNull preserva o questionário se o laudo
+  // for removido; perguntasSnapshot continua sendo a prova da personalização.
+  patId String?
+  pat   Pat?    @relation(fields: [patId], references: [id], onDelete: SetNull)
+
+  versaoPerguntas   Int
+  perguntasSnapshot Json
+  status            String @default("rascunho") // "rascunho" | "concluido"
+
+  preocupacoesAtuais   String?   @db.Text
+  objetivoCurtoPrazo   String?   @db.Text
+  objetivoLongoPrazo   String?   @db.Text
+  incentivos           String?   @db.Text
+  desmotivadores       String?   @db.Text
+  esforcosNecessarios  String?   @db.Text
+  apoioEsperado        String?   @db.Text
+  indicadoresProgresso String?   @db.Text
+  proximaRevisao       DateTime?
+
+  // Strings de propósito: seguem o precedente de ReuniaoTime e preservam o
+  // rastro mesmo se o User de autenticação for removido no futuro.
+  criadoPorUserId     String
+  atualizadoPorUserId String
+  criadoEm            DateTime @default(now())
+  atualizadoEm        DateTime @updatedAt
+
+  acompanhamentos QuestionarioPatAcompanhamento[]
+
+  @@index([patId])
+  @@index([status, proximaRevisao])
+}
+
+model QuestionarioPatAcompanhamento {
+  id String @id @default(cuid())
+
+  questionarioId String
+  questionario   QuestionarioPatPessoa @relation(fields: [questionarioId], references: [id], onDelete: Cascade)
+
+  data             DateTime
+  direcao          String // "avancando" | "estavel" | "afastando"
+  evidencias       String   @db.Text
+  proximosEsforcos String?  @db.Text
+  criadoPorUserId  String
+  criadoEm         DateTime @default(now())
+
+  @@index([questionarioId, data(sort: Desc)])
 }
 
 // ============================================

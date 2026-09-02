@@ -125,29 +125,39 @@ export async function uploadPat(
 
   // ── Gravação do resultado ────────────────────────────────────────────────
   try {
-    await prisma.pat.update({
-      where: { id: patId },
-      data: {
-        status: "extraido",
-        dataPat,
-        perspectiva: extraction.perspectiva,
-        ambienteCelula: extraction.ambienteCelula,
-        ambienteNome: extraction.ambienteNome,
-        orientacao: extraction.orientacao,
-        aproveitamento: extraction.aproveitamento,
-        principaisCompetencias: extraction.principaisCompetencias,
-        caracteristicas: extraction.caracteristicas,
-        estrutural: extraction.estrutural ?? undefined,
-        iconeEstrutural: extraction.iconeEstrutural ?? undefined,
-        tendencias: extraction.tendencias ?? undefined,
-        risco: extraction.risco ?? undefined,
-        competenciasEstrategicas: extraction.competenciasEstrategicas,
-        ambiente: extraction.ambiente ?? undefined,
-        resumido: extraction.resumido,
-        detalhado: extraction.detalhado,
-        sugestoes: extraction.sugestoes,
-        gerencial: extraction.gerencial,
-      },
+    // Troca de vigência atômica. O PAT novo só vira vigente DEPOIS de a
+    // extração inteira ter passado; falha de parsing/gravação mantém o vigente
+    // anterior e o registro novo continua não vigente.
+    await prisma.$transaction(async (tx) => {
+      await tx.pat.updateMany({
+        where: { pessoaId, vigente: true, id: { not: patId } },
+        data: { vigente: false },
+      });
+      await tx.pat.update({
+        where: { id: patId },
+        data: {
+          status: "extraido",
+          vigente: true,
+          dataPat,
+          perspectiva: extraction.perspectiva,
+          ambienteCelula: extraction.ambienteCelula,
+          ambienteNome: extraction.ambienteNome,
+          orientacao: extraction.orientacao,
+          aproveitamento: extraction.aproveitamento,
+          principaisCompetencias: extraction.principaisCompetencias,
+          caracteristicas: extraction.caracteristicas,
+          estrutural: extraction.estrutural ?? undefined,
+          iconeEstrutural: extraction.iconeEstrutural ?? undefined,
+          tendencias: extraction.tendencias ?? undefined,
+          risco: extraction.risco ?? undefined,
+          competenciasEstrategicas: extraction.competenciasEstrategicas,
+          ambiente: extraction.ambiente ?? undefined,
+          resumido: extraction.resumido,
+          detalhado: extraction.detalhado,
+          sugestoes: extraction.sugestoes,
+          gerencial: extraction.gerencial,
+        },
+      });
     });
   } catch (e) {
     const msg = motivo(e);

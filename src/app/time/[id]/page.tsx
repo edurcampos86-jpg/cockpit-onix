@@ -39,6 +39,7 @@ import { ReunioesSection } from "../_components/reunioes-section";
 import { AlertasBanner } from "../_components/alertas-banner";
 import { CompatibilidadeSection } from "../_components/compatibilidade-section";
 import { MeuTelefoneForm, MinhaFotoForm } from "../_components/meu-telefone-form";
+import { QuestionarioPatSection } from "../_components/questionario-pat-section";
 
 export const metadata = {
   title: "Ficha — Time — Cockpit Onix",
@@ -99,14 +100,14 @@ export default async function PessoaPage({
         )}
       </PageHeader>
 
-      <div className="p-8 max-w-5xl space-y-6">
+      <div className="px-4 py-6 sm:p-8 max-w-5xl space-y-6">
         {/* ── Banner de alertas ── */}
         <AlertasBanner pessoaId={pessoa.id} />
 
         {/* ── Cabeçalho da ficha ── */}
         <section
           className={cn(
-            "rounded-xl border border-border bg-card p-6 flex items-start gap-5",
+            "rounded-xl border border-border bg-card p-4 sm:p-6 flex flex-col sm:flex-row items-start gap-4 sm:gap-5",
             isArquivado && "opacity-75"
           )}
         >
@@ -139,6 +140,10 @@ export default async function PessoaPage({
             </div>
           </div>
         </section>
+
+        {/* O componente resolve flag e RBAC no servidor. Quem não é Master
+            nem responsável direto não recebe sequer o estado vazio. */}
+        <QuestionarioPatSection pessoaId={pessoa.id} />
 
         {/* ── Identificação ── */}
         <Section title="Identificação" icon={Mail}>
