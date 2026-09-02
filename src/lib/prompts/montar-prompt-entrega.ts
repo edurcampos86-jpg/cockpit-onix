@@ -47,6 +47,17 @@ export type AnexoPrompt = {
   descricao?: string | null;
 };
 
+/** Recorte mínimo do PAT que ajuda a calibrar a comunicação sem carregar o PDF. */
+export type PerfilPatPrompt = {
+  arquetipoCodigo?: number | null;
+  arquetipoNome?: string | null;
+  orientacao?: string | null;
+  perspectiva?: string | null;
+  ambienteNome?: string | null;
+  principaisCompetencias?: string[];
+  estiloComunicacao?: string | null;
+};
+
 export type DadosPromptEntrega = {
   titulo?: string | null;
   empresaNome: string;
@@ -57,6 +68,7 @@ export type DadosPromptEntrega = {
   porQue: string;
   elicitacao?: TrocaElicitacao[];
   anexos?: AnexoPrompt[];
+  perfilPat?: PerfilPatPrompt | null;
   sinais?: SinaisTecnicos;
 };
 
@@ -117,6 +129,7 @@ export const PLACEHOLDERS = [
   "POR_QUE",
   "BLOCO_ELICITACAO",
   "BLOCO_ANEXOS",
+  "BLOCO_PAT",
   "LEMBRETES",
 ] as const;
 
@@ -185,7 +198,40 @@ function montarBlocoAnexos(anexos: AnexoPrompt[] = []): string {
         : `- \`${a.nomeArquivo}\``,
     )
     .join("\n");
-  return `## Contexto visual (anexos)\n\nO usuário anexou print(s) na sugestão. Pedir os arquivos ao usuário antes de assumir o layout:\n\n${corpo}\n`;
+  return `## Contexto visual (anexos)\n\nO usuário anexou arquivo(s) na sugestão. Peça que ele anexe os mesmos arquivos nesta conversa antes de assumir conteúdo ou layout:\n\n${corpo}\n`;
+}
+
+function montarBlocoPat(perfil: PerfilPatPrompt | null | undefined): string {
+  if (!perfil) {
+    return [
+      "## Personalização pelo Perfil PAT",
+      "",
+      "O Perfil PAT vigente do solicitante não foi localizado. Se a entrega envolver comunicação, rotina individual ou UX personalizada, peça que ele anexe o PAT antes da decisão final.",
+      "",
+    ].join("\n");
+  }
+
+  const linhas = [
+    perfil.arquetipoNome &&
+      `- **Arquétipo:** ${perfil.arquetipoCodigo ? `${perfil.arquetipoCodigo} · ` : ""}${perfil.arquetipoNome}`,
+    perfil.orientacao && `- **Orientação predominante:** ${perfil.orientacao}`,
+    perfil.perspectiva && `- **Perspectiva:** ${perfil.perspectiva}`,
+    perfil.ambienteNome && `- **Ambiente:** ${perfil.ambienteNome}`,
+    perfil.principaisCompetencias?.length
+      ? `- **Competências centrais:** ${perfil.principaisCompetencias.join(", ")}`
+      : null,
+    perfil.estiloComunicacao &&
+      `- **Estilo de comunicação registrado:** ${perfil.estiloComunicacao}`,
+  ].filter((linha): linha is string => Boolean(linha));
+
+  return [
+    "## Personalização pelo Perfil PAT",
+    "",
+    "Use estes sinais para calibrar linguagem, densidade e formato. Não transforme o PAT em estereótipo e não exponha seus dados fora desta tarefa.",
+    "",
+    ...linhas,
+    "",
+  ].join("\n");
 }
 
 /** Texto para campo vazio — o prompt nunca sai com seção em branco e sem aviso. */
@@ -214,6 +260,7 @@ export function montarPromptEntrega(d: DadosPromptEntrega): string {
     POR_QUE: ou(d.porQue, NAO_INFORMADO),
     BLOCO_ELICITACAO: montarBlocoElicitacao(d.elicitacao),
     BLOCO_ANEXOS: montarBlocoAnexos(d.anexos),
+    BLOCO_PAT: montarBlocoPat(d.perfilPat),
     LEMBRETES: montarLembretes(sinais),
   };
 
