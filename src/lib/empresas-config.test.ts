@@ -1,11 +1,20 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  EMPRESAS,
   EMPRESAS_IMPLEMENTACOES,
   empresaAceitaImplementacao,
   nomeEmpresa,
   opcoesFiltroEmpresa,
 } from "./empresas-config";
+
+test("a aba de clientes da Onix Capital usa o novo nome sem mudar a rota", () => {
+  const capital = EMPRESAS.find((e) => e.id === "investimentos");
+  const clientes = capital?.abas.find(
+    (aba) => aba.href === "/empresas/investimentos/clientes",
+  );
+  assert.equal(clientes?.label, "Cliente Onix Capital");
+});
 
 test("a fase inicial tem exatamente as 5 empresas alvo", () => {
   assert.deepEqual(
