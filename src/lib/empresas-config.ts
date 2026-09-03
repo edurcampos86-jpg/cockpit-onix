@@ -37,7 +37,7 @@ const investimentos: EmpresaConfig = {
     { label: "Onboard", icon: "UserPlus", emBreve: true },
     { label: "Rotina", icon: "CalendarCheck", href: "/empresas/investimentos/painel-do-dia" },
     { label: "KPIs", icon: "Gauge", href: "/empresas/investimentos/performance" },
-    { label: "Saldo & Relacionamento", icon: "Handshake", href: "/empresas/investimentos/clientes" },
+    { label: "Cliente Onix Capital", icon: "Handshake", href: "/empresas/investimentos/clientes" },
     { label: "Receita", icon: "DollarSign", href: "/empresas/investimentos/receita" },
     { label: "Treinamento", icon: "GraduationCap", href: "/empresas/investimentos/storyselling" },
     { label: "Time/Pessoas", icon: "UsersRound", emBreve: true },
