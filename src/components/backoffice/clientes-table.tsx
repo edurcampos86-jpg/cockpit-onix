@@ -36,6 +36,12 @@ import {
 import type { EstadoAtencao } from "@/lib/painel-atencao/core";
 import { getNomeRelacionamento } from "@/lib/backoffice/display-name";
 import { ApelidoEditButton } from "@/components/backoffice/apelido-edit-button";
+import {
+  RegistroRapidoDialog,
+  ReuniaoManualDialog,
+  type RegistroRapidoAlvo,
+  type ReuniaoManualAlvo,
+} from "@/components/backoffice/cliente-reuniao-dialogs";
 import { Switch } from "@/components/ui/switch";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -325,6 +331,11 @@ const FONTE_REUNIAO: Record<string, { sigla: string; nome: string; cor: string }
     nome: "Datacrazy (atividades)",
     cor: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
   },
+  manual: {
+    sigla: "M",
+    nome: "Manual",
+    cor: "bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200",
+  },
 };
 
 /**
@@ -473,8 +484,8 @@ export function ClientesTable({
   const [importStatus, setImportStatus] = useState<{ ok: boolean; msg: string } | null>(null);
   const [xlsxReady, setXlsxReady] = useState(false);
   const [marcandoContato, setMarcandoContato] = useState(false);
-  const [registrandoReuniao, setRegistrandoReuniao] = useState<string | null>(null);
-  const [registrandoContato, setRegistrandoContato] = useState<string | null>(null);
+  const [registroRapido, setRegistroRapido] = useState<RegistroRapidoAlvo | null>(null);
+  const [reuniaoManual, setReuniaoManual] = useState<ReuniaoManualAlvo | null>(null);
   const [feeSalvando, setFeeSalvando] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -993,64 +1004,6 @@ export function ClientesTable({
     a.download = `clientes_${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-  };
-
-  const registrarReuniaoAgora = async (id: string, nome: string) => {
-    if (!confirm(`Registrar reunião realizada agora com ${nome}?`)) return;
-    setRegistrandoReuniao(id);
-    try {
-      const res = await fetch(`/api/backoffice/clientes/${id}/interacoes`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tipo: "reuniao",
-          canal: "presencial",
-          assunto: "Reunião realizada",
-        }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const interacao = await res.json();
-      const agora = interacao.data ?? new Date().toISOString();
-      setClientes((prev) =>
-        prev.map((c) =>
-          c.id === id ? { ...c, ultimaReuniaoAt: agora, ultimoContatoAt: agora } : c,
-        ),
-      );
-    } catch (e) {
-      console.error("Erro ao registrar reunião:", e);
-      alert("Não foi possível registrar a reunião. Tente novamente.");
-    } finally {
-      setRegistrandoReuniao(null);
-    }
-  };
-
-  const registrarContatoAgora = async (id: string, nome: string) => {
-    if (!confirm(`Registrar contato realizado agora com ${nome}?`)) return;
-    setRegistrandoContato(id);
-    try {
-      const res = await fetch(`/api/backoffice/clientes/${id}/interacoes`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tipo: "ligacao",
-          canal: "telefone",
-          assunto: "Contato registrado",
-        }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const interacao = await res.json();
-      const agora = interacao.data ?? new Date().toISOString();
-      // Atualiza ultimoContatoAt local → o selo do termômetro recalcula na hora.
-      // proximoContatoAt é recalculado no servidor (interacoes POST).
-      setClientes((prev) =>
-        prev.map((c) => (c.id === id ? { ...c, ultimoContatoAt: agora } : c)),
-      );
-    } catch (e) {
-      console.error("Erro ao registrar contato:", e);
-      alert("Não foi possível registrar o contato. Tente novamente.");
-    } finally {
-      setRegistrandoContato(null);
-    }
   };
 
   const marcarContatadosHoje = async () => {
@@ -1693,22 +1646,53 @@ export function ClientesTable({
                     </td>
 
                     <td className="px-3 py-3 text-xs text-muted-foreground">
-                      {c.ultimaReuniaoAt ? (
-                        <span className="inline-flex items-center">
-                          {formatData(c.ultimaReuniaoAt)}
-                          <FonteReuniao
-                            source={c.ultimaReuniaoSource}
-                            manual={c.ultimaReuniaoConfirmadaManualmente}
-                          />
-                        </span>
-                      ) : (
-                        "—"
-                      )}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setReuniaoManual({
+                            clienteId: c.id,
+                            clienteNome: getNomeRelacionamento(c),
+                            tipo: "ultima",
+                            dataAtual: c.ultimaReuniaoAt,
+                            fonteAtual: c.ultimaReuniaoSource,
+                          })
+                        }
+                        className="inline-flex min-h-7 items-center rounded px-1 text-left hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        aria-label={`Editar última reunião de ${getNomeRelacionamento(c)}`}
+                        title="Editar última reunião manualmente"
+                      >
+                        {c.ultimaReuniaoAt ? (
+                          <>
+                            {formatData(c.ultimaReuniaoAt)}
+                            <FonteReuniao
+                              source={c.ultimaReuniaoSource}
+                              manual={c.ultimaReuniaoConfirmadaManualmente}
+                            />
+                          </>
+                        ) : (
+                          <span>— <Edit2 className="ml-1 inline h-3 w-3" aria-hidden /></span>
+                        )}
+                      </button>
                     </td>
 
                     <td className="px-3 py-3 text-xs">
-                      {c.proximaReuniaoAt ? (
-                        <span className="inline-flex items-center">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setReuniaoManual({
+                            clienteId: c.id,
+                            clienteNome: getNomeRelacionamento(c),
+                            tipo: "proxima",
+                            dataAtual: c.proximaReuniaoAt,
+                            fonteAtual: c.proximaReuniaoSource,
+                          })
+                        }
+                        className="block min-h-7 rounded px-1 text-left hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        aria-label={`Editar próxima reunião de ${getNomeRelacionamento(c)}`}
+                        title="Editar próxima reunião manualmente"
+                      >
+                        {c.proximaReuniaoAt ? (
+                          <span className="inline-flex items-center">
                           <span
                             className={
                               diasProxReuniao !== null && diasProxReuniao <= 7
@@ -1733,7 +1717,7 @@ export function ClientesTable({
                                 aria-label="Agendada fora do teto"
                               />
                             )}
-                        </span>
+                          </span>
                       ) : (
                         // Sem reunião agendada: em vez de um traço mudo, mostra o
                         // estado da régua de REUNIÃO. É aqui que a falha grave
@@ -1766,8 +1750,9 @@ export function ClientesTable({
                           ) : (
                             "—"
                           )}
-                        </span>
+                          </span>
                       )}
+                      </button>
                       {/* Teto manual. Fica ao lado do estado da régua porque é
                           o que EXPLICA o estado: quem vê "45d vencida" precisa
                           saber contra qual teto, e poder ajustá-lo ali mesmo.
@@ -1856,29 +1841,33 @@ export function ClientesTable({
                           <span className="text-xs text-muted-foreground italic">sem tel</span>
                         )}
                         <button
-                          onClick={() => registrarContatoAgora(c.id, c.nome)}
-                          disabled={registrandoContato === c.id}
-                          className="inline-flex items-center gap-1 px-2 py-1 rounded bg-sky-500/10 text-sky-700 dark:text-sky-400 hover:bg-sky-500/20 text-xs disabled:opacity-50"
-                          title="Registrar contato realizado agora (liga/whats/sala) — atualiza Último contato e recalcula próximo contato"
+                          type="button"
+                          onClick={() =>
+                            setRegistroRapido({
+                              clienteId: c.id,
+                              clienteNome: getNomeRelacionamento(c),
+                              tipo: "contato",
+                            })
+                          }
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded bg-sky-500/10 text-sky-700 dark:text-sky-400 hover:bg-sky-500/20 text-xs"
+                          title="Registrar contato com data e relato"
                         >
-                          {registrandoContato === c.id ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : (
-                            <Phone className="h-3 w-3" />
-                          )}
+                          <Phone className="h-3 w-3" aria-hidden />
                           Contato
                         </button>
                         <button
-                          onClick={() => registrarReuniaoAgora(c.id, c.nome)}
-                          disabled={registrandoReuniao === c.id}
-                          className="inline-flex items-center gap-1 px-2 py-1 rounded bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20 text-xs disabled:opacity-50"
-                          title="Registrar reunião realizada agora (preenche Última reunião e Último contato)"
+                          type="button"
+                          onClick={() =>
+                            setRegistroRapido({
+                              clienteId: c.id,
+                              clienteNome: getNomeRelacionamento(c),
+                              tipo: "reuniao",
+                            })
+                          }
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20 text-xs"
+                          title="Registrar reunião com data e relato"
                         >
-                          {registrandoReuniao === c.id ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : (
-                            <CalendarPlus className="h-3 w-3" />
-                          )}
+                          <CalendarPlus className="h-3 w-3" aria-hidden />
                           Reunião
                         </button>
                       </div>
@@ -1899,6 +1888,52 @@ export function ClientesTable({
           </table>
         </div>
       </div>
+
+      <RegistroRapidoDialog
+        alvo={registroRapido}
+        onOpenChange={(aberto) => {
+          if (!aberto) setRegistroRapido(null);
+        }}
+        onSalvo={(registro) => {
+          if (!registroRapido) return;
+          const { clienteId, tipo } = registroRapido;
+          setClientes((prev) =>
+            prev.map((c) => {
+              if (c.id !== clienteId) return c;
+              const contatoAtual = c.ultimoContatoAt
+                ? new Date(c.ultimoContatoAt).getTime()
+                : Number.NEGATIVE_INFINITY;
+              const contatoNovo = new Date(registro.data).getTime();
+              const comContato =
+                Number.isFinite(contatoNovo) && contatoNovo > contatoAtual
+                  ? { ...c, ultimoContatoAt: registro.data }
+                  : c;
+              if (tipo !== "reuniao" || !registro.reuniaoAgregada) return comContato;
+              return {
+                ...comContato,
+                ultimaReuniaoAt: registro.reuniaoAgregada.data,
+                ultimaReuniaoSource: registro.reuniaoAgregada.source,
+                ultimaReuniaoConfirmadaManualmente:
+                  registro.reuniaoAgregada.confirmadaManualmente,
+              };
+            }),
+          );
+        }}
+      />
+
+      <ReuniaoManualDialog
+        alvo={reuniaoManual}
+        onOpenChange={(aberto) => {
+          if (!aberto) setReuniaoManual(null);
+        }}
+        onSalvo={(dados) => {
+          if (!reuniaoManual) return;
+          const { clienteId } = reuniaoManual;
+          setClientes((prev) =>
+            prev.map((c) => (c.id === clienteId ? { ...c, ...dados } : c)),
+          );
+        }}
+      />
     </div>
   );
 }
