@@ -13,7 +13,7 @@
 > O teto de WIP da skill `onix-entrega-segura` (3 frentes) só é verificável
 > contra esta lista.
 
-**Estado corrente levantado em 2026-09-02, contra a `main` em `38f3465`.**
+**Estado corrente levantado em 2026-09-03, contra a `main` em `7c2f245`.**
 
 ## Frentes ativas — teto 2/3
 
@@ -22,8 +22,10 @@
 | 1 | **#454** — impedir restore drill no Postgres de produção | ativa |
 | 2 | **#432 → #433** — ADM/Financeiro + gates de receita | pilha ativa |
 
-Fechada nesta atualização: **#456**, questionário e acompanhamento por PAT,
-mergeada após o gate vermelho e validada em produção.
+Fechadas nesta atualização:
+
+- **#458** — Cliente Onix Capital com datas manuais, Google Agenda e relato obrigatório; CI verde e merge squash concluído.
+- **#456** — questionário e acompanhamento por PAT; mergeada após o gate vermelho e validada em produção.
 
 As demais PRs abertas foram marcadas `congelada` em 02/09, com autorização
 do Eduardo. Nenhuma foi fechada ou apagada. A fotografia de 26/08 abaixo fica
