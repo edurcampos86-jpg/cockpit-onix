@@ -1,5 +1,16 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@/generated/prisma/client";
+import {
+  escolherAgregadoComSlot,
+  escolherCandidatoAgregado,
+  SOURCE_RANK,
+} from "@/lib/reunioes-core";
+
+type ReuniaoExecutor = Pick<
+  Prisma.TransactionClient,
+  "reuniaoCliente" | "clienteBackoffice"
+>;
 
 /**
  * Camada unificada de reuniões — fonte da verdade pros agregados
@@ -17,10 +28,8 @@ import { prisma } from "@/lib/prisma";
  *   sobrescreviam — vencia o match de MENOR confiança, cujo score 30 é
  *   filtrado do rollup, então a reunião sumia das colunas de todos.
  *
- * Ordem das fontes ao haver conflito de dados (ex: título diferente):
- *   google-cal > outlook-ics > outlook-web > datacrazy-atividade > manual
- * (definido em SOURCE_RANK abaixo, usado só pra desempate na escolha do
- * "título canônico" — os agregados de data não dependem dessa ordem).
+ * Em empate exato de data no agregado, uma edição manual vence; entre fontes
+ * externas preservamos google > outlook-ics > outlook-web > datacrazy.
  */
 
 export type ReuniaoSource =
@@ -36,17 +45,6 @@ export type ReuniaoMatchedVia =
   | "nome-unico"
   | "nome-substring"
   | "manual";
-
-// Renumerado para abrir espaço para outlook-web sem alterar a ordem relativa
-// que já existia. outlook-web fica logo abaixo de outlook-ics: é a mesma
-// agenda, mas obtida por extração da UI (menos estruturada que o feed .ics).
-const SOURCE_RANK: Record<ReuniaoSource, number> = {
-  "google-cal": 5,
-  "outlook-ics": 4,
-  "outlook-web": 3,
-  "datacrazy-atividade": 2,
-  manual: 1,
-};
 
 export const MATCH_SCORE: Record<ReuniaoMatchedVia, number> = {
   email: 100,
@@ -103,6 +101,7 @@ export interface UpsertReuniaoInput {
  */
 export async function upsertReuniao(
   input: UpsertReuniaoInput,
+  db: ReuniaoExecutor = prisma,
 ): Promise<"created" | "updated" | "noop"> {
   const realizada = input.startAt < new Date();
   const matchScore = MATCH_SCORE[input.matchedVia];
@@ -117,7 +116,7 @@ export async function upsertReuniao(
   // migration 20260730200000). Sem ele aqui, os matches do mesmo evento
   // encontrariam a linha um do outro e se sobrescreveriam em cadeia — a linha
   // acabava com o match de MENOR confianca e sumia do rollup.
-  const existente = await prisma.reuniaoCliente.findFirst({
+  const existente = await db.reuniaoCliente.findFirst({
     where: {
       userId,
       source: input.source,
@@ -127,7 +126,7 @@ export async function upsertReuniao(
   });
 
   if (!existente) {
-    await prisma.reuniaoCliente.create({
+    await db.reuniaoCliente.create({
       data: {
         clienteId: input.clienteId,
         userId,
@@ -163,7 +162,7 @@ export async function upsertReuniao(
     existente.matchScore === matchScore;
   if (naoMudou) return "noop";
 
-  await prisma.reuniaoCliente.update({
+  await db.reuniaoCliente.update({
     where: { id: existente.id },
     data: {
       startAt: input.startAt,
@@ -222,6 +221,7 @@ export async function deleteReuniaoByExternal(
  */
 export async function recomputeAgregadosReuniao(
   clienteId: string,
+  db: ReuniaoExecutor = prisma,
 ): Promise<{ proxima: Date | null; ultima: Date | null }> {
   const agora = new Date();
 
@@ -233,19 +233,11 @@ export async function recomputeAgregadosReuniao(
   // no render obrigaria a UI a repetir a regra de ordenação e o filtro de
   // confiança — e a divergir dela no primeiro ajuste.
   const [proxima, ultima] = await Promise.all([
-    prisma.reuniaoCliente.findFirst({
-      where: { clienteId, startAt: { gte: agora }, ...ROLLUP_CONFIAVEL },
-      orderBy: { startAt: "asc" },
-      select: { startAt: true, source: true, matchedVia: true },
-    }),
-    prisma.reuniaoCliente.findFirst({
-      where: { clienteId, startAt: { lt: agora }, ...ROLLUP_CONFIAVEL },
-      orderBy: { startAt: "desc" },
-      select: { startAt: true, source: true, matchedVia: true },
-    }),
+    buscarAgregadoNaExtremidade(db, clienteId, agora, "proxima"),
+    buscarAgregadoNaExtremidade(db, clienteId, agora, "ultima"),
   ]);
 
-  await prisma.clienteBackoffice.update({
+  await db.clienteBackoffice.update({
     where: { id: clienteId },
     data: {
       proximaReuniaoAt: proxima?.startAt ?? null,
@@ -264,6 +256,59 @@ export async function recomputeAgregadosReuniao(
     proxima: proxima?.startAt ?? null,
     ultima: ultima?.startAt ?? null,
   };
+}
+
+async function buscarAgregadoNaExtremidade(
+  db: ReuniaoExecutor,
+  clienteId: string,
+  agora: Date,
+  lado: "proxima" | "ultima",
+) {
+  const externalIdSlot = `slot:${lado}`;
+  const semSlotsDaOutraColuna = {
+    NOT: {
+      source: "manual",
+      externalId: { in: ["slot:ultima", "slot:proxima"] },
+    },
+  };
+  const slotManual = await db.reuniaoCliente.findFirst({
+    where: {
+      clienteId,
+      userId: null,
+      source: "manual",
+      externalId: externalIdSlot,
+      startAt: lado === "proxima" ? { gte: agora } : { lt: agora },
+      ...ROLLUP_CONFIAVEL,
+    },
+    select: { startAt: true, source: true, matchedVia: true },
+  });
+  if (slotManual) return escolherAgregadoComSlot(slotManual, null);
+
+  const extrema = await db.reuniaoCliente.findFirst({
+    where: {
+      clienteId,
+      startAt: lado === "proxima" ? { gte: agora } : { lt: agora },
+      ...ROLLUP_CONFIAVEL,
+      ...semSlotsDaOutraColuna,
+    },
+    orderBy: { startAt: lado === "proxima" ? "asc" : "desc" },
+    select: { startAt: true },
+  });
+  if (!extrema) return null;
+
+  // A primeira query descobre a data extrema; a segunda traz APENAS os empates
+  // daquele timestamp. A prioridade de fonte não pode ser expressa por sort
+  // lexicográfico, então a escolha final é explícita e testada em módulo puro.
+  const empatadas = await db.reuniaoCliente.findMany({
+    where: {
+      clienteId,
+      startAt: extrema.startAt,
+      ...ROLLUP_CONFIAVEL,
+      ...semSlotsDaOutraColuna,
+    },
+    select: { startAt: true, source: true, matchedVia: true },
+  });
+  return escolherAgregadoComSlot(null, escolherCandidatoAgregado(empatadas));
 }
 
 /**

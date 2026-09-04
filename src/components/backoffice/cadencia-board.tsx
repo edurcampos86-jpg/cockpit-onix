@@ -47,7 +47,7 @@ export function CadenciaBoard({ clientes }: { clientes: Cliente[] }) {
     new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }).format(v);
 
   const registrar = async () => {
-    if (!registrando || !assunto.trim()) return;
+    if (!registrando || !assunto.trim() || !resumo.trim()) return;
     setEnviando(true);
     try {
       const res = await fetch(`/api/backoffice/clientes/${registrando.id}/interacoes`, {
@@ -185,7 +185,7 @@ export function CadenciaBoard({ clientes }: { clientes: Cliente[] }) {
 
               <div>
                 <label className="text-xs font-medium text-muted-foreground mb-1 block">
-                  Resumo / notas RCA
+                  Relato do que foi tratado *
                 </label>
                 <textarea
                   value={resumo}
@@ -198,7 +198,7 @@ export function CadenciaBoard({ clientes }: { clientes: Cliente[] }) {
 
               <button
                 onClick={registrar}
-                disabled={!assunto.trim() || enviando}
+                disabled={!assunto.trim() || !resumo.trim() || enviando}
                 className="w-full px-4 py-2 rounded-lg bg-primary text-primary-foreground font-medium disabled:opacity-50"
               >
                 {enviando ? "Registrando..." : "Registrar contato"}
