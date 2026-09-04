@@ -1504,7 +1504,7 @@ function RcaTab({
   const gravacao = useGravacao();
 
   const criar = async () => {
-    if (!form.assunto.trim()) return;
+    if (!form.assunto.trim() || !form.resumo.trim()) return;
     const nova = await gravacao.executar(() =>
       gravarJson<Interacao>(`/api/backoffice/clientes/${clienteId}/interacoes`, "POST", form),
     );
@@ -1588,14 +1588,14 @@ function RcaTab({
             <textarea
               value={form.resumo}
               onChange={(e) => setForm({ ...form, resumo: e.target.value })}
-              placeholder="Resumo executivo (1-2 frases)"
+              placeholder="Relato obrigatório do que foi tratado (1-2 frases)"
               rows={2}
               className="w-full px-3 py-2 rounded-lg border bg-background text-sm"
             />
             <div className="flex gap-2">
               <button
                 onClick={criar}
-                disabled={!form.assunto.trim()}
+                disabled={!form.assunto.trim() || !form.resumo.trim()}
                 className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium disabled:opacity-50"
               >
                 Registrar
