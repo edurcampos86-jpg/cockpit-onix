@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { ComoFunciona } from "@/components/layout/como-funciona";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { GoogleAliasesEditor } from "./_components/google-aliases-editor";
+import { PlaudStatusPanel } from "./_components/plaud-status-panel";
 import {
   MessageSquare,
   Bot,
@@ -592,6 +593,7 @@ export default function IntegracoesPage() {
           comoUsar="Veja o status de cada conexão. Para conectar uma nova, siga as instruções no card. Cada integração desbloqueia um conjunto de automações listadas abaixo."
           comoAjuda="Centraliza tudo num só lugar: você sabe rapidamente o que está ativo, o que precisa configurar, e quais automações dependem de quais conexões."
         />
+        <PlaudStatusPanel />
         {INTEGRATIONS.map((integration) => {
           // Usar status da API se disponível, senão o default hardcoded
           let liveStatus = statusMap[integration.id] || integration.status;
