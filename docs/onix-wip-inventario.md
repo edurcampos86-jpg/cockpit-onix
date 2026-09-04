@@ -15,16 +15,16 @@
 
 **Estado corrente levantado em 2026-09-03, contra a `main` em `7c2f245`.**
 
-## Frentes ativas — teto 3/3
+## Frentes ativas — teto 2/3
 
 | vaga | frente | estado |
 |---:|---|---|
 | 1 | **#454** — impedir restore drill no Postgres de produção | ativa |
 | 2 | **#432 → #433** — ADM/Financeiro + gates de receita | pilha ativa |
-| 3 | **Plaud — mesa de conciliação e distribuição** | em implementação, UI read-only atrás de flag própria OFF |
 
 Fechadas nesta atualização:
 
+- **#460** — Mesa de Conciliação Plaud read-only, atrás de flag própria OFF; CI verde e merge squash concluído.
 - **#458** — Cliente Onix Capital com datas manuais, Google Agenda e relato obrigatório; CI verde e merge squash concluído.
 - **#456** — questionário e acompanhamento por PAT; mergeada após o gate vermelho e validada em produção.
 
