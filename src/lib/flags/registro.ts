@@ -222,6 +222,14 @@ export const FLAGS_REGISTRADAS: readonly FlagRegistrada[] = [
     impacto: "normal",
   },
   {
+    key: "PLAUD_CONCILIACAO_UI",
+    rotulo: "Mesa de conciliação read-only das gravações Plaud",
+    onde: "src/lib/reunioes/conciliacao-flag.ts",
+    tipo: "booleana",
+    dialeto: "amplo",
+    impacto: "normal",
+  },
+  {
     key: "CLIENTES_REGISTRO_RICO",
     rotulo: "Registro rico na ficha do cliente (contato, grupos, drawer, revisão, preparar reunião)",
     onde: "src/lib/clientes-registro/flag.ts",
