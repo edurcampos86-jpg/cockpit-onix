@@ -24,6 +24,7 @@
 
 Fechadas nesta atualização:
 
+- **#460** — Mesa de Conciliação Plaud read-only, atrás de flag própria OFF; CI verde e merge squash concluído.
 - **#458** — Cliente Onix Capital com datas manuais, Google Agenda e relato obrigatório; CI verde e merge squash concluído.
 - **#456** — questionário e acompanhamento por PAT; mergeada após o gate vermelho e validada em produção.
 
