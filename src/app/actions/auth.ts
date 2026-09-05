@@ -3,6 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { createSession, deleteSession } from "@/lib/session";
 import bcrypt from "bcryptjs";
+import { SENHA_CURTA_ERRO, senhaAtendeAoMinimo } from "@/lib/senha";
 import { redirect } from "next/navigation";
 
 export type LoginState = {
@@ -77,8 +78,8 @@ export async function resetPassword(
   if (novaSenha !== confirmar) {
     return { ok: false, error: "As senhas não coincidem." };
   }
-  if (novaSenha.length < 6) {
-    return { ok: false, error: "Senha deve ter pelo menos 6 caracteres." };
+  if (!senhaAtendeAoMinimo(novaSenha)) {
+    return { ok: false, error: SENHA_CURTA_ERRO };
   }
 
   const cpf = cleanCpf(rawCpf);

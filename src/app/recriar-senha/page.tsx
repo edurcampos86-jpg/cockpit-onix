@@ -1,6 +1,7 @@
 "use client";
 
 import { resetPassword, type ResetPasswordState } from "@/app/actions/auth";
+import { SENHA_MINIMO } from "@/lib/senha";
 import { useActionState, useState, useEffect } from "react";
 import { Lock, User, KeyRound, ShieldCheck, ChevronDown } from "lucide-react";
 import Link from "next/link";
@@ -97,9 +98,9 @@ export default function RecriarSenhaPage() {
                   id="novaSenha"
                   name="novaSenha"
                   type="password"
-                  placeholder="Mínimo 6 caracteres"
+                  placeholder={`Mínimo ${SENHA_MINIMO} caracteres`}
                   required
-                  minLength={6}
+                  minLength={SENHA_MINIMO}
                   className="w-full pl-10 pr-4 py-2.5 bg-background border border-input rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-colors text-sm"
                 />
               </div>
@@ -115,7 +116,7 @@ export default function RecriarSenhaPage() {
                   type="password"
                   placeholder="Repita a nova senha"
                   required
-                  minLength={6}
+                  minLength={SENHA_MINIMO}
                   className="w-full pl-10 pr-4 py-2.5 bg-background border border-input rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-colors text-sm"
                 />
               </div>
