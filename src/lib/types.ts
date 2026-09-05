@@ -66,7 +66,7 @@ export const CTA_COLORS: Record<CtaType, string> = {
 
 // Pilares editoriais (v4)
 export const PILAR_LABELS: Record<PilarEditorial, string> = {
-  P1: "Blindagem Patrimonial",
+  P1: "Planejamento Patrimonial",
   P2: "Casos Reais",
   P3: "Cenário e Alertas",
   P4: "Eduardo Pessoa",

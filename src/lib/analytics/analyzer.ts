@@ -341,7 +341,7 @@ function gerarRecomendacoes(
       carrosselMetrics.salvamentosMedio > reelMetrics.salvamentosMedio) {
     recomendacoes.push({
       tipo: 'formato',
-      titulo: 'Migrar P1 (Blindagem Patrimonial) para carrossel',
+      titulo: 'Migrar P1 (Planejamento Patrimonial) para carrossel',
       descricao: `Os dados de 2026 mostram que carrosséis geram 3,1x mais engajamento e 1,4x mais salvamentos que Reels. Para o nicho financeiro, o salvamento é a métrica mais valiosa — indica que o Roberto considerou a informação útil o suficiente para consultar depois.`,
       acao: 'Converter os próximos posts de P1 de Reel para Carrossel. Estrutura ideal: 5-7 slides com Slide 1 (hook PARE), Slides 2-4 (conteúdo educativo), Slide Final (CTA de Algoritmo + resumo).',
       impactoEsperado: '+40% de salvamentos em P1 (dados 2026, Marketing Agent Blog)',

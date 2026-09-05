@@ -74,7 +74,7 @@ async function proxyFetch(path: string): Promise<unknown> {
 
 /**
  * Classifica o pilar editorial com base na caption do post
- * P1 = Blindagem Patrimonial (educativo técnico)
+ * P1 = Planejamento Patrimonial (educativo técnico)
  * P2 = Casos Reais / Onix em Ação
  * P3 = Cenário e Alertas (ITCMD, previdência, etc.)
  * P4 = Eduardo Pessoa (TBT, viagens, bastidores)
@@ -98,7 +98,15 @@ function classificarPilar(caption: string): 'P1' | 'P2' | 'P3' | 'P4' | null {
     return 'P3'
   }
 
-  // P1: Blindagem Patrimonial (padrão para conteúdo técnico)
+  // P1: Planejamento Patrimonial (padrão para conteúdo técnico)
+  //
+  // `blindagem` PERMANECE no matcher de propósito, e não é descuido: isto
+  // classifica legendas JÁ PUBLICADAS, que o Instagram não deixa reescrever.
+  // Removê-lo não corrigiria nenhum texto — só faria o acervo anterior à
+  // troca de termo cair em `null` e sumir do Analytics. Termo de LEITURA de
+  // conteúdo histórico; para ESCREVER, o termo é `planejamento`, que já está
+  // na lista e é o que a guarda de CI protege
+  // (scripts/guarda-blindagem-patrimonial.sh).
   if (/blindagem|patrimônio|planejamento|sucessão|holding|proteção|inventário|testamento|doação|usufruto|offshore|trust|previdência privada|seguro de vida/.test(lower)) {
     return 'P1'
   }

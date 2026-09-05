@@ -34,7 +34,7 @@ export function getThemesForPeriod(startDate: Date, endDate: Date): SeasonalThem
 export function getMonthlyArc(month: number): { theme: string; weeklyArcs: string[]; topics: string[] } {
   const seasonal = SEASONAL_THEMES.find((t) => t.month === month);
   if (!seasonal) {
-    return { theme: "Blindagem Patrimonial", weeklyArcs: [], topics: [] };
+    return { theme: "Planejamento Patrimonial", weeklyArcs: [], topics: [] };
   }
   return { theme: seasonal.theme, weeklyArcs: seasonal.weeklyArcs, topics: seasonal.topics };
 }
