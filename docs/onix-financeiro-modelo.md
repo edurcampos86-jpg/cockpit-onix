@@ -4,11 +4,23 @@
 > exige antes do código: migration é faixa vermelha, e o Eduardo lê o SQL
 > antes. O que existe é este texto e os fatos de recon que o sustentam.
 
+## Decisões de 29/08 — o que mudou depois que ele leu
+
+| decisão | efeito |
+|---|---|
+| **PREMIAÇÃO, não campanha** | `CampanhaParceiro` → `Premiacao`, `CampanhaApuracao` → `PremiacaoApuracao`, e o mesmo no menu e nas rotas. "Campanha" fica reservado para tráfego pago, que já ocupa a palavra em `AdCampaignSnapshot` e em `/pixel-trafego` |
+| **o rename de `ContratoCorretora` SAI da primeira migration** | vira PR própria. Não por causa de dado, mas da janela de deploy: `prisma migrate deploy` roda dentro do `startCommand`, e o container antigo serve requisições enquanto o novo migra — renomear ali derruba toda leitura do código velho. Vazia, ninguém lê; com dado, são 500s |
+| **`MetaMensal` NÃO é tocada** | a proposta sugeria `empresaId` + novo `@@unique`. Está errado: no Postgres NULL é distinto de NULL em índice único, então as linhas legadas deixariam de ser protegidas. O conserto seria índice parcial, que o Prisma não declara e que viraria drift |
+| **`POST /api/backoffice/receita` passa a exigir só sessão** | importar é trabalho do backoffice, pela linha dele. PR própria |
+| **`DELETE` da mesma rota sobe para Admin Master** | é `deleteMany` da tabela inteira, e apagar em massa é poder de master — não de admin |
+
+---
+
 ## 0. O que o recon achou, e o que ele muda na proposta
 
 | pergunta | resposta, e onde está no código |
 |---|---|
-| já existe algo de "campanha de parceiro"? | **não.** As únicas ocorrências de "campanha" são de tráfego pago (`AdCampaignSnapshot`, `pixel-trafego/*`). Campanha nasce do zero |
+| já existe algo de "premiação de parceiro"? | **não.** As únicas ocorrências de "campanha" são de tráfego pago (`AdCampaignSnapshot`, `pixel-trafego/*`) — e é por isso que o conceito novo se chama **Premiação**: decisão nominal do Eduardo em 29/08, "campanha" fica reservado para tráfego pago |
 | já existe parcela / cronograma / recorrência? | **não.** `grep -niE "parcela\|recorren\|cronograma\|vencimento"` no schema devolve **duas** linhas, nenhuma financeira (`objecoesRecorrentes`, `EventoVida.recorrente`) |
 | já existe despesa? | **não**, em lugar nenhum. É por isso que "ROI" é rótulo errado hoje |
 | quantas abas se chamam ROI? | **5** páginas reais: `corporate`, `corretora`, `imobiliaria`, `planejamento`, `tech` — todas `EmpresaPlaceholder`. A Onix Capital tem uma sexta aba rotulada "ROI" que aponta para `/empresas/investimentos/receita`, que é **tela de importação**, não de ROI |
@@ -140,7 +152,7 @@ pensadas.
   motivoEncerramento String?   // "cancelamento" | "inadimplencia" | "fim_natural" | "distrato"
 
   /// Quem do TIME originou o contrato. FK real para Pessoa — é o eixo da
-  /// apuração de campanha, e por isso não pode ser texto como
+  /// apuração de premiação, e por isso não pode ser texto como
   /// `atendenteCorretora`.
   pessoaId String?
   pessoa   Pessoa? @relation("ContratoOriginador", fields: [pessoaId], references: [id], onDelete: SetNull)
@@ -229,11 +241,11 @@ model ParcelaReceita {
   clienteId String?
   cliente   ClienteBackoffice? @relation("ParcelaDoCliente", fields: [clienteId], references: [id], onDelete: Restrict)
 
-  /// QUEM DO TIME ganhou. O eixo da apuração de campanha.
+  /// QUEM DO TIME ganhou. O eixo da apuração de premiação.
   pessoaId String?
   pessoa   Pessoa? @relation("ParcelaDaPessoa", fields: [pessoaId], references: [id], onDelete: SetNull)
 
-  /// Qual parceiro. O outro eixo da campanha.
+  /// Qual parceiro. O outro eixo da premiação.
   parceiroId String?
   parceiro   Parceiro? @relation("ParceiroParcela", fields: [parceiroId], references: [id], onDelete: SetNull)
 
@@ -267,7 +279,7 @@ model ParcelaReceita {
   @@index([empresaId, competencia, status])
   /// O consolidador varre por competência atravessando empresas.
   @@index([competencia, origem])
-  /// Apuração de campanha por pessoa.
+  /// Apuração de premiação por pessoa.
   @@index([pessoaId, competencia])
   /// Visão do parceiro.
   @@index([parceiroId, competencia])
@@ -285,10 +297,10 @@ model ParcelaReceita {
 
 ---
 
-### 1.4 `CampanhaParceiro` e `CampanhaApuracao`
+### 1.4 `Premiacao` e `PremiacaoApuracao`
 
 ```prisma
-model CampanhaParceiro {
+model Premiacao {
   id String @id @default(cuid())
 
   parceiroId String
@@ -296,7 +308,7 @@ model CampanhaParceiro {
 
   /// null = vale para o grupo inteiro.
   empresaId String?
-  empresa   Empresa? @relation("CampanhaEmpresa", fields: [empresaId], references: [id], onDelete: Restrict)
+  empresa   Empresa? @relation("PremiacaoDaEmpresa", fields: [empresaId], references: [id], onDelete: Restrict)
 
   nome      String
   descricao String? @db.Text
@@ -317,8 +329,8 @@ model CampanhaParceiro {
   ///   [{degrau:1, de:"0", ate:"50000", premio:"500.00", rotulo:"Bronze"},
   ///    {degrau:2, de:"50000", ate:null, premio:"1500.00", rotulo:"Ouro"}]
   /// Json pela mesma razão da escada: lida inteira, nunca filtrada entre
-  /// campanhas.
-  reguaPremiacao Json
+  /// premiações.
+  reguaPremio Json
 
   ativa Boolean @default(true)
 
@@ -326,18 +338,18 @@ model CampanhaParceiro {
   criadoEm     DateTime @default(now())
   atualizadoEm DateTime @updatedAt
 
-  apuracoes CampanhaApuracao[]
+  apuracoes PremiacaoApuracao[]
 
   @@index([parceiroId, inicio])
   @@index([ativa, fim])
   @@index([empresaId])
 }
 
-model CampanhaApuracao {
+model PremiacaoApuracao {
   id String @id @default(cuid())
 
-  campanhaId String
-  campanha   CampanhaParceiro @relation(fields: [campanhaId], references: [id], onDelete: Cascade)
+  premiacaoId String
+  premiacao   Premiacao @relation(fields: [premiacaoId], references: [id], onDelete: Cascade)
 
   pessoaId String
   pessoa   Pessoa @relation("ApuracaoDaPessoa", fields: [pessoaId], references: [id], onDelete: Restrict)
@@ -356,8 +368,8 @@ model CampanhaApuracao {
   congeladaEm DateTime?
   congeladaPor String?
 
-  @@unique([campanhaId, pessoaId])
-  @@index([campanhaId, realizado(sort: Desc)])
+  @@unique([premiacaoId, pessoaId])
+  @@index([premiacaoId, realizado(sort: Desc)])
   @@index([pessoaId])
 }
 ```
@@ -579,7 +591,7 @@ e é justamente por isso que ele precisa aparecer marcado, não sumir.
 
 ---
 
-## 4. Como a campanha apura por pessoa
+## 4. Como a premiação apura por pessoa
 
 ```sql
 SELECT p."pessoaId",
@@ -587,7 +599,7 @@ SELECT p."pessoaId",
        count(*)              AS quantidade
   FROM "ParcelaReceita" p
   LEFT JOIN "Contrato" c ON c.id = p."contratoId"
- WHERE p."parceiroId"  = $campanha_parceiro
+ WHERE p."parceiroId"  = $premiacao_parceiro
    AND p."competencia" BETWEEN $inicio AND $fim     -- "AAAA-MM", ordem lexicográfica = cronológica
    AND p."origem"      = 'apuracao'
    AND p."status"      = 'recebida'
@@ -599,7 +611,7 @@ SELECT p."pessoaId",
 
 **Só `origem = 'apuracao'` e `status = 'recebida'` contam.** Projeção não paga
 prêmio. É o *stop loss* da apuração: sem essa linha, alguém cadastra um contrato
-projetado em dezembro e "ganha" a campanha com dinheiro que ainda não entrou.
+projetado em dezembro e "ganha" a premiação com dinheiro que ainda não entrou.
 
 O prêmio sai de uma função pura sobre o Json:
 
@@ -613,7 +625,7 @@ export function premioDe(regua: Degrau[], realizado: Decimal): { degrau: number;
 número que possam divergir.
 
 **Sem `pessoaId` a linha não apura.** É a lacuna a vigiar: parcela importada de
-planilha que não casou com ninguém do time fica de fora da campanha em silêncio.
+planilha que não casou com ninguém do time fica de fora da premiação em silêncio.
 A tela precisa mostrar esse resto explicitamente — *"R$ X sem pessoa
 atribuída"* —, senão a soma das pessoas nunca bate com o total do parceiro e
 ninguém sabe por quê.
@@ -683,7 +695,7 @@ mesma classe de erro do "Receita anual" que mostrava renda declarada.
 | 3 | **`cronograma.ts` + `premiacao.ts`** — módulos puros e testes | 🟢 | #2 |
 | 4 | **Importação de receita** via `PerfilImportacao` + `ImportJob` | 🟡 | #2, #3 |
 | 5 | **Tela ADM/Financeiro por empresa** | 🟡 | #4 |
-| 6 | **Tela de campanhas** | 🟡 | #4 |
+| 6 | **Tela de premiações** | 🟡 | #4 |
 | 7 | **Consolidador Onix Co** | 🟡 | #5 |
 | 8 | **`DROP ReceitaItem` + `DROP ComissaoMensalCliente`** | 🔴 | #4 rodado em produção uma vez |
 
