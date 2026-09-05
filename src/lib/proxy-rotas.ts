@@ -30,12 +30,13 @@ export const ROTAS_PUBLICAS = [
  * o apagava e a rota reabria para a internet sem nenhum sinal. Agora responde
  * 503 quando não há segredo — ver `src/lib/integrations/zapier-acesso.ts`.
  *
- * `/api/webhooks/btg` continua com o padrão antigo: sem `BTG_WEBHOOK_SECRET`
- * ele registra um `console.warn` e ACEITA a requisição
- * (`src/app/api/webhooks/btg/route.ts`). Segredo vem só do env, então não some
- * em redeploy como o do Zapier — mas nunca configurá-lo deixa a rota aberta do
- * mesmo jeito. Correção fora do escopo daquela PR, registrada aqui para não se
- * perder.
+ * `/api/webhooks/btg` FOI CORRIGIDO depois, no mesmo padrão. Ele falhava
+ * aberta pelo mesmo mecanismo: sem `BTG_WEBHOOK_SECRET`, um `console.warn` e
+ * a requisição passava — e essa rota INSERE em `MovimentacaoBtg` casando pelo
+ * número da conta, então um POST anônimo virava movimentação financeira na
+ * ficha de um cliente real. Agora responde 503 sem segredo, compara
+ * timing-safe e não despeja mais os headers no log em tentativa inválida —
+ * ver `src/lib/integrations/btg-webhook-acesso.ts`.
  *
  * `/api/manychat/lead` nasceu FECHADA, no padrão do Zapier e não no do BTG:
  * `MANYCHAT_WEBHOOK_SECRET` ausente responde 401, em vez de aceitar

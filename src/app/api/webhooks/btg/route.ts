@@ -1,40 +1,65 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "crypto";
 import { prisma } from "@/lib/prisma";
+import {
+  candidatosDoWebhookBtg,
+  decidirAcessoWebhookBtg,
+} from "@/lib/integrations/btg-webhook-acesso";
 
 /**
  * POST /api/webhooks/btg
  *
- * Endpoint público que recebe pushes do BTG (configurar URL no portal de parceiros).
- * Quando BTG_WEBHOOK_SECRET está setado, valida em vários formatos comuns:
- *   - Authorization: Bearer {secret}
- *   - Authorization: ApiKey {secret}
- *   - Authorization: {secret} (raw)
- *   - X-API-Key: {secret}
- *   - x-api-key: {secret}
- *   - apikey: {secret}
- *   - x-webhook-secret: {secret}
- * Sempre retorna 200 quando consegue parsear (BTG re-tenta em 4xx/5xx).
+ * Endpoint PÚBLICO (allowlist do proxy, `src/lib/proxy-rotas.ts`): responde sem
+ * sessão, à internet inteira. Recebe pushes do BTG — URL cadastrada no portal
+ * de parceiros — e ESCREVE: cria `BtgSyncLog` e insere em `MovimentacaoBtg`.
+ *
+ * O segredo é aceito em sete formatos de header porque o portal do BTG não
+ * documenta um só; a lista e a comparação moram em
+ * `src/lib/integrations/btg-webhook-acesso.ts`, puras e testadas.
+ *
+ * ── FALHA FECHADA ────────────────────────────────────────────────────────
+ * Sem `BTG_WEBHOOK_SECRET` configurado, a rota responde 503 e não grava nada.
+ * Antes, o segredo ausente caía num `else` que só logava um aviso e SEGUIA:
+ * qualquer requisição da internet inseria movimentação financeira casada ao
+ * `clienteId` real pelo número da conta, com valor e tipo escolhidos por quem
+ * enviou — e o alerta diário (`src/lib/alertas-cliente.ts`) trata "APLICA"/
+ * "APORTE" nessa tabela como aporte de verdade. A nota em `proxy-rotas.ts`
+ * registrava o furo desde a PR que fechou o webhook irmão do Zapier.
+ *
+ * ── SOBRE OS CÓDIGOS DE RESPOSTA ─────────────────────────────────────────
+ * O BTG re-tenta em 4xx/5xx, e por isso a rota devolve 200 sempre que
+ * CONSEGUE processar — inclusive em erro de handler, para não pedir reenvio de
+ * evento que já foi registrado. As duas recusas abaixo são a exceção
+ * deliberada, e a re-tentativa é desejável nas duas: em 503 (falta o segredo no
+ * Railway), o evento volta quando alguém configurar, em vez de se perder em
+ * silêncio; em 401, o BTG insiste até o cadastro do header ser corrigido.
  */
 export async function POST(req: NextRequest) {
-  const secret = process.env.BTG_WEBHOOK_SECRET;
-  if (secret) {
-    const auth = req.headers.get("authorization") || "";
-    const candidates = [
-      auth,
-      auth.replace(/^Bearer\s+/i, ""),
-      auth.replace(/^ApiKey\s+/i, ""),
-      req.headers.get("x-api-key") || "",
-      req.headers.get("apikey") || "",
-      req.headers.get("x-webhook-secret") || "",
-      req.headers.get("x-btg-signature") || "",
-    ];
-    if (!candidates.some((c) => c === secret)) {
-      console.warn("[btg-webhook] secret inválido — headers:", Object.fromEntries(req.headers.entries()));
-      return NextResponse.json({ success: false, message: "Secret inválido" }, { status: 401 });
-    }
-  } else {
-    console.warn("[btg-webhook] BTG_WEBHOOK_SECRET não setado — aceitando qualquer requisição");
+  const acesso = decidirAcessoWebhookBtg(
+    process.env.BTG_WEBHOOK_SECRET,
+    candidatosDoWebhookBtg((nome) => req.headers.get(nome)),
+  );
+
+  if (acesso === "sem-segredo") {
+    console.warn(
+      "[btg-webhook] BTG_WEBHOOK_SECRET não configurado — rota desativada (503). " +
+        "Configure a variável no Railway e cadastre o mesmo valor no portal BTG.",
+    );
+    return NextResponse.json(
+      { success: false, message: "Integração desativada (BTG_WEBHOOK_SECRET não configurado)" },
+      { status: 503 },
+    );
+  }
+
+  if (acesso === "invalido") {
+    // Sem despejo de headers. A versão anterior logava
+    // `Object.fromEntries(req.headers.entries())` a cada tentativa inválida:
+    // no dia em que o BTG mandasse o segredo CERTO num header fora da lista
+    // dos sete, ele iria para o log em texto claro — e log de aplicação não é
+    // lugar de segredo. Quem chamou já sabe o que enviou; o que falta saber
+    // aqui é só que alguém tentou.
+    console.warn("[btg-webhook] secret inválido — requisição recusada");
+    return NextResponse.json({ success: false, message: "Secret inválido" }, { status: 401 });
   }
 
   let body: unknown;
