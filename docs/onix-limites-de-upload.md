@@ -12,7 +12,7 @@ tela.
 
 | # | Camada | Onde se configura | Valor hoje | O que acontece ao estourar |
 |---|---|---|---|---|
-| 1 | **Corpo clonado pelo proxy** | `next.config.ts` → `experimental.proxyClientMaxBodySize` | **25 MB** | Corpo chega TRUNCADO. `Unexpected end of form` como `uncaughtException`, **fora** da action. 500 sem texto |
+| 1 | **Corpo clonado pelo proxy** | `next.config.ts` → `experimental.proxyClientMaxBodySize` | **30 MB** | Corpo chega TRUNCADO. `Unexpected end of form` como `uncaughtException`, **fora** da action. 500 sem texto |
 | 2 | **Body do Server Action** | `next.config.ts` → `experimental.serverActions.bodySizeLimit` | 55 MB | `ApiError 413` do Next, antes da action |
 | 3 | **Guarda da aplicação** | o código de cada fluxo (tabela abaixo) | varia | Mensagem tratada na tela — **é a única camada que sabe explicar** |
 | 4 | **Destino externo** | ex.: request da API Anthropic | 32 MB | Erro da API, capturado e transformado em mensagem |
@@ -58,7 +58,7 @@ uma config que passa no build, passa no lint, e não faz nada.
 ## Guardas de aplicação, por fluxo
 
 Levantado em 29/08/2026. Todo fluxo abaixo tem guarda própria — nenhum ficou
-descoberto com o teto em 25 MB.
+descoberto com o teto em 30 MB, e nenhum empata com ele.
 
 | Guarda | Fluxo | Onde |
 |---|---|---|
@@ -89,14 +89,18 @@ Com o proxy em 10 MiB, **todo fluxo com guarda acima disso morria do mesmo jeito
 
 Nenhum desses tinha bug próprio. Todos herdavam o mesmo teto invisível.
 
-### Ponto em aberto: o cockpit-reunião empata com o proxy
+### Por que 30 MB, e não 25
 
-Com o proxy em **25 MB** e o cockpit-reunião declarando **25 MB**, os dois ficam
-iguais — e a regra "camada 3 é a menor" deixa de valer nesse fluxo. Um PDF de
-exatamente 25 MB reencena o problema do PAT ali.
+A primeira versão desta PR punha o proxy em 25 MB. O cockpit-reunião declara
+exatamente **25 MB** — os dois ficavam **iguais**, e empate não satisfaz "a
+camada 3 é a MENOR de todas": um PDF de exatamente 25 MB reencenaria ali o 500
+mudo do PAT, com a regra parecendo cumprida no papel.
 
-Não foi alterado nesta PR por estar fora do escopo pedido. As saídas são subir o
-proxy para 30 MB **ou** baixar o cockpit-reunião para 20 MB — decisão do Eduardo.
+30 MB deixa o proxy **estritamente acima** da maior guarda do app, com 5 MB de
+folga. É o mesmo motivo de não colocar o *stop* no preço exato da ordem.
+
+> **Ao subir a guarda de qualquer fluxo, conferir este número ANTES.** Guarda
+> nova ≥ 30 MB volta a quebrar em silêncio, sem log da aplicação.
 
 ## Como diagnosticar da próxima vez
 

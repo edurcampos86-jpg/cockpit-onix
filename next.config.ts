@@ -31,9 +31,15 @@ const nextConfig: NextConfig = {
     //
     // A REGRA que este número serve: o proxy tem de ficar ACIMA de toda guarda
     // de aplicação, para que quem recuse seja sempre quem sabe explicar.
+    //
+    // 30 MB, e não 25: a maior guarda do app é a do cockpit-reunião, em 25 MB.
+    // Empatar com ela deixaria um arquivo de exatamente 25 MB reencenar ali o
+    // mesmo 500 mudo do PAT — empate não satisfaz "ACIMA de toda guarda".
+    // Ao subir qualquer guarda de fluxo, conferir este número primeiro.
+    //
     // Inventário das cinco camadas e das guardas de cada fluxo:
     //   docs/onix-limites-de-upload.md
-    proxyClientMaxBodySize: "25mb",
+    proxyClientMaxBodySize: "30mb",
   },
   // Fase 4 (piloto) — namespacing de rotas por empresa.
   // /backoffice/* → /empresas/investimentos/* (Onix Investimentos).
