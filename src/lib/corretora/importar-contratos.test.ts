@@ -16,7 +16,9 @@ import type { LinhaAplicada } from "@/lib/importacao/aplicar-perfil.ts";
 import type { LinhaExtraida } from "@/lib/importacao/extracao.ts";
 import type { PerfilImportacaoConfig } from "@/lib/importacao/perfil.ts";
 import { ehTipoProdutoValido, tiposProdutoValidos } from "./catalogo-produtos.ts";
+import { dadosDoContrato } from "./executar-importacao.ts";
 import {
+  CAMPOS_SOBRESCREVIVEIS,
   chaveNegocio,
   diagnosticarGrafias,
   ehTerminal,
@@ -47,7 +49,7 @@ const PERFIL: PerfilImportacaoConfig = {
     capitalSegurado: "decimal_ptbr",
   },
   dicionarios: {
-    tipoProduto: { "SEGURO DE VIDA": "vida", "AUTO FÁCIL": "auto_residencial" },
+    tipoProduto: { "SEGURO DE VIDA": "vida", "AUTO FÁCIL": "auto" },
     status: { "EM VIGOR": "ativo", "CANCELADA": "cancelado", "ENCERRADA": "encerrado" },
   },
 };
@@ -78,6 +80,13 @@ const VAZIO: EstadoAtual = {
 /** Competências de referência dos testes — agosto e setembro de 2026. */
 const AGOSTO = new Date(Date.UTC(2026, 7, 1, 12, 0, 0));
 const SETEMBRO = new Date(Date.UTC(2026, 8, 1, 12, 0, 0));
+
+/** Contexto de escrita dos testes — nada aqui é lido pela trava. */
+const CONTEXTO = {
+  loteImportacao: "lote_teste",
+  arquivoOrigem: "relatorio.csv",
+  perfilImportacaoId: null,
+};
 
 const OPCOES = {
   parceiroPadrao: "Porto Seguro",
@@ -181,7 +190,7 @@ test("a chave normaliza os três lados", () => {
 test("produto diferente na MESMA apólice são contratos diferentes", () => {
   // Por isso o tipoProduto entra na chave: uma apólice pode cobrir dois ramos.
   const a = chaveNegocio({ parceiro: "Porto", numeroContrato: "AP-1", tipoProduto: "vida" });
-  const b = chaveNegocio({ parceiro: "Porto", numeroContrato: "AP-1", tipoProduto: "consorcio" });
+  const b = chaveNegocio({ parceiro: "Porto", numeroContrato: "AP-1", tipoProduto: "consorcio-auto" });
   assert.notEqual(a, b);
 });
 
@@ -192,7 +201,7 @@ test("reprocessar o mesmo arquivo ATUALIZA, não duplica", () => {
 
   const depois: EstadoAtual = {
     pessoasPorDocumento: new Map([["09714600510", "pg_1"]]),
-    contratosPorChave: new Map([[primeiro.acoes[0].chave, { id: "c_1", status: "ativo", dataReferencia: null }]]),
+    contratosPorChave: new Map([[primeiro.acoes[0].chave, { id: "c_1", status: "ativo", dataReferencia: null , preenchidos: [] }]]),
   };
   const segundo = planejar(linhas, depois, OPCOES);
   assert.equal(segundo.acoes.length, 1);
@@ -222,7 +231,7 @@ test("arquivo antigo NÃO ressuscita contrato cancelado", () => {
   const chave = chaveNegocio({ parceiro: "Porto Seguro", numeroContrato: "AP-001234", tipoProduto: "vida" });
   const estado: EstadoAtual = {
     pessoasPorDocumento: new Map([["09714600510", "pg_1"]]),
-    contratosPorChave: new Map([[chave, { id: "c_1", status: "cancelado", dataReferencia: null }]]),
+    contratosPorChave: new Map([[chave, { id: "c_1", status: "cancelado", dataReferencia: null , preenchidos: [] }]]),
   };
   const plano = planejar(linhas, estado, OPCOES);
   assert.equal(plano.acoes.length, 0, "nenhuma escrita — o cancelamento permanece");
@@ -238,7 +247,7 @@ test("reprocessar o MESMO cancelamento é atualização normal, não bloqueio", 
     linhas,
     {
       pessoasPorDocumento: new Map([["09714600510", "pg_1"]]),
-      contratosPorChave: new Map([[chave, { id: "c_1", status: "cancelado", dataReferencia: null }]]),
+      contratosPorChave: new Map([[chave, { id: "c_1", status: "cancelado", dataReferencia: null , preenchidos: [] }]]),
     },
     OPCOES,
   );
@@ -254,7 +263,7 @@ test("contrato ativo PODE ser cancelado — a regra só barra a volta", () => {
     linhas,
     {
       pessoasPorDocumento: new Map([["09714600510", "pg_1"]]),
-      contratosPorChave: new Map([[chave, { id: "c_1", status: "ativo", dataReferencia: null }]]),
+      contratosPorChave: new Map([[chave, { id: "c_1", status: "ativo", dataReferencia: null , preenchidos: [] }]]),
     },
     OPCOES,
   );
@@ -287,7 +296,10 @@ test("o diagnóstico só CONTA — não corrige nem unifica nada", () => {
   const registros = [
     { atendenteCorretora: "Ana Paula" },
     { atendenteCorretora: "ANA PAULA" },
-  ] as Parameters<typeof diagnosticarGrafias>[0];
+    // O diagnóstico lê UM campo do registro. O cast atravessa `unknown`
+    // porque `RegistroContrato` tem quinze campos e recriá-los aqui não
+    // provaria nada sobre agrupamento de grafia.
+  ] as unknown as Parameters<typeof diagnosticarGrafias>[0];
   const [g] = diagnosticarGrafias(registros);
   assert.equal(g.grafias.length, 2, "as duas grafias literais continuam visíveis");
 });
@@ -357,12 +369,26 @@ test("dicionário DECLARADO é autoritativo — o alias de mercado não o comple
 test("sem dicionário declarado, vale o alias de mercado do catálogo", () => {
   const semDicionario = { ...PERFIL, dicionarios: { status: PERFIL.dicionarios.status } };
   const linhas = aplicarPerfil(
-    [{ numero: 2, celulas: { ...BASE, Ramo: "Consórcio" }, origem: "deterministica" as const }],
+    [{ numero: 2, celulas: { ...BASE, Ramo: "Consórcio Auto" }, origem: "deterministica" as const }],
     semDicionario,
   );
   const r = montarRegistro(linhas[0], "Porto Seguro", undefined, AGOSTO);
   assert.ok(r.ok, r.ok ? "" : r.motivo);
-  assert.equal(r.registro.tipoProduto, "consorcio");
+  assert.equal(r.registro.tipoProduto, "consorcio-auto");
+});
+
+test("alias AMBÍGUO é recusado pelo motor inteiro, não só pelo catálogo", () => {
+  // "Consórcio" sozinho deixou de resolver quando a família virou dois
+  // produtos. O que importa aqui é o comportamento de PONTA: a linha é
+  // rejeitada com motivo, e não gravada no produto mais provável.
+  const semDicionario = { ...PERFIL, dicionarios: { status: PERFIL.dicionarios.status } };
+  const linhas = aplicarPerfil(
+    [{ numero: 2, celulas: { ...BASE, Ramo: "Consórcio" }, origem: "deterministica" as const }],
+    semDicionario,
+  );
+  const r = montarRegistro(linhas[0], "Porto Seguro", undefined, AGOSTO);
+  assert.equal(r.ok, false);
+  assert.match(r.ok ? "" : r.motivo, /tipoProduto sem mapeamento/);
 });
 
 test("todo tipoProduto que sai do plano está no catálogo", () => {
@@ -405,7 +431,7 @@ test("agosto → setembro → agosto de novo: o prêmio de setembro PERMANECE", 
   // 2ª passada: setembro atualiza — competência maior, é o caminho normal.
   const gravadoEmAgosto: EstadoAtual = {
     pessoasPorDocumento: new Map([["09714600510", "p_1"]]),
-    contratosPorChave: new Map([[chave, { id: "c_1", status: "ativo", dataReferencia: AGOSTO }]]),
+    contratosPorChave: new Map([[chave, { id: "c_1", status: "ativo", dataReferencia: AGOSTO , preenchidos: [] }]]),
   };
   const segundo = planejar(linhaSetembro, gravadoEmAgosto, {
     ...OPCOES,
@@ -420,7 +446,7 @@ test("agosto → setembro → agosto de novo: o prêmio de setembro PERMANECE", 
   // vivia. Nenhuma ação, e o motivo sai no relatório com as duas datas.
   const gravadoEmSetembro: EstadoAtual = {
     pessoasPorDocumento: new Map([["09714600510", "p_1"]]),
-    contratosPorChave: new Map([[chave, { id: "c_1", status: "ativo", dataReferencia: SETEMBRO }]]),
+    contratosPorChave: new Map([[chave, { id: "c_1", status: "ativo", dataReferencia: SETEMBRO , preenchidos: [] }]]),
   };
   const terceiro = planejar(linhaAgosto, gravadoEmSetembro, OPCOES);
   assert.equal(terceiro.acoes.length, 0, "o arquivo de agosto reescreveu setembro");
@@ -438,7 +464,7 @@ test("arquivo antigo com contrato INEXISTENTE cria normalmente", () => {
     contratosPorChave: new Map([
       [
         chaveNegocio({ parceiro: "Porto Seguro", numeroContrato: "AP-999", tipoProduto: "vida" }),
-        { id: "c_9", status: "ativo", dataReferencia: SETEMBRO },
+        { id: "c_9", status: "ativo", dataReferencia: SETEMBRO , preenchidos: [] },
       ],
     ]),
   };
@@ -458,7 +484,7 @@ test("MESMA competência duas vezes ATUALIZA — reprocessar não é regressão"
   });
   const gravadoEmAgosto: EstadoAtual = {
     pessoasPorDocumento: new Map([["09714600510", "p_1"]]),
-    contratosPorChave: new Map([[chave, { id: "c_1", status: "ativo", dataReferencia: AGOSTO }]]),
+    contratosPorChave: new Map([[chave, { id: "c_1", status: "ativo", dataReferencia: AGOSTO , preenchidos: [] }]]),
   };
   const plano = planejar(aplicar([{ ...BASE, "Prêmio": "1.300,00" }]), gravadoEmAgosto, OPCOES);
   assert.equal(plano.acoes.length, 1);
@@ -498,4 +524,170 @@ test("competência do ARQUIVO vence a do lote — relatório com meses misturado
   assert.equal(r.registro.dataReferencia.getTime(), SETEMBRO.getTime());
   // E não vaza duplicada para dentro de dadosProduto.
   assert.equal("dataReferencia" in r.registro.dadosProduto, false);
+});
+
+// ── A trava contra o update cego ─────────────────────────────────────────
+//
+// O motor apagava dado em silêncio: `data(c.fimVigencia)` devolvia `null` tanto
+// para célula vazia quanto para COLUNA NÃO MAPEADA NO PERFIL, e o `update` com
+// o objeto inteiro zerava a coluna. Com cinco seguradoras e cinco perfis, o
+// relatório de uma apagava o fim de vigência que veio da outra — o campo que
+// diz quando ligar para o cliente.
+//
+// `PERFIL` (o do topo deste arquivo) não mapeia `fimVigencia`, `comissao` nem
+// `assessorCge`: é exatamente o perfil incompleto do problema real.
+
+test("campo que o perfil não mapeia NÃO entra na escrita — o update não o toca", () => {
+  const [linha] = aplicar([BASE]);
+  const r = montarRegistro(linha, "Porto Seguro", OPCOES.dicionarioProduto, AGOSTO);
+  assert.ok(r.ok, r.ok ? "" : r.motivo);
+
+  const dados = dadosDoContrato(r.registro, "pg_1", "corretora", CONTEXTO) as Record<
+    string,
+    unknown
+  >;
+
+  // `undefined` e não `null`: no Prisma, `undefined` é "não toque nesta
+  // coluna" e `null` é "grave null". É a diferença inteira entre preservar e
+  // apagar, e é por isso que o teste checa o tipo do vazio, não só que é falsy.
+  for (const campo of ["fimVigencia", "comissao", "assessorCge"]) {
+    assert.equal(dados[campo], undefined, `${campo} não veio no relatório e não pode ser escrito`);
+    assert.equal(campo in dados, true, "a chave existe; o valor é que é undefined");
+  }
+});
+
+test("campo mapeado com célula VAZIA continua apagando — é a fonte afirmando", () => {
+  // A distinção é o ponto: "não veio a coluna" é ausência de informação;
+  // "a coluna veio em branco" é a companhia dizendo que não há valor.
+  const [linha] = aplicar([{ ...BASE, "Prêmio": "", Atendente: "" }]);
+  const r = montarRegistro(linha, "Porto Seguro", OPCOES.dicionarioProduto, AGOSTO);
+  assert.ok(r.ok, r.ok ? "" : r.motivo);
+
+  const dados = dadosDoContrato(r.registro, "pg_1", "corretora", CONTEXTO) as Record<
+    string,
+    unknown
+  >;
+  assert.equal(dados.premio, null, "coluna mapeada e vazia grava null");
+  assert.equal(dados.atendenteCorretora, null, "coluna mapeada e vazia grava null");
+});
+
+test("campo mapeado e preenchido é escrito normalmente", () => {
+  const [linha] = aplicar([BASE]);
+  const r = montarRegistro(linha, "Porto Seguro", OPCOES.dicionarioProduto, AGOSTO);
+  assert.ok(r.ok);
+  const dados = dadosDoContrato(r.registro, "pg_1", "corretora", CONTEXTO) as Record<
+    string,
+    unknown
+  >;
+  assert.equal(dados.premio, 1234.56);
+  assert.equal(dados.atendenteCorretora, "Ana Paula");
+});
+
+test("camposDoRelatorio lista o que o perfil trouxe, e só isso", () => {
+  const [linha] = aplicar([BASE]);
+  const r = montarRegistro(linha, "Porto Seguro", OPCOES.dicionarioProduto, AGOSTO);
+  assert.ok(r.ok);
+  const trazidos = new Set(r.registro.camposDoRelatorio);
+  assert.equal(trazidos.has("premio"), true);
+  assert.equal(trazidos.has("atendenteCorretora"), true);
+  assert.equal(trazidos.has("fimVigencia"), false, "PERFIL não mapeia fim de vigência");
+  assert.equal(trazidos.has("comissao"), false);
+  assert.equal(trazidos.has("assessorCge"), false);
+});
+
+test("os cinco sobrescrevíveis são exatamente as colunas opcionais do contrato", () => {
+  // Guarda de divergência: se alguém somar uma coluna opcional ao model e
+  // esquecer de listá-la aqui, ela volta a ser apagada em silêncio pelo perfil
+  // que não a mapeia — que é o defeito inteiro, de novo.
+  assert.deepEqual([...CAMPOS_SOBRESCREVIVEIS].sort(), [
+    "assessorCge",
+    "atendenteCorretora",
+    "comissao",
+    "fimVigencia",
+    "premio",
+  ]);
+
+  // E nenhum deles pode ser obrigatório: campo que `montarRegistro` exige
+  // nunca chega ausente, e listá-lo aqui esconderia um bug em vez de travá-lo.
+  const [linha] = aplicar([BASE]);
+  const r = montarRegistro(linha, "Porto Seguro", OPCOES.dicionarioProduto, AGOSTO);
+  assert.ok(r.ok);
+  for (const obrigatorio of ["tipoProduto", "status", "parceiro", "numeroContrato", "inicioVigencia"]) {
+    assert.equal(
+      CAMPOS_SOBRESCREVIVEIS.includes(obrigatorio),
+      false,
+      `${obrigatorio} é obrigatório — não é sobrescrevível`,
+    );
+  }
+});
+
+// ── O ensaio passa a contar ──────────────────────────────────────────────
+
+test("o plano conta os campos que a base tem e o perfil não traz", () => {
+  const [linha] = aplicar([BASE]);
+  const primeiro = planejar([linha], VAZIO, OPCOES);
+  const chave = primeiro.acoes[0].chave;
+
+  const comDados: EstadoAtual = {
+    pessoasPorDocumento: new Map([["09714600510", "pg_1"]]),
+    contratosPorChave: new Map([
+      [
+        chave,
+        {
+          id: "c_1",
+          status: "ativo",
+          dataReferencia: null,
+          // A base tem fim de vigência e comissão; o PERFIL não traz nenhum
+          // dos dois. É o perfil incompleto que o operador precisa enxergar.
+          preenchidos: ["fimVigencia", "comissao", "premio"],
+        },
+      ],
+    ]),
+  };
+
+  const plano = planejar([linha], comDados, OPCOES);
+  assert.equal(plano.acoes[0].acao, "atualizar");
+  assert.deepEqual(plano.camposNaoCobertos, [
+    { campo: "fimVigencia", contratos: 1 },
+    { campo: "comissao", contratos: 1 },
+  ]);
+  // `premio` está preenchido na base E vem no relatório: não é campo não
+  // coberto, é campo que vai ser atualizado. Contá-lo aqui seria alarme falso.
+});
+
+test("contrato que o lote não atualiza não entra na contagem de não cobertos", () => {
+  const [linha] = aplicar([BASE]);
+  const primeiro = planejar([linha], VAZIO, OPCOES);
+  const chave = primeiro.acoes[0].chave;
+
+  // Terminal: a regra 4 recusa a atualização. Campo não coberto num contrato
+  // que o lote nem toca não é notícia — seria ruído que ensina a ignorar o
+  // aviso de verdade.
+  const terminal: EstadoAtual = {
+    pessoasPorDocumento: new Map([["09714600510", "pg_1"]]),
+    contratosPorChave: new Map([
+      [chave, { id: "c_1", status: "cancelado", dataReferencia: null, preenchidos: ["fimVigencia"] }],
+    ]),
+  };
+
+  const plano = planejar([linha], terminal, OPCOES);
+  assert.equal(plano.acoes.length, 0);
+  assert.deepEqual(plano.camposNaoCobertos, []);
+});
+
+test("base sem nada preenchido não gera aviso de campo não coberto", () => {
+  const [linha] = aplicar([BASE]);
+  const primeiro = planejar([linha], VAZIO, OPCOES);
+  const chave = primeiro.acoes[0].chave;
+
+  const vazia: EstadoAtual = {
+    pessoasPorDocumento: new Map([["09714600510", "pg_1"]]),
+    contratosPorChave: new Map([
+      [chave, { id: "c_1", status: "ativo", dataReferencia: null, preenchidos: [] }],
+    ]),
+  };
+
+  const plano = planejar([linha], vazia, OPCOES);
+  assert.equal(plano.acoes[0].acao, "atualizar");
+  assert.deepEqual(plano.camposNaoCobertos, [], "não há valor gravado para preservar");
 });

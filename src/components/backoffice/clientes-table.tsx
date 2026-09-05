@@ -28,7 +28,7 @@ import {
   Phone,
   BadgeDollarSign,
 } from "lucide-react";
-import { riscoEvasaoReuniao, statusTermometro } from "@/lib/cadencia-core";
+import { cumprimentoCadencia, riscoEvasaoReuniao, statusTermometro } from "@/lib/cadencia-core";
 import {
   selarPresenca,
   type SeloPresenca,
@@ -36,6 +36,12 @@ import {
 import type { EstadoAtencao } from "@/lib/painel-atencao/core";
 import { getNomeRelacionamento } from "@/lib/backoffice/display-name";
 import { ApelidoEditButton } from "@/components/backoffice/apelido-edit-button";
+import {
+  RegistroRapidoDialog,
+  ReuniaoManualDialog,
+  type RegistroRapidoAlvo,
+  type ReuniaoManualAlvo,
+} from "@/components/backoffice/cliente-reuniao-dialogs";
 import { Switch } from "@/components/ui/switch";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -242,6 +248,8 @@ interface Cliente {
   profissao: string | null;
   nicho: string | null;
   ultimoContatoAt: Date | string | null;
+  /** Toques (ligação + reunião) nos últimos 12 meses. Numerador do 12-4-2. */
+  toquesNoAno?: number;
   ultimaReuniaoAt: Date | string | null;
   proximaReuniaoAt: Date | string | null;
   // Procedência gravada pelo recompute — ver FonteReuniao abaixo. Opcionais
@@ -323,6 +331,11 @@ const FONTE_REUNIAO: Record<string, { sigla: string; nome: string; cor: string }
     nome: "Datacrazy (atividades)",
     cor: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
   },
+  manual: {
+    sigla: "M",
+    nome: "Manual",
+    cor: "bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200",
+  },
 };
 
 /**
@@ -394,14 +407,43 @@ const SELO_TERMOMETRO: Record<SeloPresenca, { dot: string; texto: string; label:
 
 const SALDO_PARADO_LIMITE = 10_000;
 
+/**
+ * Cadência 12-4-2 = CONTAGEM de toques no último ano contra o alvo da classe.
+ *
+ * Até 22/08/2026 isto derivava do termômetro de dias, e uma única ligação
+ * recente dava por cumprida a promessa do ano inteiro. Agora conta ligações +
+ * reuniões dos últimos 12 meses. O termômetro continua existindo, como
+ * RECÊNCIA — são perguntas diferentes e as duas aparecem na mesma linha.
+ *
+ * Fora do componente de propósito: são puras (só dependem do cliente recebido),
+ * e defini-las dentro fazia os `useMemo` que as usam recriarem a dependência a
+ * cada render — a tabela inteira reordenaria sem nada ter mudado.
+ */
+function cadenciaDoCliente(c: Cliente) {
+  return cumprimentoCadencia(c.classificacao, c.toquesNoAno ?? 0, !!c.ultimoContatoAt);
+}
+
+/**
+ * "sem-historico" vira ok: quem nunca foi contatado não é atrasado, é uma conta
+ * que ainda não começou. Era assim antes da troca de régua e continua sendo.
+ */
+function statusCadencia(c: Cliente): "ok" | "atencao" | "alerta" {
+  const { status } = cadenciaDoCliente(c);
+  return status === "sem-historico" ? "ok" : status;
+}
+
 export function ClientesTable({
   clientes: iniciais,
   isAdmin = false,
+  ehAdminMaster = false,
   mostrarSaldoParado = false,
   usuarioNome = null,
 }: {
   clientes: Cliente[];
   isAdmin?: boolean;
+  /* Exportar a base inteira é poder de Admin Master. Default `false`: um
+   * chamador que esqueça a prop esconde o botão, não abre a porta. */
+  ehAdminMaster?: boolean;
   // Gate da UI "parado há X dias" (flag CLIENTES_SALDO_PARADO_DIAS). Default
   // false → célula Saldo Conta e ordenação byte-idênticas a hoje (invariante OFF).
   mostrarSaldoParado?: boolean;
@@ -442,8 +484,8 @@ export function ClientesTable({
   const [importStatus, setImportStatus] = useState<{ ok: boolean; msg: string } | null>(null);
   const [xlsxReady, setXlsxReady] = useState(false);
   const [marcandoContato, setMarcandoContato] = useState(false);
-  const [registrandoReuniao, setRegistrandoReuniao] = useState<string | null>(null);
-  const [registrandoContato, setRegistrandoContato] = useState<string | null>(null);
+  const [registroRapido, setRegistroRapido] = useState<RegistroRapidoAlvo | null>(null);
+  const [reuniaoManual, setReuniaoManual] = useState<ReuniaoManualAlvo | null>(null);
   const [feeSalvando, setFeeSalvando] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -500,15 +542,6 @@ export function ClientesTable({
   };
 
   // Status legado de 3 estados (ok/atencao/alerta) usado por filtros e contadores.
-  // Deriva do termômetro compartilhado: vermelho→alerta, amarelo→atencao,
-  // verde/sem-historico→ok (nunca-contatado é estado neutro, não conta como fora).
-  const statusCadencia = (c: Cliente): "ok" | "atencao" | "alerta" => {
-    const { status } = statusTermometro(c.classificacao, c.ultimoContatoAt);
-    if (status === "vermelho") return "alerta";
-    if (status === "amarelo") return "atencao";
-    return "ok";
-  };
-
   const whatsappLink = (telefone: string | null): string | null => {
     if (!telefone) return null;
     const limpo = telefone.replace(/\D/g, "");
@@ -915,6 +948,13 @@ export function ClientesTable({
     !!busca;
 
   const exportarCSV = () => {
+    /* Gate NO DADO, não só no botão. Esconder o botão é conveniência; isto é o
+     * que impede a exportação de acontecer se o componente for montado sem a
+     * prop certa, ou se alguém chamar a função por outro caminho. O CSV carrega
+     * a base inteira — nome, conta, CPF por tabelião, telefone, e-mail, saldo e
+     * renda de 2.716 clientes —, e é a maior superfície de exportação que
+     * existe hoje. */
+    if (!ehAdminMaster) return;
     const alvo = selecionados.size > 0 ? ordenados.filter((c) => selecionados.has(c.id)) : ordenados;
     const cabecalhos = [
       "Classe",
@@ -924,6 +964,12 @@ export function ClientesTable({
       "Saldo Conta",
       // "Receita/ano" saiu da TABELA mas continua no CSV: o dado não foi
       // removido do banco e planilhas existentes dependem dessa coluna.
+      //
+      // O RÓTULO ESTÁ ERRADO e continua errado de propósito: o campo é a renda
+      // declarada do cliente, não receita da Onix (ver field-source-policy.ts).
+      // As telas foram corrigidas; este cabeçalho NÃO, porque é chave de coluna
+      // em planilhas que já existem fora daqui — renomear quebraria o consumidor
+      // para consertar a etiqueta. Trocar exige combinar com quem usa o arquivo.
       "Receita/ano",
       "Fee Fixo",
       "Assessor",
@@ -958,64 +1004,6 @@ export function ClientesTable({
     a.download = `clientes_${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-  };
-
-  const registrarReuniaoAgora = async (id: string, nome: string) => {
-    if (!confirm(`Registrar reunião realizada agora com ${nome}?`)) return;
-    setRegistrandoReuniao(id);
-    try {
-      const res = await fetch(`/api/backoffice/clientes/${id}/interacoes`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tipo: "reuniao",
-          canal: "presencial",
-          assunto: "Reunião realizada",
-        }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const interacao = await res.json();
-      const agora = interacao.data ?? new Date().toISOString();
-      setClientes((prev) =>
-        prev.map((c) =>
-          c.id === id ? { ...c, ultimaReuniaoAt: agora, ultimoContatoAt: agora } : c,
-        ),
-      );
-    } catch (e) {
-      console.error("Erro ao registrar reunião:", e);
-      alert("Não foi possível registrar a reunião. Tente novamente.");
-    } finally {
-      setRegistrandoReuniao(null);
-    }
-  };
-
-  const registrarContatoAgora = async (id: string, nome: string) => {
-    if (!confirm(`Registrar contato realizado agora com ${nome}?`)) return;
-    setRegistrandoContato(id);
-    try {
-      const res = await fetch(`/api/backoffice/clientes/${id}/interacoes`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tipo: "ligacao",
-          canal: "telefone",
-          assunto: "Contato registrado",
-        }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const interacao = await res.json();
-      const agora = interacao.data ?? new Date().toISOString();
-      // Atualiza ultimoContatoAt local → o selo do termômetro recalcula na hora.
-      // proximoContatoAt é recalculado no servidor (interacoes POST).
-      setClientes((prev) =>
-        prev.map((c) => (c.id === id ? { ...c, ultimoContatoAt: agora } : c)),
-      );
-    } catch (e) {
-      console.error("Erro ao registrar contato:", e);
-      alert("Não foi possível registrar o contato. Tente novamente.");
-    } finally {
-      setRegistrandoContato(null);
-    }
   };
 
   const marcarContatadosHoje = async () => {
@@ -1085,7 +1073,7 @@ export function ClientesTable({
           icon={TrendingUp}
           label="Clientes A na cadência"
           value={`${kpis.pctAOk}%`}
-          sub={`${kpis.totalA - kpis.aForaCadencia}/${kpis.totalA} dentro do 12-4-2`}
+          sub={`${kpis.totalA - kpis.aForaCadencia}/${kpis.totalA} dentro do 12-4-2 · revisão não rastreada`}
           tone={kpis.pctAOk >= 80 ? "ok" : kpis.pctAOk >= 60 ? "atencao" : "alerta"}
         />
         <KpiCard
@@ -1168,14 +1156,16 @@ export function ClientesTable({
           <ChevronDown className={`h-3 w-3 transition-transform ${filtrosExpandidos ? "rotate-180" : ""}`} />
         </button>
 
-        <button
-          onClick={exportarCSV}
-          className="px-3 py-2 rounded-lg border text-sm flex items-center gap-2"
-          title="Exportar para CSV (abre no Excel)"
-        >
-          <Download className="h-4 w-4" />
-          Exportar CSV {selecionados.size > 0 && `(${selecionados.size})`}
-        </button>
+        {ehAdminMaster && (
+          <button
+            onClick={exportarCSV}
+            className="px-3 py-2 rounded-lg border text-sm flex items-center gap-2"
+            title="Exportar para CSV (abre no Excel)"
+          >
+            <Download className="h-4 w-4" />
+            Exportar CSV {selecionados.size > 0 && `(${selecionados.size})`}
+          </button>
+        )}
 
         {isAdmin && (
           <>
@@ -1330,13 +1320,15 @@ export function ClientesTable({
             {marcandoContato ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
             Marcar contatados hoje
           </button>
-          <button
-            onClick={exportarCSV}
-            className="px-3 py-1.5 rounded-md border text-xs flex items-center gap-1"
-          >
-            <Download className="h-3 w-3" />
-            Exportar selecionados
-          </button>
+          {ehAdminMaster && (
+            <button
+              onClick={exportarCSV}
+              className="px-3 py-1.5 rounded-md border text-xs flex items-center gap-1"
+            >
+              <Download className="h-3 w-3" />
+              Exportar selecionados
+            </button>
+          )}
           <button onClick={() => setSelecionados(new Set())} className="ml-auto text-xs underline">
             Limpar seleção
           </button>
@@ -1418,6 +1410,7 @@ export function ClientesTable({
             </thead>
             <tbody className="divide-y divide-border">
               {ordenados.map((c) => {
+                const cadenciaCliente = cadenciaDoCliente(c);
                 const cadencia = statusCadencia(c);
                 // Eixo de REUNIÃO — independente do termômetro de contato
                 // abaixo. Cliente pode estar verde no contato e em risco aqui.
@@ -1499,9 +1492,20 @@ export function ClientesTable({
                         )}
                         {cadencia !== "ok" && c.classificacao === "A" && (
                           <span
-                            title={`Cliente A fora da cadência 12-4-2 (último contato há ${
-                              diasContato === null ? "—" : `${diasContato} dias`
-                            }). Cadência A: 30 dias (amarelo ≥24d, vermelho >30d).`}
+                            // O tooltip diz EXPLICITAMENTE que a revisão não é
+                            // rastreada. Mostrar "0 de 2 revisões" seria mentir
+                            // com número: o sistema não coleta esse dado, então
+                            // o zero não é descumprimento, é ausência de medição
+                            // — e quem lesse cobraria o assessor por nada.
+                            title={
+                              `Cliente A fora da cadência 12-4-2: ` +
+                              `${cadenciaCliente.feitos} de ${cadenciaCliente.alvo} toques nos últimos 12 meses ` +
+                              `(ligações + reuniões).\n` +
+                              `Alvo da classe A: ${cadenciaCliente.alvoComRevisao}/ano — ` +
+                              `12 ligações + 4 reuniões + ${cadenciaCliente.revisoesNaoRastreadas} revisões.\n` +
+                              `Revisão: ainda não rastreada pelo sistema, fora desta conta.\n` +
+                              `Último contato há ${diasContato === null ? "—" : `${diasContato} dias`}.`
+                            }
                           >
                             <AlertTriangle
                               className={`h-3.5 w-3.5 ${
@@ -1608,10 +1612,14 @@ export function ClientesTable({
                     <td className="px-3 py-3 text-xs">
                       {c.ultimoContatoAt ? (
                         <span
+                          // Pintada pelo TERMÔMETRO (recência), não pela
+                          // cadência. São eixos diferentes desde 22/08/2026:
+                          // esta coluna responde "faz quanto tempo", e o badge
+                          // ao lado do nome responde "cumpriu a promessa".
                           className={
-                            cadencia === "alerta"
+                            term.status === "vermelho"
                               ? "text-red-600 dark:text-red-400"
-                              : cadencia === "atencao"
+                              : term.status === "amarelo"
                               ? "text-amber-600 dark:text-amber-400"
                               : "text-muted-foreground"
                           }
@@ -1638,22 +1646,53 @@ export function ClientesTable({
                     </td>
 
                     <td className="px-3 py-3 text-xs text-muted-foreground">
-                      {c.ultimaReuniaoAt ? (
-                        <span className="inline-flex items-center">
-                          {formatData(c.ultimaReuniaoAt)}
-                          <FonteReuniao
-                            source={c.ultimaReuniaoSource}
-                            manual={c.ultimaReuniaoConfirmadaManualmente}
-                          />
-                        </span>
-                      ) : (
-                        "—"
-                      )}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setReuniaoManual({
+                            clienteId: c.id,
+                            clienteNome: getNomeRelacionamento(c),
+                            tipo: "ultima",
+                            dataAtual: c.ultimaReuniaoAt,
+                            fonteAtual: c.ultimaReuniaoSource,
+                          })
+                        }
+                        className="inline-flex min-h-7 items-center rounded px-1 text-left hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        aria-label={`Editar última reunião de ${getNomeRelacionamento(c)}`}
+                        title="Editar última reunião manualmente"
+                      >
+                        {c.ultimaReuniaoAt ? (
+                          <>
+                            {formatData(c.ultimaReuniaoAt)}
+                            <FonteReuniao
+                              source={c.ultimaReuniaoSource}
+                              manual={c.ultimaReuniaoConfirmadaManualmente}
+                            />
+                          </>
+                        ) : (
+                          <span>— <Edit2 className="ml-1 inline h-3 w-3" aria-hidden /></span>
+                        )}
+                      </button>
                     </td>
 
                     <td className="px-3 py-3 text-xs">
-                      {c.proximaReuniaoAt ? (
-                        <span className="inline-flex items-center">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setReuniaoManual({
+                            clienteId: c.id,
+                            clienteNome: getNomeRelacionamento(c),
+                            tipo: "proxima",
+                            dataAtual: c.proximaReuniaoAt,
+                            fonteAtual: c.proximaReuniaoSource,
+                          })
+                        }
+                        className="block min-h-7 rounded px-1 text-left hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        aria-label={`Editar próxima reunião de ${getNomeRelacionamento(c)}`}
+                        title="Editar próxima reunião manualmente"
+                      >
+                        {c.proximaReuniaoAt ? (
+                          <span className="inline-flex items-center">
                           <span
                             className={
                               diasProxReuniao !== null && diasProxReuniao <= 7
@@ -1678,7 +1717,7 @@ export function ClientesTable({
                                 aria-label="Agendada fora do teto"
                               />
                             )}
-                        </span>
+                          </span>
                       ) : (
                         // Sem reunião agendada: em vez de um traço mudo, mostra o
                         // estado da régua de REUNIÃO. É aqui que a falha grave
@@ -1711,8 +1750,9 @@ export function ClientesTable({
                           ) : (
                             "—"
                           )}
-                        </span>
+                          </span>
                       )}
+                      </button>
                       {/* Teto manual. Fica ao lado do estado da régua porque é
                           o que EXPLICA o estado: quem vê "45d vencida" precisa
                           saber contra qual teto, e poder ajustá-lo ali mesmo.
@@ -1801,29 +1841,33 @@ export function ClientesTable({
                           <span className="text-xs text-muted-foreground italic">sem tel</span>
                         )}
                         <button
-                          onClick={() => registrarContatoAgora(c.id, c.nome)}
-                          disabled={registrandoContato === c.id}
-                          className="inline-flex items-center gap-1 px-2 py-1 rounded bg-sky-500/10 text-sky-700 dark:text-sky-400 hover:bg-sky-500/20 text-xs disabled:opacity-50"
-                          title="Registrar contato realizado agora (liga/whats/sala) — atualiza Último contato e recalcula próximo contato"
+                          type="button"
+                          onClick={() =>
+                            setRegistroRapido({
+                              clienteId: c.id,
+                              clienteNome: getNomeRelacionamento(c),
+                              tipo: "contato",
+                            })
+                          }
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded bg-sky-500/10 text-sky-700 dark:text-sky-400 hover:bg-sky-500/20 text-xs"
+                          title="Registrar contato com data e relato"
                         >
-                          {registrandoContato === c.id ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : (
-                            <Phone className="h-3 w-3" />
-                          )}
+                          <Phone className="h-3 w-3" aria-hidden />
                           Contato
                         </button>
                         <button
-                          onClick={() => registrarReuniaoAgora(c.id, c.nome)}
-                          disabled={registrandoReuniao === c.id}
-                          className="inline-flex items-center gap-1 px-2 py-1 rounded bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20 text-xs disabled:opacity-50"
-                          title="Registrar reunião realizada agora (preenche Última reunião e Último contato)"
+                          type="button"
+                          onClick={() =>
+                            setRegistroRapido({
+                              clienteId: c.id,
+                              clienteNome: getNomeRelacionamento(c),
+                              tipo: "reuniao",
+                            })
+                          }
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20 text-xs"
+                          title="Registrar reunião com data e relato"
                         >
-                          {registrandoReuniao === c.id ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : (
-                            <CalendarPlus className="h-3 w-3" />
-                          )}
+                          <CalendarPlus className="h-3 w-3" aria-hidden />
                           Reunião
                         </button>
                       </div>
@@ -1844,6 +1888,52 @@ export function ClientesTable({
           </table>
         </div>
       </div>
+
+      <RegistroRapidoDialog
+        alvo={registroRapido}
+        onOpenChange={(aberto) => {
+          if (!aberto) setRegistroRapido(null);
+        }}
+        onSalvo={(registro) => {
+          if (!registroRapido) return;
+          const { clienteId, tipo } = registroRapido;
+          setClientes((prev) =>
+            prev.map((c) => {
+              if (c.id !== clienteId) return c;
+              const contatoAtual = c.ultimoContatoAt
+                ? new Date(c.ultimoContatoAt).getTime()
+                : Number.NEGATIVE_INFINITY;
+              const contatoNovo = new Date(registro.data).getTime();
+              const comContato =
+                Number.isFinite(contatoNovo) && contatoNovo > contatoAtual
+                  ? { ...c, ultimoContatoAt: registro.data }
+                  : c;
+              if (tipo !== "reuniao" || !registro.reuniaoAgregada) return comContato;
+              return {
+                ...comContato,
+                ultimaReuniaoAt: registro.reuniaoAgregada.data,
+                ultimaReuniaoSource: registro.reuniaoAgregada.source,
+                ultimaReuniaoConfirmadaManualmente:
+                  registro.reuniaoAgregada.confirmadaManualmente,
+              };
+            }),
+          );
+        }}
+      />
+
+      <ReuniaoManualDialog
+        alvo={reuniaoManual}
+        onOpenChange={(aberto) => {
+          if (!aberto) setReuniaoManual(null);
+        }}
+        onSalvo={(dados) => {
+          if (!reuniaoManual) return;
+          const { clienteId } = reuniaoManual;
+          setClientes((prev) =>
+            prev.map((c) => (c.id === clienteId ? { ...c, ...dados } : c)),
+          );
+        }}
+      />
     </div>
   );
 }

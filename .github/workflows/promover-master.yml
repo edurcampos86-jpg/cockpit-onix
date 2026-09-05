@@ -1,0 +1,163 @@
+name: promover-master
+
+# Promove UM usuário a Admin Master em PRODUÇÃO — `User.role = "master"`.
+#
+# ── POR QUE UM BOTÃO, E NÃO "roda o UPDATE aí" ───────────────────────────
+# As sessões de agente não alcançam o banco de produção (`CONNECT 403`), e o
+# Eduardo não tem acesso confortável ao psql. Sem este botão, o passo que
+# destrava o Admin Master ficaria esperando alguém abrir um terminal — e o
+# passo que ninguém consegue executar é o passo que fica para depois. Mesmo
+# problema e mesmo molde do `seed-empresas`.
+#
+# ── ESCRITA, E POR ISSO COM TRAVA ────────────────────────────────────────
+# Diferente do `estado-do-banco`, este workflow ESCREVE. Quatro travas, nesta
+# ordem:
+#
+#   1. só `workflow_dispatch` — nunca em push, nunca em PR;
+#   2. `confirmar` tem de ser exatamente `promover` — digitar é a assinatura,
+#      e um clique errado no menu não aplica nada;
+#   3. o DRY-RUN roda primeiro, SEMPRE, e o plano fica no resumo do job antes
+#      de qualquer UPDATE. Com `confirmar` diferente de `promover`, o job
+#      termina aí — é o modo "só me mostre o que faria";
+#   4. o script recusa sozinho se o e-mail não existir ou casar com mais de um
+#      usuário, e confere RELENDO do banco depois de escrever.
+#
+# ── O QUE ELE FAZ, E O QUE NÃO FAZ ───────────────────────────────────────
+# Um `UPDATE` de um campo em uma linha. Não cria usuário, não mexe em
+# `Pessoa`, não concede carteira, não toca em nenhum outro papel. Rodar duas
+# vezes é seguro: a segunda diz "já é master" e não escreve.
+#
+# ── O IDENTIFICADOR NÃO FICA NO REPOSITÓRIO ──────────────────────────────
+# E-mail ou CPF são INPUT, não constante — e o script mascara os dois no log,
+# porque este repositório é público e o resumo do job também.
+#
+# ── POR QUE CPF ALÉM DE E-MAIL ───────────────────────────────────────────
+# A conta real do titular pode ter o e-mail gerado pelo bootstrap
+# (`admin+<cpf>-<timestamp>@onixcapital.local`) — 48 caracteres que ninguém
+# acerta digitando. O CPF o titular sabe de cabeça, e `User.cpf` é @unique.
+# O script recusa os dois juntos: se divergirem, promoveria a conta errada.
+
+on:
+  workflow_dispatch:
+    inputs:
+      email:
+        description: 'E-mail do usuário a promover. Deixe vazio para usar o CPF.'
+        type: string
+        required: false
+        default: ''
+      cpf:
+        description: 'CPF do usuário a promover (com ou sem pontos/traço). Deixe vazio para usar o e-mail.'
+        type: string
+        required: false
+        default: ''
+      confirmar:
+        description: 'Digite "promover" para gravar. Qualquer outra coisa = só dry-run.'
+        type: string
+        required: true
+        default: 'dry-run'
+
+permissions:
+  contents: read
+
+concurrency:
+  # Duas execuções simultâneas promoveriam em paralelo e o relatório sairia
+  # confuso. O UPDATE é idempotente, mas a conferência não seria confiável.
+  group: promover-master
+  cancel-in-progress: false
+
+jobs:
+  promover:
+    name: Promover a Admin Master
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # O cliente Prisma é gerado do schema da branch — mesmo motivo do
+      # seed-empresas.
+      - run: npx prisma generate
+
+      - name: Dry-run (sempre)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          EMAIL_ALVO: ${{ inputs.email }}
+          CPF_ALVO: ${{ inputs.cpf }}
+        run: |
+          set -euo pipefail
+          ARGS=()
+          if [ -n "$EMAIL_ALVO" ]; then ARGS+=(--email="$EMAIL_ALVO"); fi
+          if [ -n "$CPF_ALVO" ]; then ARGS+=(--cpf="$CPF_ALVO"); fi
+          npx tsx scripts/promover-master.ts "${ARGS[@]}" \
+            | tee "${RUNNER_TEMP}/plano.txt"
+          {
+            echo '## Plano — nada foi escrito ainda'
+            echo
+            echo '```'
+            cat "${RUNNER_TEMP}/plano.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Promover
+        if: inputs.confirmar == 'promover'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          EMAIL_ALVO: ${{ inputs.email }}
+          CPF_ALVO: ${{ inputs.cpf }}
+        run: |
+          set -euo pipefail
+          ARGS=()
+          if [ -n "$EMAIL_ALVO" ]; then ARGS+=(--email="$EMAIL_ALVO"); fi
+          if [ -n "$CPF_ALVO" ]; then ARGS+=(--cpf="$CPF_ALVO"); fi
+          npx tsx scripts/promover-master.ts "${ARGS[@]}" --aplicar \
+            | tee "${RUNNER_TEMP}/aplicado.txt"
+          {
+            echo
+            echo '## Aplicado'
+            echo
+            echo '```'
+            cat "${RUNNER_TEMP}/aplicado.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Confere com a MESMA leitura do dry-run, contra o banco de novo. Depois
+      # de promover, o `role atual` tem de ser `master` — se não for, o UPDATE
+      # não pegou e o job não pode terminar verde.
+      - name: Conferir depois
+        if: inputs.confirmar == 'promover'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          EMAIL_ALVO: ${{ inputs.email }}
+          CPF_ALVO: ${{ inputs.cpf }}
+        run: |
+          set -euo pipefail
+          ARGS=()
+          if [ -n "$EMAIL_ALVO" ]; then ARGS+=(--email="$EMAIL_ALVO"); fi
+          if [ -n "$CPF_ALVO" ]; then ARGS+=(--cpf="$CPF_ALVO"); fi
+          npx tsx scripts/promover-master.ts "${ARGS[@]}" \
+            | tee "${RUNNER_TEMP}/depois.txt"
+          {
+            echo
+            echo '## Conferência pós-promoção'
+            echo
+            echo '```'
+            cat "${RUNNER_TEMP}/depois.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if ! grep -q 'Já é master' "${RUNNER_TEMP}/depois.txt"; then
+            echo "::error::Depois de promover, a releitura NÃO diz que já é master. O UPDATE não pegou."
+            exit 1
+          fi
+          echo "Confirmado: o papel master vem do banco."
+
+      - name: Só dry-run
+        if: inputs.confirmar != 'promover'
+        run: |
+          echo "::notice::Nada foi gravado. Para promover, rode de novo com confirmar=promover."

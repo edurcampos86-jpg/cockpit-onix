@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual, createHash } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { getAuthContext } from "@/lib/auth-helpers";
-import { isAdmin } from "@/lib/rbac-papeis";
+import { isAdmin, isAdminMaster } from "@/lib/rbac-papeis";
 
 export const dynamic = "force-dynamic";
 
@@ -38,15 +38,48 @@ function segredoConfere(recebido: string, esperado: string): boolean {
   return timingSafeEqual(a, b);
 }
 
-/** Autorizado? Sessão de admin OU header dedicado. Nunca query string. */
-async function autorizado(req: NextRequest): Promise<boolean> {
-  const ctx = await getAuthContext().catch(() => null);
-  if (ctx && isAdmin(ctx)) return true;
-
+/** O header dedicado — caminho de MÁQUINA, usado pelos scripts de terminal. */
+function segredoDeMaquinaConfere(req: NextRequest): boolean {
   const esperado = process.env.ADMIN_API_SECRET?.trim();
   if (!esperado) return false; // falha fechada: sem segredo dedicado, sem atalho
   const recebido = req.headers.get("x-admin-secret");
   return typeof recebido === "string" && segredoConfere(recebido, esperado);
+}
+
+/**
+ * LEITURA — sessão de admin OU header. Nunca query string.
+ *
+ * Continua em `isAdmin` de propósito: o GET só diz se a chave EXISTE, nunca
+ * devolve o valor. Fechar a leitura em master apagaria capacidade real (saber
+ * se a integração está configurada) sem proteger nenhum segredo — é o mesmo
+ * critério registrado para `/integracoes` no AGENTS.md.
+ */
+async function autorizadoParaLer(req: NextRequest): Promise<boolean> {
+  const ctx = await getAuthContext().catch(() => null);
+  if (ctx && isAdmin(ctx)) return true;
+  return segredoDeMaquinaConfere(req);
+}
+
+/**
+ * ESCRITA — SÓ ADMIN MASTER, ou o header de máquina.
+ *
+ * Esta rota é o `setConfig` administrativo: é por aqui que flag liga e desliga
+ * e que segredo de integração é gravado. A regra do Eduardo põe flags no nível
+ * master, e admin comum perde isto.
+ *
+ * O header CONTINUA valendo, e não é brecha: é o caminho pelo qual os dois
+ * scripts de terminal operam, e quem tem `ADMIN_API_SECRET` já tem acesso ao
+ * ambiente. Fechar aqui sem fechar lá seria teatro.
+ *
+ * O gate NÃO foi para `setConfig` (`lib/config-db.ts`), de propósito: aquela
+ * função é chamada de dentro de cron — `pixel/metrics.ts`, `integrations/slack.ts`
+ * e `api/cron/meta-sync` —, que não tem sessão. Gatear lá quebraria as rotinas
+ * em silêncio. O gate pertence à porta administrativa, que é esta.
+ */
+async function autorizadoParaEscrever(req: NextRequest): Promise<boolean> {
+  const ctx = await getAuthContext().catch(() => null);
+  if (ctx && isAdminMaster(ctx)) return true;
+  return segredoDeMaquinaConfere(req);
 }
 
 function negar() {
@@ -58,7 +91,7 @@ function negar() {
  * Diz se a chave existe — nunca devolve o valor.
  */
 export async function GET(req: NextRequest) {
-  if (!(await autorizado(req))) return negar();
+  if (!(await autorizadoParaLer(req))) return negar();
 
   const key = req.nextUrl.searchParams.get("key");
   if (!key) {
@@ -82,7 +115,7 @@ export async function GET(req: NextRequest) {
  * Body: { key, value } — autorização por sessão de admin ou header.
  */
 export async function POST(req: NextRequest) {
-  if (!(await autorizado(req))) return negar();
+  if (!(await autorizadoParaEscrever(req))) return negar();
 
   const body = await req.json();
   const { key, value } = body;

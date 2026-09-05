@@ -52,6 +52,15 @@ on:
       - '.github/workflows/estado-do-banco.yml'
       # Mesmo motivo, para o script de inventário.
       - 'scripts/inventario-reunioes.ts'
+      # Mesmo motivo, para o leitor da sidebar.
+      - 'scripts/quem-ve-a-sidebar.ts'
+      # Mesmo motivo, para a medição da receita.
+      - 'scripts/receita-esta-inflada.ts'
+      # Mesmo motivo, para a medição da contaminação de receitaAnual.
+      - 'scripts/contaminacao-receita-anual.ts'
+      # Sem isto, editar a contagem não roda a contagem — e o detector volta a
+      # ficar cego para si mesmo, que é o defeito que ele existe para corrigir.
+      - 'scripts/contagem-tabelas.ts'
 
 permissions:
   contents: read
@@ -161,7 +170,59 @@ jobs:
               ;;
           esac
 
+      # ── POR QUE ESTA CORRENTE TEM `!cancelled()` ───────────────────────
+      #
+      # O "Gate de migration destrutiva", acima, sai 1 quando a PR traz DROP
+      # sem a label. Passo sem `if:` é PULADO quando um anterior falha, então
+      # esse gate apagava o diagnóstico que vem depois — justamente na PR em
+      # que ele é mais caro de perder: a que mexe destrutivamente no banco.
+      # Quem abria essa PR via o "🛑" e nenhuma das duas respostas que decidem
+      # o que fazer com o DROP: quantas linhas tem a tabela, e o que ainda está
+      # pendente de aplicar.
+      #
+      # `!cancelled()` E NÃO `always()`. A diferença é o motivo desta linha
+      # existir: `always()` vale TAMBÉM em job cancelado, e este workflow tem
+      # `cancel-in-progress: true` (acima). Com `always()`, todo push numa PR
+      # de migration cancelaria o run anterior e ele mesmo assim rodaria
+      # `npm ci` e DUAS leituras do banco de produção — cancelamento que não
+      # cancela. `!cancelled()` cobre sucesso e falha, que é exatamente o que
+      # se quer aqui, e devolve o cancelamento ao seu significado.
+      #
+      # A corrente é guardada elo a elo, e a ORDEM dos guardas importa:
+      #   • o passo do secret é o PRIMEIRO elo e precisa do seu próprio
+      #     `!cancelled()`. Sem isso o gate o pularia, o `outcome` viraria
+      #     `skipped`, e tudo abaixo (que exige `success`) morreria junto —
+      #     guardar os elos de baixo e deixar o de cima cair não sustenta nada;
+      #   • setup-node só segue se o SECRET existe — sem DATABASE_URL nenhuma
+      #     leitura tem o que fazer;
+      #   • `npm ci` só segue se o SETUP-NODE deu certo (e não apenas o
+      #     secret): checkout ou setup falhando deixariam o `npm ci` rodar sem
+      #     Node nem árvore, que é o vermelho ilegível que estes guardas
+      #     existem para evitar;
+      #   • os leitores só seguem se o `npm ci` deu certo — sem ele não há
+      #     `npx prisma`, e rodar assim trocaria um passo pulado (legível) por
+      #     um vermelho com "command not found".
+      #
+      # ── O ALCANCE, DITO SEM EXAGERO ────────────────────────────────────
+      # Sobrevivem ao gate DOIS leitores: a contagem de tabelas e o status das
+      # migrations — os que respondem à pergunta daquela PR. Os outros OITO
+      # continuam na cadeia normal e continuam sendo pulados: `Estado de
+      # "Empresa"`, `Incidente` e `Contas duplicadas`, mais os cinco que já
+      # trazem `if:` próprio de PR. Não é esquecimento: eles respondem a outras
+      # perguntas, e ressuscitar o job inteiro para uma PR que já está vermelha
+      # custaria minutos de consulta a produção sem decidir nada.
+      #
+      # ── O QUE ISTO CUSTA ───────────────────────────────────────────────
+      # O gate perde parte do "falha rápido" que o comentário dele promete: numa
+      # PR barrada, o job agora roda `npm ci` e vai ao banco antes de fechar em
+      # vermelho. É o preço de ter a resposta, e ele foi aceito conscientemente.
+      #
+      # O que isto NÃO conserta, e não precisava: a "Contagem de todas as
+      # tabelas" já tem `continue-on-error: true` e nunca suprimiu o passo
+      # seguinte. O supressor sempre foi o gate.
       - name: Conferir que o secret existe
+        id: secret
+        if: ${{ !cancelled() }}
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
@@ -173,18 +234,111 @@ jobs:
           echo "secrets.DATABASE_URL presente."
 
       - uses: actions/setup-node@v4
+        id: node
+        if: ${{ !cancelled() && steps.secret.outcome == 'success' }}
         with:
           node-version: '22'
           cache: npm
 
       - name: npm ci
+        id: install
+        if: ${{ !cancelled() && steps.node.outcome == 'success' }}
         run: npm ci
+
+      # ── CONTAGEM DE TODAS AS TABELAS ───────────────────────────────────
+      #
+      # PRIMEIRO passo de leitura do banco, de propósito: o que ele responde é
+      # o que decide uma PR de migration, e o resumo do job é lido de cima
+      # para baixo. Antes ele era o quinto, e a resposta ficava soterrada.
+      #
+      # Este passo existe por um erro que aconteceu DUAS vezes.
+      #
+      # A #301 apostou em "`Empresa` está vazia" e a tabela tinha 6 linhas. A
+      # resposta foi um passo dedicado — que responde bem, e sobre UMA tabela.
+      #
+      # Em ago/2026 a #410 apostou em "`ContratoCorretora` está vazia" para
+      # redividir o catálogo de produtos. Este workflow DISPAROU naquela PR (ela
+      # tocou `prisma/schema.prisma`), passou VERDE, e não citava aquela tabela
+      # nenhuma vez. O detector estava ligado e olhando para o lado errado — e
+      # verde lido como resposta é pior que ausência de detector.
+      #
+      # O conserto óbvio seria uma lista de tabelas de interesse. Seria o mesmo
+      # defeito outra vez: lista não acompanha schema, e a PRÓXIMA tabela nova
+      # fica de fora em silêncio. Então não há lista — o script lê os `model`
+      # do `schema.prisma` e conta todos, e diz quantos contou.
+      #
+      # ── O QUE MUDOU: CONTAR TUDO E DESTACAR NADA É NÃO CONTAR ───────────
+      #
+      # A contagem passou a existir e continuou não sendo lida: são cem linhas
+      # dentro de um log de mil e trezentas. Em 28/08/2026 uma sessão tentou
+      # recuperar dali a contagem de `ContratoCorretora` três vezes, por `tail`
+      # crescente, e desistiu — com o dado no lugar certo o tempo todo.
+      #
+      # Agora o passo calcula, do SQL de migration DESTA PR, quais tabelas ela
+      # mexe, e destaca no topo as que NÃO estão vazias — mais uma anotação,
+      # que aparece na PR sem abrir log. A regra do que é "tocar" mora em
+      # `src/lib/ci/tabelas-tocadas.ts`, com testes; aqui só se passa a lista.
+      #
+      # `continue-on-error`: contagem é DIAGNÓSTICO, não gate. Código 1 quer
+      # dizer "o schema declara tabela que o banco não tem", que costuma ser
+      # migration pendente — informação, não motivo para barrar merge. Quem
+      # barra é o "Gate de migration destrutiva", acima. A anotação de tabela
+      # cheia é `warning` pela mesma razão: a PR PODE ser sobre mexer numa
+      # tabela cheia; o que ela não pode é ser mergeada por quem achava que
+      # estava vazia.
+      - name: Contagem de todas as tabelas
+        continue-on-error: true
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          # Fora de PR não há diff para ler; o destaque por tocadas fica vazio
+          # e o relatório cai no bloco fixo. `|| true` porque diff sem casar
+          # nada devolve 0, mas um sha ausente devolveria erro e este passo é
+          # diagnóstico — não pode derrubar o resto da leitura.
+          TOCADAS=''
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            TOCADAS=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" 2>/dev/null \
+              | { xargs -r npx tsx scripts/tabelas-tocadas.ts || true; } \
+              | paste -sd, - || true)
+          fi
+          echo "Tabelas tocadas por esta PR: ${TOCADAS:-(nenhuma)}"
+
+          set +e
+          npx tsx scripts/contagem-tabelas.ts --tocadas="$TOCADAS" \
+            > "${RUNNER_TEMP}/contagem.txt" 2>&1
+          CODIGO=$?
+          set -e
+          case "$CODIGO" in
+            0) VEREDITO='Todas as tabelas do schema foram contadas.' ;;
+            1) VEREDITO='**DIVERGÊNCIA** — o schema declara tabela que o banco não tem. Costuma ser migration pendente; se for a tabela sobre a qual esta PR aposta, a aposta NÃO foi conferida.' ;;
+            *) VEREDITO='**INDETERMINADO** — não consegui perguntar ao banco. Isto não é "está vazio".' ;;
+          esac
+          {
+            echo '## Contagem de linhas por tabela'
+            echo
+            echo "$VEREDITO"
+            echo
+            echo '```'
+            cat "${RUNNER_TEMP}/contagem.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "${RUNNER_TEMP}/contagem.txt"
+          echo "código: $CODIGO"
 
       # A pergunta que mais importa numa PR de migration: o que ainda não foi
       # aplicado? `migrate status` sai com código != 0 quando há migration
       # pendente, o que é o estado NORMAL de uma PR que acrescenta uma — por
       # isso o código é capturado, e não deixado derrubar o job.
+      #
+      # `!cancelled()` pelo motivo explicado na corrente acima: numa PR barrada pelo
+      # gate destrutivo, esta é a resposta que decide o que fazer com o DROP.
       - name: Migrations pendentes
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
@@ -486,6 +640,117 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           cat "${RUNNER_TEMP}/inventario.txt"
+          echo "código: $CODIGO"
+
+      # Quem veria o quê na sidebar filtrada: cargos reais e concessões reais.
+      - name: Quem vê a sidebar
+        if: >-
+          (github.event_name == 'workflow_dispatch' && inputs.consultas == 'completo') ||
+          github.event_name == 'pull_request'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          # Numa PR, só roda se a PR mexeu no script. O gatilho por `paths` traz
+          # também toda PR de migration, e a resposta desta consulta não muda
+          # com migration nenhuma — rodar sempre seria ruído que se aprende a
+          # pular, que é o oposto do que este workflow existe para fazer.
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            if ! git diff --name-only "$BASE_SHA" "$HEAD_SHA" \
+                 | grep -q '^scripts/quem-ve-a-sidebar\.ts$'; then
+              echo "PR não mexeu no script — pulando."
+              exit 0
+            fi
+          fi
+
+          set +e
+          npx tsx scripts/quem-ve-a-sidebar.ts > "${RUNNER_TEMP}/sidebar.txt" 2>&1
+          CODIGO=$?
+          set -e
+          {
+            echo
+            echo '## Quem vê a sidebar'
+            echo
+            echo '```'
+            cat "${RUNNER_TEMP}/sidebar.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "${RUNNER_TEMP}/sidebar.txt"
+          echo "código: $CODIGO"
+
+      - name: A receita está inflada por reimportação?
+        if: >-
+          (github.event_name == 'workflow_dispatch' && inputs.consultas == 'completo') ||
+          github.event_name == 'pull_request'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          # Mesma regra dos outros leitores: numa PR, só roda se a PR mexeu no
+          # script. A resposta não muda com migration nenhuma.
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            if ! git diff --name-only "$BASE_SHA" "$HEAD_SHA" \
+                 | grep -q '^scripts/receita-esta-inflada\.ts$'; then
+              echo "PR não mexeu no script — pulando."
+              exit 0
+            fi
+          fi
+
+          set +e
+          npx tsx scripts/receita-esta-inflada.ts > "${RUNNER_TEMP}/receita.txt" 2>&1
+          CODIGO=$?
+          set -e
+          {
+            echo
+            echo '## A receita está inflada por reimportação?'
+            echo
+            echo '```'
+            cat "${RUNNER_TEMP}/receita.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "${RUNNER_TEMP}/receita.txt"
+          echo "código: $CODIGO"
+
+      - name: receitaAnual — quem escreveu em cada cliente?
+        if: >-
+          (github.event_name == 'workflow_dispatch' && inputs.consultas == 'completo') ||
+          github.event_name == 'pull_request'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          # Mesma regra dos outros leitores: numa PR, só roda se a PR mexeu no
+          # script. A resposta não muda com migration nenhuma.
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            if ! git diff --name-only "$BASE_SHA" "$HEAD_SHA" \
+                 | grep -q '^scripts/contaminacao-receita-anual\.ts$'; then
+              echo "PR não mexeu no script — pulando."
+              exit 0
+            fi
+          fi
+
+          set +e
+          npx tsx scripts/contaminacao-receita-anual.ts > "${RUNNER_TEMP}/contaminacao.txt" 2>&1
+          CODIGO=$?
+          set -e
+          {
+            echo
+            echo '## receitaAnual — quem escreveu em cada cliente?'
+            echo
+            echo '```'
+            cat "${RUNNER_TEMP}/contaminacao.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "${RUNNER_TEMP}/contaminacao.txt"
           echo "código: $CODIGO"
 
       # Só no disparo manual com `completo`. São as consultas da auditoria BTG:

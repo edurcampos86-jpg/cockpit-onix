@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
+import { isAdmin } from "@/lib/rbac-papeis";
 import { getConfig } from "@/lib/config-db";
 import { VENDEDORES_CONFIG } from "@/lib/datacrazy";
 
@@ -34,7 +35,7 @@ export async function GET(req: NextRequest) {
   if (!session) {
     return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
   }
-  if (session.role !== "admin") {
+  if (!isAdmin({ role: session.role, pessoa: null })) {
     return NextResponse.json(
       { error: "Apenas admin pode rodar debug" },
       { status: 403 },

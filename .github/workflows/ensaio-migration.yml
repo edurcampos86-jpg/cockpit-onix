@@ -1,0 +1,322 @@
+name: ensaio-migration
+
+# Aplica TODAS as migrations num Postgres descartável, do zero, antes do merge.
+#
+# ── POR QUE ESTE WORKFLOW EXISTE ─────────────────────────────────────────
+# `prisma migrate deploy` roda DENTRO do `startCommand` (`railway.toml`, bloco
+# `[deploy]`; `npm run start` = `prisma migrate deploy && next start`). O `&&`
+# amarra migrar e subir ao mesmo destino: **migration que falha derruba o
+# serviço em loop de restart.** Falha de DADO vira INDISPONIBILIDADE.
+#
+# A #317 tentou mover para `preDeployCommand` e a #335 reverteu — o Railway não
+# lia a chave, e migration pendente simplesmente não aplicava, em silêncio. O
+# roteiro para reativar está no `railway.toml`; enquanto ele não acontecer, a
+# primeira execução real de qualquer migration É EM PRODUÇÃO.
+#
+# Este workflow tira essa primeira vez de produção e a põe aqui.
+#
+# A `onix-entrega-segura` já exigia isto — *"Migrations (🔴): validar em
+# shadow-DB descartável ANTES do merge. `prisma validate` só checa sintaxe, não
+# basta."* — e a exigência dependia de alguém lembrar, com um Postgres à mão.
+# Regra escrita que ninguém consegue executar é regra que não existe.
+#
+# ── DOIS ENSAIOS, PORQUE ELES PROVAM COISAS DIFERENTES ───────────────────
+#
+#   A · DO ZERO      todas as migrations, banco vazio. Prova que o SQL é
+#                    válido, que a ordem fecha e que nada depende de estado.
+#
+#   B · COM DADO     as migrations anteriores, depois um fixture, depois a
+#                    migration NOVA. É o único que exercita backfill, CHECK
+#                    contra linha existente e bloco de conferência — tudo que
+#                    num banco vazio passa sem tocar em nada.
+#
+# O ensaio B só roda se a migration nova trouxer o próprio fixture, em
+# `prisma/migrations/<dir>/ensaio.sql`. É convenção, não obrigação: migration
+# puramente estrutural não precisa. Migration com backfill precisa, e o
+# relatório DIZ quando ela não trouxe.
+#
+# ── O QUE ESTE WORKFLOW NÃO PROVA ────────────────────────────────────────
+# Que a migration é rápida o bastante na produção real. O banco daqui nasce
+# vazio; `ClienteBackoffice` tem 2.716 linhas lá. `ALTER TABLE` que reescreve
+# tabela grande pode passar aqui em milissegundos e travar minutos lá.
+
+on:
+  pull_request:
+    paths:
+      - 'prisma/migrations/**'
+      - 'prisma/schema.prisma'
+      - '.github/workflows/ensaio-migration.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ensaio-migration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ensaio:
+    name: Ensaio da migration em Postgres descartável
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    # Mesma imagem e mesmo molde do `restore-drill.yml`, e a mesma major do
+    # Postgres da produção (16) — ensaiar em versão diferente ensaiaria outro
+    # banco.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ensaio
+          POSTGRES_PASSWORD: ensaio
+          POSTGRES_DB: ensaio
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U ensaio"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      # Banco LOCAL do runner. Nunca aponta para produção — e é por isso que
+      # este workflow pode aplicar migration sem pedir autorização a ninguém.
+      DATABASE_URL: postgresql://ensaio:ensaio@127.0.0.1:5432/ensaio
+
+      # TETO DE TEMPO da migration nova, em segundos.
+      #
+      # Não é higiene: com `prisma migrate deploy` dentro do `startCommand`, o
+      # tempo da migration é tempo de SITE FORA DO AR a cada deploy. Um
+      # `ALTER TABLE` que reescreve tabela passa em milissegundos num banco
+      # vazio e trava minutos nas 2.716 linhas de `ClienteBackoffice`.
+      #
+      # 30s é a régua: acima disso o deploy deixa de ser uma piscada e vira
+      # janela que alguém percebe. Migration que precise de mais não está
+      # proibida — está obrigada a subir este número no MESMO commit, o que faz
+      # a decisão aparecer no diff em vez de aparecer no domingo.
+      ENSAIO_TETO_SEGUNDOS: '30'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # O ensaio B precisa saber QUAIS migrations a PR acrescenta, e isso
+          # é um diff contra a base.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # ── ENSAIO A · DO ZERO ────────────────────────────────────────────
+      - name: Ensaio A — todas as migrations num banco vazio
+        run: |
+          set -euo pipefail
+          npx prisma migrate deploy 2>&1 | tee "${RUNNER_TEMP}/zero.txt"
+          {
+            echo '## Ensaio A — do zero'
+            echo
+            echo '```'
+            cat "${RUNNER_TEMP}/zero.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # O `migrate deploy` sai 0 quando não há nada a aplicar. Num banco que
+      # nasceu vazio isso significaria que ele não achou as migrations — verde
+      # por ausência, que é o modo de falha que este repositório mais teme.
+      - name: Conferir que aplicou de verdade
+        run: |
+          set -euo pipefail
+          NO_DISCO=$(find prisma/migrations -mindepth 1 -maxdepth 1 -type d | wc -l)
+          NO_BANCO=$(psql "$DATABASE_URL" -tAc \
+            'SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL')
+          echo "migrations no disco: $NO_DISCO · aplicadas no banco: $NO_BANCO"
+          if [ "$NO_DISCO" -ne "$NO_BANCO" ]; then
+            echo "::error::Ensaio A não fecha: $NO_DISCO no disco, $NO_BANCO aplicadas."
+            exit 1
+          fi
+          echo "::notice::Ensaio A: $NO_BANCO migrations aplicadas do zero, sem erro."
+
+      # ── DRIFT · o que as migrations produzem × o que o schema declara ──
+      #
+      # AVISO, não gate, e o motivo é específico: o Prisma não declara CHECK
+      # nem índice PARCIAL, então objetos legítimos escritos à mão no SQL
+      # aparecem aqui como diferença. Reprovar por isso ensinaria a ignorar o
+      # relatório.
+      #
+      # O que ele pega de verdade: SQL escrito à mão que diverge do
+      # `schema.prisma` — coluna com outro tipo, índice que o schema pede e a
+      # migration não cria. É o drift que derruba o `PainelEmailAI_tsv_idx` a
+      # cada migration nova, visto ANTES de virar dor.
+      #
+      # NOTA DE SINTAXE, para a próxima edição não repetir: o `actionlint` roda
+      # shellcheck em todo bloco `run:`, e dentro de aspas SIMPLES um backtick
+      # abraçando um nome é lido como substituição de comando (SC2016). Onde o
+      # backtick é markdown para o resumo do job, a linha usa aspas DUPLAS com
+      # o backtick escapado. As cercas de bloco (três backticks seguidos) não
+      # disparam o aviso e ficam como estão.
+      - name: Drift — migrations × schema (não bloqueia)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          set +e
+          npx prisma migrate diff \
+            --from-url "$DATABASE_URL" \
+            --to-schema prisma/schema.prisma \
+            --script > "${RUNNER_TEMP}/drift.sql" 2>&1
+          CODIGO=$?
+          set -e
+          {
+            echo
+            echo "## Drift — o banco do ensaio × \`schema.prisma\`"
+            echo
+            if grep -q 'This is an empty migration' "${RUNNER_TEMP}/drift.sql"; then
+              echo 'Sem diferença: as migrations produzem exatamente o schema declarado.'
+            else
+              echo 'Há diferença. CHECK e índice PARCIAL escritos à mão aparecem aqui'
+              echo 'e são esperados — o Prisma não os declara. Qualquer outra coisa é drift.'
+              echo
+              echo '```sql'
+              cat "${RUNNER_TEMP}/drift.sql"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "código: $CODIGO"
+
+      # ── ENSAIO B · COM DADO ───────────────────────────────────────────
+      - name: Ensaio B — a migration nova contra um banco com dado
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          if [ "${GITHUB_EVENT_NAME}" != "pull_request" ]; then
+            echo "Fora de PR não há 'migration nova' para isolar — ensaio B pulado."
+            exit 0
+          fi
+
+          # As migrations que ESTA PR acrescenta.
+          #
+          # Contra o MERGE-BASE, e não contra `base.sha` — o mesmo que o
+          # `ci.yml` faz, e pela mesma razão. `base.sha` é o commit da base
+          # QUANDO A PR NASCEU; depois de a branch ser atualizada com a main, o
+          # diff contra ele traz também as migrations que OUTRAS sessões
+          # acrescentaram nesse intervalo. Elas seriam movidas para fora do
+          # caminho junto com as desta PR, e o "estado anterior" ficaria com
+          # buraco no meio.
+          MERGE_BASE=$(git merge-base "$BASE_SHA" "$HEAD_SHA")
+          NOVAS=$(git diff --name-only --diff-filter=A "$MERGE_BASE" "$HEAD_SHA" \
+            -- 'prisma/migrations/*/migration.sql' \
+            | xargs -r -n1 dirname | sort -u)
+
+          if [ -z "$NOVAS" ]; then
+            echo "PR não acrescenta migration — ensaio B não se aplica."
+            exit 0
+          fi
+          echo "Migrations novas nesta PR:"
+          echo "$NOVAS" | awk '{ print "  " $0 }'
+
+          # Fixture? Sem ele o ensaio B roda contra banco vazio e não prova
+          # nada além do que o A já provou. Então ele não roda — e o relatório
+          # diz que não rodou, em vez de dar verde por ausência.
+          # COPIA o fixture para fora ANTES de mover o diretório.
+          #
+          # Ele mora DENTRO da pasta da migration, e a pasta sai do caminho
+          # logo abaixo — na primeira execução real (PR #432) o `psql` foi
+          # procurar um arquivo que já tinha sido movido e o ensaio morreu em
+          # três segundos, por defeito deste workflow e não da migration.
+          mkdir -p "${RUNNER_TEMP}/fixtures"
+          FIXTURES=''
+          for dir in $NOVAS; do
+            if [ -f "$dir/ensaio.sql" ]; then
+              destino="${RUNNER_TEMP}/fixtures/$(basename "$dir").sql"
+              cp "$dir/ensaio.sql" "$destino"
+              FIXTURES="$FIXTURES $destino"
+            fi
+          done
+          if [ -z "$FIXTURES" ]; then
+            {
+              echo
+              echo '## Ensaio B — não executado'
+              echo
+              echo "A migration nova não trouxe \`ensaio.sql\`. Migration puramente"
+              echo 'estrutural não precisa; **migration com backfill precisa** — sem'
+              echo 'fixture, o backfill e o bloco de conferência nunca são exercitados.'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::Ensaio B pulado: nenhuma migration nova trouxe ensaio.sql."
+            exit 0
+          fi
+
+          # Banco limpo de novo. `DROP SCHEMA public CASCADE` é o reset que o
+          # próprio Prisma faz no shadow-DB dele.
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+            -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'
+
+          # Tira as novas do caminho, aplica o PASSADO, devolve as novas.
+          mkdir -p "${RUNNER_TEMP}/guardadas"
+          FIXTURES_GUARDADOS=''
+          for dir in $NOVAS; do
+            NOME_DIR=$(basename "$dir")
+            mv "$dir" "${RUNNER_TEMP}/guardadas/$NOME_DIR"
+            if [ -f "${RUNNER_TEMP}/guardadas/$NOME_DIR/ensaio.sql" ]; then
+              FIXTURES_GUARDADOS="$FIXTURES_GUARDADOS ${RUNNER_TEMP}/guardadas/$NOME_DIR/ensaio.sql"
+            fi
+          done
+          echo "── aplicando o estado ANTERIOR a esta PR ──"
+          npx prisma migrate deploy > "${RUNNER_TEMP}/antes.txt" 2>&1 || {
+            cat "${RUNNER_TEMP}/antes.txt"
+            echo "::error::As migrations ANTERIORES a esta PR já não aplicam. Não é esta PR."
+            exit 1
+          }
+
+          echo "── carregando o fixture ──"
+          for f in $FIXTURES_GUARDADOS; do
+            echo "  $f"
+            psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f"
+          done
+
+          for dir in $NOVAS; do
+            mv "${RUNNER_TEMP}/guardadas/$(basename "$dir")" "$dir"
+          done
+
+          echo "── aplicando a migration NOVA, agora com dado no banco ──"
+          INICIO=$(date +%s)
+          set +e
+          npx prisma migrate deploy > "${RUNNER_TEMP}/depois.txt" 2>&1
+          CODIGO=$?
+          set -e
+          DUROU=$(( $(date +%s) - INICIO ))
+          cat "${RUNNER_TEMP}/depois.txt"
+
+          # Quanto dado o fixture deixou no banco. Sem este número, "durou 2s"
+          # não diz nada: pode ter sido rápido por não haver o que migrar.
+          LINHAS=$(psql "$DATABASE_URL" -tAc \
+            'SELECT coalesce(sum(n_live_tup), 0) FROM pg_stat_user_tables' || echo '?')
+          {
+            echo
+            echo '## Ensaio B — com dado'
+            echo
+            echo "Levou **${DUROU}s** (teto ${ENSAIO_TETO_SEGUNDOS}s), com ~${LINHAS} linhas no banco."
+            echo
+            echo '```'
+            cat "${RUNNER_TEMP}/depois.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$CODIGO" -ne 0 ]; then
+            echo "::error::A migration nova FALHOU contra um banco com dado. Em produção isto derrubaria o serviço."
+            exit 1
+          fi
+
+          # O TETO. Com o migrate dentro do `start`, este número é tempo de
+          # site fora do ar a cada deploy.
+          if [ "$DUROU" -gt "$ENSAIO_TETO_SEGUNDOS" ]; then
+            echo "::error::A migration levou ${DUROU}s, acima do teto de ${ENSAIO_TETO_SEGUNDOS}s. Com o migrate dentro do startCommand isso e o site fora do ar por ${DUROU}s a cada deploy. Ou a migration fica mais barata, ou o teto sobe no mesmo commit, com o motivo escrito."
+            exit 1
+          fi
+          echo "::notice::Ensaio B: aplicou sobre ~${LINHAS} linhas em ${DUROU}s (teto ${ENSAIO_TETO_SEGUNDOS}s)."

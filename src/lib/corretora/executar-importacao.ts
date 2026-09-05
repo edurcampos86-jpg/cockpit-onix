@@ -37,6 +37,7 @@ import {
 import type { PerfilImportacaoConfig } from "@/lib/importacao/perfil";
 import { exigirTipoProduto } from "./catalogo-produtos";
 import {
+  CAMPOS_SOBRESCREVIVEIS,
   chaveNegocio,
   montarRegistro,
   planejar,
@@ -84,6 +85,15 @@ export type ResultadoImportacao = {
   readonly rejeitadas: readonly LinhaRejeitada[];
   readonly rotulosNaoMapeados: readonly RotuloNaoMapeado[];
   readonly grafiasAtendente: readonly GrafiaAtendente[];
+  /**
+   * Campos que a base tem preenchidos e que ESTE perfil não traz.
+   *
+   * Antes da trava, era a lista do que seria apagado. Depois dela, é o
+   * diagnóstico de perfil incompleto: os valores ficam, mas o operador precisa
+   * saber que o relatório não os cobre — senão a preservação vira silêncio no
+   * lugar do estrago, e ninguém corrige o mapeamento.
+   */
+  readonly camposNaoCobertos: Plano["camposNaoCobertos"];
   readonly amostra: readonly AmostraLinha[];
   readonly custoIa: CustoExtracao | null;
   readonly avisos: readonly string[];
@@ -143,19 +153,36 @@ async function carregarEstado(
           tipoProduto: true,
           // A competência do lote que gravou a linha. É o que a regra 5 compara.
           importadoEm: true,
+          // Os cinco sobrescrevíveis. Não entram para serem comparados valor a
+          // valor — entram para o plano saber QUAIS já têm conteúdo, e poder
+          // dizer ao operador quantos deles o perfil dele não cobre. É a
+          // resposta que o ensaio não tinha, e por não tê-la o aviso de
+          // sobrescrita era qualitativo.
+          fimVigencia: true,
+          premio: true,
+          comissao: true,
+          atendenteCorretora: true,
+          assessorCge: true,
         },
       })
     : [];
 
   const contratosPorChave = new Map<
     string,
-    { id: string; status: string; dataReferencia: Date | null }
+    { id: string; status: string; dataReferencia: Date | null; preenchidos: string[] }
   >();
   for (const c of contratos) {
+    // `!= null` e não truthy: prêmio zero e comissão zero SÃO valores gravados,
+    // e tratá-los como ausentes esconderia justamente o campo que alguém
+    // preencheu com zero de propósito.
+    const preenchidos = CAMPOS_SOBRESCREVIVEIS.filter(
+      (campo) => (c as Record<string, unknown>)[campo] != null,
+    );
     contratosPorChave.set(chaveNegocio(c), {
       id: c.id,
       status: c.status,
       dataReferencia: c.importadoEm,
+      preenchidos,
     });
   }
 
@@ -165,7 +192,30 @@ async function carregarEstado(
   };
 }
 
-function dadosDoContrato(
+/**
+ * O valor, se o relatório trouxe a coluna; `undefined`, se não trouxe.
+ *
+ * Uma função e não um `?:` repetido cinco vezes porque a regra é UMA e precisa
+ * ser lida uma vez: ausência de coluna nunca vira escrita. Cinco condicionais
+ * inline convidam a próxima pessoa a somar um campo e esquecer a condição.
+ */
+function seTrouxe<T>(
+  registro: RegistroContrato,
+  campo: string,
+  valor: T,
+): T | undefined {
+  return registro.camposDoRelatorio.includes(campo) ? valor : undefined;
+}
+
+/**
+ * O objeto que vai para `create` e para `update`.
+ *
+ * EXPORTADO para ser testável. A trava contra o update cego mora aqui, e um
+ * guarda que não chame esta função não prova nada sobre ela — testar o
+ * planejamento e torcer para a escrita concordar é como o motor apagava dado
+ * em silêncio para começo de conversa.
+ */
+export function dadosDoContrato(
   registro: RegistroContrato,
   pessoaGrupoId: string,
   empresaId: string,
@@ -182,11 +232,25 @@ function dadosDoContrato(
     parceiro: registro.parceiro,
     numeroContrato: registro.numeroContrato,
     inicioVigencia: registro.inicioVigencia,
-    fimVigencia: registro.fimVigencia,
-    premio: registro.premio,
-    comissao: registro.comissao,
-    atendenteCorretora: registro.atendenteCorretora,
-    assessorCge: registro.assessorCge,
+    // ── A TRAVA ───────────────────────────────────────────────────────────
+    // `undefined` quando o relatório não traz a coluna; o valor (inclusive
+    // `null`) quando traz. No `update` do Prisma, `undefined` é "não toque
+    // nesta coluna" e `null` é "grave null" — e é exatamente essa a diferença
+    // entre "a fonte não falou" e "a fonte disse que está vazio".
+    //
+    // Sem isso, `data(c.fimVigencia)` devolvia `null` tanto para célula vazia
+    // quanto para COLUNA NÃO MAPEADA NO PERFIL, e o update com o objeto
+    // inteiro zerava a data de todo contrato que tocasse. Com cinco
+    // seguradoras e cinco perfis, o relatório de uma apagava o fim de vigência
+    // que veio da outra — o campo que diz quando ligar para o cliente.
+    //
+    // `dadosProduto` já fazia isso (vira `undefined` quando vazio, logo
+    // abaixo). As colunas escalares é que estavam de fora.
+    fimVigencia: seTrouxe(registro, "fimVigencia", registro.fimVigencia),
+    premio: seTrouxe(registro, "premio", registro.premio),
+    comissao: seTrouxe(registro, "comissao", registro.comissao),
+    atendenteCorretora: seTrouxe(registro, "atendenteCorretora", registro.atendenteCorretora),
+    assessorCge: seTrouxe(registro, "assessorCge", registro.assessorCge),
     // `InputJsonValue` e não `Record<string, unknown>`: o Prisma exige o tipo
     // Json dele, e o registro já garantiu que só há valor serializável aqui.
     dadosProduto:
@@ -285,6 +349,7 @@ export async function executarImportacao(
     rejeitadas: plano.rejeitadas,
     rotulosNaoMapeados: agruparNaoMapeados(linhas),
     grafiasAtendente: plano.grafiasAtendente,
+    camposNaoCobertos: plano.camposNaoCobertos,
     amostra: amostrar(plano.acoes),
     custoIa: extracaoResultado.custo,
     avisos: extracaoResultado.avisos,

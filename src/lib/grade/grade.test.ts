@@ -70,8 +70,17 @@ test("CATEGORY_CTA_MAP deriva exatamente o mapa antigo", () => {
 });
 
 test("os dois sentidos da grade são consistentes entre si", () => {
-  // Antes eram duas listas mantidas à mão, uma o inverso da outra. Este é o
-  // teste que não existia e que teria pego a divergência.
+  // Antes eram duas listas mantidas à mão, uma o inverso da outra, e nada
+  // comparava as duas.
+  //
+  // ATENÇÃO ao que este teste é e ao que ele NÃO é. Depois desta refatoração
+  // os dois mapas derivam do mesmo `GRADE`, então ele não pode falhar por
+  // construção — não é rede de segurança, é a AFIRMAÇÃO de que a derivação
+  // dupla continua sendo derivação, e quebraria no dia em que alguém
+  // reintroduzisse um dos lados escrito à mão.
+  //
+  // Quem trava os valores de verdade são os quatro `deepEqual` literais
+  // acima: são eles que confrontam a grade derivada com os mapas antigos.
   for (const [categoria, dia] of Object.entries(CATEGORY_DAYS)) {
     assert.equal(DAY_CATEGORY_MAP[dia], categoria, `dia ${dia}`);
   }

@@ -206,9 +206,25 @@ export const FLAGS_REGISTRADAS: readonly FlagRegistrada[] = [
     impacto: "normal",
   },
   {
+    key: "SIDEBAR_FILTRADA",
+    rotulo: "Sidebar filtrada por cargo e por nó do organograma",
+    onde: "src/lib/sidebar/flag.ts",
+    tipo: "booleana",
+    dialeto: "amplo",
+    impacto: "normal",
+  },
+  {
     key: "COCKPIT_REUNIAO",
     rotulo: "Aba Cockpit de Reunião na ficha do cliente",
     onde: "src/lib/cockpit-reuniao/flag.ts",
+    tipo: "booleana",
+    dialeto: "amplo",
+    impacto: "normal",
+  },
+  {
+    key: "PLAUD_CONCILIACAO_UI",
+    rotulo: "Mesa de conciliação read-only das gravações Plaud",
+    onde: "src/lib/reunioes/conciliacao-flag.ts",
     tipo: "booleana",
     dialeto: "amplo",
     impacto: "normal",
@@ -251,6 +267,16 @@ export const FLAGS_REGISTRADAS: readonly FlagRegistrada[] = [
     impacto: "normal",
   },
   {
+    key: "INDICACOES_V2",
+    rotulo: "Círculo de Introduções — refino V2 do CRM de indicações (kanban DnD, convites WhatsApp, conversão)",
+    onde: "src/app/empresas/investimentos/indicacoes/page.tsx",
+    tipo: "booleana",
+    dialeto: "amplo",
+    // Gate de UI puro: OFF renderiza o board antigo byte a byte; a V2 só chama
+    // as 3 rotas de indicação que JÁ existem. Liga, olha, desliga.
+    impacto: "normal",
+  },
+  {
     /* O nome sugere um número, mas é booleana: liga/desliga a 2ª linha
      * "parado há Xd" na coluna Saldo Conta. Registrado assim de propósito —
      * é justamente o tipo de chave que alguém tentaria preencher com "30". */
@@ -267,6 +293,16 @@ export const FLAGS_REGISTRADAS: readonly FlagRegistrada[] = [
     onde: "src/lib/painel-atencao/service.ts",
     tipo: "booleana",
     dialeto: "amplo",
+    impacto: "normal",
+  },
+  {
+    key: "QUESTIONARIO_PAT_TIME",
+    rotulo: "Questionário de incentivo personalizado pelo PAT na ficha do time",
+    onde: "src/lib/time/questionario-pat-flag.ts",
+    tipo: "booleana",
+    dialeto: "amplo",
+    // UI e actions consultam a mesma flag. OFF torna o recurso indistinguível
+    // de inexistente e interrompe toda escrita nova, sem apagar o histórico.
     impacto: "normal",
   },
 
@@ -324,6 +360,16 @@ export const FLAGS_REGISTRADAS: readonly FlagRegistrada[] = [
     impacto: "alto",
     aviso:
       "Abre a rota de backfill, que varre a API da DataCrazy e ESCREVE conversas e mensagens em massa. Rodada indevida polui a base e consome cota da API.",
+  },
+  {
+    key: "MANYCHAT_LEAD_ALERT",
+    rotulo: "Aviso no WhatsApp quando o ManyChat detecta palavra-gatilho",
+    onde: "src/lib/manychat-lead/flag.ts",
+    tipo: "booleana",
+    dialeto: "amplo",
+    // `normal`: só faz SAIR mensagem, não grava nada. Desligar volta ao estado
+    // anterior sem resíduo — a rota passa a responder 200 sem enviar.
+    impacto: "normal",
   },
 
   // ── Dialeto ESTRITO: não aceitam `yes` nem `sim` ─────────────

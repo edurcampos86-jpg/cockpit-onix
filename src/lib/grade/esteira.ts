@@ -7,9 +7,10 @@
  * QUATRO rotas, mais a ordem cumulativa numa quinta. Nenhuma sabia das
  * outras.
  *
- * E a cópia já tinha divergido: `zapier/generate-script` perdeu a etapa de
- * roteiro em algum momento, e ninguém notou — porque nada compara uma cópia
- * com a outra. Isso não é hipótese, está no histórico do arquivo.
+ * E as cópias já divergiam: `zapier/generate-script` nasceu sem a etapa de
+ * roteiro — nenhum commit daquele arquivo, em momento nenhum, teve
+ * "Escrever roteiro" — e nada no código compara uma cópia com a outra, então
+ * a divergência só aparece para quem lê as cinco de uma vez.
  *
  * ── DUAS VARIANTES, E A SEGUNDA NÃO É UM BUG ────────────────────────────
  * A ausência do roteiro na rota do Zapier é DESENHO: aquele fluxo gera o
@@ -126,6 +127,18 @@ export function montarEsteira(opcoes: {
  * A ordem nunca inverte: o piso é o mesmo para todas as etapas, então
  * etapas que já estavam em ordem continuam em ordem, no máximo empatando.
  * Empate no mesmo dia é honesto — é o que um dia de correria é de verdade.
+ *
+ * ── ESTA CAPACIDADE ESTÁ DESLIGADA HOJE ────────────────────────────────
+ * `pisoEm` é opcional e NENHUMA das quatro rotas o passa: `api/posts`,
+ * `api/posts/[id]/duplicate`, `api/planejamento/generate` e a do Zapier
+ * chamam `montarEsteira` sem ele. Ou seja, em produção a tarefa CONTINUA
+ * nascendo vencida — o que existe aqui é a regra pronta e testada, não a
+ * correção em vigor.
+ *
+ * Ligar muda comportamento visível (tarefa que hoje nasce vencida passaria
+ * a vencer hoje), então é faixa 🟡 e sai numa PR própria. É uma linha por
+ * rota. Enquanto essa PR não vier, este bloco descreve uma capacidade, e
+ * não um comportamento.
  */
 function aplicarPiso(data: Date, piso: Date | undefined): Date {
   if (!piso) return data;
@@ -156,7 +169,14 @@ const ULTIMA_ETAPA_CONCLUIDA: Record<string, Etapa> = {
  * valor desconhecido) — quem chama usa isso para não tocar em tarefa nenhuma.
  */
 export function etapasConcluidasPor(status: string): Etapa[] | null {
-  const ultima = ULTIMA_ETAPA_CONCLUIDA[status];
+  // `Object.hasOwn` e não só `ULTIMA_ETAPA_CONCLUIDA[status]`: sem ele,
+  // status como "toString" ou "constructor" acham a chave no protótipo,
+  // passam pelo `if` e caem em `indexOf(...) === -1`, devolvendo `[]` —
+  // "nenhuma etapa concluída" em vez de "status desconhecido". Quem chama
+  // trata os dois de formas opostas.
+  const ultima = Object.hasOwn(ULTIMA_ETAPA_CONCLUIDA, status)
+    ? ULTIMA_ETAPA_CONCLUIDA[status]
+    : undefined;
   if (!ultima) return null;
   return ETAPAS.slice(0, ETAPAS.indexOf(ultima) + 1);
 }
