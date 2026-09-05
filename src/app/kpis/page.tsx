@@ -27,6 +27,7 @@ import {
   Layers,
   Save,
 } from "lucide-react";
+import { PECAS_POR_SEMANA } from "@/lib/grade/semanal";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -124,7 +125,7 @@ const CAMADAS: CamadaDefinition[] = [
     textColor: "text-purple-400",
     kpis: [
       { id: "ratio_seguindo_seguidores", name: "Ratio seguindo/seguidores", description: "Proporcao entre quem voce segue e quem te segue", meta: "<0,3 (hoje: 0,74)", metaValue: 0.3, icon: Ratio },
-      { id: "frequencia_publicacao", name: "Frequencia de publicacao", description: "Posts por semana", meta: "5 (conforme calendario v4)", metaValue: 5, icon: Calendar },
+      { id: "frequencia_publicacao", name: "Frequencia de publicacao", description: "Posts por semana", meta: `${PECAS_POR_SEMANA} (uma por posição da grade)`, metaValue: PECAS_POR_SEMANA, icon: Calendar },
       { id: "distribuicao_pilar", name: "Distribuicao por pilar", description: "% de posts em cada pilar", meta: "P1:40% P2:20% P3:20% P4:20%", icon: Layers },
       { id: "uso_cta_algoritmo", name: "Uso de CTA de Algoritmo", description: "% de posts P1/P3 com Salva ou Compartilha", meta: "100% dos P1 e P3", metaValue: 100, icon: Megaphone, suffix: "%", isPercentage: true },
     ],
@@ -186,8 +187,23 @@ export default function KpisPage() {
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
   // Load data on mount
+  //
+  // A regra `react-hooks/set-state-in-effect` acusa este bloco, e o aviso é
+  // pré-existente — não nasceu nesta PR. Fica silenciado aqui porque o efeito
+  // É o padrão certo neste caso: `loadAllWeeks` lê o `localStorage`, que não
+  // existe no servidor. Semear o estado direto no `useState` faria a primeira
+  // renderização do cliente divergir do HTML que o servidor mandou, e a
+  // hidratação quebraria a tela — trocar um aviso de lint por uma tela quebrada
+  // é péssimo negócio.
+  //
+  // O caminho sem efeito seria `useSyncExternalStore`, e ele exige um snapshot
+  // referencialmente estável: `loadAllWeeks` devolve um array novo a cada
+  // chamada, então a migração pede cache e um caminho de escrita de verdade.
+  // Isso é refatoração da tela de KPIs, não desta PR, que só passou por aqui
+  // para tirar o `5` escrito à mão da meta de frequência.
   useEffect(() => {
     const weeks = loadAllWeeks();
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setAllWeeks(weeks);
     const current = weeks.find((w) => w.weekLabel === selectedWeek);
     if (current) {

@@ -85,8 +85,15 @@ export function montarEsteira(opcoes: {
   publicacaoEm: Date;
   /** Padrão: `completa`. */
   variante?: VarianteEsteira;
+  /**
+   * Data mais cedo que uma tarefa pode vencer. Padrão: nenhum piso —
+   * comportamento idêntico ao de antes para quem não passa nada.
+   *
+   * Ver `aplicarPiso` para o porquê.
+   */
+  pisoEm?: Date;
 }): PassoDaEsteira[] {
-  const { tituloDoPost, publicacaoEm, variante = "completa" } = opcoes;
+  const { tituloDoPost, publicacaoEm, variante = "completa", pisoEm } = opcoes;
   const permitidas = ETAPAS_POR_VARIANTE[variante];
 
   return DEFINICOES.filter((d) => permitidas.includes(d.etapa)).map((d) => {
@@ -99,9 +106,43 @@ export function montarEsteira(opcoes: {
     return {
       title: `${d.prefixoDoTitulo}: ${tituloDoPost}`,
       type: d.etapa,
-      dueDate,
+      dueDate: aplicarPiso(dueDate, pisoEm),
     };
   });
+}
+
+/**
+ * Nenhuma tarefa nasce vencida.
+ *
+ * ── POR QUE UM PISO, E NÃO UMA SEGUNDA VARIANTE DE ESTEIRA ──────────────
+ * A ideia original era uma variante "comprimida" para o post oportunista
+ * (aquele que entra no mesmo dia por causa de uma notícia). Mas a data no
+ * passado aparece nos DOIS regimes: planejar no domingo à noite uma peça de
+ * terça também joga o roteiro (D-3) para antes de hoje.
+ *
+ * Então comprimir não é característica de regime — é um piso que vale
+ * sempre. Uma regra em vez de duas configurações, e a única variante que
+ * sobra continua sendo a `sem-roteiro` do Zapier.
+ *
+ * A ordem nunca inverte: o piso é o mesmo para todas as etapas, então
+ * etapas que já estavam em ordem continuam em ordem, no máximo empatando.
+ * Empate no mesmo dia é honesto — é o que um dia de correria é de verdade.
+ *
+ * ── ESTA CAPACIDADE ESTÁ DESLIGADA HOJE ────────────────────────────────
+ * `pisoEm` é opcional e NENHUMA das quatro rotas o passa: `api/posts`,
+ * `api/posts/[id]/duplicate`, `api/planejamento/generate` e a do Zapier
+ * chamam `montarEsteira` sem ele. Ou seja, em produção a tarefa CONTINUA
+ * nascendo vencida — o que existe aqui é a regra pronta e testada, não a
+ * correção em vigor.
+ *
+ * Ligar muda comportamento visível (tarefa que hoje nasce vencida passaria
+ * a vencer hoje), então é faixa 🟡 e sai numa PR própria. É uma linha por
+ * rota. Enquanto essa PR não vier, este bloco descreve uma capacidade, e
+ * não um comportamento.
+ */
+function aplicarPiso(data: Date, piso: Date | undefined): Date {
+  if (!piso) return data;
+  return data.getTime() < piso.getTime() ? new Date(piso) : data;
 }
 
 // ── Ordem cumulativa: que etapas um status já concluiu ──────────────────

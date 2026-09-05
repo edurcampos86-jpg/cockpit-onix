@@ -1,3 +1,6 @@
+import { PECAS, pecaDe } from "@/lib/grade/pecas";
+import { GRADE } from "@/lib/grade/semanal";
+
 export type PostStatus = "rascunho" | "roteiro_pronto" | "gravado" | "editado" | "agendado" | "publicado";
 export type PostFormat = "reel" | "story" | "carrossel";
 export type PostCategory = "pergunta_semana" | "onix_pratica" | "patrimonio_mimimi" | "alerta_patrimonial" | "sabado_bastidores";
@@ -18,13 +21,15 @@ export const CATEGORY_LABELS: Record<PostCategory, string> = {
   sabado_bastidores: "Sábado de Bastidores",
 };
 
-export const CATEGORY_DAYS: Record<PostCategory, number> = {
-  pergunta_semana: 1,    // Segunda
-  onix_pratica: 2,       // Terça
-  patrimonio_mimimi: 3,  // Quarta
-  alerta_patrimonial: 4, // Quinta
-  sabado_bastidores: 6,  // Sábado
-};
+/**
+ * DERIVADO de `src/lib/grade/semanal.ts`. Antes esta constante e
+ * `DAY_CATEGORY_MAP` eram uma o inverso da outra, mantidas à mão — duas
+ * listas que podiam discordar em silêncio. Agora as duas saem da mesma
+ * grade, e o nome exportado ficou igual para nada mais precisar mudar.
+ */
+export const CATEGORY_DAYS: Record<PostCategory, number> = Object.fromEntries(
+  GRADE.map((p) => [p.categoria, p.dia]),
+) as Record<PostCategory, number>;
 
 export const STATUS_LABELS: Record<PostStatus, string> = {
   rascunho: "Rascunho",
@@ -151,27 +156,29 @@ export const DAY_LABELS: Record<number, string> = {
   6: "Sábado",
 };
 
-// Mapeamento v4: dia da semana → categoria/formato/CTA recomendados
-export const DAY_CATEGORY_MAP: Partial<Record<number, PostCategory>> = {
-  1: "pergunta_semana",    // Segunda
-  2: "onix_pratica",       // Terça
-  3: "patrimonio_mimimi",  // Quarta
-  4: "alerta_patrimonial", // Quinta
-  6: "sabado_bastidores",  // Sábado
-};
+// Dia da semana → categoria/formato recomendados. DERIVADOS da grade.
+export const DAY_CATEGORY_MAP: Partial<Record<number, PostCategory>> =
+  Object.fromEntries(GRADE.map((p) => [p.dia, p.categoria]));
 
-export const DAY_FORMAT_MAP: Partial<Record<number, PostFormat>> = {
-  1: "story",      // Segunda: Stories
-  2: "reel",       // Terça: Reel 60-90s
-  3: "carrossel",  // Quarta: Carrossel educativo
-  4: "carrossel",  // Quinta: Carrossel ou Reel
-  6: "reel",       // Sábado: Post/Reel pessoal
-};
+/**
+ * DERIVADO: o formato vem da PEÇA, não do dia.
+ *
+ * Este mapa continua existindo por compatibilidade com quem já o consome,
+ * mas a fonte inverteu: a Pergunta da Semana é story caia onde cair. Quem
+ * souber a categoria deve preferir `pecaDe(categoria).formato`, que não
+ * precisa passar pelo dia.
+ */
+export const DAY_FORMAT_MAP: Partial<Record<number, PostFormat>> =
+  Object.fromEntries(
+    GRADE.flatMap((p) => {
+      const peca = pecaDe(p.categoria);
+      return peca ? [[p.dia, peca.formato] as const] : [];
+    }),
+  );
 
-export const CATEGORY_CTA_MAP: Record<PostCategory, CtaType> = {
-  pergunta_semana: "implicito",
-  onix_pratica: "explicito",
-  patrimonio_mimimi: "algoritmo",
-  alerta_patrimonial: "algoritmo",
-  sabado_bastidores: "identificacao",
-};
+/** DERIVADO de `src/lib/grade/pecas.ts` — o CTA pende da peça. */
+export const CATEGORY_CTA_MAP: Record<PostCategory, CtaType> =
+  Object.fromEntries(PECAS.map((p) => [p.categoria, p.cta])) as Record<
+    PostCategory,
+    CtaType
+  >;
