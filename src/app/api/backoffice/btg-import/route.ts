@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
+import { guardAdminApi } from "@/lib/api-admin-guard";
 import * as btg from "@/lib/integrations/btg";
 import { parseValorFinanceiro } from "@/lib/backoffice/parse-financeiro";
 import { reconciliarTotaisBtg } from "@/lib/backoffice/reconciliacao-btg";
@@ -14,6 +15,22 @@ import { contaCanonica, variacoesConta } from "@/lib/backoffice/conta";
  * Faz upsert em ClienteBackoffice por numeroConta preservando campos editados manualmente.
  */
 export async function POST() {
+  // GATE: ADMIN. Antes, o único controle era `getSession()` — exatamente a
+  // condição que o `src/proxy.ts` já garante, ou seja, nenhum controle além
+  // do cookie. E esta rota é mais forte que a irmã `btg-sync`: além de
+  // atualizar, ela CRIA `ClienteBackoffice` em laço sobre a lista completa de
+  // contas do BTG. Qualquer conta com login podia popular a base de clientes.
+  //
+  // A prova de que era descuido e não decisão: `POST /api/backoffice/clientes`
+  // grava o mesmo dado a partir de planilha e exige admin. O mesmo dado tinha
+  // dois níveis de permissão dependendo da porta usada.
+  //
+  // `getSession()` continua sendo chamado logo abaixo, e não é redundância: o
+  // `userId` vai para o `BtgSyncLog`, que é o registro de QUEM disparou o
+  // import. `guardAdminApi` decide se pode; `getSession` diz quem foi.
+  const negado = await guardAdminApi("POST /api/backoffice/btg-import");
+  if (negado) return negado;
+
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ success: false, message: "Não autenticado" }, { status: 401 });

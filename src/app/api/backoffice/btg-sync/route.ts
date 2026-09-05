@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { guardAdminApi } from "@/lib/api-admin-guard";
 import * as btg from "@/lib/integrations/btg";
 import { parseValorFinanceiro } from "@/lib/backoffice/parse-financeiro";
 
@@ -7,8 +8,45 @@ import { parseValorFinanceiro } from "@/lib/backoffice/parse-financeiro";
  * POST /api/backoffice/btg-sync
  * Itera sobre todos os clientes com numeroConta, busca a posição no BTG
  * e atualiza o saldo. Retorna sumário.
+ *
+ * ── GATE: ADMIN ─────────────────────────────────────────────────────────
+ * Esta rota não tinha gate NENHUM. A assinatura era `POST()`, sem parâmetro,
+ * e a primeira instrução do corpo era `let updated = 0` — não havia checagem
+ * a procurar. A única barreira era o cookie de sessão do `src/proxy.ts`, que
+ * toda conta tem, inclusive a criada ontem com `role: "support"` (o padrão).
+ *
+ * O que uma requisição VAZIA fazia: percorrer todos os clientes com conta
+ * (findMany sem limite) e reescrever `saldo`, `saldoConta` e `positionDate`
+ * de cada um. Esse é o número que alimenta a classificação ABC, os painéis e
+ * os relatórios — e, ao contrário da rota irmã de import, esta NÃO grava
+ * `BtgSyncLog`: não fica registro de quem pediu, e o saldo anterior não é
+ * preservado em lugar nenhum.
+ *
+ * ── POR QUE ADMIN E NÃO "QUALQUER LOGADO" ───────────────────────────────
+ * A regra escrita em `api/backoffice/receita/route.ts` diz "IMPORTAR e EDITAR
+ * → qualquer pessoa logada; apagar em massa → só Admin Master". Isto aqui não
+ * é importar uma planilha: é sobrescrever um campo em toda a base a partir de
+ * fonte externa, sem log e sem desfazer. Fica em `guardAdminApi` por decisão
+ * do Eduardo (Fase 2 da auditoria de 05/09). Se depois se entender que
+ * sobrescrever a base inteira pertence à mesma classe do `deleteMany({})` da
+ * receita, a troca para `guardAdminMasterApi` é de uma linha.
+ *
+ * ── A ASSINATURA CONTINUA SEM `req`, E ISSO ESTÁ CERTO ──────────────────
+ * `guardAdminApi` resolve a identidade por `getAuthContext()`, que lê o cookie
+ * de sessão pelo `cookies()` do Next — não pelo objeto de request. Acrescentar
+ * um parâmetro só para "poder ler a sessão" adicionaria um argumento não usado
+ * (e reprovado pelo lint) sem mudar nada de segurança.
+ *
+ * Nenhum cron chama esta rota: os polls de saldo e de movimentação passam por
+ * `/api/cron/btg-balances-poll` e `/api/cron/btg-movements-poll`, que usam
+ * `src/lib/integrations/btg-api-sync.ts` e `btg-sync.ts` e já são protegidos
+ * por `guardCron`. Verificado por grep em `.github/workflows/`, `src/` e
+ * `scripts/`: esta rota não tem chamador nenhum.
  */
 export async function POST() {
+  const negado = await guardAdminApi("POST /api/backoffice/btg-sync");
+  if (negado) return negado;
+
   let updated = 0;
   let failed = 0;
   let totalAum = 0;
