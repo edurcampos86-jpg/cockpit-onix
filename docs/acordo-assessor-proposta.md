@@ -56,9 +56,10 @@ mais dois campos de texto livre. Os percentuais reais moram lá dentro:
 
 Quatro REDAÇÕES de base diferentes (`comissão líquida da ONX`, `faturamento
 bruto da Onx Corretora`, `receita líquida da ONX`, `comissão líquida da Onix
-Imob`) sobre **duas** pessoas jurídicas: Onx Agro Corretora, CNPJ
-31.238.019/0001-02 (Thiago `:49`, Alexandra `:63`, Rose `:82`), e Onix Imob
-LTDA, CNPJ 57.646.566/0001-02 (Leide `:103`, Renan `:120`). Quatro jeitos de
+Imob`) sobre **duas** pessoas jurídicas — Onx Agro Corretora (Thiago `:49`,
+Alexandra `:63`, Rose `:82`) e Onix Imob LTDA (Leide `:103`, Renan `:120`);
+os CNPJs estão no seed e não se repetem aqui, porque o argumento é *duas
+caixas*, não quais. Quatro jeitos de
 escrever, duas caixas de onde o dinheiro sai — e nenhuma das quatro é um número
 que uma query alcance.
 
@@ -1128,8 +1129,8 @@ mostram que o índice de hoje é frouxo**:
   (`parceiros.ts:199`). Dois cliques gravam R$ 4.000 duas vezes.
 
 O contexto do dado real: os três fixos têm **dois pagadores jurídicos** —
-Thiago e Rose pela Onx Agro Corretora, CNPJ 31.238.019/0001-02 (`seed:49` e
-`:82`); Leide pela Onix Imob, CNPJ 57.646.566/0001-02 (`:103`). E
+Thiago e Rose pela Onx Agro Corretora (`seed:49` e `:82`); Leide pela Onix
+Imob (`:103`). E
 `PessoaEmpresa` é N:N por desenho (`schema.prisma:2264-2294`), com Renan e
 Matheus sócios administradores da Onix Imob (`seed:105-138`) enquanto o Renan
 tem também acordo de parceiro (pergunta 8).
