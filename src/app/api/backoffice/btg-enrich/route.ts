@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
 import { getSession } from "@/lib/session";
+import { guardAdminApi } from "@/lib/api-admin-guard";
 import * as btg from "@/lib/integrations/btg";
 
 /**
@@ -27,6 +28,35 @@ const FONTE_COMISSAO = "btg_rm_reports";
  *   Frontend deve chamar em loop até resposta com hasMore=false.
  */
 export async function POST(req: NextRequest) {
+  // GATE: ADMIN. O `getSession()` abaixo era o único controle — a mesma
+  // condição que o proxy já garante. A rota tem teto de 25 contas por
+  // chamada, mas o `?offset=` é livre: um laço no cliente cobre a base
+  // inteira. E ela faz `upsert` em `ComissaoMensalCliente`, sobrescrevendo
+  // receita da competência sem guardar histórico do valor anterior.
+  const negado = await guardAdminApi("POST /api/backoffice/btg-enrich");
+  if (negado) {
+    // Corpo próprio, status do guard. Diferente das irmãs, esta rota TEM
+    // chamador de tela: o botão "Enriquecer" em
+    // `src/components/backoffice/cliente-btg-section.tsx:99`, que aparece na
+    // ficha do cliente para qualquer logado e renderiza `data.message`. O
+    // corpo padrão do guard só traz `error`, então o não-admin veria a
+    // palavra "Erro" e não saberia que é permissão.
+    //
+    // Limite conhecido e não coberto aqui: o BOTÃO continua visível e
+    // clicável para não-admin — só o servidor recusa. Esconder ou desabilitar
+    // exigiria passar `ehAdmin` pela página até o componente, que é mudança
+    // de UI e não cabe numa PR de RBAC. A defesa real é o servidor; a tela
+    // agora ao menos explica a recusa.
+    return NextResponse.json(
+      {
+        success: false,
+        message:
+          "Só administradores podem enriquecer dados do BTG. Peça a um admin ou use a sincronização diária.",
+      },
+      { status: negado.status },
+    );
+  }
+
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ success: false, message: "Não autenticado" }, { status: 401 });

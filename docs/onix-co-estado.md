@@ -254,6 +254,74 @@ acesso por empresa é coerente com todas as rotas admin atuais
 
 ---
 
+## Escrita em massa — quem consegue escrever no banco hoje
+
+📋 Varredura de **05/09/2026** sobre `src/app/api/` (Fase 1 da auditoria de
+segurança). Inventário + auditoria por lote + três refutadores independentes
+por achado perigoso, cujo trabalho era **derrubar** a acusação. Os piores
+foram reconferidos à mão antes de entrar aqui.
+
+### O número
+
+🔎 **34 das 80 rotas que escrevem em massa exigem apenas o cookie de sessão.**
+Uma única rota, em 80, exige Admin Master.
+
+| gate | rotas |
+|---|---:|
+| **só o cookie de sessão** | **34** |
+| `guardAdminApi` | 22 |
+| `guardCron` (Bearer `CRON_SECRET`) | 19 |
+| segredo próprio (webhooks) | 4 |
+| `guardAdminMasterApi` | 1 |
+
+"Só o cookie de sessão" significa **qualquer conta com login**, inclusive a
+criada ontem: `User.role` nasce `"support"`, e o `src/proxy.ts` nunca checou
+papel — só presença de sessão.
+
+### O que esta PR fechou
+
+`btg-sync`, `btg-import` e `btg-enrich` ganharam `guardAdminApi`. O webhook do
+BTG (PR irmã) passou a falhar fechado. **São 4 das 35.**
+
+### O que continua aberto — dívida conhecida, não corrigida
+
+🔎 As piores das 31 restantes, com o que cada uma escreve:
+
+| rota | o que escreve sem gate de papel |
+|---|---|
+| `POST /api/backoffice/btg-import` ✅ *(fechada nesta PR)* | atualizava **e criava** `ClienteBackoffice` em laço sobre a base de contas BTG |
+| `POST /api/backoffice/outlook-sync` | `reuniaoCliente.deleteMany` de origem `outlook-ics` numa janela de até 365+365 dias **escolhida pelo chamador**, em todos os clientes |
+| `POST /api/backoffice/datacrazy-atividades-sync` | mesmo padrão: `deleteMany` de reuniões na janela + upserts em lote |
+| `POST /api/onix-corretora/analisar` | **o GET tem gate de admin (`:38`) e o POST, que é quem escreve** relatório, ações e métricas, não tem nada |
+| `POST /api/painel-do-dia/acoes/[id]/encerrar` | `clienteVinculadoId` do corpo não é validado: grava interação em **qualquer** cliente |
+| `POST /api/meetings/sync-drive` | cria reuniões em laço sobre o array do corpo, sem teto e sem validação |
+| `POST /api/planejamento/generate` | ~60 roteiros + ~60 posts + ~240 tarefas por chamada, repetível; queima cota paga de IA |
+| `PATCH`/`DELETE /api/posts/[id]` | PATCH grava o corpo inteiro sem allowlist de campos; DELETE apaga post de qualquer autor, suas tasks e o evento na agenda dele |
+
+> ⚠️ **Duas correções feitas ao relatório dos agentes, registradas para não
+> voltarem como fato.** (1) O `deleteMany` do Outlook **não é global**: recebe
+> lista explícita de ids (`outlook-clientes-sync.ts:276-278`) calculada a
+> partir de busca restrita a `source: "outlook-ics"`, e o cleanup inteiro é
+> pulado se a leitura do calendário falhou. (2) `GET /api/painel-do-dia/emails`
+> **escreve** e gasta IA num GET, mas confinado ao `userId` do próprio token e
+> com limite de 60/h — é desenho ruim, não porta para dado alheio.
+
+### O que muda a leitura disso — e ainda não foi respondido
+
+📋 **Enquanto só o Eduardo opera o sistema, "qualquer logado" é o Eduardo.**
+A gravidade das 31 restantes depende de quantas contas ativas existem, e esse
+inventário não foi levantado. É a mesma pergunta registrada em
+"Quem opera o Ecossistema se você não estiver?" — e é ela que decide se isto é
+fila ou pressa.
+
+> ⚠️ **Nada foi testado em execução.** Toda a classificação vem de leitura de
+> código: diz o que é possível, não o que aconteceu. Nenhum log de produção foi
+> examinado. A varredura cobre `src/app/api/` — server actions, páginas que
+> escrevem direto e scripts operacionais ficaram de fora, então **não se pode
+> afirmar que estas 80 são todas as portas de escrita do sistema**.
+
+---
+
 ## Política de alçadas
 
 Governa **toda** PR deste projeto. A classificação é declarada no prompt da
