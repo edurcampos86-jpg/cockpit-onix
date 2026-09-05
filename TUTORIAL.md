@@ -16,9 +16,9 @@ O **Ecossistema Onix** (Eduardo — Mídias Sociais) é um painel de comando com
 - **Integrações:** ManyChat API, Microsoft Graph (Outlook), Claude AI, Zapier/Plaud.ai
 
 ### Acesso
-- **URL:** `http://localhost:3333`
-- **Login Admin:** CPF `015.362.475-29` / Senha `Edu@203028`
-- **Login Suporte:** CPF `000.000.000-00` / Senha `suporte123`
+- **Produção:** https://cockpit-onix-production.up.railway.app
+- **Local:** `http://localhost:3000` (após `npm run dev`)
+- **Credenciais:** peça ao admin (Eduardo). Nunca commite senhas neste arquivo.
 
 ---
 

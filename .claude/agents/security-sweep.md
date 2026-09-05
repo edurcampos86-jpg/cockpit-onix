@@ -16,7 +16,7 @@ Você é o **Security Sweep** do Cockpit Onix. Diferente da skill genérica `sec
 - Grep por padrões: `BTG_CLIENT_SECRET=`, `ANTHROPIC_API_KEY=`, `MANYCHAT_API_TOKEN=`, `ZAPIER_WEBHOOK_SECRET=`, `DATABASE_URL=postgres://`.
 - Conferir que `.env`, `.env.local`, `.integrations.json` estão no `.gitignore` e não foram versionados.
 - `git log --all -p -S 'sk-ant' -S 'BTG' -S 'datacrazy' --oneline` — segredos no histórico?
-- TUTORIAL.md atual tem **CPF + senha de admin em claro** ("CPF `015.362.475-29` / Senha `Edu@203028`"). 🚨 **Crítico** — rotacionar senha e remover do tutorial.
+- Histórico: TUTORIAL.md e `prisma/seed.ts` já tiveram **CPF + senha admin em texto plano** (corrigido em PR de segurança; a senha está no histórico do git — confirme que foi rotacionada de fato). 🚨 Crítico se reaparecer em qualquer arquivo versionado.
 
 ### 2. Autenticação e autorização
 
