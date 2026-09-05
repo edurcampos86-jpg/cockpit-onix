@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
+import { etapasConcluidasPor } from "@/lib/grade/esteira";
 
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -53,15 +54,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   // Auto-completar tarefas do pipeline quando status avança
   if (body.status) {
-    const statusToTaskType: Record<string, string[]> = {
-      roteiro_pronto: ["roteiro"],
-      gravado: ["roteiro", "gravacao"],
-      editado: ["roteiro", "gravacao", "edicao"],
-      agendado: ["roteiro", "gravacao", "edicao"],
-      publicado: ["roteiro", "gravacao", "edicao", "publicacao"],
-    };
-
-    const typesToComplete = statusToTaskType[body.status];
+    const typesToComplete = etapasConcluidasPor(body.status);
     if (typesToComplete) {
       await prisma.task.updateMany({
         where: {

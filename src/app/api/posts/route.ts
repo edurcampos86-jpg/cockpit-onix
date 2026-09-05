@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
 import { generateScriptForPost } from "@/lib/integrations/claude-ai";
+import { montarEsteira } from "@/lib/grade/esteira";
 
 // POST /api/posts/duplicate — Duplicar um post existente
 // Movido para POST handler com flag "duplicateFromId"
@@ -74,27 +75,19 @@ export async function POST(request: NextRequest) {
 
     // Gerar tarefas automáticas do pipeline editorial
     if (generateTasks !== false && post.scheduledDate) {
-      const pubDate = new Date(post.scheduledDate);
-      const taskDefinitions = [
-        { title: `Escrever roteiro: ${post.title}`, type: "roteiro", dayOffset: -3 },
-        { title: `Gravar: ${post.title}`, type: "gravacao", dayOffset: -2 },
-        { title: `Editar: ${post.title}`, type: "edicao", dayOffset: -1 },
-        { title: `Publicar: ${post.title}`, type: "publicacao", dayOffset: 0 },
-      ];
-
-      const tasks = taskDefinitions.map((def) => {
-        const dueDate = new Date(pubDate);
-        dueDate.setDate(pubDate.getDate() + def.dayOffset);
-        return {
-          title: def.title,
-          type: def.type,
-          status: "pendente",
-          priority: "media",
-          dueDate: dueDate,
-          assigneeId: def.type === "edicao" ? (supportUserId || post.authorId) : post.authorId,
-          postId: post.id,
-        };
-      });
+      const tasks = montarEsteira({
+        tituloDoPost: post.title,
+        publicacaoEm: new Date(post.scheduledDate),
+      }).map((passo) => ({
+        title: passo.title,
+        type: passo.type,
+        status: "pendente",
+        priority: "media",
+        dueDate: passo.dueDate,
+        // A edição vai para o suporte quando existe — regra desta rota só.
+        assigneeId: passo.type === "edicao" ? (supportUserId || post.authorId) : post.authorId,
+        postId: post.id,
+      }));
 
       await prisma.task.createMany({ data: tasks });
     }
