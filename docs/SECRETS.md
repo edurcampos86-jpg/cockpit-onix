@@ -83,7 +83,7 @@ Configurar em **Settings → Secrets and variables → Actions → Variables →
 | `MS_CLIENT_SECRET` | OAuth Microsoft | idem |
 | `BTG_CLIENT_ID` | OAuth2 client id | `src/lib/integrations/btg.ts` + `config.ts` |
 | `BTG_CLIENT_SECRET` | OAuth2 client secret | idem (`client_credentials` flow contra `api.btgpactual.com/iaas-auth`) |
-| `BTG_WEBHOOK_SECRET` | Secret do webhook receptor | `src/app/api/webhooks/btg/route.ts` — opcional; se ausente, webhook aceita qualquer push |
+| `BTG_WEBHOOK_SECRET` | Secret do webhook receptor | `src/app/api/webhooks/btg/route.ts` — **obrigatório**; se ausente, o webhook responde 503 e não grava nada (falha fechada) |
 | `DATACRAZY_API_TOKEN` | API key | `src/lib/integrations/datacrazy/*` |
 | `DATACRAZY_WEBHOOK_SECRET` | HMAC | webhook handler |
 | `MANYCHAT_API_TOKEN` | API key | `src/app/api/webhooks/manychat/*` |
@@ -153,7 +153,7 @@ com validade ~15 min (cache em memória no app).
 |----------|-------------|--------|
 | `BTG_CLIENT_ID` | sim | Identificador do parceiro fornecido pelo BTG |
 | `BTG_CLIENT_SECRET` | sim | Segredo correspondente |
-| `BTG_WEBHOOK_SECRET` | opcional | Validado em `/api/webhooks/btg`. Sem ele, webhook aceita qualquer push |
+| `BTG_WEBHOOK_SECRET` | obrigatório | Validado em `/api/webhooks/btg`. Sem ele a rota responde 503 — o BTG re-tenta, então o evento volta assim que a variável for configurada |
 
 ### Como obter / rotacionar
 
