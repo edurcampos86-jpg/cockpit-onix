@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
 import { avaliarAcessoWebhook } from "@/lib/integrations/zapier";
 import { generateScriptForPost } from "@/lib/integrations/claude-ai";
+import { montarEsteira } from "@/lib/grade/esteira";
 
 /**
  * POST /api/integracoes/zapier/generate-script
@@ -123,24 +124,21 @@ export async function POST(request: NextRequest) {
       postId = post.id;
 
       // Criar tarefas do pipeline para o post
-      const pubDate = new Date(post.scheduledDate);
-      const tasks = [
-        { title: `Gravar: ${title}`, type: "gravacao", dayOffset: -2 },
-        { title: `Editar: ${title}`, type: "edicao", dayOffset: -1 },
-        { title: `Publicar: ${title}`, type: "publicacao", dayOffset: 0 },
-      ].map((def) => {
-        const dueDate = new Date(pubDate);
-        dueDate.setDate(pubDate.getDate() + def.dayOffset);
-        return {
-          title: def.title,
-          type: def.type,
-          status: "pendente",
-          priority: "media" as const,
-          dueDate,
-          assigneeId: resolvedAuthorId,
-          postId: post.id,
-        };
-      });
+      // `sem-roteiro` de propósito: esta rota acabou de gerar o roteiro, então
+      // uma tarefa "escrever roteiro" seria ruído. Ver src/lib/grade/esteira.ts.
+      const tasks = montarEsteira({
+        tituloDoPost: title,
+        publicacaoEm: new Date(post.scheduledDate),
+        variante: "sem-roteiro",
+      }).map((passo) => ({
+        title: passo.title,
+        type: passo.type,
+        status: "pendente",
+        priority: "media" as const,
+        dueDate: passo.dueDate,
+        assigneeId: resolvedAuthorId,
+        postId: post.id,
+      }));
       await prisma.task.createMany({ data: tasks });
     }
 

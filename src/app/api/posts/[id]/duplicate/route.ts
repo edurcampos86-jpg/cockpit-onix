@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
+import { montarEsteira } from "@/lib/grade/esteira";
 
 export async function POST(
   request: NextRequest,
@@ -48,27 +49,18 @@ export async function POST(
     });
 
     // Gerar tarefas automáticas para o novo post
-    const pubDate = new Date(duplicated.scheduledDate);
-    const taskDefinitions = [
-      { title: `Escrever roteiro: ${duplicated.title}`, type: "roteiro", dayOffset: -3 },
-      { title: `Gravar: ${duplicated.title}`, type: "gravacao", dayOffset: -2 },
-      { title: `Editar: ${duplicated.title}`, type: "edicao", dayOffset: -1 },
-      { title: `Publicar: ${duplicated.title}`, type: "publicacao", dayOffset: 0 },
-    ];
-
-    const tasks = taskDefinitions.map((def) => {
-      const dueDate = new Date(pubDate);
-      dueDate.setDate(pubDate.getDate() + def.dayOffset);
-      return {
-        title: def.title,
-        type: def.type,
-        status: "pendente",
-        priority: "media",
-        dueDate,
-        assigneeId: duplicated.authorId,
-        postId: duplicated.id,
-      };
-    });
+    const tasks = montarEsteira({
+      tituloDoPost: duplicated.title,
+      publicacaoEm: new Date(duplicated.scheduledDate),
+    }).map((passo) => ({
+      title: passo.title,
+      type: passo.type,
+      status: "pendente",
+      priority: "media",
+      dueDate: passo.dueDate,
+      assigneeId: duplicated.authorId,
+      postId: duplicated.id,
+    }));
 
     await prisma.task.createMany({ data: tasks });
 
