@@ -22,8 +22,8 @@ exatamente o tipo de arquivo cuja troca ninguém percebe numa revisão.
 | skill | version | updated |
 |---|---|---|
 | `backoffice-btg-onix` | 1.0 | 2026-08-13 |
-| `create-prompt-onix` | 1.0 | 2026-08-13 |
-| `instagram-carousel-onix` | 1.0 | 2026-08-13 |
+| `create-prompt-onix` | 1.1 | 2026-09-05 |
+| `instagram-carousel-onix` | 1.1 | 2026-09-05 |
 | `onix-atendimento-analise` | 1.0 | 2026-08-13 |
 | `onix-briefing-reuniao` | 1.0 | 2026-08-13 |
 | `onix-entrega-segura` | 2.3 | 2026-08-14 |
@@ -37,8 +37,8 @@ Caminho relativo à pasta da skill.
 | skill | arquivo | sha256 |
 |---|---|---|
 | `backoffice-btg-onix` | `SKILL.md` | `169d214544d1098a01f5455b6549f413a4bc72d89cd6e363a4076d7df5e529ba` |
-| `create-prompt-onix` | `SKILL.md` | `2c66c0d0082d9b1101cae1eb369d68f1c2d092ce47560384e6e49421dacbd6e5` |
-| `instagram-carousel-onix` | `SKILL.md` | `73edc4513c6c5d5c3fbef279d9869c70597735bafe398b93302b5d5fb0ae5f52` |
+| `create-prompt-onix` | `SKILL.md` | `69c985566cfc7258de2dcd6dfefbd584794e34df1391028af800d226c7081914` |
+| `instagram-carousel-onix` | `SKILL.md` | `0e39295ab5f9212079c4f825ab6cdf8e2b583aacad71a495669c2a95e0aa9e37` |
 | `onix-atendimento-analise` | `SKILL.md` | `8a232f0273724e7976983cd9b917a52a37b6157531dc197fd73b68903efc2397` |
 | `onix-briefing-reuniao` | `SKILL.md` | `5b66d7f84b746d7e43a6b5c302f4fb7e779b8854e735167164675d41cf1dd3db` |
 | `onix-entrega-segura` | `SKILL.md` | `ac0aac97c061c21eb08afa1337244ab0498b118802516bca68afb24dcc4f1b1d` |

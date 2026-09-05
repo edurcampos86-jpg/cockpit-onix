@@ -196,8 +196,20 @@ export async function setCustomFieldByName(subscriberId: string, fieldName: stri
 // HELPER: Mapear subscriber para Lead do Ecossistema
 // ============================================
 
+// As chaves são nomes de TAG configurados no ManyChat — fora deste repositório
+// e já gravados nos subscribers existentes. Por isso `BLINDAGEM` NÃO foi
+// renomeada junto com o resto: renomear aqui não renomeia a tag lá, e todo lead
+// já tagueado cairia em `null` (sem produto de interesse) na próxima
+// sincronização.
+//
+// A migração é aditiva: `PLANEJAMENTO*` entra agora e passa a valer assim que o
+// gatilho novo for criado no ManyChat; `BLINDAGEM` fica como LEGADO, atendendo
+// a base existente. Só depois de zerar os subscribers com a tag antiga é que
+// remover a linha vira seguro.
 const KEYWORD_PRODUCT_MAP: Record<string, string> = {
-  BLINDAGEM: "investimentos",
+  PLANEJAMENTO: "investimentos",
+  PLANEJAMENTOPATRIMONIAL: "investimentos",
+  BLINDAGEM: "investimentos", // legado: tag antiga, ainda viva na base
   INVESTIMENTO: "investimentos",
   INVESTIMENTOS: "investimentos",
   SEGURO: "seguro_vida",
