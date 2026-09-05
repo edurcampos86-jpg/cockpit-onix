@@ -8,9 +8,9 @@
  * outras.
  *
  * E as cópias já divergiam: `zapier/generate-script` nasceu sem a etapa de
- * roteiro — os três commits daquele arquivo nunca tiveram "Escrever roteiro"
- * — e nada no código compara uma cópia com a outra, então a divergência só
- * aparece para quem lê as cinco de uma vez.
+ * roteiro — nenhum commit daquele arquivo, em momento nenhum, teve
+ * "Escrever roteiro" — e nada no código compara uma cópia com a outra, então
+ * a divergência só aparece para quem lê as cinco de uma vez.
  *
  * ── DUAS VARIANTES, E A SEGUNDA NÃO É UM BUG ────────────────────────────
  * A ausência do roteiro na rota do Zapier é DESENHO: aquele fluxo gera o
