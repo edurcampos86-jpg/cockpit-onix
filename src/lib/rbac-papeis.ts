@@ -22,9 +22,13 @@ export type PerfilAcesso = {
   role: string;
   /**
    * `User.email`. OPCIONAL porque `SessionPayload` (o JWT do cookie) não carrega
-   * e-mail — só `AuthContext` tem. Enquanto o fallback de bootstrap existir, é
-   * ele que permite reconhecer o Admin Master antes do `UPDATE` no banco; onde
-   * o e-mail não está disponível, `isAdminMaster` cai para `role === "master"`.
+   * e-mail — só `AuthContext` tem.
+   *
+   * NENHUMA decisão deste módulo olha para ele desde que o fallback de
+   * bootstrap saiu (29/08/2026): papel é papel, e-mail é identificação. O campo
+   * fica porque `AuthContext` o traz e satisfazer o formato não deve custar um
+   * cast a quem chama — e porque tirá-lo não deixaria o gate mais estrito do
+   * que já está.
    */
   email?: string | null;
   /** Registro de time, quando existe. `teamRole`: "admin" | "lideranca" | "colaborador". */
@@ -32,41 +36,30 @@ export type PerfilAcesso = {
 };
 
 /**
- * O e-mail do único Admin Master — FALLBACK TEMPORÁRIO DE BOOTSTRAP.
- *
- * ── POR QUE ELE EXISTE ───────────────────────────────────────────────────
- * O Admin Master é guardado em `User.role = "master"`, que é um dado, não
- * código. Se o gate fosse estritamente `role === "master"` e o `UPDATE` ainda
- * não tivesse rodado, o merge desta mudança removeria NA HORA a capacidade de
- * conceder acesso e ligar flags — de todo mundo, inclusive de quem deveria ser
- * o master. E o procedimento de quebra-vidro está adiado por decisão do
- * Eduardo, então não haveria caminho de volta pela tela.
- *
- * Com o fallback, a ORDEM entre o `UPDATE` e o merge deixa de importar. É a
- * escolha dele, nestas palavras: "escolho o FALLBACK... sem quebra-vidro, não
- * vou correr risco de lockout."
- *
- * ── POR QUE ELE PRECISA SAIR ─────────────────────────────────────────────
- * Identidade em constante é autorização que não se revoga sem deploy. Assim que
- * o `UPDATE User SET role = 'master'` estiver confirmado no banco, sai daqui em
- * PR própria e o gate fica estrito. A pendência está registrada no corpo da PR
- * que introduziu isto.
- */
-const EMAIL_MASTER = "edurcampos86@gmail.com";
-
-/**
  * Admin Master — o nível acima de admin, com poderes que NENHUM admin comum
  * tem: exportar dados, conceder e revogar acesso, ligar e desligar flags,
  * apagar em massa.
  *
- * Reconhece por `User.role === "master"` OU pelo e-mail do titular único (o
- * fallback acima). A comparação de e-mail normaliza caixa e espaços porque o
- * cadastro não garante nenhum dos dois.
+ * ── O GATE É ESTRITO: SÓ `User.role === "master"` ────────────────────────
+ * Até 29/08/2026 havia um segundo caminho — uma constante com o e-mail do
+ * titular — que existia para uma janela específica: enquanto o
+ * `UPDATE User SET role='master'` não tivesse rodado, um gate estrito teria
+ * tirado de TODO MUNDO a capacidade de conceder acesso e ligar flags, sem
+ * quebra-vidro para voltar. O fallback fazia a ORDEM entre o `UPDATE` e o
+ * merge não importar.
+ *
+ * Essa janela FECHOU: o `UPDATE` rodou em produção pelo workflow
+ * `promover-master` (run #33255730835, 29/08/2026 — "role lido do banco:
+ * master, total de masters: 1"), e o próprio script pediu esta PR.
+ *
+ * Sai porque identidade em constante é autorização que não se revoga sem
+ * deploy: para tirar o poder de quem está no código é preciso um merge, e
+ * quem lê a linha não descobre quem manda hoje — descobre quem mandava quando
+ * alguém compilou. Com o gate estrito, conceder e revogar viram o que sempre
+ * deveriam ter sido: um `UPDATE` em uma linha, auditável e reversível.
  */
 export function isAdminMaster(ctx: PerfilAcesso): boolean {
-  if (ctx.role === "master") return true;
-  const email = (ctx.email ?? "").trim().toLowerCase();
-  return email !== "" && email === EMAIL_MASTER;
+  return ctx.role === "master";
 }
 
 /**

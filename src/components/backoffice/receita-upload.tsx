@@ -150,10 +150,17 @@ export function ReceitaUpload() {
         clear();
         await fetchSumario();
       } else if (r.status === 403) {
-        /* Apagar a receita passou a ser só de administrador. Sem esta linha o
-         * botão respondia com silêncio absoluto — o mesmo "salvou, mas parece
-         * que não" que já custou caro na central de implementações. */
-        setMsg({ type: "error", text: "Só administradores podem remover a receita importada." });
+        /* Apagar a receita é poder de Admin Master — não de admin comum.
+         * Apagar em massa e conceder acesso estão do mesmo lado da linha.
+         *
+         * Sem esta mensagem o botão respondia com silêncio absoluto — o mesmo
+         * "salvou, mas parece que não" que já custou caro na central de
+         * implementações. O texto diz QUEM pode, não só que você não pode:
+         * "sem permissão" sozinho faz a pessoa tentar de novo. */
+        setMsg({
+          type: "error",
+          text: "Remover toda a receita importada é ação de Admin Master.",
+        });
       } else {
         setMsg({ type: "error", text: "Não foi possível remover os dados." });
       }

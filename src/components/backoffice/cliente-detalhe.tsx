@@ -34,6 +34,13 @@ import type { FatoView } from "@/lib/cockpit-reuniao/fatos-leitura";
 import { ReferenciaLivro } from "./referencia-livro";
 import { ComoFunciona } from "./como-funciona";
 import {
+  IconeGravacao,
+  ReciboGravacao,
+  rotuloGravacao,
+  useGravacao,
+} from "./recibo-gravacao";
+import { apagar, gravarJson } from "@/lib/backoffice/gravacao";
+import {
   CockpitReuniaoTab,
   type ReuniaoEstruturadaView,
 } from "./cockpit-reuniao-tab";
@@ -554,27 +561,13 @@ function DescobertaTab({
     f.linguagemPref = (inicial?.linguagemPref as string) ?? "";
     return f;
   });
-  const [salvando, setSalvando] = useState(false);
-  const [salvo, setSalvo] = useState(false);
+  const gravacao = useGravacao();
 
   const salvar = async () => {
-    setSalvando(true);
-    setSalvo(false);
-    try {
-      const res = await fetch(`/api/backoffice/clientes/${clienteId}/descoberta`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
-      });
-      if (res.ok) {
-        const p = await res.json();
-        onSave(p);
-        setSalvo(true);
-        setTimeout(() => setSalvo(false), 2000);
-      }
-    } finally {
-      setSalvando(false);
-    }
+    const p = await gravacao.executar(() =>
+      gravarJson<NonNullable<Cliente["perfilDescoberta"]>>(`/api/backoffice/clientes/${clienteId}/descoberta`, "PUT", form),
+    );
+    if (p !== null) onSave(p);
   };
 
   return (
@@ -639,14 +632,21 @@ function DescobertaTab({
           </div>
         </div>
 
-        <button
-          onClick={salvar}
-          disabled={salvando}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground font-medium disabled:opacity-50"
-        >
-          <Save className="h-4 w-4" />
-          {salvando ? "Salvando..." : salvo ? "Salvo!" : "Salvar descoberta"}
-        </button>
+        <div className="space-y-2">
+          <ReciboGravacao erro={gravacao.erro} aoFechar={gravacao.limpar} />
+          <button
+            onClick={salvar}
+            disabled={gravacao.gravando}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground font-medium disabled:opacity-50"
+          >
+            {gravacao.estado === "parado" ? (
+              <Save className="h-4 w-4" />
+            ) : (
+              <IconeGravacao estado={gravacao.estado} />
+            )}
+            {rotuloGravacao(gravacao.estado, "Salvar descoberta")}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -672,27 +672,13 @@ function PlanoTab({
     proximosPassos: (inicial?.proximosPassos as string) ?? "",
     resumoExecutivo: (inicial?.resumoExecutivo as string) ?? "",
   });
-  const [salvando, setSalvando] = useState(false);
-  const [salvo, setSalvo] = useState(false);
+  const gravacao = useGravacao();
 
   const salvar = async () => {
-    setSalvando(true);
-    setSalvo(false);
-    try {
-      const res = await fetch(`/api/backoffice/clientes/${clienteId}/plano`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
-      });
-      if (res.ok) {
-        const p = await res.json();
-        onSave(p);
-        setSalvo(true);
-        setTimeout(() => setSalvo(false), 2000);
-      }
-    } finally {
-      setSalvando(false);
-    }
+    const p = await gravacao.executar(() =>
+      gravarJson<NonNullable<Cliente["planoUmaPagina"]>>(`/api/backoffice/clientes/${clienteId}/plano`, "PUT", form),
+    );
+    if (p !== null) onSave(p);
   };
 
   return (
@@ -807,14 +793,21 @@ function PlanoTab({
           />
         </Field>
 
-        <button
-          onClick={salvar}
-          disabled={salvando}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground font-medium disabled:opacity-50"
-        >
-          <Save className="h-4 w-4" />
-          {salvando ? "Salvando..." : salvo ? "Salvo!" : "Salvar plano"}
-        </button>
+        <div className="space-y-2">
+          <ReciboGravacao erro={gravacao.erro} aoFechar={gravacao.limpar} />
+          <button
+            onClick={salvar}
+            disabled={gravacao.gravando}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground font-medium disabled:opacity-50"
+          >
+            {gravacao.estado === "parado" ? (
+              <Save className="h-4 w-4" />
+            ) : (
+              <IconeGravacao estado={gravacao.estado} />
+            )}
+            {rotuloGravacao(gravacao.estado, "Salvar plano")}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -882,8 +875,7 @@ function ChecklistTab({
     return e;
   });
   const [notas, setNotas] = useState<string>((inicial?.notas as string) ?? "");
-  const [salvando, setSalvando] = useState(false);
-  const [salvo, setSalvo] = useState(false);
+  const gravacao = useGravacao();
 
   const total = ITENS_CHECKLIST.length;
   const feitos = Object.values(estado).filter(Boolean).length;
@@ -892,23 +884,10 @@ function ChecklistTab({
   const toggle = (campo: string) => setEstado({ ...estado, [campo]: !estado[campo] });
 
   const salvar = async () => {
-    setSalvando(true);
-    setSalvo(false);
-    try {
-      const res = await fetch(`/api/backoffice/clientes/${clienteId}/checklist`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...estado, notas }),
-      });
-      if (res.ok) {
-        const p = await res.json();
-        onSave(p);
-        setSalvo(true);
-        setTimeout(() => setSalvo(false), 2000);
-      }
-    } finally {
-      setSalvando(false);
-    }
+    const p = await gravacao.executar(() =>
+      gravarJson<NonNullable<Cliente["checklist"]>>(`/api/backoffice/clientes/${clienteId}/checklist`, "PUT", { ...estado, notas }),
+    );
+    if (p !== null) onSave(p);
   };
 
   return (
@@ -983,14 +962,21 @@ function ChecklistTab({
           />
         </div>
 
-        <button
-          onClick={salvar}
-          disabled={salvando}
-          className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground font-medium disabled:opacity-50"
-        >
-          <Save className="h-4 w-4" />
-          {salvando ? "Salvando..." : salvo ? "Salvo!" : "Salvar checklist"}
-        </button>
+        <div className="mt-4 space-y-2">
+          <ReciboGravacao erro={gravacao.erro} aoFechar={gravacao.limpar} />
+          <button
+            onClick={salvar}
+            disabled={gravacao.gravando}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground font-medium disabled:opacity-50"
+          >
+            {gravacao.estado === "parado" ? (
+              <Save className="h-4 w-4" />
+            ) : (
+              <IconeGravacao estado={gravacao.estado} />
+            )}
+            {rotuloGravacao(gravacao.estado, "Salvar checklist")}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -1021,49 +1007,45 @@ function MetasTab({
   const moeda = (v: number) =>
     new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }).format(v);
 
+  const gravacao = useGravacao();
+
   const criar = async () => {
     if (!form.titulo.trim()) return;
-    const res = await fetch(`/api/backoffice/clientes/${clienteId}/metas`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    const nova = await gravacao.executar(() =>
+      gravarJson<Meta>(`/api/backoffice/clientes/${clienteId}/metas`, "POST", {
         ...form,
         valorAlvo: form.valorAlvo ? Number(form.valorAlvo) : null,
         prazoData: form.prazoData || null,
       }),
-    });
-    if (res.ok) {
-      const nova = await res.json();
-      const novas = [nova, ...metas];
-      setMetas(novas);
-      onChange(novas);
-      setForm({ titulo: "", descricao: "", categoria: "", prazoData: "", valorAlvo: "" });
-      setCriando(false);
-    }
+    );
+    if (nova === null) return;
+    const novas = [nova, ...metas];
+    setMetas(novas);
+    onChange(novas);
+    setForm({ titulo: "", descricao: "", categoria: "", prazoData: "", valorAlvo: "" });
+    setCriando(false);
   };
 
   const remover = async (id: string) => {
-    const res = await fetch(`/api/backoffice/metas/${id}`, { method: "DELETE" });
-    if (res.ok) {
-      const novas = metas.filter((m) => m.id !== id);
-      setMetas(novas);
-      onChange(novas);
-    }
+    // Apagar meta é definitivo — não há `deletedAt` nesta tabela. Por isso a
+    // falha PRECISA aparecer: some da tela sem ter sumido do banco é pior que
+    // não sumir.
+    const r = await gravacao.executar(() => apagar(`/api/backoffice/metas/${id}`));
+    if (r === null) return;
+    const novas = metas.filter((m) => m.id !== id);
+    setMetas(novas);
+    onChange(novas);
   };
 
   const togglarStatus = async (m: Meta) => {
     const novoStatus = m.status === "atingida" ? "ativa" : "atingida";
-    const res = await fetch(`/api/backoffice/metas/${m.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: novoStatus }),
-    });
-    if (res.ok) {
-      const atualizada = await res.json();
-      const novas = metas.map((x) => (x.id === m.id ? atualizada : x));
-      setMetas(novas);
-      onChange(novas);
-    }
+    const atualizada = await gravacao.executar(() =>
+      gravarJson<Meta>(`/api/backoffice/metas/${m.id}`, "PATCH", { status: novoStatus }),
+    );
+    if (atualizada === null) return;
+    const novas = metas.map((x) => (x.id === m.id ? atualizada : x));
+    setMetas(novas);
+    onChange(novas);
   };
 
   const corCategoria: Record<string, string> = {
@@ -1081,6 +1063,7 @@ function MetasTab({
         comoUsar="Crie metas com o cliente, atualize o progresso a cada revisão e celebre quando uma é atingida."
         comoAjuda="Transforma dinheiro em vida real. O cliente vê o investimento conectado aos sonhos dele, não a um número."
       />
+      <ReciboGravacao erro={gravacao.erro} aoFechar={gravacao.limpar} />
       <ReferenciaLivro referencias={REF_MAPA_METAS} titulo="Mapa de metas de vida (Storyselling + Supernova)" />
 
       <div className="rounded-xl border bg-card p-6">
@@ -1249,32 +1232,29 @@ function EventosTab({
     notas: "",
   });
 
+  const gravacao = useGravacao();
+
   const criar = async () => {
     if (!form.titulo.trim() || !form.data) return;
-    const res = await fetch(`/api/backoffice/clientes/${clienteId}/eventos`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form),
-    });
-    if (res.ok) {
-      const novo = await res.json();
-      const novos = [...eventos, novo].sort(
-        (a, b) => new Date(a.data).getTime() - new Date(b.data).getTime()
-      );
-      setEventos(novos);
-      onChange(novos);
-      setForm({ tipo: "aniversario", titulo: "", data: "", recorrente: true, notas: "" });
-      setCriando(false);
-    }
+    const novo = await gravacao.executar(() =>
+      gravarJson<EventoVida>(`/api/backoffice/clientes/${clienteId}/eventos`, "POST", form),
+    );
+    if (novo === null) return;
+    const novos = [...eventos, novo].sort(
+      (a, b) => new Date(a.data).getTime() - new Date(b.data).getTime()
+    );
+    setEventos(novos);
+    onChange(novos);
+    setForm({ tipo: "aniversario", titulo: "", data: "", recorrente: true, notas: "" });
+    setCriando(false);
   };
 
   const remover = async (id: string) => {
-    const res = await fetch(`/api/backoffice/eventos/${id}`, { method: "DELETE" });
-    if (res.ok) {
-      const novos = eventos.filter((e) => e.id !== id);
-      setEventos(novos);
-      onChange(novos);
-    }
+    const r = await gravacao.executar(() => apagar(`/api/backoffice/eventos/${id}`));
+    if (r === null) return;
+    const novos = eventos.filter((e) => e.id !== id);
+    setEventos(novos);
+    onChange(novos);
   };
 
   return (
@@ -1284,6 +1264,7 @@ function EventosTab({
         comoUsar="Cadastre eventos recorrentes (aniversários) e únicos (casamento de filho). Use para gestos personalizados."
         comoAjuda="Lembrar de detalhes da vida do cliente é o que diferencia um assessor Supernova de um vendedor de fundos."
       />
+      <ReciboGravacao erro={gravacao.erro} aoFechar={gravacao.limpar} />
       <div className="rounded-xl border border-pink-200 bg-pink-50 dark:border-pink-900/50 dark:bg-pink-950/20 p-4">
         <p className="text-sm font-semibold text-pink-900 dark:text-pink-200 mb-1">
           Por que isso importa?
@@ -1417,26 +1398,16 @@ function PerfilEmocionalTab({
 }) {
   const [perfil, setPerfil] = useState(pInicial ?? "");
   const [obs, setObs] = useState(oInicial ?? "");
-  const [salvando, setSalvando] = useState(false);
-  const [salvo, setSalvo] = useState(false);
+  const gravacao = useGravacao();
 
   const salvar = async () => {
-    setSalvando(true);
-    setSalvo(false);
-    try {
-      const res = await fetch(`/api/backoffice/clientes/${clienteId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ perfilEmocional: perfil, observacoes: obs }),
-      });
-      if (res.ok) {
-        onSave(perfil, obs);
-        setSalvo(true);
-        setTimeout(() => setSalvo(false), 2000);
-      }
-    } finally {
-      setSalvando(false);
-    }
+    const r = await gravacao.executar(() =>
+      gravarJson<unknown>(`/api/backoffice/clientes/${clienteId}`, "PATCH", {
+        perfilEmocional: perfil,
+        observacoes: obs,
+      }),
+    );
+    if (r !== null) onSave(perfil, obs);
   };
 
   return (
@@ -1481,14 +1452,21 @@ function PerfilEmocionalTab({
             className="w-full px-3 py-2 rounded-lg border bg-background text-sm"
           />
         </Field>
-        <button
-          onClick={salvar}
-          disabled={salvando}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground font-medium disabled:opacity-50"
-        >
-          <Save className="h-4 w-4" />
-          {salvando ? "Salvando..." : salvo ? "Salvo!" : "Salvar perfil"}
-        </button>
+        <div className="space-y-2">
+          <ReciboGravacao erro={gravacao.erro} aoFechar={gravacao.limpar} />
+          <button
+            onClick={salvar}
+            disabled={gravacao.gravando}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground font-medium disabled:opacity-50"
+          >
+            {gravacao.estado === "parado" ? (
+              <Save className="h-4 w-4" />
+            ) : (
+              <IconeGravacao estado={gravacao.estado} />
+            )}
+            {rotuloGravacao(gravacao.estado, "Salvar perfil")}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -1523,21 +1501,19 @@ function RcaTab({
     rcaNotas: "",
   });
 
+  const gravacao = useGravacao();
+
   const criar = async () => {
-    if (!form.assunto.trim()) return;
-    const res = await fetch(`/api/backoffice/clientes/${clienteId}/interacoes`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form),
-    });
-    if (res.ok) {
-      const nova = await res.json();
-      const novas = [nova, ...interacoes];
-      setInteracoes(novas);
-      onChange(novas);
-      setForm({ tipo: "reuniao", assunto: "", resumo: "", rcaNotas: "" });
-      setCriando(false);
-    }
+    if (!form.assunto.trim() || !form.resumo.trim()) return;
+    const nova = await gravacao.executar(() =>
+      gravarJson<Interacao>(`/api/backoffice/clientes/${clienteId}/interacoes`, "POST", form),
+    );
+    if (nova === null) return;
+    const novas = [nova, ...interacoes];
+    setInteracoes(novas);
+    onChange(novas);
+    setForm({ tipo: "reuniao", assunto: "", resumo: "", rcaNotas: "" });
+    setCriando(false);
   };
 
   return (
@@ -1547,6 +1523,7 @@ function RcaTab({
         comoUsar="Antes da reunião, abra o RCA e siga os 7 itens. Anote as respostas e gere ações de follow-up."
         comoAjuda="Padroniza a qualidade das revisões e garante que nada importante seja esquecido na conversa."
       />
+      <ReciboGravacao erro={gravacao.erro} aoFechar={gravacao.limpar} />
       <ReferenciaLivro referencias={REF_RCA} titulo="Rapid Client Assessment (RCA) — Supernova" />
 
       <div className="rounded-xl border bg-card p-6">
@@ -1611,14 +1588,14 @@ function RcaTab({
             <textarea
               value={form.resumo}
               onChange={(e) => setForm({ ...form, resumo: e.target.value })}
-              placeholder="Resumo executivo (1-2 frases)"
+              placeholder="Relato obrigatório do que foi tratado (1-2 frases)"
               rows={2}
               className="w-full px-3 py-2 rounded-lg border bg-background text-sm"
             />
             <div className="flex gap-2">
               <button
                 onClick={criar}
-                disabled={!form.assunto.trim()}
+                disabled={!form.assunto.trim() || !form.resumo.trim()}
                 className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium disabled:opacity-50"
               >
                 Registrar

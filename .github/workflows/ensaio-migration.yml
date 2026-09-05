@@ -84,6 +84,19 @@ jobs:
       # este workflow pode aplicar migration sem pedir autorização a ninguém.
       DATABASE_URL: postgresql://ensaio:ensaio@127.0.0.1:5432/ensaio
 
+      # TETO DE TEMPO da migration nova, em segundos.
+      #
+      # Não é higiene: com `prisma migrate deploy` dentro do `startCommand`, o
+      # tempo da migration é tempo de SITE FORA DO AR a cada deploy. Um
+      # `ALTER TABLE` que reescreve tabela passa em milissegundos num banco
+      # vazio e trava minutos nas 2.716 linhas de `ClienteBackoffice`.
+      #
+      # 30s é a régua: acima disso o deploy deixa de ser uma piscada e vira
+      # janela que alguém percebe. Migration que precise de mais não está
+      # proibida — está obrigada a subir este número no MESMO commit, o que faz
+      # a decisão aparecer no diff em vez de aparecer no domingo.
+      ENSAIO_TETO_SEGUNDOS: '30'
+
     steps:
       - uses: actions/checkout@v4
         with:
@@ -188,7 +201,16 @@ jobs:
           fi
 
           # As migrations que ESTA PR acrescenta.
-          NOVAS=$(git diff --name-only --diff-filter=A "$BASE_SHA" "$HEAD_SHA" \
+          #
+          # Contra o MERGE-BASE, e não contra `base.sha` — o mesmo que o
+          # `ci.yml` faz, e pela mesma razão. `base.sha` é o commit da base
+          # QUANDO A PR NASCEU; depois de a branch ser atualizada com a main, o
+          # diff contra ele traz também as migrations que OUTRAS sessões
+          # acrescentaram nesse intervalo. Elas seriam movidas para fora do
+          # caminho junto com as desta PR, e o "estado anterior" ficaria com
+          # buraco no meio.
+          MERGE_BASE=$(git merge-base "$BASE_SHA" "$HEAD_SHA")
+          NOVAS=$(git diff --name-only --diff-filter=A "$MERGE_BASE" "$HEAD_SHA" \
             -- 'prisma/migrations/*/migration.sql' \
             | xargs -r -n1 dirname | sort -u)
 
@@ -202,9 +224,20 @@ jobs:
           # Fixture? Sem ele o ensaio B roda contra banco vazio e não prova
           # nada além do que o A já provou. Então ele não roda — e o relatório
           # diz que não rodou, em vez de dar verde por ausência.
+          # COPIA o fixture para fora ANTES de mover o diretório.
+          #
+          # Ele mora DENTRO da pasta da migration, e a pasta sai do caminho
+          # logo abaixo — na primeira execução real (PR #432) o `psql` foi
+          # procurar um arquivo que já tinha sido movido e o ensaio morreu em
+          # três segundos, por defeito deste workflow e não da migration.
+          mkdir -p "${RUNNER_TEMP}/fixtures"
           FIXTURES=''
           for dir in $NOVAS; do
-            [ -f "$dir/ensaio.sql" ] && FIXTURES="$FIXTURES $dir/ensaio.sql"
+            if [ -f "$dir/ensaio.sql" ]; then
+              destino="${RUNNER_TEMP}/fixtures/$(basename "$dir").sql"
+              cp "$dir/ensaio.sql" "$destino"
+              FIXTURES="$FIXTURES $destino"
+            fi
           done
           if [ -z "$FIXTURES" ]; then
             {
@@ -226,8 +259,13 @@ jobs:
 
           # Tira as novas do caminho, aplica o PASSADO, devolve as novas.
           mkdir -p "${RUNNER_TEMP}/guardadas"
+          FIXTURES_GUARDADOS=''
           for dir in $NOVAS; do
-            mv "$dir" "${RUNNER_TEMP}/guardadas/$(basename "$dir")"
+            NOME_DIR=$(basename "$dir")
+            mv "$dir" "${RUNNER_TEMP}/guardadas/$NOME_DIR"
+            if [ -f "${RUNNER_TEMP}/guardadas/$NOME_DIR/ensaio.sql" ]; then
+              FIXTURES_GUARDADOS="$FIXTURES_GUARDADOS ${RUNNER_TEMP}/guardadas/$NOME_DIR/ensaio.sql"
+            fi
           done
           echo "── aplicando o estado ANTERIOR a esta PR ──"
           npx prisma migrate deploy > "${RUNNER_TEMP}/antes.txt" 2>&1 || {
@@ -237,7 +275,7 @@ jobs:
           }
 
           echo "── carregando o fixture ──"
-          for f in $FIXTURES; do
+          for f in $FIXTURES_GUARDADOS; do
             echo "  $f"
             psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f"
           done
@@ -247,14 +285,23 @@ jobs:
           done
 
           echo "── aplicando a migration NOVA, agora com dado no banco ──"
+          INICIO=$(date +%s)
           set +e
           npx prisma migrate deploy > "${RUNNER_TEMP}/depois.txt" 2>&1
           CODIGO=$?
           set -e
+          DUROU=$(( $(date +%s) - INICIO ))
           cat "${RUNNER_TEMP}/depois.txt"
+
+          # Quanto dado o fixture deixou no banco. Sem este número, "durou 2s"
+          # não diz nada: pode ter sido rápido por não haver o que migrar.
+          LINHAS=$(psql "$DATABASE_URL" -tAc \
+            'SELECT coalesce(sum(n_live_tup), 0) FROM pg_stat_user_tables' || echo '?')
           {
             echo
             echo '## Ensaio B — com dado'
+            echo
+            echo "Levou **${DUROU}s** (teto ${ENSAIO_TETO_SEGUNDOS}s), com ~${LINHAS} linhas no banco."
             echo
             echo '```'
             cat "${RUNNER_TEMP}/depois.txt"
@@ -265,4 +312,11 @@ jobs:
             echo "::error::A migration nova FALHOU contra um banco com dado. Em produção isto derrubaria o serviço."
             exit 1
           fi
-          echo "::notice::Ensaio B: a migration nova aplicou sobre dado existente."
+
+          # O TETO. Com o migrate dentro do `start`, este número é tempo de
+          # site fora do ar a cada deploy.
+          if [ "$DUROU" -gt "$ENSAIO_TETO_SEGUNDOS" ]; then
+            echo "::error::A migration levou ${DUROU}s, acima do teto de ${ENSAIO_TETO_SEGUNDOS}s. Com o migrate dentro do startCommand isso e o site fora do ar por ${DUROU}s a cada deploy. Ou a migration fica mais barata, ou o teto sobe no mesmo commit, com o motivo escrito."
+            exit 1
+          fi
+          echo "::notice::Ensaio B: aplicou sobre ~${LINHAS} linhas em ${DUROU}s (teto ${ENSAIO_TETO_SEGUNDOS}s)."
