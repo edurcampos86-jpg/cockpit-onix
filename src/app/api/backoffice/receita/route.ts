@@ -1,38 +1,56 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getAuthContext, isAdmin } from "@/lib/auth-helpers";
+import { getAuthContext } from "@/lib/auth-helpers";
+import { guardAdminMasterApi } from "@/lib/api-admin-guard";
 import { randomUUID, createHash } from "crypto";
 
 /**
- * ── GATE DE ESCRITA ──────────────────────────────────────────────────────
+ * ── AS TRÊS PORTAS DESTA ROTA TÊM TRÊS DONOS DIFERENTES ──────────────────
  *
- * A #404 fechou o `DELETE`, que era o buraco mais fundo. Ficaram abertos os
- * outros dois caminhos de MUTAÇÃO da mesma tabela, e eles não são pequenos:
+ * Não é gradação por precaução: é a linha que o Eduardo definiu em 27/08 e
+ * confirmou em 29/08, aplicada rota a rota.
  *
- *   POST  → `createMany` de lançamentos de receita: qualquer logado injeta
- *           números na única base de receita do grupo.
- *   PATCH → `recomputeReceitaClientes()`, que rodava um `update` em CADA
- *           `ClienteBackoffice` reescrevendo `receitaAnual`.
+ *   GET    → QUALQUER LOGADO. Ler não tira nada de ninguém, e fechar apagaria
+ *            capacidade real de quem precisa consultar sem poder mexer —
+ *            mesmo critério registrado para `/integracoes` no AGENTS.md.
  *
- * Fechar só o `DELETE` deixava a tela parecendo protegida enquanto duas portas
- * seguiam abertas ao lado. O gate é o mesmo predicado e a mesma resposta 403 da
- * #404; o que mudou é que ele passou a morar numa função.
+ *   POST   → QUALQUER LOGADO. "IMPORTAR e EDITAR → qualquer pessoa logada,
+ *            relatórios incluídos." Importar planilha é trabalho de
+ *            backoffice, e era isto que estava fora do lugar: desde a #407
+ *            esta porta exigia admin, contra a regra escrita. Um atendente
+ *            que precisasse subir o relatório do mês levava 403 sem entender.
  *
- * O `PATCH` NÃO EXISTE MAIS — e por um motivo mais forte que o gate: ele
- * escrevia receita da Onix em `receitaAnual`, que é a renda DECLARADA do
- * cliente. O campo é do cliente; a receita da Onix mora em
- * `ComissaoMensalCliente`. Ver o bloco no fim deste arquivo.
+ *   DELETE → ADMIN MASTER, e só. "Apagar em massa → só Admin Master." Não é
+ *            um delete por id: é `deleteMany({})`, a tabela inteira, sem
+ *            argumento nenhum. Uma requisição sem corpo zera a base de receita
+ *            do grupo.
  *
- * `GET` fica aberto a qualquer logado, de propósito: fechá-lo apagaria
- * capacidade real de quem precisa consultar sem poder mexer — mesmo critério
- * registrado para `/integracoes` no AGENTS.md. Ele serve hoje o resumo da tela
- * de importação (`receita/importar`); a aba de leitura da Receita não passa por
- * ele — lê `ComissaoMensalCliente` direto, no servidor.
+ * ── POR QUE O DELETE SUBIU DE ADMIN PARA MASTER ──────────────────────────
+ * A #404 fechou esta porta em `isAdmin`, e na época isso foi o conserto certo:
+ * ela estava aberta a qualquer logado. Mas admin comum importa planilha e
+ * edita ficha — apagar a base inteira é outra classe de poder, e a regra do
+ * Eduardo separa as duas. `isAdminMaster` é o predicado dessa separação, e
+ * hoje ele resolve para uma pessoa só.
+ *
+ * ── O QUE NÃO EXISTE MAIS ────────────────────────────────────────────────
+ * O `PATCH` (`recomputeReceitaClientes`) foi removido pela #421, por motivo
+ * mais forte que gate: ele escrevia receita da Onix em `receitaAnual`, que é a
+ * renda DECLARADA do cliente. Ver o bloco no fim deste arquivo.
  */
-async function exigirAdmin(): Promise<NextResponse | null> {
+
+/**
+ * Exige sessão e nada além dela.
+ *
+ * Existe como FUNÇÃO, e não como ausência de código, pelo mesmo motivo do
+ * `lib/backoffice/dado-interno.ts`: "qualquer logado" e "esqueceram de
+ * checar" se escrevem do mesmo jeito — com nada. Aqui a permissividade fica
+ * ESCRITA, e deixa de depender de o matcher do `src/proxy.ts` continuar
+ * cobrindo esta rota.
+ */
+async function exigirSessao(): Promise<NextResponse | null> {
   const ctx = await getAuthContext().catch(() => null);
-  if (!ctx || !isAdmin(ctx)) {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  if (!ctx) {
+    return NextResponse.json({ error: "nao_autenticado" }, { status: 401 });
   }
   return null;
 }
@@ -165,7 +183,7 @@ export async function GET(req: NextRequest) {
 
 /** POST /api/backoffice/receita -> importa lote */
 export async function POST(req: NextRequest) {
-  const negado = await exigirAdmin();
+  const negado = await exigirSessao();
   if (negado) return negado;
   try {
     const { rows, replace } = (await req.json()) as { rows: RowIn[]; replace?: boolean };
@@ -234,16 +252,21 @@ export async function POST(req: NextRequest) {
 /**
  * DELETE /api/backoffice/receita -> apaga TODOS os lançamentos de receita.
  *
- * SOMENTE ADMIN. Não é um delete por id: é `deleteMany({})`, a tabela inteira,
+ * SOMENTE ADMIN MASTER. Não é um delete por id: é `deleteMany({})`, a tabela inteira,
  * e o handler não recebe argumento nenhum — uma requisição sem corpo zera o
  * snapshot de receita do grupo. É também o ÚNICO caminho de apagamento total
  * desta tabela; o POST de importação só cria (`createMany` com
  * `skipDuplicates`), nunca limpa antes.
  *
- * Até aqui a única barreira era o proxy exigir sessão (`src/proxy.ts`), e a
+ * Até a #404 a única barreira era o proxy exigir sessão (`src/proxy.ts`), e a
  * página que expunha o botão não tinha gate de papel: qualquer uma das 22
  * pessoas logadas abria a tela e apagava. O `confirm()` do navegador não é
  * barreira — some com uma chamada direta.
+ *
+ * A #404 fechou em `isAdmin`, e era o conserto certo NAQUELE momento. Agora
+ * sobe para `isAdminMaster`: admin comum importa planilha e edita ficha;
+ * apagar a base inteira é outra classe de poder. É a linha do Eduardo, não uma
+ * gradação de precaução.
  *
  * O botão MUDOU DE ENDEREÇO: a aba `/empresas/investimentos/receita` virou
  * leitura, e a importação (com este botão dentro) foi para
@@ -256,7 +279,7 @@ export async function POST(req: NextRequest) {
  * "sem permissão" confirmaria que aquele id existe — não é o caso.
  */
 export async function DELETE() {
-  const negado = await exigirAdmin();
+  const negado = await guardAdminMasterApi("DELETE /api/backoffice/receita");
   if (negado) return negado;
 
   try {
