@@ -28,7 +28,7 @@ const PERFIL: PerfilImportacaoConfig = {
     inicioVigencia: "data_ddmmaaaa",
   },
   dicionarios: {
-    tipoProduto: { "SEGURO DE VIDA": "vida", "AUTO FÁCIL": "auto_residencial" },
+    tipoProduto: { "SEGURO DE VIDA": "vida", "AUTO FÁCIL": "auto" },
     status: { "EM VIGOR": "ativo", "CANCELADA": "cancelado" },
   },
 };
@@ -59,7 +59,7 @@ test("o caminho feliz: mapeia, tipa e canoniza", () => {
 
 test("o dicionário ignora acento, caixa e pontuação — mas não inventa", () => {
   const [r] = aplicarPerfil([linha({ ...COMPLETA, Ramo: "auto facil" })], PERFIL);
-  assert.equal(r.campos.tipoProduto, "auto_residencial");
+  assert.equal(r.campos.tipoProduto, "auto");
 });
 
 // ── O ponto do arquivo: nada de chute ────────────────────────────────────

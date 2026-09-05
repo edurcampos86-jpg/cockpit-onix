@@ -1,4 +1,5 @@
 import "server-only";
+import { isAdminMaster } from "@/lib/rbac-papeis";
 import { prisma } from "../prisma";
 
 /**
@@ -69,7 +70,8 @@ export async function getPermissoes(userId: string): Promise<PermissaoFlags> {
  * 2FA — esse helper retorna true só pra flags de role, não pra 2FA.
  */
 function isAuthAdmin(ctx: AuthContext): boolean {
-  return ctx.role === "admin";
+  /* Admin Master também bypassa: é superconjunto de admin, não papel paralelo. */
+  return isAdminMaster(ctx) || ctx.role === "admin";
 }
 
 /** Pode listar/ver a página /juridico/contratos. */

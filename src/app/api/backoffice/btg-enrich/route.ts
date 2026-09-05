@@ -1,7 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@/generated/prisma/client";
 import { getSession } from "@/lib/session";
 import * as btg from "@/lib/integrations/btg";
+
+/**
+ * De onde vem o número, gravado em `ComissaoMensalCliente.fonte`.
+ *
+ * Constante e não literal solto: a chave única inclui `fonte`, então um typo
+ * aqui não daria erro — criaria uma segunda série paralela, silenciosa, que só
+ * apareceria como receita faltando num relatório.
+ */
+const FONTE_COMISSAO = "btg_rm_reports";
 
 /**
  * POST /api/backoffice/btg-enrich
@@ -9,7 +19,7 @@ import * as btg from "@/lib/integrations/btg";
  * Enriquece ClienteBackoffice já existentes com:
  * - Suitability (perfilInvestidor + validade) — 1 chamada por cliente, rate limit 60/min
  * - Relacionamento Conta×Assessor (assessorCge + assessorNome) — 1 chamada global
- * - Comissões (receitaAnual estimada = mês × 12) — 1 chamada global
+ * - Comissões (persistidas em `ComissaoMensalCliente`, por competência) — 1 chamada global
  *
  * Query params:
  * - ?clienteId=xxx — processa só 1 cliente (útil pra detalhe)
@@ -25,6 +35,23 @@ export async function POST(req: NextRequest) {
   const clienteIdFiltro = req.nextUrl.searchParams.get("clienteId");
   const offset = parseInt(req.nextUrl.searchParams.get("offset") || "0", 10);
   const limit = Math.min(parseInt(req.nextUrl.searchParams.get("limit") || "20", 10), 25);
+
+  // Competência do relatório: o mês em que o enrich está rodando, em
+  // America/Sao_Paulo. `sv-SE` porque é o locale que o Intl devolve já no
+  // formato ISO (AAAA-MM-DD) — mais barato e mais legível que remontar as
+  // partes à mão, e o CHECK da tabela recusa qualquer coisa fora de AAAA-MM.
+  //
+  // ⚠️ É uma APROXIMAÇÃO, e ela precisa ser dita: `getCommissionReport()` não
+  // devolve a competência do próprio relatório. Rodar o enrich no dia 1º pode,
+  // portanto, gravar sob o mês corrente um relatório que ainda é do mês
+  // anterior. Corrigir isso exige `getMonthlyCommissionReport(refDate)`, que
+  // recebe a data de referência de propósito — e trocar de endpoint é outra
+  // PR, com outra forma de resposta (webhook assíncrono).
+  const competencia = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+  }).format(new Date());
 
   const log = await prisma.btgSyncLog.create({
     data: { tipo: "enrich", trigger: "manual", userId: session.userId, resumo: `offset=${offset} limit=${limit}` },
@@ -48,6 +75,11 @@ export async function POST(req: NextRequest) {
 
   // 2. Comissões (1 chamada — pode vir como URL/JSON inline/CSV)
   const receitasMap = new Map<string, number>(); // numeroConta -> comissao do mês
+  // Quantas linhas de `ComissaoMensalCliente` esta execução gravou. Separado de
+  // `comReceita` de propósito: aquele conta quantos clientes TÊM comissão, este
+  // conta quantas linhas foram efetivamente persistidas. Divergência entre os
+  // dois é o sinal de que o upsert falhou em silêncio.
+  let comissoesGravadas = 0;
   try {
     const comRes = await btg.getCommissionReport();
     if (comRes.status === 200) {
@@ -106,8 +138,7 @@ export async function POST(req: NextRequest) {
       const assessor = assessoresMap.get(numeroConta);
       if (assessor) comAssessor++;
       const receitaMes = receitasMap.get(numeroConta);
-      const receitaAnual = receitaMes !== undefined ? receitaMes * 12 : undefined;
-      if (receitaAnual !== undefined) comReceita++;
+      if (receitaMes !== undefined) comReceita++;
 
       // Atualiza só campos com novidade
       const data: Record<string, unknown> = { ultimaSyncBtg: new Date() };
@@ -117,14 +148,73 @@ export async function POST(req: NextRequest) {
         data.assessorCge = assessor.cge;
         data.assessorNome = assessor.nome;
       }
-      // TODO: receitaAnual aqui é estimativa = mes × 12. Evoluir pra média móvel quando tivermos histórico.
-      if (receitaAnual !== undefined) data.receitaAnual = receitaAnual;
+      /* NÃO escreve `receitaAnual` — e o TODO que pedia esta PR está cumprido.
+       *
+       * `ClienteBackoffice.receitaAnual` é a renda anual DECLARADA do cliente,
+       * vinda do Base BTG; a `FIELD_SOURCE_POLICY` declara `base_btg` como dono
+       * único. Gravar aqui comissão × 12 punha receita da Onix num campo do
+       * cliente, e as duas grandezas não se comparam: em 28/08/2026 a renda
+       * declarada somava R$ 10,5 bilhões em 2.706 clientes.
+       *
+       * A comissão continua sendo persistida — logo abaixo, em
+       * `ComissaoMensalCliente`, por competência mensal e com `fonte`. É o lugar
+       * certo desde a #408, e é de lá que o Financeiro vai ler. O TODO antigo
+       * temia "zerar a tela de quem lê"; não zera: parar de escrever não apaga o
+       * que já está lá, e o que está lá é renda declarada do Base BTG. */
 
       try {
         await prisma.clienteBackoffice.update({ where: { id: c.id }, data });
         enriquecidos++;
       } catch (e) {
         erros.push({ conta: numeroConta, etapa: "update", motivo: e instanceof Error ? e.message : "?" });
+      }
+
+      // ── A linha mensal que antes era descartada ─────────────────────────
+      //
+      // `receitaMes` já estava aqui, na mão, e morria multiplicado por 12. O
+      // upsert casa pela chave única (clienteId, competencia, fonte), então
+      // rodar o enrich duas vezes no mesmo mês ATUALIZA em vez de duplicar —
+      // sem ela, a receita do mês dobraria e o erro só apareceria na soma.
+      //
+      // `Prisma.Decimal` e não Number: a coluna é DECIMAL(14,2) e este número
+      // vai ser somado. Medido no shadow: somar 0,07 mil vezes dá 70,00 em
+      // decimal e 69,99999999999966 em float8.
+      //
+      // Falha aqui NÃO derruba o enrich: a linha entra em `erros` como
+      // qualquer outra etapa. O enriquecimento do cliente já foi gravado, e
+      // perder a série de um cliente é ruim — perder a sincronia inteira por
+      // causa dela seria pior.
+      if (receitaMes !== undefined) {
+        try {
+          await prisma.comissaoMensalCliente.upsert({
+            where: {
+              clienteId_competencia_fonte: {
+                clienteId: c.id,
+                competencia,
+                fonte: FONTE_COMISSAO,
+              },
+            },
+            create: {
+              clienteId: c.id,
+              competencia,
+              fonte: FONTE_COMISSAO,
+              comissao: new Prisma.Decimal(receitaMes),
+              origemSyncId: log.id,
+            },
+            update: {
+              comissao: new Prisma.Decimal(receitaMes),
+              importadoEm: new Date(),
+              origemSyncId: log.id,
+            },
+          });
+          comissoesGravadas++;
+        } catch (e) {
+          erros.push({
+            conta: numeroConta,
+            etapa: "comissao-mensal",
+            motivo: e instanceof Error ? e.message : "?",
+          });
+        }
       }
     },
     { maxPerMinute: 55 },
@@ -140,18 +230,23 @@ export async function POST(req: NextRequest) {
       sucesso: erros.length === 0,
       contasProcessadas: enriquecidos,
       contasComErro: erros.length,
-      resumo: `${enriquecidos} enriquecido(s) · ${comSuitability} c/ suitability · ${comAssessor} c/ assessor · ${comReceita} c/ receita · batch ${offset}-${nextOffset}/${totalClientes}`,
+      resumo: `${enriquecidos} enriquecido(s) · ${comSuitability} c/ suitability · ${comAssessor} c/ assessor · ${comReceita} c/ receita · ${comissoesGravadas} comissão ${competencia} · batch ${offset}-${nextOffset}/${totalClientes}`,
       erros: erros.length > 0 ? erros : undefined,
     },
   });
 
   return NextResponse.json({
     success: true,
-    message: `Batch ${offset + 1}-${nextOffset} de ${totalClientes}: ${enriquecidos} enriquecido(s). Suitability: ${comSuitability}, Assessor: ${comAssessor}, Receita: ${comReceita}.`,
+    message: `Batch ${offset + 1}-${nextOffset} de ${totalClientes}: ${enriquecidos} enriquecido(s). Suitability: ${comSuitability}, Assessor: ${comAssessor}, Receita: ${comReceita}, Comissão ${competencia}: ${comissoesGravadas}.`,
     enriquecidos,
     comSuitability,
     comAssessor,
     comReceita,
+    // A série mensal desta execução. Sem isto, "gravou?" só se responde indo ao
+    // banco — e o caminho que a #407 fechou é justamente o de quem não deveria
+    // estar lá.
+    comissoesGravadas,
+    competencia,
     offset,
     nextOffset,
     totalClientes,

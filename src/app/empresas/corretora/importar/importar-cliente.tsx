@@ -102,6 +102,10 @@ type Resultado = {
   rejeitadas: { numero: number; motivo: string }[];
   rotulosNaoMapeados: { campo: string; rotulo: string; linhas: number; exemplos: number[] }[];
   grafiasAtendente: { nome: string; linhas: number }[];
+  // Campos que a base tem preenchidos e que este perfil não traz. Opcional
+  // porque um resultado guardado antes desta versão não tem a chave, e a tela
+  // não pode quebrar ao reabrir um ensaio antigo.
+  camposNaoCobertos?: { campo: string; contratos: number }[];
   amostra: unknown[];
   custoIa: { usd: number; modelo: string } | null;
   avisos: string[];
@@ -1080,7 +1084,7 @@ function Ensaio({ r, gravado }: { r: Resultado; gravado: boolean }) {
 
       {r.contratosAAtualizar > 0 && !gravado && (
         <p className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
-          {avisoDeSobrescrita(r.contratosAAtualizar)}
+          {avisoDeSobrescrita(r.contratosAAtualizar, r.camposNaoCobertos)}
         </p>
       )}
 

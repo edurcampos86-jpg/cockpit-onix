@@ -18,15 +18,61 @@
  * puros possam decidir sem arrastar a dependência de sessão junto.
  */
 export type PerfilAcesso = {
-  /** `User.role` — "admin" | "support". */
+  /** `User.role` — "admin" | "support" | "master". */
   role: string;
+  /**
+   * `User.email`. OPCIONAL porque `SessionPayload` (o JWT do cookie) não carrega
+   * e-mail — só `AuthContext` tem.
+   *
+   * NENHUMA decisão deste módulo olha para ele desde que o fallback de
+   * bootstrap saiu (29/08/2026): papel é papel, e-mail é identificação. O campo
+   * fica porque `AuthContext` o traz e satisfazer o formato não deve custar um
+   * cast a quem chama — e porque tirá-lo não deixaria o gate mais estrito do
+   * que já está.
+   */
+  email?: string | null;
   /** Registro de time, quando existe. `teamRole`: "admin" | "lideranca" | "colaborador". */
   pessoa: { teamRole: string } | null;
 };
 
-/** Admin é quem tem `User.role === "admin"` OU `Pessoa.teamRole === "admin"`. */
+/**
+ * Admin Master — o nível acima de admin, com poderes que NENHUM admin comum
+ * tem: exportar dados, conceder e revogar acesso, ligar e desligar flags,
+ * apagar em massa.
+ *
+ * ── O GATE É ESTRITO: SÓ `User.role === "master"` ────────────────────────
+ * Até 29/08/2026 havia um segundo caminho — uma constante com o e-mail do
+ * titular — que existia para uma janela específica: enquanto o
+ * `UPDATE User SET role='master'` não tivesse rodado, um gate estrito teria
+ * tirado de TODO MUNDO a capacidade de conceder acesso e ligar flags, sem
+ * quebra-vidro para voltar. O fallback fazia a ORDEM entre o `UPDATE` e o
+ * merge não importar.
+ *
+ * Essa janela FECHOU: o `UPDATE` rodou em produção pelo workflow
+ * `promover-master` (run #33255730835, 29/08/2026 — "role lido do banco:
+ * master, total de masters: 1"), e o próprio script pediu esta PR.
+ *
+ * Sai porque identidade em constante é autorização que não se revoga sem
+ * deploy: para tirar o poder de quem está no código é preciso um merge, e
+ * quem lê a linha não descobre quem manda hoje — descobre quem mandava quando
+ * alguém compilou. Com o gate estrito, conceder e revogar viram o que sempre
+ * deveriam ter sido: um `UPDATE` em uma linha, auditável e reversível.
+ */
+export function isAdminMaster(ctx: PerfilAcesso): boolean {
+  return ctx.role === "master";
+}
+
+/**
+ * Admin é quem tem `User.role === "admin"` OU `Pessoa.teamRole === "admin"` —
+ * **ou é Admin Master**.
+ *
+ * O master entra aqui porque é SUPERCONJUNTO, não papel paralelo: quem pode
+ * conceder acesso a todo mundo tem, por definição, o que um admin comum tem.
+ * Sem esta linha, criar o master REMOVERIA acesso de quem o recebesse — o papel
+ * novo passaria a falhar em todo `isAdmin` do sistema, e são 76 chamadas.
+ */
 export function isAdmin(ctx: PerfilAcesso): boolean {
-  return ctx.role === "admin" || ctx.pessoa?.teamRole === "admin";
+  return isAdminMaster(ctx) || ctx.role === "admin" || ctx.pessoa?.teamRole === "admin";
 }
 
 /** Liderança = admin OU pessoa com `teamRole === "lideranca"`. */

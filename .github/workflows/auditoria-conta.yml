@@ -1,0 +1,85 @@
+name: auditoria-conta
+
+# Audita UMA conta do Cockpit contra o banco de PRODUÇÃO — SOMENTE LEITURA.
+#
+# ── POR QUE UM BOTÃO ─────────────────────────────────────────────────────
+# As sessões de agente não alcançam o banco de produção (`CONNECT 403`).
+# Mesmo motivo e mesmo molde do `promover-master`: sem isto, a pergunta
+# "essa conta existe e alguém depende dela?" fica esperando um terminal.
+#
+# ── A DIFERENÇA PARA O `promover-master` ─────────────────────────────────
+# Aquele ESCREVE, e por isso tem `confirmar` e um passo separado de aplicar.
+# Este NÃO ESCREVE, e por isso não tem nem `confirmar` nem passo de aplicar:
+# não há caminho de escrita para destravar. `scripts/auditoria-conta.test.ts`
+# quebra o `npm test` se um `UPDATE`, `INSERT`, `DELETE` ou `$executeRaw`
+# aparecer no script.
+#
+# Rodar duas vezes dá o mesmo resultado, porque não muda nada.
+#
+# ── O RESUMO DO JOB É PÚBLICO ────────────────────────────────────────────
+# Este repositório é público, e o `GITHUB_STEP_SUMMARY` também. O script
+# mascara e-mail e CPF por isso, e nunca traz `password` do banco — nem para
+# descartar depois. O e-mail é INPUT, não constante, pelo mesmo motivo.
+
+on:
+  workflow_dispatch:
+    inputs:
+      email:
+        description: 'E-mail da conta a auditar. Vazio = a conta de suporte do seed.'
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  # Não há risco de corromper nada — só evita dois relatórios se atropelando.
+  group: auditoria-conta
+  cancel-in-progress: false
+
+jobs:
+  auditar:
+    name: Auditar conta (somente leitura)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # O cliente Prisma é gerado do schema da branch — mesmo motivo do
+      # `promover-master` e do `seed-empresas`.
+      - run: npx prisma generate
+
+      # As guardas de somente-leitura rodam ANTES de tocar no banco. Se
+      # alguém acrescentou escrita ao script, o job para aqui e nada é lido
+      # com um script que já não é o que o nome diz.
+      - name: Guardas de somente-leitura
+        run: npx tsx --test scripts/auditoria-conta.test.ts
+
+      - name: Auditar
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          EMAIL_ALVO: ${{ inputs.email }}
+        run: |
+          set -euo pipefail
+          if [ -n "$EMAIL_ALVO" ]; then
+            npx tsx scripts/auditoria-conta.ts --email="$EMAIL_ALVO" \
+              | tee "${RUNNER_TEMP}/auditoria.txt"
+          else
+            npx tsx scripts/auditoria-conta.ts \
+              | tee "${RUNNER_TEMP}/auditoria.txt"
+          fi
+          {
+            echo '## Auditoria de conta — nada foi escrito'
+            echo
+            echo '```'
+            cat "${RUNNER_TEMP}/auditoria.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

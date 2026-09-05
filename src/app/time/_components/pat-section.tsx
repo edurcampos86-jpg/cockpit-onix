@@ -12,12 +12,14 @@ import {
 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import {
-  uploadPatForm,
   atualizarLeituraPatForm,
   excluirPatForm,
   recalcularPatForm,
 } from "@/app/actions/pat";
 import { cn } from "@/lib/utils";
+// O upload mora num componente de cliente porque precisa mostrar a recusa do
+// servidor na tela. O resto desta seção segue de servidor.
+import { PatUploadForm } from "./pat-upload-form";
 
 /**
  * Seção de PAT da ficha — visível para admin + a própria pessoa.
@@ -80,7 +82,7 @@ export async function PatSection({
                 Subir novo PAT
               </summary>
               <div className="mt-3">
-                <UploadForm pessoaId={pessoaId} />
+                <PatUploadForm pessoaId={pessoaId} />
               </div>
             </details>
           )}
@@ -114,37 +116,8 @@ function EmptyState({
         automaticamente: estrutural, ícone com intensidade, tendências, risco,
         ambiente, competências e blocos narrativos.
       </p>
-      <UploadForm pessoaId={pessoaId} />
+      <PatUploadForm pessoaId={pessoaId} />
     </div>
-  );
-}
-
-/* ── Form de upload ──────────────────────────────────────────────────────── */
-
-function UploadForm({ pessoaId }: { pessoaId: string }) {
-  return (
-    <form action={uploadPatForm} className="flex items-end gap-3 flex-wrap">
-      <input type="hidden" name="pessoaId" value={pessoaId} />
-      <div className="flex-1 min-w-[200px]">
-        <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-          PAT Executive (PDF, máx. 10MB)
-        </label>
-        <input
-          type="file"
-          name="pdf"
-          accept="application/pdf,.pdf"
-          required
-          className="block w-full text-xs text-foreground file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:bg-violet-500 file:text-white file:text-xs file:font-medium hover:file:bg-violet-600 file:cursor-pointer"
-        />
-      </div>
-      <button
-        type="submit"
-        className="inline-flex items-center gap-2 rounded-lg bg-violet-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-violet-600 transition-colors"
-      >
-        <Upload className="h-4 w-4" />
-        Enviar e extrair
-      </button>
-    </form>
   );
 }
 

@@ -1,6 +1,59 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getAuthContext } from "@/lib/auth-helpers";
+import { guardAdminMasterApi } from "@/lib/api-admin-guard";
 import { randomUUID, createHash } from "crypto";
+
+/**
+ * ── AS TRÊS PORTAS DESTA ROTA TÊM TRÊS DONOS DIFERENTES ──────────────────
+ *
+ * Não é gradação por precaução: é a linha que o Eduardo definiu em 27/08 e
+ * confirmou em 29/08, aplicada rota a rota.
+ *
+ *   GET    → QUALQUER LOGADO. Ler não tira nada de ninguém, e fechar apagaria
+ *            capacidade real de quem precisa consultar sem poder mexer —
+ *            mesmo critério registrado para `/integracoes` no AGENTS.md.
+ *
+ *   POST   → QUALQUER LOGADO. "IMPORTAR e EDITAR → qualquer pessoa logada,
+ *            relatórios incluídos." Importar planilha é trabalho de
+ *            backoffice, e era isto que estava fora do lugar: desde a #407
+ *            esta porta exigia admin, contra a regra escrita. Um atendente
+ *            que precisasse subir o relatório do mês levava 403 sem entender.
+ *
+ *   DELETE → ADMIN MASTER, e só. "Apagar em massa → só Admin Master." Não é
+ *            um delete por id: é `deleteMany({})`, a tabela inteira, sem
+ *            argumento nenhum. Uma requisição sem corpo zera a base de receita
+ *            do grupo.
+ *
+ * ── POR QUE O DELETE SUBIU DE ADMIN PARA MASTER ──────────────────────────
+ * A #404 fechou esta porta em `isAdmin`, e na época isso foi o conserto certo:
+ * ela estava aberta a qualquer logado. Mas admin comum importa planilha e
+ * edita ficha — apagar a base inteira é outra classe de poder, e a regra do
+ * Eduardo separa as duas. `isAdminMaster` é o predicado dessa separação, e
+ * hoje ele resolve para uma pessoa só.
+ *
+ * ── O QUE NÃO EXISTE MAIS ────────────────────────────────────────────────
+ * O `PATCH` (`recomputeReceitaClientes`) foi removido pela #421, por motivo
+ * mais forte que gate: ele escrevia receita da Onix em `receitaAnual`, que é a
+ * renda DECLARADA do cliente. Ver o bloco no fim deste arquivo.
+ */
+
+/**
+ * Exige sessão e nada além dela.
+ *
+ * Existe como FUNÇÃO, e não como ausência de código, pelo mesmo motivo do
+ * `lib/backoffice/dado-interno.ts`: "qualquer logado" e "esqueceram de
+ * checar" se escrevem do mesmo jeito — com nada. Aqui a permissividade fica
+ * ESCRITA, e deixa de depender de o matcher do `src/proxy.ts` continuar
+ * cobrindo esta rota.
+ */
+async function exigirSessao(): Promise<NextResponse | null> {
+  const ctx = await getAuthContext().catch(() => null);
+  if (!ctx) {
+    return NextResponse.json({ error: "nao_autenticado" }, { status: 401 });
+  }
+  return null;
+}
 
 interface RowIn {
   data?: string | number | Date | null;
@@ -46,39 +99,6 @@ const norm = (s: string | null | undefined) =>
     .toUpperCase()
     .replace(/\s+/g, " ")
     .trim();
-
-/** Recalcula Cliente.receitaAnual com base na soma dos últimos 12 meses do ReceitaItem (match por nome). */
-async function recomputeReceitaClientes() {
-  const items = await prisma.receitaItem.findMany({ select: { data: true, faturamentoLiquido: true, nomeCliente: true } });
-  if (!items.length) return { atualizados: 0, total: 0 };
-  const maxData = items.reduce((m, r) => (r.data > m ? r.data : m), items[0].data);
-  const cutoff = new Date(maxData);
-  cutoff.setFullYear(cutoff.getFullYear() - 1);
-
-  const somaPorNome = new Map<string, number>();
-  for (const r of items) {
-    if (!r.nomeCliente || r.data < cutoff) continue;
-    const k = norm(r.nomeCliente);
-    somaPorNome.set(k, (somaPorNome.get(k) || 0) + r.faturamentoLiquido);
-  }
-
-  const clientes = await prisma.clienteBackoffice.findMany({ select: { id: true, nome: true } });
-  let atualizados = 0;
-  for (const c of clientes) {
-    const k = norm(c.nome);
-    let valor = somaPorNome.get(k) || 0;
-    if (!valor) {
-      // tenta primeiro nome
-      const first = k.split(" ")[0];
-      for (const [nk, v] of somaPorNome) {
-        if (nk.startsWith(first + " ") || nk === first) { valor = v; break; }
-      }
-    }
-    await prisma.clienteBackoffice.update({ where: { id: c.id }, data: { receitaAnual: valor } });
-    if (valor > 0) atualizados++;
-  }
-  return { atualizados, total: clientes.length };
-}
 
 /** GET /api/backoffice/receita -> sumário + últimos lotes (com filtros) */
 export async function GET(req: NextRequest) {
@@ -163,6 +183,8 @@ export async function GET(req: NextRequest) {
 
 /** POST /api/backoffice/receita -> importa lote */
 export async function POST(req: NextRequest) {
+  const negado = await exigirSessao();
+  if (negado) return negado;
   try {
     const { rows, replace } = (await req.json()) as { rows: RowIn[]; replace?: boolean };
     void replace;
@@ -212,36 +234,54 @@ export async function POST(req: NextRequest) {
     const result = await prisma.receitaItem.createMany({ data: uniq, skipDuplicates: true });
     const inseridos = result.count;
     const ignorados = data.length - inseridos;
-
-    const sync = await recomputeReceitaClientes();
     const totalAgora = await prisma.receitaItem.count();
 
     return NextResponse.json({
       success: true,
-      message: `${inseridos} novo(s) · ${ignorados} duplicado(s) ignorado(s) · base com ${totalAgora} lançamentos · receita atualizada em ${sync.atualizados}/${sync.total} clientes`,
+      message: `${inseridos} novo(s) · ${ignorados} duplicado(s) ignorado(s) · base com ${totalAgora} lançamentos ·`,
       loteId,
       inseridos,
       ignorados,
-      total: totalAgora,
-      sync,
+      total: totalAgora
     });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "erro" }, { status: 500 });
   }
 }
 
-/** PATCH /api/backoffice/receita -> apenas re-sincroniza receita anual nos clientes */
-export async function PATCH() {
-  try {
-    const sync = await recomputeReceitaClientes();
-    return NextResponse.json({ success: true, ...sync });
-  } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : "erro" }, { status: 500 });
-  }
-}
-
-/** DELETE /api/backoffice/receita -> limpa tudo */
+/**
+ * DELETE /api/backoffice/receita -> apaga TODOS os lançamentos de receita.
+ *
+ * SOMENTE ADMIN MASTER. Não é um delete por id: é `deleteMany({})`, a tabela inteira,
+ * e o handler não recebe argumento nenhum — uma requisição sem corpo zera o
+ * snapshot de receita do grupo. É também o ÚNICO caminho de apagamento total
+ * desta tabela; o POST de importação só cria (`createMany` com
+ * `skipDuplicates`), nunca limpa antes.
+ *
+ * Até a #404 a única barreira era o proxy exigir sessão (`src/proxy.ts`), e a
+ * página que expunha o botão não tinha gate de papel: qualquer uma das 22
+ * pessoas logadas abria a tela e apagava. O `confirm()` do navegador não é
+ * barreira — some com uma chamada direta.
+ *
+ * A #404 fechou em `isAdmin`, e era o conserto certo NAQUELE momento. Agora
+ * sobe para `isAdminMaster`: admin comum importa planilha e edita ficha;
+ * apagar a base inteira é outra classe de poder. É a linha do Eduardo, não uma
+ * gradação de precaução.
+ *
+ * O botão MUDOU DE ENDEREÇO: a aba `/empresas/investimentos/receita` virou
+ * leitura, e a importação (com este botão dentro) foi para
+ * `/empresas/investimentos/receita/importar`. Nenhuma das duas tem gate de
+ * papel, e continua sem precisar: quem barra é este handler, no servidor.
+ *
+ * 403 e não 404: a rota é conhecida e o próprio menu leva até ela; esconder a
+ * existência dela não protege nada, e um 404 aqui só faria o operador legítimo
+ * achar que a rota sumiu. O 404 mudo é para item fora de escopo, onde o próprio
+ * "sem permissão" confirmaria que aquele id existe — não é o caso.
+ */
 export async function DELETE() {
+  const negado = await guardAdminMasterApi("DELETE /api/backoffice/receita");
+  if (negado) return negado;
+
   try {
     const r = await prisma.receitaItem.deleteMany({});
     return NextResponse.json({ success: true, deleted: r.count });
@@ -249,3 +289,22 @@ export async function DELETE() {
     return NextResponse.json({ error: e instanceof Error ? e.message : "erro" }, { status: 500 });
   }
 }
+
+/*
+ * ── POR QUE NÃO EXISTE MAIS UM `PATCH` AQUI ──────────────────────────────
+ * Ele chamava `recomputeReceitaClientes()`: somava `faturamentoLiquido` dos
+ * últimos 12 meses por nome e ESCREVIA em `ClienteBackoffice.receitaAnual`.
+ *
+ * Esse campo é a renda anual DECLARADA do cliente, vinda do Base BTG — a
+ * `FIELD_SOURCE_POLICY` declara `base_btg` como dono único, e o `PATCH`
+ * passava por cima. As duas grandezas nem se comparam: em 28/08/2026 a renda
+ * declarada somava R$ 10,5 bilhões em 2.706 clientes; a receita da Onix nos
+ * mesmos clientes seria alguns milhões. Na primeira importação de receita que
+ * rodasse, o KPI despencaria mil vezes, sem explicação.
+ *
+ * A receita da Onix tem lugar próprio desde a #408: `ComissaoMensalCliente`,
+ * por competência mensal, com `fonte` distinguindo estimado de realizado.
+ * Quando o Financeiro existir, o `PATCH` nasce de novo — apontando para lá, e
+ * com propósito. Ressuscitá-lo apontando para `receitaAnual` seria refazer
+ * exatamente este defeito.
+ */

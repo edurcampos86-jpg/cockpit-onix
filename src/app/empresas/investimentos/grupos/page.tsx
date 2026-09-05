@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
+import { isAdmin } from "@/lib/rbac-papeis";
 import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/layout/page-header";
 import { ComoFunciona } from "@/components/backoffice/como-funciona";
@@ -12,7 +13,7 @@ import { getAuthContext } from "@/lib/auth-helpers";
 export default async function GruposPage() {
   const session = await getSession();
   if (!session) redirect("/login");
-  if (session.role !== "admin") redirect("/empresas/investimentos");
+  if (!isAdmin({ role: session.role, pessoa: null })) redirect("/empresas/investimentos");
 
   // Carrega TODOS clientes pro dropdown (lado client filtra por busca textual).
   // RBAC — Camada 1 (escopo). Flag RBAC_ENFORCEMENT (default OFF) => where vazio

@@ -51,6 +51,25 @@ export const FIELD_SOURCE_POLICY: Record<string, FonteImport[]> = {
   derivativos: ["base_btg"],
   valorEmTransito: ["base_btg"],
   criptoativos: ["base_btg"],
+  // ATENÇÃO — o nome da coluna mente, e a política é quem diz a verdade: isto é a
+  // renda anual DECLARADA do cliente (o "rendaAnual" da task do Base BTG), não a
+  // receita da Onix. Em 27/08/2026 somava R$ 10,5 bi em 2.706 clientes; como
+  // receita de corretora seria impossível.
+  //
+  // A política agora é a ÚNICA verdade sobre este campo, e passou a ser
+  // verdade de fato: os dois escritores que a ignoravam foram desligados.
+  //   `btg-enrich` gravava comissão do mês × 12 e parou — a comissão vai para
+  //       `ComissaoMensalCliente`, por competência, desde a #408.
+  //   o `PATCH` de `api/backoffice/receita` recalculava o realizado dos últimos
+  //       12 meses e foi REMOVIDO; quando o Financeiro existir, ele nasce de
+  //       novo apontando para `ComissaoMensalCliente`.
+  //
+  // Ficaram no banco até 8 clientes (R$ 1,9 mi, 0,3% do valor) com número
+  // possivelmente escrito por eles antes do desligamento — medido em 28/08/2026
+  // por `scripts/contaminacao-receita-anual.ts`. Decisão do Eduardo: NÃO zerar,
+  // porque zerar criaria 8 clientes sem renda declarada, o que é pior que a
+  // imprecisão. O próximo import do Base BTG sobrescreve e carimba, e o defeito
+  // se cura sozinho.
   receitaAnual: ["base_btg"], // task chama de "rendaAnual"
   plDeclarado: ["base_btg"],
   aportes: ["base_btg"],

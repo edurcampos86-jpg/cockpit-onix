@@ -7,6 +7,7 @@ export const revalidate = 0;
 export const fetchCache = "force-no-store";
 
 import { prisma } from "@/lib/prisma";
+import { isAdmin as ehAdmin, isAdminMaster as souMaster } from "@/lib/rbac-papeis";
 import { getSession } from "@/lib/session";
 import { unstable_noStore as noStore } from "next/cache";
 import { headers } from "next/headers";
@@ -27,6 +28,7 @@ import {
   type EstadoAtencao,
 } from "@/lib/painel-atencao/core";
 import { rbacEnforcementHabilitado, resolverCgesVisiveis } from "@/lib/rbac";
+import { TIPOS_QUE_CONTAM_TOQUE, inicioJanelaToques } from "@/lib/cadencia-core";
 import { getAuthContext } from "@/lib/auth-helpers";
 
 export default async function ClientesPage() {
@@ -34,7 +36,14 @@ export default async function ClientesPage() {
   // Toca os headers da request pra evitar qualquer cache estático
   await headers();
   const session = await getSession();
-  const isAdmin = session?.role === "admin";
+  /* O Admin Master tem `role` "master" e precisa passar aqui também. `pessoa: null`
+   * porque este caminho só tem o JWT, que não carrega `teamRole`. */
+  const isAdmin = session ? ehAdmin({ role: session.role, pessoa: null }) : false;
+  /* Exportar a base é poder de Admin Master. O JWT não carrega e-mail, então o
+   * fallback de bootstrap não alcança aqui — quem for master pelo e-mail e ainda
+   * não tiver `role` "master" no banco não verá o botão até o UPDATE rodar. É o
+   * lado seguro do erro: esconde demais, nunca exporta demais. */
+  const ehAdminMaster = session ? souMaster({ role: session.role, pessoa: null }) : false;
 
   // RBAC — Camada 1 (escopo). Flag RBAC_ENFORCEMENT (default OFF). OFF => where
   // vazio (comportamento atual). ON => filtra pela carteira do usuário, exceto
@@ -77,6 +86,8 @@ export default async function ClientesPage() {
     // Nome de quem definiu o teto manual (o banco guarda só o userId).
     cadenciaReuniaoEditadoPorNome: string | null;
     proximoContatoAt: Date | null;
+    /** Toques (ligação + reunião) nos últimos 12 meses — numerador do 12-4-2. */
+    toquesNoAno: number;
     receitaAnual: number;
     feeFixo: boolean;
     feeFixoEditadoEm: Date | null;
@@ -150,6 +161,9 @@ export default async function ClientesPage() {
         ? (nomePorUserId.get(c.cadenciaReuniaoEditadoPor) ?? null)
         : null,
       proximoContatoAt: c.proximoContatoAt,
+      // Preenchido logo abaixo pela agregação; 0 é o default honesto para quem
+      // não tiver nenhuma interação na janela.
+      toquesNoAno: 0,
       receitaAnual: c.receitaAnual,
       feeFixo: c.feeFixo,
       feeFixoEditadoEm: c.feeFixoEditadoEm,
@@ -164,6 +178,31 @@ export default async function ClientesPage() {
     }));
   } catch {
     // tabela pode não existir ainda
+  }
+
+  // Toques do último ano, por cliente — o numerador da cadência 12-4-2.
+  //
+  // UMA query agregada para a página inteira, não uma por linha: a tabela lista
+  // a carteira toda e uma consulta por cliente seriam centenas de idas ao banco
+  // para desenhar um badge. `groupBy` devolve a contagem já somada pelo Postgres.
+  //
+  // Quais tipos contam é decisão de `TIPOS_QUE_CONTAM_TOQUE`, e o WHERE usa o
+  // MESMO array — não uma lista repetida aqui. Duas cópias da régua divergiriam
+  // no dia em que um tipo entrasse ou saísse da conta, e a tabela passaria a
+  // mostrar um número que o alerta não reconhece. Foi por pouco: a lista mudou
+  // uma vez (WhatsApp entrou) enquanto esta PR estava aberta.
+  if (clientes.length > 0) {
+    const contagens = await prisma.interacaoCliente.groupBy({
+      by: ["clienteId"],
+      where: {
+        clienteId: { in: clientes.map((c) => c.id) },
+        tipo: { in: [...TIPOS_QUE_CONTAM_TOQUE] },
+        data: { gte: inicioJanelaToques() },
+      },
+      _count: { _all: true },
+    });
+    const porCliente = new Map(contagens.map((g) => [g.clienteId, g._count._all]));
+    clientes = clientes.map((c) => ({ ...c, toquesNoAno: porCliente.get(c.id) ?? 0 }));
   }
 
   // Fusão inline do sinal direcional de atenção na coluna Presença, ATRÁS DE FLAG
@@ -224,6 +263,7 @@ export default async function ClientesPage() {
         <ClientesTable
           clientes={clientes}
           isAdmin={isAdmin}
+          ehAdminMaster={ehAdminMaster}
           mostrarSaldoParado={mostrarSaldoParado}
           usuarioNome={session?.name ?? null}
         />
