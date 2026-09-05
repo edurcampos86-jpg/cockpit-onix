@@ -73,3 +73,6 @@ msp-*-relatorio.md
 
 # ZIPs gerados por scripts/exporta-skills.sh — artefato de upload, não fonte.
 dist/
+
+# Binário do actionlint baixado por scripts/actionlint.sh (ver cabeçalho do script).
+/.actionlint
