@@ -55,9 +55,22 @@ async function chat(messages: ClaudeMessage[], system?: string, maxTokens?: numb
 // ============================================
 // SYSTEM PROMPT — Projeto Instagram v5.0
 // Atualizado com dados reais de performance (Analytics semana 26/03-02/04/2026)
+//
+// TERMO: o posicionamento é PLANEJAMENTO PATRIMONIAL. "Blindagem patrimonial"
+// saiu daqui por risco regulatório — não é instituto jurídico e sugere garantia
+// que o produto não cumpre (holding não impede execução, seguro não impede
+// inventário), o que é exposição perante CVM e ANCORD. A troca é gate de CI:
+// scripts/guarda-blindagem-patrimonial.sh.
+//
+// A palavra `BLINDAGEM` do CTA ("manda BLINDAGEM no direct") CONTINUA, e é a
+// única sobra deliberada: ela não é o posicionamento, é a TAG que dispara o
+// fluxo no ManyChat — configurada fora deste repositório. Trocar o roteiro sem
+// criar o gatilho novo lá faz o lead escrever uma palavra que ninguém escuta.
+// A ordem certa é: criar `PLANEJAMENTO` no ManyChat (o código já o aceita, ver
+// manychat.ts) e só então trocar o CTA aqui.
 // ============================================
 
-const SYSTEM_PROMPT = `Você é o assistente de conteúdo do Eduardo Campos (@eduardorcampos), Mentor de Blindagem Patrimonial com 19 anos de experiência no mercado financeiro em Salvador/BA.
+const SYSTEM_PROMPT = `Você é o assistente de conteúdo do Eduardo Campos (@eduardorcampos), Mentor de Planejamento Patrimonial com 19 anos de experiência no mercado financeiro em Salvador/BA.
 
 ## IDENTIDADE E POSICIONAMENTO
 - **Missão:** Ajudar profissionais de alta renda a proteger o que construíram, crescer com segurança e dormir tranquilos.
@@ -88,13 +101,13 @@ Use estes dados para calibrar todos os roteiros gerados:
 1. P4 (Eduardo Pessoa) gera 10x mais engajamento que P3 isolado
 2. Reel P2 com CTA explícito "BLINDAGEM" converte melhor que carrossel P3
 3. P3 isolado (sem analogia pessoal ou caso real) tem baixo engajamento
-4. Combinar P4+P1 (TBT + lição de blindagem) é a fórmula de maior alcance
+4. Combinar P4+P1 (TBT + lição de planejamento patrimonial) é a fórmula de maior alcance
 5. Aniversarios/marcos pessoais geram pico de engajamento (usar para humanização)
 
 ## OS 4 PILARES EDITORIAIS (FUNÇÃO COMPROVADA por dados reais)
 | PILAR | TEMA | FUNÇÃO | PRIORIDADE v5 |
 |-------|------|--------|---------------|
-| **P1 BLINDAGEM PATRIMONIAL** | Investimentos, seguros, previdência, sucessão, tributário | Motor de AUTORIDADE TÉCNICA | Alta |
+| **P1 PLANEJAMENTO PATRIMONIAL** | Investimentos, seguros, previdência, sucessão, tributário | Motor de AUTORIDADE TÉCNICA | Alta |
 | **P2 CASOS REAIS** | Situações reais anonimizadas (reuniões Plaud.ai) | Motor de CONVERSÃO | Alta (Reel semanal) |
 | **P3 CENÁRIO E ALERTAS** | Notícias econômicas com interpretação prática | Motor de ALCANCE QUALIFICADO | Média (sempre com analogia) |
 | **P4 EDUARDO PESSOA** | Jornada pessoal, bastidores, viagens, valores | Motor de ALCANCE MASSIVO | Alta (TBT quinta + bastidores sábado) |
@@ -245,7 +258,7 @@ Retorne EXATAMENTE neste formato JSON (sem markdown, sem texto antes ou depois):
       cta: ctaRec,
       ctaType: params.category === "onix_pratica" ? "explicito" : params.category === "sabado_bastidores" ? "identificacao" : "implicito",
       estimatedTime: params.format === "carrossel" ? "5–7 slides" : "60s",
-      hashtags: "#blindagempatrimonial #patrimonio #investimentos #medico #onixcapital",
+      hashtags: "#planejamentopatrimonial #patrimonio #investimentos #medico #onixcapital",
     };
   }
 }
@@ -331,7 +344,7 @@ Para cada ideia, forneça:
 - Gancho (Framework PARE)
 - Tipo de CTA recomendado (inclua CTA de Algoritmo quando apropriado)
 
-Foque em temas que ressoem com médicos e profissionais liberais de alta renda preocupados com blindagem patrimonial.`,
+Foque em temas que ressoem com médicos e profissionais liberais de alta renda preocupados com planejamento patrimonial.`,
       },
     ],
     SYSTEM_PROMPT

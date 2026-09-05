@@ -65,7 +65,7 @@ export const SEASONAL_THEMES: SeasonalTheme[] = [
   },
   {
     month: 4,
-    theme: "IR + Blindagem: O Duplo Risco de Abril",
+    theme: "IR + Planejamento: O Duplo Risco de Abril",
     topics: [
       // Temas validados por dados de performance (semana 26/03-02/04)
       "ITCMD na Bahia: quanto vai custar para sua família receber sua herança?", // alto potencial P3
@@ -146,7 +146,7 @@ export const SEASONAL_THEMES: SeasonalTheme[] = [
       "Dia dos Pais: legado e responsabilidade",
       "Seguro de vida resgatável: por que todo pai precisa",
       "Testamento e inventário: tabus que custam caro",
-      "Blindagem patrimonial para profissionais autônomos",
+      "Planejamento patrimonial para profissionais autônomos",
       "O que acontece com seu patrimônio se você faltar amanhã?",
     ],
     weeklyArcs: [

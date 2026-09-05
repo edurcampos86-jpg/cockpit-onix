@@ -1,9 +1,9 @@
 ---
 name: instagram-carousel-onix
 description: >
-  Criação de carrosseis completos para o Instagram @eduardorcampos (Onix Capital / Blindagem Patrimonial), incluindo slides visuais em React (.jsx) com identidade visual Onix e legenda otimizada para a persona Roberto. Use sempre que Eduardo pedir para criar um carrossel, post de carrossel, slides para Instagram, montar um carrossel, criar slides sobre X, ou qualquer variação que envolva conteúdo visual multi-slide para Instagram. Também use quando ele mencionar Patrimônio sem Mimimi, Alerta Patrimonial, ou pedir conteúdo educativo visual para redes sociais. A skill cobre o fluxo completo de estrutura dos slides, design visual, textos, legenda e sugestão de música.
-version: 1.0
-updated: 2026-08-13
+  Criação de carrosseis completos para o Instagram @eduardorcampos (Onix Capital / Planejamento Patrimonial), incluindo slides visuais em React (.jsx) com identidade visual Onix e legenda otimizada para a persona Roberto. Use sempre que Eduardo pedir para criar um carrossel, post de carrossel, slides para Instagram, montar um carrossel, criar slides sobre X, ou qualquer variação que envolva conteúdo visual multi-slide para Instagram. Também use quando ele mencionar Patrimônio sem Mimimi, Alerta Patrimonial, ou pedir conteúdo educativo visual para redes sociais. A skill cobre o fluxo completo de estrutura dos slides, design visual, textos, legenda e sugestão de música.
+version: 1.1
+updated: 2026-09-05
 ---
 
 # Skill: Carrossel Instagram Onix
@@ -119,6 +119,12 @@ Seguir a regra 80/20 do Projeto Instagram v4:
 | Tipo | Descrição | Quando |
 |------|-----------|--------|
 | 🔴 EXPLÍCITO | "Manda BLINDAGEM no direct" | Máx 1 por dia, apenas Reels de conversão |
+
+> `BLINDAGEM` aqui é a **tag do ManyChat**, não o posicionamento: é a palavra
+> que o seguidor digita e que dispara o fluxo. Trocá-la no roteiro sem criar o
+> gatilho novo no ManyChat perde o lead. O posicionamento é **planejamento
+> patrimonial** — ver `src/lib/integrations/manychat.ts`, onde `PLANEJAMENTO`
+> já responde e `BLINDAGEM` segue como legado.
 | 🟡 IMPLÍCITO | Planta ideia sem pedir nada | Stories de contexto |
 | 🟢 IDENTIFICAÇÃO | Não pede nada, só faz pensar | Reflexão, bastidores |
 | 📊 ALGORITMO | "Salva esse post" / "Compartilha" | Todo conteúdo P1 e P3 (carrosseis) |
@@ -153,7 +159,7 @@ Seguir a regra 80/20 do Projeto Instagram v4:
 
 | Pilar | Tema | Formato preferido |
 |-------|------|-------------------|
-| P1 | Blindagem Patrimonial | Carrossel (Q4: Patrimônio sem Mimimi) |
+| P1 | Planejamento Patrimonial | Carrossel (Q4: Patrimônio sem Mimimi) |
 | P2 | Casos Reais | Reel (Q1: Onix na Prática) |
 | P3 | Cenário e Alertas | Carrossel ou Reel (Q2: Alerta Patrimonial) |
 | P4 | Eduardo Pessoa | Post/Stories pessoal (Q5: Sábado de Bastidores) |

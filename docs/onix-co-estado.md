@@ -835,6 +835,37 @@ arquivo não cita essa tabela nenhuma vez. Acrescentar a contagem das tabelas da
 Corretora ao relatório dele é o conserto óbvio, e é o que transformaria esta
 cadeia de raciocínio num número.
 
+### CTA do direct — `BLINDAGEM` espera o gatilho novo no ManyChat
+
+📋 A #465 tirou "blindagem patrimonial" de todo prompt e conteúdo público
+(termo proibido pelo Projeto Instagram v6.0: não é instituto jurídico, sugere
+garantia que o produto não cumpre, e isso é exposição perante CVM e ANCORD).
+**Uma ocorrência ficou de fora, de propósito:** o CTA
+`"manda BLINDAGEM no direct"` em `src/lib/integrations/claude-ai.ts:106`,
+`:112`, `:137` e `:188`.
+
+**Por que não foi trocado junto.** Ali `BLINDAGEM` não é o posicionamento — é
+a **tag do ManyChat**, a palavra que o seguidor digita e que dispara o fluxo.
+A tag é configurada FORA deste repositório. Trocar o roteiro antes de o
+gatilho novo existir lá faz o seguidor escrever uma palavra que ninguém
+escuta: lead perdido em silêncio, que é pior que lead não gerado.
+
+**O código já está pronto para os dois.** `src/lib/integrations/manychat.ts:199`
+recebeu `PLANEJAMENTO` e `PLANEJAMENTOPATRIMONIAL` de forma aditiva, com
+`BLINDAGEM` mantida como legado — a tag antiga segue gravada nos subscribers
+existentes, e removê-la só é seguro depois que essa base zerar.
+
+**O que destrava:** o Eduardo criar o gatilho `PLANEJAMENTO` no painel do
+ManyChat e confirmar que está ativo. Só então entra a PR que troca o CTA —
+🟡, pequena, escopo de quatro linhas em `claude-ai.ts`. A ordem também está
+escrita no próprio arquivo, em `claude-ai.ts:56`.
+
+**Fora do alcance da guarda.** `scripts/guarda-blindagem-patrimonial.sh` mira
+a expressão "blindagem patrimonial", não a palavra solta, justamente para não
+reprovar essa tag nem o `// Blindagem adicional` de
+`src/app/api/backoffice/clientes/[id]/reunioes/manual/route.ts:68`. Ou seja:
+o CI **não** vai lembrar desta pendência — este registro é a lembrança.
+
 ### Conferências humanas pendentes
 
 - 📋 ~331 pares CPF↔CNPJ por sinal fraco — fila de revisão, sem união automática.

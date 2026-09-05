@@ -97,7 +97,7 @@ interface AnalyticsData {
 }
 
 const PILAR_LABELS: Record<string, string> = {
-  P1: "P1: Blindagem Patrimonial",
+  P1: "P1: Planejamento Patrimonial",
   P2: "P2: Casos Reais",
   P3: "P3: Cenário e Alertas",
   P4: "P4: Eduardo Pessoa",
@@ -720,7 +720,7 @@ export default function AnalyticsPage() {
                     <strong className="text-foreground">Dado de referência (2026):</strong> Carrosséis geram{" "}
                     <strong className="text-amber-400">3,1x mais engajamento</strong> e{" "}
                     <strong className="text-amber-400">1,4x mais salvamentos</strong> que Reels para conteúdo técnico
-                    no nicho financeiro. Para o pilar P1 (Blindagem) e P3 (Alertas), priorize carrosséis.
+                    no nicho financeiro. Para o pilar P1 (Planejamento) e P3 (Alertas), priorize carrosséis.
                     Use Reels apenas para P2 (Casos Reais) e P4 (Storytelling).
                     <br />
                     <span className="text-[10px] mt-1 block opacity-70">
