@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { generateEditorialPlan } from "@/lib/integrations/claude-ai";
 import { getThemesForPeriod } from "@/lib/seasonal-themes";
 import { getSession } from "@/lib/session";
+import { montarEsteira } from "@/lib/grade/esteira";
 
 export async function POST(request: NextRequest) {
   try {
@@ -97,26 +98,18 @@ export async function POST(request: NextRequest) {
         });
 
         // Criar tarefas do pipeline
-        const taskDefs = [
-          { title: `Escrever roteiro: ${post.title}`, type: "roteiro", dayOffset: -3 },
-          { title: `Gravar: ${post.title}`, type: "gravacao", dayOffset: -2 },
-          { title: `Editar: ${post.title}`, type: "edicao", dayOffset: -1 },
-          { title: `Publicar: ${post.title}`, type: "publicacao", dayOffset: 0 },
-        ];
-
-        const tasks = taskDefs.map((def) => {
-          const dueDate = new Date(scheduledDate);
-          dueDate.setDate(scheduledDate.getDate() + def.dayOffset);
-          return {
-            title: def.title,
-            type: def.type,
-            status: "pendente",
-            priority: "media",
-            dueDate,
-            assigneeId: session.userId,
-            postId: post.id,
-          };
-        });
+        const tasks = montarEsteira({
+          tituloDoPost: post.title,
+          publicacaoEm: scheduledDate,
+        }).map((passo) => ({
+          title: passo.title,
+          type: passo.type,
+          status: "pendente",
+          priority: "media",
+          dueDate: passo.dueDate,
+          assigneeId: session.userId,
+          postId: post.id,
+        }));
 
         await prisma.task.createMany({ data: tasks });
         postsCreated++;
