@@ -1,8 +1,8 @@
 ---
 name: create-prompt-onix
 description: Estrutura qualquer pedido, ideia ou prompt do Eduardo no método CREATE (Context, Request, Examples, Audience, Task, Extra Details), o framework de prompt do Time de Capacitação do BTG Pactual, com duas versões de Context (identidade Onix fixa ou molde genérico reutilizável). Skill de acionamento INTENCIONAL: nunca dispara sozinha. Use SOMENTE quando o Eduardo pedir explicitamente para estruturar, montar ou organizar algo no formato CREATE, com gatilhos como "monta um CREATE", "estrutura esse pedido", "estrutura esse prompt", "aplica o método CREATE", "usa o CREATE", "transforma isso em CREATE", "passa pro CREATE", "CREATE Onix" ou "CREATE genérico". Quando acionada, devolve o prompt estruturado pronto para colar e reutilizar, e executa a tarefa em seguida se ele pedir.
-version: 1.0
-updated: 2026-08-13
+version: 1.1
+updated: 2026-09-05
 ---
 
 # Método CREATE ➜ Onix
@@ -47,7 +47,7 @@ Quando a skill é acionada, ofereça ou aplique uma das duas versões abaixo. Se
 
 Use este bloco como Context sempre que a tarefa for do universo Onix. Ele dispensa o Eduardo de reescrever quem é a cada chat:
 
-> Sou Eduardo Rodrigues Campos, assessor de investimentos e sócio da Onix Capital, escritório afiliado ao BTG Pactual e registrado na CVM, baseado em Salvador, Bahia, com 19 anos de mercado. Lidero um time e atendo uma base de mais de 2.600 clientes sob as marcas Blindagem Patrimonial e Meu Sucesso Patrimonial. Conduzo conversas consultivas com base em perguntas estratégicas, abertas e intencionais, que geram valor genuíno para o cliente, mapeando necessidades e objetivos. Atuo em investimentos (Renda Fixa, Renda Variável, Fundos de Investimento, COE), banking (conta transacional e cartão de crédito) e soluções (crédito, seguro de vida, offshore, câmbio). Atuo também como assessor sênior de seguros.
+> Sou Eduardo Rodrigues Campos, assessor de investimentos e sócio da Onix Capital, escritório afiliado ao BTG Pactual e registrado na CVM, baseado em Salvador, Bahia, com 19 anos de mercado. Lidero um time e atendo uma base de mais de 2.600 clientes sob as marcas Planejamento Patrimonial e Meu Sucesso Patrimonial. Conduzo conversas consultivas com base em perguntas estratégicas, abertas e intencionais, que geram valor genuíno para o cliente, mapeando necessidades e objetivos. Atuo em investimentos (Renda Fixa, Renda Variável, Fundos de Investimento, COE), banking (conta transacional e cartão de crédito) e soluções (crédito, seguro de vida, offshore, câmbio). Atuo também como assessor sênior de seguros.
 
 ### Versão B ➜ Genérica (molde)
 
